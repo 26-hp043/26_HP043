@@ -8,7 +8,22 @@ import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
 // 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
 import { UnderwayChip } from '../fleet/UnderwayChip'
-import { toUnderwayState } from '../fleet/fleetRules'
+import { toUnderwayState, unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
+// 등급은 대시보드와 **같은 경로·같은 파싱**에서 받는다 (#2018) — `gradeLookup.ts`.
+import { createApiFleetProvider } from '../fleet/apiProvider'
+import { GradeBadge } from '../../components/GradeBadge'
+import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import {
+  GRADE_ABSENT_HINT,
+  GRADE_FAILED_HINT,
+  GRADE_FAILED_TEXT,
+  GRADE_LOADING_TEXT,
+  gradeCellOf,
+  gradeRank,
+  loadGradeTable,
+  type GradeCell,
+  type GradeTable,
+} from './gradeLookup'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
@@ -144,7 +159,36 @@ export function VesselManagement() {
    * 행이 정렬 때문에 사라지거나 다른 배의 폼으로 바뀐다.
    */
   const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
-  const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
+
+  /*
+   * 올해 누적 등급 조회표 (#2018). 목록과 **따로** 받는다 — 요약이 실패해도 목록은
+   * 떠야 하고(제원을 고치는 것이 이 화면의 일이다), 목록 조건(검색·선종·더 보기)이
+   * 바뀌어도 선대 전체 요약은 다시 받을 까닭이 없다.
+   */
+  const fleetProvider = useMemo(() => createApiFleetProvider(), [])
+  const [gradeTable, setGradeTable] = useState<GradeTable>({ status: 'loading' })
+  const gradeGeneration = useRef(0)
+  const loadGrades = useCallback(async () => {
+    gradeGeneration.current += 1
+    const ticket = gradeGeneration.current
+    setGradeTable({ status: 'loading' })
+    try {
+      const table = await loadGradeTable(fleetProvider)
+      if (ticket === gradeGeneration.current) setGradeTable({ status: 'ready', ...table })
+    } catch {
+      // 사유 문구는 싣지 않는다 — 목록 위 오류가 아니라 칸의 상태다(`GRADE_FAILED_HINT`).
+      if (ticket === gradeGeneration.current) setGradeTable({ status: 'failed' })
+    }
+  }, [fleetProvider])
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 화면을 열 때 한 번 받는 조회 — `loadGrades`가 시작 시점의 로딩 상태를 세운다
+    void loadGrades()
+  }, [loadGrades])
+
+  const sorted = useMemo(
+    () => sortVessels(vessels, sortKey, (v) => gradeRank(gradeCellOf(gradeTable, v.id))),
+    [vessels, sortKey, gradeTable],
+  )
   /*
    * 「입력 미완료만」 필터 (#1424 · 문구 #2037). 종전에는 그 선박만 보려면 **정렬밖에**
    * 없었다 — 「입력 미완료 먼저」는 위로 올릴 뿐이라, 20척을 불러온 화면에서 어디까지인지
@@ -299,6 +343,8 @@ export function VesselManagement() {
       const updated = await provider.update(target.id, patch)
       setVessels((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
       setActionNotice(`${updated.name}의 정보를 저장했습니다.`)
+      // 제원이 바뀌면 등급이 바뀔 수 있다 — 「제원 미입력」이 풀리는 것이 이 화면의 일이다.
+      void loadGrades()
       // 이 선박의 폼일 때만 닫는다. 그 사이 열린 다른 선박의 폼은 그대로 둔다.
       setEdit((current) => (current !== null && current.id === target.id ? null : current))
     } catch (error) {
@@ -577,7 +623,7 @@ export function VesselManagement() {
           {/*
             ── 넘침은 **카드 안에서** 받는다 (#1788) ────────────────────
 
-            목록이 `890px`(열 최소폭 합 `806` + 거터 `84`) 밑으로 줄지 않는데, 받아 주는
+            목록이 최소 폭(`VesselManagement.css` `.vm__list` · `#2018`에서 등급 열만큼 늘렸다) 밑으로 줄지 않는데, 받아 주는
             자리가 없어 그 넘침이 `vessel-management` → `app-shell__content`까지 그대로
             전해졌다 — **1100 · 720에서 페이지가 통째로 가로로 밀렸고** 사이드바와 페이지
             제목이 함께 빠져나갔다. 되돌아올 기준점이 사라지는 것이 핵심이다.
@@ -597,6 +643,7 @@ export function VesselManagement() {
             <li className="vm__head" aria-hidden="true">
               <span />
               <span>선박</span>
+              <span>올해 누적 등급</span>
               <span>선종</span>
               <span>용량</span>
               <span>기준속도</span>
@@ -632,6 +679,8 @@ export function VesselManagement() {
                         />
                       </span>
                     </div>
+
+                    <GradeCellView cell={gradeCellOf(gradeTable, vessel.id)} />
 
                     <div className="vm__cell">
                       <span className="sr-only">선종 </span>
@@ -728,6 +777,12 @@ export function VesselManagement() {
         </section>
       )}
 
+      {/*
+        올해 누적 등급은 공식 등급이 아니다 (`PRD §3.3.7` 각주) — 대시보드와 같은 배너로
+        알린다(`DESIGN_SYSTEM §13`). 위치·모양은 디자인 담당 확인 대기(#2018 ⑷).
+      */}
+      {vessels.length > 0 && <DisclaimerBanner estimate />}
+
       {hasMore && nextCursor !== null && (
         <button
           type="button"
@@ -739,6 +794,48 @@ export function VesselManagement() {
         </button>
       )}
     </section>
+  )
+}
+
+/**
+ * 올해 누적 등급 칸 (#2018).
+ *
+ * 네 상태를 **서로 다른 말**로 그린다(`gradeLookup.ts`). 값이 없는 칸의 짧은 문구와
+ * 할 일은 대시보드의 것을 그대로 쓴다(`unavailableText` · `unavailableHint`) — 베끼면
+ * 두 화면의 표기가 갈린다. 모양은 디자인 담당 확인 대기(#2018 ⑴~⑶).
+ */
+function GradeCellView({ cell }: { cell: GradeCell }) {
+  if (cell.kind === 'rated') {
+    return (
+      <div className="vm__cell vm__grade" data-grade-state="rated">
+        <span className="sr-only">올해 누적 등급 </span>
+        <GradeBadge rating={cell.rating} size="xs" label={`올해 누적 등급 ${cell.rating}`} />
+        <span className="vm__grade-cii">
+          <span className="sr-only"> 올해 누적 CII </span>
+          {ytdCiiText(cell.attainedCii)}
+        </span>
+      </div>
+    )
+  }
+  const { text, hint } =
+    cell.kind === 'loading'
+      ? { text: GRADE_LOADING_TEXT, hint: undefined }
+      : cell.kind === 'failed'
+        ? { text: GRADE_FAILED_TEXT, hint: GRADE_FAILED_HINT }
+        : cell.kind === 'absent'
+          ? { text: MISSING, hint: GRADE_ABSENT_HINT }
+          : { text: unavailableText(cell.reason), hint: unavailableHint(cell.reason) }
+  return (
+    <div
+      className="vm__cell vm__cell--empty vm__grade"
+      data-grade-state={cell.kind}
+      title={hint}
+      aria-busy={cell.kind === 'loading' ? true : undefined}
+    >
+      <span className="sr-only">올해 누적 등급 </span>
+      {text}
+      {hint === undefined ? null : <span className="sr-only"> — {hint}</span>}
+    </div>
   )
 }
 

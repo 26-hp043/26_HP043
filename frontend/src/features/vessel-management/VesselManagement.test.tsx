@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router'
 import { VesselManagement } from './VesselManagement'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
+import { unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
 
 /**
  * 최초 조회 중 본문이 비지 않는다 (#824 ⑷).
@@ -779,5 +780,188 @@ describe('조회 조건은 쿼리로 간다 (#1783)', () => {
     // 카드가 사라져도 검색칸·선종·걸린 조건은 남아 있다.
     expect(screen.getByTestId('vessel-search')).toBeTruthy()
     expect(screen.getByRole('button', { name: /선종 벌크선/ })).toBeTruthy()
+  })
+})
+
+/**
+ * 올해 누적 등급 열 (#2018).
+ *
+ * 등급은 `/vessels`가 아니라 대시보드와 같은 `/fleet/summary`에서 받아 **선박 번호로
+ * 찾아 붙인다**(`gradeLookup.ts`). 화면에서 지키는 것:
+ *
+ * - 요약이 실패해도 **목록은 뜬다** — 이 화면의 일은 제원을 고치는 것이다
+ * - 「받지 못함」과 서버 사유(「실적 없음」 등)를 **다른 말**로 그린다
+ * - 검색·선종은 요약과 무관하게 `/vessels`가 거른다 — 조건이 바뀌어도 요약을 다시 받지 않는다
+ *
+ * 문구는 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 대시보드 문구 함수와 **같은 값인지**,
+ * 서로 **다른지**를 본다.
+ */
+describe('올해 누적 등급 열 (#2018)', () => {
+  const RATED_ID = '00000000-0000-4000-8000-00000000000a'
+  const SPEC_ID = '00000000-0000-4000-8000-00000000000b'
+  const NEW_ID = '00000000-0000-4000-8000-00000000000c'
+
+  function listVessel(id: string, name: string) {
+    return {
+      id,
+      imo_number: `9${id.slice(-6)}`,
+      name,
+      ship_type: 'BULK_CARRIER',
+      deadweight: 50000,
+      gross_tonnage: 30000,
+      is_cii_applicable_hint: true,
+      reference_speed_kn: 12,
+      reference_daily_foc_ton: 20,
+      default_fuel_type: 'HFO',
+      underway_state: 'NOT_UNDER_WAY',
+      detail_status: null,
+    }
+  }
+
+  function summaryVessel(id: string, name: string, rating: string | null, reason: string | null) {
+    return {
+      vessel_id: id,
+      name,
+      ship_type: 'BULK_CARRIER',
+      imo_number: '9000001',
+      underway_state: null,
+      detail_status: null,
+      current_lat: null,
+      current_lon: null,
+      position_updated_at: null,
+      data_available: rating !== null,
+      unavailable_reason: reason,
+      ytd_attained_cii: rating === null ? null : '5.123456',
+      ytd_required_cii: rating === null ? null : '5.000000',
+      ytd_rating: rating,
+      risk_level: null,
+      risk_reasons: [],
+      days_to_d: null,
+      days_to_d_reason: null,
+    }
+  }
+
+  function stubServer({ summaryStatus = 200 }: { summaryStatus?: number } = {}) {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+          })
+        }
+        if (url.includes('/fleet/summary')) {
+          if (summaryStatus !== 200) {
+            return jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, summaryStatus)
+          }
+          return jsonResponse({
+            data: {
+              as_of: '2026-09-28T00:00:00Z',
+              regulation_year: 2026,
+              summary: { total: 2 },
+              vessels: [
+                summaryVessel(RATED_ID, '가등급호', 'E', null),
+                summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+              ],
+            },
+            meta: { has_more: false, next_cursor: null },
+          })
+        }
+        return jsonResponse({
+          data: [
+            listVessel(NEW_ID, '다신규호'),
+            listVessel(SPEC_ID, '나제원호'),
+            listVessel(RATED_ID, '가등급호'),
+          ],
+          meta: {},
+        })
+      }),
+    )
+    return urls
+  }
+
+  async function renderScreen() {
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가등급호')
+  }
+
+  const gradeCell = (name: string) =>
+    (screen.getByText(name).closest('.vm__item') as HTMLElement).querySelector(
+      '.vm__grade',
+    ) as HTMLElement
+
+  it('값이 있는 배는 등급 배지와 누적 CII, 값이 없는 배는 대시보드와 같은 사유를 보인다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    expect(within(gradeCell('가등급호')).getByRole('img', { name: /E/ })).toBeTruthy()
+    expect(gradeCell('가등급호').textContent).toContain(ytdCiiText('5.123456'))
+
+    const spec = gradeCell('나제원호')
+    expect(spec.dataset.gradeState).toBe('unavailable')
+    // 대시보드 문구 함수와 같은 값이다 — 베끼면 두 화면이 갈린다.
+    expect(spec.textContent).toContain(unavailableText('MISSING_SPEC'))
+    expect(spec.getAttribute('title')).toBe(unavailableHint('MISSING_SPEC'))
+
+    // 요약에 없는 배(요약 뒤 등록 등)는 받지 못함도 계산 못 함도 아니다.
+    expect(gradeCell('다신규호').dataset.gradeState).toBe('absent')
+  })
+
+  it('요약이 실패해도 목록은 뜨고, 등급 칸은 서버 사유와 다른 말을 한다', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+
+    // 목록은 그대로 — 세 척 모두 있고 수정 버튼도 있다.
+    expect(screen.getByText('나제원호')).toBeTruthy()
+    expect(screen.getByText('다신규호')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: '수정' })).toHaveLength(3)
+
+    const failed = gradeCell('가등급호').textContent ?? ''
+    for (const reason of ['NO_DATA', 'MISSING_SPEC', 'NO_PARAMETERS', 'CALCULATION_ERROR'] as const) {
+      expect(failed).not.toContain(unavailableText(reason))
+    }
+  })
+
+  it('선종 조건은 `/vessels`가 거르고, 요약은 다시 받지 않는다', async () => {
+    const urls = stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes('/vessels?') && u.includes('ship_type=BULK_CARRIER'))).toBe(
+        true,
+      ),
+    )
+    expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(1)
+    // 요약에는 목록 조건을 보내지 않는다 — 그 경로에는 검색·선종 필터가 없다(`API_SPEC §2.8`).
+    expect(urls.find((u) => u.includes('/fleet/summary'))).not.toContain('ship_type')
+  })
+
+  it('등급 나쁜 순 — E가 위, 등급이 없는 배는 아래', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names[0]).toBe('가등급호')
+  })
+
+  it('공식 등급이 아님을 알리는 면책 배너가 있다 (PRD §3.3.7 각주 · §6.3)', async () => {
+    stubServer()
+    await renderScreen()
+    expect(screen.getByRole('note')).toBeTruthy()
   })
 })

@@ -29,15 +29,20 @@ const CSS = readFileSync(join(HERE, 'VesselManagement.css'), 'utf-8').replace(
   '',
 )
 
-/** `#1788` 실측 — 1440 · 라이트 · 시연 데이터에서 칸을 좁혀 잰 행의 `scrollWidth`. */
-const MEASURED_MIN = 890
+/**
+ * `#1788` 실측 — 1440 · 라이트 · 시연 데이터에서 칸을 좁혀 잰 행의 `scrollWidth`(`890`).
+ *
+ * `#2018`이 올해 누적 등급 열(`108`)을 더해 `1010`이 됐다. ⚠️ 이 값은 **열 최소폭 합으로
+ * 계산한 것이고 브라우저에서 다시 재지 않았다** — 열 모양이 디자인 담당 확인 대기다.
+ */
+const MEASURED_MIN = 1010
 
 describe('선박 목록의 넘침은 카드 안에서 받는다 (#1788)', () => {
   it('목록을 감싼 자리가 가로로 스크롤한다 — 페이지가 밀리지 않는다', () => {
     expect(/\.vm__list-wrap\s*\{[^}]*overflow-x:\s*auto/.test(CSS)).toBe(true)
   })
 
-  it('최소 폭을 실측값(890) 아래로 되돌리지 않는다', () => {
+  it('최소 폭을 실측값 아래로 되돌리지 않는다', () => {
     const match = /\.vm__list\s*\{[^}]*min-inline-size:\s*([0-9]+)px/.exec(CSS)
     expect(match, 'VesselManagement.css에서 목록 최소 폭을 찾지 못했다').not.toBeNull()
     expect(Number(match![1])).toBeGreaterThanOrEqual(MEASURED_MIN)
@@ -51,7 +56,7 @@ describe('선박 목록의 넘침은 카드 안에서 받는다 (#1788)', () => 
      * 줄어들 수 있는 하한이다.
      */
     const mins = [...cols![1].matchAll(/(?:minmax\(\s*)?(\d+)px/g)].map((m) => Number(m[1]))
-    expect(mins).toHaveLength(8)
+    expect(mins).toHaveLength(9)
     const gap = 12
     expect(mins.reduce((a, b) => a + b, 0) + (mins.length - 1) * gap).toBe(MEASURED_MIN)
   })

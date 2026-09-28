@@ -300,6 +300,22 @@ describe('sortVessels — 원본을 바꾸지 않고 순서만 만든다', () =>
     expect(order).toEqual(['s', 'z'])
   })
 
+  it('등급순은 나쁜 등급이 위이고, 등급이 없는 배는 끝으로 간다 (#2018)', () => {
+    const e = vessel({ id: 'e', name: '가호' })
+    const a = vessel({ id: 'a', name: '나호' })
+    const none = vessel({ id: 'n', name: '다호' })
+    const rank: Record<string, number | null> = { e: 0, a: 4, n: null }
+    const order = sortVessels([none, a, e], 'grade', (v) => rank[v.id]).map((v) => v.id)
+    expect(order).toEqual(['e', 'a', 'n'])
+  })
+
+  it('등급을 넘기지 않으면 등급순은 이름순과 같다 — 모르는 등급으로 순서를 지어내지 않는다', () => {
+    const input = [twoGaps, full, oneGap]
+    expect(sortVessels(input, 'grade').map((v) => v.id)).toEqual(
+      sortVessels(input, 'name').map((v) => v.id),
+    )
+  })
+
   it('모든 키가 결정적이다 — 같은 입력이면 같은 순서다', () => {
     for (const key of SORT_KEYS) {
       const once = sortVessels([twoGaps, full, oneGap], key).map((v) => v.id)
