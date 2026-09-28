@@ -8,7 +8,7 @@ import { AnnualSimulation } from './AnnualSimulation'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
-import type { FeedbackBlock, ReductionPlanBlock } from './types'
+import type { FeedbackBlock, NextYearOutlook, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
@@ -1696,5 +1696,86 @@ describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후�
 
     expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
     expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+  })
+})
+
+describe('다음 해 기준 한 줄 (#2017)', () => {
+  function withOutlook(outlook: NextYearOutlook | null | undefined) {
+    const payload = body('sim-1') as Record<string, any>
+    if (outlook !== undefined) payload.data.next_year_outlook = outlook
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+        return jsonResponse({ data: {} })
+      }),
+    )
+  }
+
+  const OUTLOOK = {
+    regulation_year: 2027,
+    required_cii: '4.887641',
+    projected_rating: 'D',
+  } satisfies NextYearOutlook
+
+  it('서버가 판정한 다음 해 등급과 그 해를 그대로 보인다 — 화면이 경계를 다시 판정하지 않는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-next-year')
+    expect(line.textContent).toContain('2027')
+    // 올해 등급(C)과 다른 서버 값(D)이 그대로 나온다 — 화면이 올해 등급을 옮겨 적지 않는다.
+    expect(within(line).getByText(/D$/)).toBeTruthy()
+  })
+
+  it('가정을 함께 밝힌다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    // 정본 문구 (PRD §6.3) — 바꾸려면 PRD 개정이 먼저다.
+    expect(
+      within(screen.getByTestId('annual-sim-next-year')).getByText(
+        '올해 연말 예상 CII가 다음 해에도 그대로라고 보고 다음 해 기준에 대 본 참고 등급입니다.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('지난 해 추세는 선박 상세로 보낸다 — 선택된 선박의 경로다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const link = within(screen.getByTestId('annual-sim-next-year')).getByRole('link')
+    expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL_ID}`)
+  })
+
+  it('`null`(다음 해 기준 없음)은 등급을 그리지 않고 계산하지 않았다고 말한다', async () => {
+    stubWith(withOutlook(null))
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-next-year')
+    // 등급·가정 문구가 없다 — 「다음 해는 괜찮다」로 읽히면 안 된다.
+    expect(line.textContent).not.toContain(ANNUAL_COPY.nextYearAssumption)
+    expect(line.textContent).not.toContain(ANNUAL_COPY.projectedRatingLabel)
+    expect(line.textContent).toContain(ANNUAL_COPY.nextYearUnavailable)
+  })
+
+  it('키가 없는 옛 실행에는 줄 자체가 없다 — `null`과 같게 그리지 않는다', async () => {
+    stubWith(withOutlook(undefined))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByTestId('annual-sim-next-year')).toBeNull()
   })
 })

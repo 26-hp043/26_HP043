@@ -174,6 +174,20 @@ export interface SnapshotBlock {
 }
 
 /** `POST /annual-simulations` 응답의 `data`. */
+/**
+ * 다음 해 기준 등급 — `API_SPEC §6.1` `next_year_outlook` (#2017).
+ *
+ * 올해 결정론 연말 예상 CII를 **다음 규정연도의 required CII · 경계**에 대 본 등급이다.
+ * 경계는 서버가 판정했다 — 화면이 `required_cii`로 다시 판정하지 않는다(`#2002`).
+ */
+export interface NextYearOutlook {
+  /** **숫자** — 다음 규정연도 */
+  regulation_year: number
+  /** Layer 1 — 다음 해 required CII */
+  required_cii: string
+  projected_rating: Rating
+}
+
 export interface AnnualSimulationResult {
   simulation_id: string
   calculation_run_id: string
@@ -191,6 +205,12 @@ export interface AnnualSimulationResult {
    * 이유다. 화면이 부재를 다룬다(카드를 그리지 않는다).
    */
   feedback?: FeedbackBlock
+  /**
+   * 다음 해 기준 등급 (#2017). **세 상태다** — 객체(계산했다) · `null`(다음 해 규정연도가
+   * 표에 없어 계산할 수 없다 · 2030년 다음) · **키 없음**(`#2017` 이전 실행). 앞의 둘을
+   * 같게 그리면 「다음 해는 괜찮다」로 읽힐 수 있다.
+   */
+  next_year_outlook?: NextYearOutlook | null
   monte_carlo: MonteCarloBlock
   /** `PRD §9.4.2` — **목표 달성 확률 기반**이다. 화면이 다시 판정하지 않는다 */
   risk_level: RiskLevel

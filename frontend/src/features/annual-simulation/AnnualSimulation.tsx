@@ -13,6 +13,7 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
+import { vesselPath } from '../../layout/globalContext'
 
 /**
  * 잔여 계획 항차가 0건임을 알리는 경고 코드 (`calc/annual_simulation.py`).
@@ -743,6 +744,7 @@ export function AnnualSimulation({
               restored={state.restored}
               provider={provider}
               mapGeometryProvider={mapGeometryProvider}
+              vesselId={shell.vesselId}
             />
           ) : null}
         </div>
@@ -772,14 +774,55 @@ type ReproduceState =
   | { status: 'success'; warnings: readonly string[] }
   | { status: 'error'; message: string }
 
+/**
+ * 다음 해 기준 한 줄 (#2017 · 사용자 결정 「가」) — 올해 결과를 다음 해 기준에 대 본 등급.
+ *
+ * **세 상태를 가른다**(`NextYearOutlook` 타입 주석). 키가 없는 옛 실행은 그리지 않는다 —
+ * 「계산하지 않았다」를 「다음 해는 괜찮다」로 읽히게 두지 않으려고 `null`은 사유를 말한다.
+ * 모양(배지 · 위치)은 디자인 담당 확인 전이라 기존 조건 줄의 틀을 그대로 쓴다.
+ */
+function NextYearLine({
+  outlook,
+  vesselId,
+}: {
+  outlook: AnnualSimulationResult['next_year_outlook']
+  vesselId: string | null
+}) {
+  if (outlook === undefined) return null
+  return (
+    <div className="annual-sim__next-year" data-testid="annual-sim-next-year">
+      {outlook === null ? (
+        <p className="annual-sim__notice">{ANNUAL_COPY.nextYearUnavailable}</p>
+      ) : (
+        <>
+          <p className="annual-sim__conditions">
+            <span className="annual-sim__conditions-label">
+              {`${outlook.regulation_year}${ANNUAL_COPY.nextYearLabelSuffix}`}
+            </span>{' '}
+            <strong>{`${ANNUAL_COPY.projectedRatingLabel} ${outlook.projected_rating}`}</strong>
+          </p>
+          <p className="annual-sim__notice">{ANNUAL_COPY.nextYearAssumption}</p>
+        </>
+      )}
+      {vesselId ? (
+        <Link className="annual-sim__fleet-link" to={vesselPath(vesselId)}>
+          {ANNUAL_COPY.historyLink}
+        </Link>
+      ) : null}
+    </div>
+  )
+}
+
 function Result({
   result,
   conditions,
   restored,
   provider,
   mapGeometryProvider,
+  vesselId = null,
 }: {
   result: AnnualSimulationResult
+  vesselId?: string | null
   conditions: RunConditions
   restored?: { createdAt: string; needsRecalc: boolean }
   provider: AnnualSimulationProvider
@@ -867,6 +910,7 @@ function Result({
             {ANNUAL_COPY.lastRunNeedsRecalc}
           </p>
         ) : null}
+        <NextYearLine outlook={result.next_year_outlook} vesselId={vesselId} />
         {result.is_sample_data ? (
           <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
         ) : (
