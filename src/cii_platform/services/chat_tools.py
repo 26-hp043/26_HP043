@@ -729,16 +729,28 @@ def _grade_ranges(row: dict[str, object]) -> dict[str, str]:
     **새 값이 아니다.** 같은 행의 d1~d4(저장된 자릿수 그대로의 문자열)를 조립할 뿐이라 수치
     검증(`llm_guard`)이 대조하는 숫자도 같다. 하나라도 비면 문장을 만들지 않는다 — 빈칸을
     채워 넣으면 없는 경계를 말하게 된다.
+
+    ## 백분율 표기를 함께 싣는다 (`#1973` 폐기 후속)
+
+    「1.0600배」를 사람은 흔히 「106%」로 말한다. 도구가 배수만 주면 그 표기가 수치 검증에
+    막혀 **맞는 답이 폐기된다** — :func:`_with_screen_percent`가 계산 결과에서 이미 겪은
+    문제라 같은 해법(값 하나에 화면 자릿수의 백분율을 덧붙인다)을 쓴다. 가드를 넓히지 않고
+    **출처 쪽**을 바꾼다.
     """
     d1, d2, d3, d4 = (row.get(key) for key in ("d1", "d2", "d3", "d4"))
     if None in (d1, d2, d3, d4):
         return {}
+
+    def ratio(value: object) -> str:
+        percent = (Decimal(str(value)) * 100).quantize(_PERCENT_QUANTUM, rounding=ROUND_HALF_UP)
+        return f"{value}배({percent}%)"
+
     return {
-        "A": f"{d1}배 이하",
-        "B": f"{d1}배 초과 ~ {d2}배 이하",
-        "C": f"{d2}배 초과 ~ {d3}배 이하",
-        "D": f"{d3}배 초과 ~ {d4}배 이하",
-        "E": f"{d4}배 초과",
+        "A": f"{ratio(d1)} 이하",
+        "B": f"{ratio(d1)} 초과 ~ {ratio(d2)} 이하",
+        "C": f"{ratio(d2)} 초과 ~ {ratio(d3)} 이하",
+        "D": f"{ratio(d3)} 초과 ~ {ratio(d4)} 이하",
+        "E": f"{ratio(d4)} 초과",
     }
 
 
@@ -792,6 +804,11 @@ async def _lookup_regulation(
         ],
         # 표에 없는 연도면 **None**으로 둔다 — 가까운 연도의 값을 대신 주면 다른 해의 감축률을
         # 그 해의 것으로 말하게 된다.
+        #
+        # `#1973` 폐기 후속 — 모델은 물은 해 말고도 「2023년 5%」처럼 **다른 해의 감축률**을
+        # 곧잘 덧붙이는데, 도구가 한 해만 주면 그 수가 수치 검증에 막혀 답 전체가 폐기된다.
+        # 규제연도 표 전체를 **연도와 짝지어** 행 안에 싣는다(`grade_ranges`와 같은 자리 —
+        # 화이트리스트는 최상위 키를 보고 `reduction_factor`는 이미 허용돼 있다).
         "reduction_factor": (
             None
             if reduction is None
@@ -799,6 +816,14 @@ async def _lookup_regulation(
                 "year": reduction.get("year"),
                 "z_factor_percent": reduction.get("z_factor_percent"),
                 "source_ref": reduction.get("source_ref"),
+                "by_year": [
+                    {
+                        "year": row.get("year"),
+                        "z_factor_percent": row.get("z_factor_percent"),
+                        "source_ref": row.get("source_ref"),
+                    }
+                    for row in years
+                ],
             }
         ),
     }

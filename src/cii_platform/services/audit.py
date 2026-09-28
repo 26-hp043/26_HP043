@@ -51,6 +51,9 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "VOYAGE_ACTUALS_FILL",
         "CHAT_MESSAGE",
         "CHAT_TOOL_CALL",
+        # `#1973` — 챗봇이 답을 **폐기한** 턴. 종전에는 앱 로그에만 남아 컨테이너를 바꾸면
+        # 사라졌다 — 운영 폐기의 막힌 수치를 되찾지 못했다.
+        "CHAT_DISCARD",
         "PARAMETER_IMPORT",
     }
 )
@@ -61,6 +64,7 @@ AUDIT_ENTITY_TYPES: frozenset[str] = frozenset(
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -472,6 +476,52 @@ async def record_chat_tool_call(
         entity_type="chat_session",
         entity_id=session_id,
         details=details,
+        ip_address=ip_address,
+    )
+
+
+async def record_chat_discard(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    session_id: UUID,
+    kind: str,
+    tools: Sequence[str],
+    blocked_numbers: Sequence[str],
+    elapsed_ms: int,
+    ip_address: str | None = None,
+) -> None:
+    """챗봇이 답을 폐기한 턴 한 건 (`#1973`).
+
+    ## 왜 앱 로그만으로는 모자랐나
+
+    폐기 한 줄(``chat.DISCARD_LOG_PREFIX``)은 **컨테이너 로그**에만 있었다. 운영에서
+    「벌크선 D등급 경계」 질문이 No-Compute로 폐기됐는데, 그 사이 컨테이너가 바뀌어
+    **무엇이 막혔는지** 되찾을 수 없었다. 감사 로그는 지우지 않는 기록이므로 여기 남긴다.
+
+    ## 무엇을 싣지 않는가
+
+    **답 본문 · 질문 원문을 싣지 않는다** (:func:`content_digest` 참조 — 감사 로그는 90일
+    삭제 대상이 아니다). ``blocked_numbers``는 호출부(``chat._answer_turn``)가 **사용자가 친
+    수를 이미 뺀** 목록이다 — 이번 질문과 이전 턴 질문의 수, 그 반올림 표기까지. 사용자가 친
+    수(선사의 운항 값일 수 있다)가 지우지 못하는 표에 남지 않게 하고, 앱 로그 줄과 같은
+    목록을 쓰게 하려고 거르는 일은 그쪽에 둔다. 이 함수는 받은 값을 적기만 한다.
+
+    감사 기록이 실패하면 **턴이 실패한다(500)** — 다른 ``record_chat_*``와 같이 업무 쓰기와
+    한 트랜잭션에 묶는 원칙(`#1625`)을 따른다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="CHAT_DISCARD",
+        user_id=user_id,
+        entity_type="chat_session",
+        entity_id=session_id,
+        details={
+            "kind": kind,
+            "tools": list(tools),
+            "blocked_numbers": list(blocked_numbers),
+            "elapsed_ms": elapsed_ms,
+        },
         ip_address=ip_address,
     )
 

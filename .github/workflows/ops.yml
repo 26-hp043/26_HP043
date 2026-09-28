@@ -176,7 +176,7 @@ jobs:
           db = b.Db(shlex.split(os.environ["COMPOSE"]), service="cubrid")
           raw = db.query(
               'SELECT "timestamp", "action", entity_id, details_json FROM audit_log '
-              "WHERE \"action\" IN ('CHAT_MESSAGE', 'CHAT_TOOL_CALL') ORDER BY \"timestamp\""
+              "WHERE \"action\" IN ('CHAT_MESSAGE', 'CHAT_TOOL_CALL', 'CHAT_DISCARD') ORDER BY \"timestamp\""
           )
           for line in raw.splitlines():
               print(re.sub(r'"[a-z_]*sha256":\s*"[0-9a-f]*",?\s*', "", line))

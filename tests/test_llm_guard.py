@@ -27,6 +27,7 @@ from cii_platform.services.llm_guard import (
     OutboundFieldError,
     extract_numbers,
     filter_outbound,
+    user_number_forms,
     verify_numbers,
 )
 
@@ -282,3 +283,15 @@ def test_dates_are_not_numbers():
         "2026-09-18 기준으로 계산했습니다. attained CII는 4.98입니다.",
         ['{"attained_cii": "4.982400"}'],
     )
+
+
+def test_user_number_forms_cover_every_turn_and_their_rounding():
+    """`#1973` 폐기 후속 — 폐기 기록에서 뺄 **사용자가 친 수**의 집합.
+
+    여러 턴의 질문을 함께 받고, 도구 수와 같은 표시 자릿수 표기까지 넓힌다 —
+    「7.3456」을 친 사용자의 수가 답에서 「7.35」로 나와도 같은 값이다. 파생값은 넓히지 않는다.
+    """
+    forms = user_number_forms(["CII가 7.3456이야", "연료는 1,234.5톤"])
+    assert {"7.3456", "7.346", "7.35", "7.3", "1234.5", "1235"} <= forms
+    assert "8.58" not in forms  # 두 수의 합 같은 파생값은 사용자가 친 수가 아니다
+    assert user_number_forms([]) == set()
