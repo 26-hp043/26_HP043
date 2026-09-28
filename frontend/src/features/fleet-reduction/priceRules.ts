@@ -16,3 +16,15 @@ export function hasInvalidPrice(prices: Prices): boolean {
     isInvalidPrice,
   )
 }
+
+/**
+ * 채운 단가 칸이 하나라도 있는가 (#2020).
+ *
+ * 직전 계획에서 단가를 이어받았다고 말하려면 **이어받은 값이 실제로 있어야** 한다 — 단가 없이
+ * 저장한 계획을 이어받고 「이어받았습니다」라고 적으면, 빈 칸을 보는 사용자에게 거짓이 된다.
+ */
+export function hasAnyPrice(prices: Prices): boolean {
+  return [...Object.values(prices.charterUsdPerDay), ...Object.values(prices.fuelUsdPerTon)].some(
+    (value) => value.trim() !== '',
+  )
+}

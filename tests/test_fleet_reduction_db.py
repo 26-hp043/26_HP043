@@ -151,6 +151,27 @@ async def test_slowing_down_lowers_the_cii_and_adds_days(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_a_fresh_plan_without_prices_shows_zero_costs_not_needs_price(session, vessel_id):
+    """⚠️ **처음 연 화면(감속률 0 · 단가 없음)은 비용이 0이다** — 「단가 입력 필요」가 아니다 (#2020).
+
+    화면은 감속률 0으로 열린다. 감속하지 않으면 추가 항해일도 절감 연료도 0이라 곱할 것이
+    없고(`PRD §12.3.2`), 단가가 비어도 칸을 비우지 않는다. 「단가 입력 필요」는 저장한 계획이
+    없는 상태에서 **감속률을 올린 뒤에야** 뜬다 — #2020 결정 코멘트 1절이 약속한 확인이다.
+    """
+    result = await _evaluate(session, vessel_id, "0")
+
+    costs = result["costs"]
+    assert costs["missing_charter_rates"] == []
+    assert costs["missing_fuel_prices"] == []
+    assert costs["charter_loss"] is not None and Decimal(costs["charter_loss"]) == 0
+    assert costs["net"] is not None and Decimal(costs["net"]) == 0
+
+    slowed = await _evaluate(session, vessel_id, "10")
+    assert slowed["costs"]["net"] is None
+    assert str(vessel_id) in slowed["costs"]["missing_charter_rates"]
+
+
+@pytest.mark.asyncio
 async def test_costs_use_the_prices_given_and_leave_missing_ones_empty(session, vessel_id):
     """⚠️ 선박 단가가 없으면 용선료·순손익은 **빈칸**, 연료비는 단가가 있으니 계산된다."""
     result = await _evaluate(session, vessel_id, "10", prices={"fuel_usd_per_ton": {"HFO": "600"}})

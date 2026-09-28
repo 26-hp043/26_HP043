@@ -9,13 +9,14 @@ import {
   DISPLAY_UNITS,
   formatDecimalString,
   formatGrouped,
+  formatTimestamp,
 } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
-import { hasInvalidPrice, isInvalidPrice } from './priceRules'
+import { hasAnyPrice, hasInvalidPrice, isInvalidPrice } from './priceRules'
 import { FLEET_REDUCTION_COPY as COPY, TARGET_TEXT, UNAVAILABLE_TEXT } from './copy'
 import {
   MAX_REDUCTION_PERCENT,
@@ -79,6 +80,12 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const pricesSeeded = useRef(false)
+  /**
+   * 지금 단가 칸이 **이어받은 그대로**라면 그 출처 계획 (#2020). 사용자가 한 칸이라도 고치거나,
+   * 저장한 계획을 불러오거나, 이 단가로 새 계획을 저장하면 `null`이다 — 그때부터 칸의 값은
+   * 이어받은 것이 아니라 사용자가 정한(또는 연) 계획의 가정이다.
+   */
+  const [inheritedFrom, setInheritedFrom] = useState<SavedPlanSummary | null>(null)
 
   /*
    * 기본 연도는 **렌더 중에 파생**한다 (`#1616` · `DataQuality`와 같은 형태). 종전에는
@@ -101,6 +108,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         if (!pricesSeeded.current && rows.length > 0) {
           pricesSeeded.current = true
           setPrices(rows[0].prices)
+          // 단가 없이 저장한 계획이면 이어받은 값이 없다 — 「이어받았습니다」를 적지 않는다.
+          if (hasAnyPrice(rows[0].prices)) setInheritedFrom(rows[0])
         }
       })
       .catch(() => {
@@ -192,6 +201,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     try {
       const saved = await api.save({ ...request, planName: name })
       setPlans((prev) => [saved, ...prev])
+      setInheritedFrom(null)
       setSaveMessage(COPY.saved(saved.planName))
       setPlanName('')
     } catch (error: unknown) {
@@ -208,6 +218,14 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     setTarget(plan.target)
     setPercents(Object.fromEntries(plan.adjustments.map((a) => [a.vesselId, a.percent])))
     setPrices(plan.prices)
+    // 불러오기는 그 계획을 연 것이다 — 단가도 그 계획 자신의 가정이지 이어받은 값이 아니다.
+    setInheritedFrom(null)
+  }
+
+  /** 단가 칸을 고친다 — 고친 순간부터 칸의 값은 이어받은 것이 아니다 (#2020). */
+  const editPrices = (update: (prev: Prices) => Prices) => {
+    setInheritedFrom(null)
+    setPrices(update)
   }
 
   /** 감속률을 한 칸이라도 움직였는가 — 상태 문장이 「아직」과 「모자람」을 가른다. */
@@ -321,7 +339,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                         inputMode="decimal"
                         value={prices.fuelUsdPerTon[code] ?? ''}
                         onChange={(e) =>
-                          setPrices((prev) => ({
+                          editPrices((prev) => ({
                             ...prev,
                             fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
                           }))
@@ -413,6 +431,21 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         </details>
       </div>
 
+      {/*
+        이어받은 단가의 출처 (#2020). **접힌 연료 단가 안에 두지 않는다** — 이어받은 값은
+        연료 단가(접힘)와 용선료(아래 표) 두 곳에 들어가고, 접힌 안쪽에만 적으면 표의 용선료를
+        보는 사용자에게는 보이지 않는다. 안에 든 값을 겉에서 알 수 있어야 한다는 `#1417` ·
+        `#1757`(채운 칸 수를 겉에 적는다)과 같은 판단이다.
+      */}
+      {inheritedFrom !== null ? (
+        <p className="fr__caption" role="status">
+          {COPY.inheritedPrices(
+            inheritedFrom.planName,
+            inheritedFrom.createdAt === null ? null : formatTimestamp(inheritedFrom.createdAt),
+          )}
+        </p>
+      ) : null}
+
       {shown === null && evaluation.error === null ? (
         <p className="fr__placeholder" aria-live="polite">
           {COPY.loading}
@@ -462,7 +495,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                         setPercents((prev) => ({ ...prev, [vessel.vesselId]: value }))
                       }
                       onCharter={(value) =>
-                        setPrices((prev) => ({
+                        editPrices((prev) => ({
                           ...prev,
                           charterUsdPerDay: { ...prev.charterUsdPerDay, [vessel.vesselId]: value },
                         }))
