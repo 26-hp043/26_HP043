@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasAnyPrice, hasInvalidPrice, isInvalidPrice } from './priceRules'
+import { hasAnyPrice, hasInvalidPrice, hasVisiblePrice, isInvalidPrice } from './priceRules'
 
 /** 단가 칸 검증 (#1069) — 빈칸은 「단가 없음」, 음수·비숫자만 잘못된 값이다. */
 describe('단가 칸 검증', () => {
@@ -27,5 +27,19 @@ describe('채운 단가 칸이 있는가', () => {
   it('비었거나 공백뿐이면 없다', () => {
     expect(hasAnyPrice({ charterUsdPerDay: {}, fuelUsdPerTon: {} })).toBe(false)
     expect(hasAnyPrice({ charterUsdPerDay: { v1: '  ' }, fuelUsdPerTon: { HFO: '' } })).toBe(false)
+  })
+})
+
+describe('보이는 칸의 단가 (#2020)', () => {
+  it('⚠️ 지금 선대에 없는 선박의 용선료만 있으면 보이는 단가가 없다', () => {
+    const prices = { charterUsdPerDay: { gone: '15000' }, fuelUsdPerTon: {} }
+    expect(hasAnyPrice(prices)).toBe(true)
+    expect(hasVisiblePrice(prices, ['v1'])).toBe(false)
+  })
+
+  it('선대에 있는 선박의 용선료나 연료 단가가 있으면 보인다', () => {
+    expect(hasVisiblePrice({ charterUsdPerDay: { v1: '15000' }, fuelUsdPerTon: {} }, ['v1'])).toBe(true)
+    expect(hasVisiblePrice({ charterUsdPerDay: {}, fuelUsdPerTon: { HFO: '600' } }, [])).toBe(true)
+    expect(hasVisiblePrice({ charterUsdPerDay: { v1: ' ' }, fuelUsdPerTon: {} }, ['v1'])).toBe(false)
   })
 })

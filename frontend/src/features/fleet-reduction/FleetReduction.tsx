@@ -16,7 +16,7 @@ import { pickDefaultYear } from '../voyage-cii/formRules'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
-import { hasAnyPrice, hasInvalidPrice, isInvalidPrice } from './priceRules'
+import { hasAnyPrice, hasInvalidPrice, hasVisiblePrice, isInvalidPrice } from './priceRules'
 import { FLEET_REDUCTION_COPY as COPY, TARGET_TEXT, UNAVAILABLE_TEXT } from './copy'
 import {
   MAX_REDUCTION_PERCENT,
@@ -83,7 +83,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   /**
    * 지금 단가 칸이 **이어받은 그대로**라면 그 출처 계획 (#2020). 사용자가 한 칸이라도 고치거나,
    * 저장한 계획을 불러오거나, 이 단가로 새 계획을 저장하면 `null`이다 — 그때부터 칸의 값은
-   * 이어받은 것이 아니라 사용자가 정한(또는 연) 계획의 가정이다.
+   * 이어받은 것이 아니라 사용자가 정한(또는 연) 계획의 가정이다. 고친 값을 원래대로 되돌려도
+   * 복원하지 않는다 — 결정(#2020 ②)이 「고치면 내린다」이고, 한 번 손댄 값은 사용자가 확인한 값이다.
    */
   const [inheritedFrom, setInheritedFrom] = useState<SavedPlanSummary | null>(null)
 
@@ -437,7 +438,12 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         보는 사용자에게는 보이지 않는다. 안에 든 값을 겉에서 알 수 있어야 한다는 `#1417` ·
         `#1757`(채운 칸 수를 겉에 적는다)과 같은 판단이다.
       */}
-      {inheritedFrom !== null ? (
+      {inheritedFrom !== null &&
+      shown !== null &&
+      hasVisiblePrice(
+        prices,
+        shown.vessels.map((v) => v.vesselId),
+      ) ? (
         <p className="fr__caption" role="status">
           {COPY.inheritedPrices(
             inheritedFrom.planName,
