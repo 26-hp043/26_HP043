@@ -1815,12 +1815,14 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | 값 | 화면 | 판정 | `codes` |
 |---|---|---|---|
 | `SUBSTITUTED` | 대체 계산 | 실적 대신 계획값이 들어갔다 (`PRD §8.3` · `ytd.substitutions` `§2.14`) | `DISTANCE` · `FUEL:<유종>` |
-| `UNAVAILABLE` | 계산 불가 | ⑴ 선박 CII를 낼 수 없다(`voyage_id`가 `null`) ⑵ 연료 행에 실적도 계획도 없다 | ⑴ `§2.8` `unavailable_reason`과 같은 어휘(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`) ⑵ `FUEL_UNFILLED:<유종>` |
+| `UNAVAILABLE` | 계산 불가 | ⑴ 선박 CII를 낼 수 없다(`voyage_id`가 `null`) ⑵ 연료 행에 실적도 계획도 없다 ⑶ 항차에 연료 기록이 한 행도 없다(`#1095`) | ⑴ `§2.8` `unavailable_reason`과 같은 어휘(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`) ⑵ `FUEL_UNFILLED:<유종>` ⑶ `FUEL_NO_RECORD` — 붙일 유종이 없어 접미사가 없다 |
 | `ANOMALY` | 이상치 | `PRD §17.4.1` | `FUEL_VS_MODEL` · `SPEED_ABOVE_REFERENCE` · `SPEED_MISMATCH` |
 | `UNCONFIRMED` | 실적 확정 전 | `COMPLETED`에서 `CONFIRMED`로 미전이 (`PRD §8.1`·`§8.1.1`) | `COMPLETED` |
 | `PUBLIC_RECORD` | 공적 기록과 다름 | 넣은 출항·도착·정박 시각이 공적 재항 기록과 6시간을 넘게 다르다 (`PRD §17.4.4` · `#1197`). **완결성에 들어가지 않는다** | `PUBLIC_RECORD:DEPARTURE` · `PUBLIC_RECORD:ARRIVAL` · `PUBLIC_RECORD:BERTH_START` · `PUBLIC_RECORD:BERTH_END` |
 
 > **[#1532] 화면 이름 「실적 미입력」 → 「실적 확정 전」.** `PRD §8.1`이 `COMPLETED`를 「실적 입력 완료, 미확정」으로 정의하므로 실적은 들어가 있다. 값 `UNCONFIRMED`와 `codes`는 그대로다 — 바뀐 것은 화면 이름과 근거 인용(`§8.4` 재계산 정책 → `§8.1`·`§8.1.1` 상태 전이)뿐이다.
+
+> **[#2019] 이 표의 `codes` 열이 코드 집합의 정본이다.** 서버가 내는 코드(`services/data_quality.py` `ISSUE_CODES`)와 `tests/test_data_quality_codes_sync.py`가, 화면이 한국어로 옮기는 표(`copy.ts` `REASON_TEXT`)와 `reasonCodes.sync.test.ts`가 대조한다. 화면은 모르는 코드를 **코드 그대로** 보이므로(빈칸이면 문제가 없는 것처럼 보인다), 코드가 늘 때 어느 쪽도 실패하지 않던 자리다. ⑶ `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었으나 이 표에만 빠져 있었다.
 
 한 항차가 여러 심각도에 걸리면 **심각도마다 한 행**이다(예: 대체 계산이면서 실적 확정 전). `summary.*_count`는 그 행 수다.
 
@@ -4949,3 +4951,4 @@ POST /api/v1/chat
 | 2026-09-28 | `#2010` | §8.4 문서 구성에 **「등급 경계」 행** · 연도별 추이에 차트 표기 (`#2002` · `PRD §25.3`). 경계값은 `§2.14` `ytd.boundaries`를 옮긴 것이다 — 리포트가 재계산하지 않는다. 응답 필드는 바뀌지 않는다(문서 내용만). `§4.3`상 행 추가라 버전은 올리지 않는다 (#2002) |
 | 2026-09-28 | `#2013` | §1.9 응답에 **`data[].weather`** 블록과 필드 표 — 요청 모델 · 실제 적용 모델 · 기상 스냅샷 id · 기상 경고 (`#2012`). 기상을 적용하는 `SCENARIO`에만 객체이고 그 밖은 `null`이다. 실제 모델·스냅샷·경고는 이미 저장돼 있었는데 응답에 없어, `#790` 운영 확인이 스냅샷 수신 시각과 계산 시각을 **대조해 추정**해야 했다. 요청 모델은 입력 해시 재료로만 쓰이고 저장되지 않아 **`#2012` 이전 계산은 `null`**이다 — 이후 계산은 저장본(`result_json.weather_model_requested`)에 남기며 `§5.1` 응답은 바뀌지 않는다. `§4.3`상 필드 표 추가라 버전은 올리지 않는다 (#2012) |
 | 2026-09-28 | `#2014` | §15.1 `lookup_regulation` 줄에 등급 경계 행의 **`grade_ranges`** (`#1973` 후속 · `PRD §16.3.1`). 규칙만으로는 모델이 경계 포함 방향을 뒤집어, 옮겨 적을 구간 문장을 도구가 준다. `§4.3`상 줄 보강이라 버전은 올리지 않는다 (#1973) |
+| 2026-09-28 | `#___` | §2.16 `issues[].severity` 표 `UNAVAILABLE` 행에 **⑶ `FUEL_NO_RECORD`** 추가와 `[#2019]` 각주 — 이 표의 `codes` 열을 코드 집합의 정본으로 두고 서버(`ISSUE_CODES`)·화면(`REASON_TEXT`)을 양쪽에서 대조한다. `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었는데 표에만 없었다 — 대조 검사가 처음 돌며 드러났다. 응답은 바뀌지 않는다. `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2019) |
