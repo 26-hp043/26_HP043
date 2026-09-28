@@ -29,6 +29,17 @@ from cii_platform.reports.document import (
 if TYPE_CHECKING:
     from cii_platform.reports.document import ReportDocument
 
+#: 표지 워드마크. `frontend/public/brand/bluelog-logo-dark.svg`를 **그대로** 박아 둔다.
+#:
+#: 파일을 런타임에 읽지 않는다 — 백엔드 이미지에 ``frontend/public/``이 들어간다는 보장이
+#: 없고, 없는 날 리포트가 **로고 없이 조용히** 렌더링된다. 박아 두면 자산과 갈라질 수
+#: 있으므로 ``tests/test_reports.py``의 동기화 검사가 그 갈림을 잡는다.
+#:
+#: 흰 워드마크(``-dark``)를 쓰는 이유는 띠가 네이비이기 때문이다. 띠 위 대비 실측 —
+#: ``#F2F7FC`` 12.09 · ``#6BA9F7`` 5.36 · ``#FFFFFF`` 13.03 (``DESIGN_SYSTEM §0.2``
+#: 제약 1·6 — 띠가 이 문서의 가장 어두운 면이라 그 면을 기준으로 잰다).
+LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 298.3 96.0" width="298.3" height="96.0" role="img" aria-label="BlueLog"><g transform="translate(0.00 20.00) scale(0.075574) translate(-91.00 741.00)"><defs><clipPath id="L2k"><path d="M91 0H355C518 0 641 -69 641 -218C641 -317 583 -374 503 -393V-397C566 -420 604 -489 604 -558C604 -696 488 -741 336 -741H91ZM239 -439V-627H327C416 -627 460 -601 460 -536C460 -477 420 -439 326 -439ZM239 -114V-330H342C444 -330 497 -299 497 -227C497 -150 442 -114 342 -114Z"/></clipPath></defs><g clip-path="url(#L2k)"><rect x="71.0" y="-761.0" width="590.0" height="781.0" fill="#FFFFFF"/><path d="M 20 -385 C 110 -434 232 -430 336 -385 C 440 -340 562 -336 720 -385 L 720 240 L 20 240 Z" fill="#6BA9F7"/></g></g><g transform="translate(61.57 60.00) scale(0.060027)"><g fill="#F2F7FC"><path d="M91 0H355C518 0 641 -69 641 -218C641 -317 583 -374 503 -393V-397C566 -420 604 -489 604 -558C604 -696 488 -741 336 -741H91ZM239 -439V-627H327C416 -627 460 -601 460 -536C460 -477 420 -439 326 -439ZM239 -114V-330H342C444 -330 497 -299 497 -227C497 -150 442 -114 342 -114Z"/><path d="M887 14C921 14 945 8 962 1L944 -108C934 -106 930 -106 924 -106C910 -106 895 -117 895 -151V-798H748V-157C748 -53 784 14 887 14Z"/><path d="M1218 14C1295 14 1348 -24 1396 -81H1400L1411 0H1531V-560H1384V-182C1346 -132 1316 -112 1271 -112C1216 -112 1191 -142 1191 -229V-560H1045V-211C1045 -70 1097 14 1218 14Z"/><path d="M1920 14C1989 14 2060 -10 2115 -48L2065 -138C2024 -113 1985 -100 1940 -100C1856 -100 1796 -147 1784 -238H2129C2133 -252 2136 -279 2136 -306C2136 -462 2056 -574 1902 -574C1769 -574 1641 -461 1641 -280C1641 -95 1763 14 1920 14ZM1781 -337C1793 -418 1845 -460 1904 -460C1977 -460 2010 -412 2010 -337Z"/></g><g fill="#6BA9F7"><path d="M2257 0H2706V-124H2405V-741H2257Z"/><path d="M3045 14C3185 14 3314 -94 3314 -280C3314 -466 3185 -574 3045 -574C2904 -574 2776 -466 2776 -280C2776 -94 2904 14 3045 14ZM3045 -106C2968 -106 2926 -174 2926 -280C2926 -385 2968 -454 3045 -454C3121 -454 3164 -385 3164 -280C3164 -174 3121 -106 3045 -106Z"/><path d="M3622 243C3809 243 3927 157 3927 44C3927 -54 3853 -96 3718 -96H3622C3557 -96 3534 -112 3534 -141C3534 -165 3544 -177 3558 -190C3583 -181 3609 -177 3630 -177C3751 -177 3847 -240 3847 -367C3847 -402 3836 -433 3822 -452H3917V-560H3716C3692 -568 3663 -574 3630 -574C3512 -574 3405 -503 3405 -372C3405 -306 3441 -253 3480 -225V-221C3446 -197 3418 -158 3418 -117C3418 -70 3439 -41 3469 -22V-17C3416 12 3389 52 3389 99C3389 198 3490 243 3622 243ZM3630 -268C3582 -268 3543 -305 3543 -372C3543 -437 3581 -473 3630 -473C3680 -473 3719 -437 3719 -372C3719 -305 3680 -268 3630 -268ZM3644 149C3563 149 3511 123 3511 77C3511 53 3522 31 3547 11C3568 16 3591 18 3624 18H3693C3753 18 3786 29 3786 69C3786 112 3729 149 3644 149Z"/></g></g></svg>"""  # noqa: E501 — 자산을 **그대로** 박는다. 줄을 접으면 문자열이 달라져 동기화 검사가 깨진다.
+
 #: 인쇄용 스타일. 외부 자원을 참조하지 않는다 — 렌더링 시점에 네트워크를 타면
 #: 오프라인 시연에서 문서가 달라 보이고, 그 차이는 PDF에 굳어 남는다.
 STYLESHEET = """
@@ -47,6 +58,13 @@ STYLESHEET = """
     color: #666;
   }
 }
+/* 표지 브랜드 띠 (`#2001`). **본문 흐름에 둔다** — `@page` 머리글에 두면 페이지마다
+   네이비가 인쇄된다. 문서 맨 앞 한 번으로 표식은 충분하다. 내용 폭에 맞추고 재단선까지
+   늘리지 않는다 — 가정용 프린터의 여백에서 잘린 띠가 더 나쁘게 보인다. */
+.cover { display: flex; align-items: center; height: 6mm; margin: 0 0 5mm;
+         padding: 0 3mm; background: #16305C; }
+/* 자산의 width·height 속성을 CSS가 덮는다 — 자산 파일은 그대로 두고 크기만 여기서 정한다. */
+.cover svg { display: block; height: 4mm; width: auto; }
 body { font-family: sans-serif; font-size: 9.5pt; color: #1a1a18; line-height: 1.5; }
 h1 { font-size: 17pt; margin: 0 0 2mm; }
 h2 { font-size: 11pt; margin: 7mm 0 2mm; padding-bottom: 1mm;
@@ -58,7 +76,12 @@ h2 { font-size: 11pt; margin: 7mm 0 2mm; padding-bottom: 1mm;
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 1.6mm 2mm; border-bottom: 1px solid #e3e2dc; text-align: left;
          vertical-align: top; }
-th { font-weight: 600; background: #f8f8f6; }
+/* `DESIGN_SYSTEM §3` — 「굵기는 400·500만 쓴다」. 종전 `600`은 그 표에 없는 값이었고
+   프런트엔드 가드가 닿지 않는 자리라 남아 있었다 (`#2001`).
+   ⚠️ **인쇄 스택에는 Medium이 없다** — 컨테이너가 싣는 것은 `fonts-nanum`(Regular·Bold)
+   뿐이라 실측상 `500`은 Regular로, 종전의 `600`은 Bold로 떨어졌다. 머리글을 가르는 일은
+   아래 면(`#f8f8f6`)이 이미 하고 있다. 스택이 Medium을 갖는 날 이 선언이 그대로 산다. */
+th { font-weight: 500; background: #f8f8f6; }
 /* 수치 열은 오른쪽 정렬 + 자릿수 고정폭 — 세로로 자릿수가 맞아야 읽힌다. */
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.label { color: #5f5e5a; width: 34%; }
@@ -140,6 +163,9 @@ def render_html(document: ReportDocument) -> str:
         '<html lang="ko"><head><meta charset="utf-8">'
         f"<title>{escape(document.title)}</title>"
         f"<style>{STYLESHEET}</style></head><body>"
+        # 로고는 **우리 자산**이라 escape하지 않는다 — 사용자 입력이 섞이지 않는 유일한
+        # 마크업이다. 여기에 문서에서 온 값을 넣으면 그 순간 이 예외가 구멍이 된다.
+        f'<div class="cover">{LOGO_SVG}</div>'
         f"<h1>{escape(document.title)}</h1>"
         f'<p class="meta">{meta}</p>'
         # 표지 면책 — 푸터(@bottom-center)와 **둘 다** 둔다. PRD §25.1이 「표지·푸터」를

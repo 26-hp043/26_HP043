@@ -37,7 +37,7 @@ from cii_platform.reports.document import (
     ReportDocument,
     TableSection,
 )
-from cii_platform.reports.html import render_html
+from cii_platform.reports.html import LOGO_SVG, STYLESHEET, render_html
 
 
 def _document(**over) -> ReportDocument:
@@ -382,11 +382,26 @@ def test_html_does_not_pin_a_font_name():
     assert "Nanum" not in html
 
 
+#: 인라인 SVG의 이름공간 선언. **가져오는 주소가 아니라 이름**이다 — 이 문자열로
+#: 네트워크를 타는 일은 없다. 표지 로고를 인라인하면서 들어왔다 (`#2001`).
+SVG_NAMESPACE = 'xmlns="http://www.w3.org/2000/svg"'
+
+
 def test_html_has_no_external_resources():
     """외부 자원을 타면 오프라인 시연에서 문서가 달라 보이고, 그 차이가 PDF에 굳는다."""
     html = render_html(_document())
-    for token in ["http://", "https://", "<link", "<script"]:
-        assert token not in html
+    # 이름공간 선언 하나만 걷어 내고 본다. 걷어 낸 자리에 진짜 주소가 숨지 않도록
+    # 개수까지 고정한다.
+    assert html.count(SVG_NAMESPACE) == 1
+    fetchable = html.replace(SVG_NAMESPACE, "")
+    # `src=`·`href=`도 함께 막는다 — `http`가 없어도 상대 경로로 자원을 탈 수 있고,
+    # 그때는 렌더링하는 **작업 디렉터리**에 따라 문서가 달라진다.
+    for token in ["http://", "https://", "<link", "<script", "src=", "href="]:
+        assert token not in fetchable, f"외부 자원을 탈 수 있는 표기: {token}"
+    # `url(#...)`은 **같은 문서 안의 조각**을 가리킨다 (로고의 `clip-path`). 그 밖의
+    # `url(`은 파일이든 주소든 문서 밖을 가리킨다.
+    outside = re.findall(r"url\(\s*(?!#)[^)]*\)", fetchable)
+    assert not outside, f"문서 밖을 가리키는 url(): {outside}"
 
 
 def test_html_marks_numeric_cells():
@@ -1129,3 +1144,96 @@ async def test_renders_run_one_at_a_time(monkeypatch: pytest.MonkeyPatch):
 
     assert all(r == b"%PDF-fake" for r in results)
     assert peak == 1, f"동시에 {peak}건이 돌았다 — 상한이 걸리지 않았다"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 표지와 인쇄 — `#2001` · `DESIGN_SYSTEM §3` · `§14` · `§15` · `§16` 항목 9 ⑴
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 브랜드 네이비 (`--brand-base` · `DESIGN_SYSTEM §15`).
+BRAND_NAVY = "#16305C"
+
+LOGO_ASSET = Path(__file__).resolve().parents[1] / "frontend/public/brand/bluelog-logo-dark.svg"
+
+
+#: 리포트 본문의 중성색. 따뜻한 회색 계열이며 등급·상태를 뜻하지 않는다 —
+#: 문자(`#1A1A18`) · 보조 문자와 푸터(`#5F5E5A` · `#666666`) · 경계선(`#C9C7BE` ·
+#: `#E3E2DC`) · 면(`#F8F8F6`). **여기 적힌 값이 리포트가 쓰는 색의 전부**이고,
+#: 목록을 늘리는 일은 그 자체로 검토 대상이다.
+NEUTRAL_INK = {"#1A1A18", "#5F5E5A", "#666666", "#C9C7BE", "#E3E2DC", "#F8F8F6"}
+
+
+def _hexes(text: str) -> set[str]:
+    """``#abc``·``#aabbcc``를 여섯 자리 대문자로 모아 준다."""
+    out = set()
+    for value in re.findall(r"#[0-9A-Fa-f]{3}(?![0-9A-Fa-f])|#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])", text):
+        body = value.lstrip("#")
+        if len(body) == 3:
+            body = "".join(c * 2 for c in body)
+        out.add("#" + body.upper())
+    return out
+
+
+def test_the_cover_logo_matches_the_brand_asset():
+    """박아 둔 워드마크가 자산과 갈라지면 **리포트만** 옛 로고를 인쇄한다.
+
+    런타임에 파일을 읽지 않는 이유는 백엔드 이미지에 ``frontend/public/``이 들어간다는
+    보장이 없기 때문이다(없는 날 로고가 조용히 사라진다). 그 대가가 이 검사다.
+    """
+    assert LOGO_ASSET.read_text(encoding="utf-8") == LOGO_SVG
+
+
+def test_the_cover_band_is_printed_once():
+    """띠는 본문 흐름에 있다 — ``@page`` 머리글에 두면 페이지마다 네이비가 인쇄된다."""
+    rendered = render_html(_document())
+    assert rendered.count('<div class="cover">') == 1
+    assert "@top-" not in STYLESHEET
+
+
+def test_stylesheet_weights_stay_inside_section_3():
+    """`§3` — 「굵기는 400·500만 쓴다」.
+
+    ⚠️ **인쇄 폰트 스택에는 Medium이 없다.** 컨테이너가 싣는 것은 ``fonts-nanum``
+    (Regular·Bold)뿐이라, WeasyPrint 실측으로 `400`과 `500`이 같은 잉크량(2399px),
+    `600`과 `700`이 같은 잉크량(3816px)으로 떨어진다. 즉 `500`은 지금 Regular로
+    렌더링되고 `600`은 Bold였다. 이 검사는 **선언이 `§3` 안에 있는지**만 본다 —
+    스택이 Medium을 갖는 날 선언이 그대로 의도대로 렌더링된다.
+    """
+    declared = set(re.findall(r"font-weight:\s*(\d+)", STYLESHEET))
+    assert declared, "스타일시트가 굵기를 하나도 선언하지 않는다 — 브라우저 기본값에 맡겨진다"
+    assert declared <= {"400", "500"}, f"`§3` 밖의 굵기: {sorted(declared - {'400', '500'})}"
+
+
+def test_the_report_palette_is_a_closed_set():
+    """`§16` 항목 9 ⑴의 검증을 가드로 굳힌다.
+
+    리포트는 등급을 **문자로만** 싣는다. 그래서 흑백 인쇄에서 잃을 색이 애초에 없다.
+    다만 그 상태는 규격이 지켜 주는 것이 아니라 우연이므로, 등급 색이 들어오는 날
+    여기서 걸린다 — 등급 색은 `§0.2` 제약 2·3상 **문자 없이는 쓸 수 없고**, 흑백
+    인쇄에서는 `§14` 보조 채널이 따로 있어야 한다.
+    """
+    rendered = render_html(_document())
+    allowed = NEUTRAL_INK | {BRAND_NAVY.upper()} | _hexes(LOGO_ASSET.read_text(encoding="utf-8"))
+    unexpected = _hexes(rendered) - allowed
+    assert not unexpected, (
+        f"리포트에 새 색이 들어왔다: {sorted(unexpected)} — "
+        "등급 색이라면 `§0.2` 제약 2·3(문자 없이 색만으로 뜻을 전하지 않는다)과 "
+        "`§14`(흑백에서 무늬가 대신 진다)를 먼저 통과해야 한다. "
+        "중성색을 늘린 것이라면 `NEUTRAL_INK`를 갱신한다."
+    )
+
+
+def test_grades_are_letters_so_black_and_white_keeps_them():
+    """`§0.2` 제약 2 — 등급은 색이 아니라 문자로 읽혀야 한다."""
+    document = _document(
+        sections=[
+            TableSection(
+                title="연도별 추이",
+                headers=["연도", "등급"],
+                rows=[["2022", "A"], ["2023", "B"], ["2024", "C"], ["2025", "D"], ["2026", "E"]],
+            )
+        ]
+    )
+    rendered = render_html(document)
+    for grade in "ABCDE":
+        assert f"<td>{grade}</td>" in rendered
