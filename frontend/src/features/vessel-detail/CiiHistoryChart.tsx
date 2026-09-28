@@ -304,9 +304,15 @@ function FuelTable({ years }: { years: CiiYear[] }) {
           <tr>
             <th scope="col">연도</th>
             <th scope="col">유종</th>
-            <th scope="col">투입 ({DISPLAY_UNITS.fuel})</th>
-            <th scope="col">CO₂ ({DISPLAY_UNITS.co2})</th>
-            <th scope="col">비중 (%)</th>
+            <th scope="col" className="num">
+              투입 ({DISPLAY_UNITS.fuel})
+            </th>
+            <th scope="col" className="num">
+              CO₂ ({DISPLAY_UNITS.co2})
+            </th>
+            <th scope="col" className="num">
+              비중 (%)
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -354,10 +360,16 @@ function HistoryTable({ years, unit }: { years: CiiYear[]; unit: string }) {
           <tr>
             <th scope="col">연도</th>
             <th scope="col">상태</th>
-            <th scope="col">실적</th>
-            <th scope="col">기준</th>
+            <th scope="col" className="num">
+              실적
+            </th>
+            <th scope="col" className="num">
+              기준
+            </th>
             <th scope="col">등급</th>
-            <th scope="col">완료 항차</th>
+            <th scope="col" className="num">
+              완료 항차
+            </th>
           </tr>
         </thead>
         <tbody>

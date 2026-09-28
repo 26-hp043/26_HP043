@@ -484,6 +484,8 @@
   white-space: nowrap;
 }
 
+/* 머리글과 값이 같은 규칙을 받는다 (`#2015`) — 한쪽만 걸면 한 열 안에서 정렬이 갈린다. */
+.vy-import__errors th.num,
 .vy-import__errors td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;

@@ -497,6 +497,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ⚠️ **머리글과 값이 같은 규칙을 받는다** (`#2015`). `.num` 하나(0,1,0)로는 위
+   `.history__table th, .history__table td`(0,1,1)를 이기지 못한다 — 종전에는 `td`에만
+   덧대어(0,2,1) 값만 오른쪽이 됐고 머리글은 왼쪽에 남았다. */
+.history__table th.num,
 .history__table td.num {
   text-align: right;
 }

@@ -14,6 +14,7 @@ import type {
   RegulationYearRow,
 } from './referenceApiProvider'
 import { REGULATION_PARAMETERS_ANCHOR } from './referenceRules'
+import { misalignedColumns } from '../../test/tableColumns'
 import { SettingsPage } from '../../pages/SettingsPage'
 import * as session from '../../auth/session'
 
@@ -323,5 +324,27 @@ describe('개정 적재와 조회 표가 이어진다 (#1517 · #1239 결정 H)'
     await waitFor(() => expect(bodyRows('regp-table-years')).toHaveLength(YEARS.length))
     expect(screen.queryByLabelText('적재할 CSV 파일')).toBeNull()
     expect(revision.listRevisions).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * 머리글이 자기 열과 같은 쪽에 붙는가 (`#2015`).
+ *
+ * 종전에는 「연도」 머리글에만 `regp__num`이 없어, 값은 오른쪽인데 머리글이 왼쪽에
+ * 남았습니다. CSS 쪽(`styles/textAlign.sync.test.ts`)이 이겨도 이건 마크업 문제라
+ * 따로 봅니다.
+ */
+describe('표 머리글의 정렬 클래스 (#2015)', () => {
+  it('네 표 모두 머리글과 값이 같은 쪽에 붙는다', async () => {
+    const { provider } = fakeProvider()
+    renderSection(provider)
+    await screen.findByTestId('regp-table-years')
+
+    const offenders = [...document.querySelectorAll('table.regp__table')].flatMap((table) =>
+      misalignedColumns(table as HTMLTableElement, 'regp__num').map(
+        (line) => `${table.getAttribute('data-testid')}: ${line}`,
+      ),
+    )
+    expect(offenders, offenders.join('\n')).toEqual([])
   })
 })

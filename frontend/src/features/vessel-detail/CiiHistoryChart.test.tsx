@@ -7,6 +7,7 @@ import { DISPLAY_UNITS } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import type { CiiYear } from './types'
+import { misalignedColumns } from '../../test/tableColumns'
 
 /**
  * 연도별 이력 막대가 **색 말고 무늬로도 등급을 말한다** (#829 ⑸g · `DESIGN_SYSTEM §2.4.4`).
@@ -287,5 +288,33 @@ describe('올해 값은 한 번 (#1571)', () => {
     expect(container.querySelector('svg')).toBeNull()
     const table = container.querySelector('table.history__table') as HTMLElement
     expect(table.closest('details')).toBeNull()
+  })
+})
+
+/**
+ * 머리글이 자기 열과 같은 쪽에 붙는가 (`#2015`).
+ *
+ * 종전에는 값에만 `num`이 있고 머리글 여섯(실적 · 기준 · 완료 항차 · 투입 · CO₂ ·
+ * 비중)에는 없었습니다 — 자릿수를 맞춰 읽으라는 정렬의 기준선이 머리글에서 끊깁니다.
+ */
+describe('표 머리글의 정렬 클래스 (#2015)', () => {
+  it('두 표 모두 머리글과 값이 같은 쪽에 붙는다', () => {
+    const { container } = render(
+      <CiiHistoryChart
+        years={[
+          year({ regulationYear: 2025, rating: 'C' }),
+          year({
+            regulationYear: 2026,
+            rating: 'E',
+            fuels: [{ fuelType: 'HFO', fuelTon: '80.00', co2Ton: '249.20', co2SharePercent: '100.0' }],
+          }),
+        ]}
+        basis="DWT"
+      />,
+    )
+    const offenders = [...container.querySelectorAll('table')].flatMap((table) =>
+      misalignedColumns(table as HTMLTableElement, 'num'),
+    )
+    expect(offenders, offenders.join('\n')).toEqual([])
   })
 })

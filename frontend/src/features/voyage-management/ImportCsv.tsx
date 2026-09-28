@@ -186,8 +186,11 @@ function ResultView({ result }: { result: ImportResult }) {
           <caption>건너뛴 행</caption>
           <thead>
             <tr>
-              {/* 파일에서 보이는 번호다 — 헤더가 1행이라 첫 데이터 행이 2다 (`§8.2`). */}
-              <th scope="col">행</th>
+              {/* 파일에서 보이는 번호다 — 헤더가 1행이라 첫 데이터 행이 2다 (`§8.2`).
+                  값이 `num`이므로 머리글도 같은 클래스를 받는다 (`#2015`). */}
+              <th scope="col" className="num">
+                행
+              </th>
               <th scope="col">항목</th>
               <th scope="col">사유</th>
             </tr>
