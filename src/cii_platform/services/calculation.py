@@ -13,6 +13,13 @@ from typing import TYPE_CHECKING
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services.pagination import normalize_limit as _normalize_limit
+from cii_platform.services.weather import (
+    WARNING_CB_ESTIMATED,
+    WARNING_CB_OUT_OF_RANGE,
+    WARNING_EXPERIMENTAL_MODEL,
+    WARNING_WEATHER_NONE_FALLBACK,
+    WARNING_WEATHER_STALE,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -49,8 +56,20 @@ def normalize_limit(limit: int | None) -> int:
 #: 읽히므로 ``null``로 둔다. 기상을 적용하는 종류가 늘면 여기에 더한다.
 _WEATHER_TYPES = frozenset({"SCENARIO"})
 
-#: 기상 경고 코드의 머리 (``API_SPEC §1.6`` ``WEATHER_STALE`` · ``WEATHER_NONE_FALLBACK``).
-_WEATHER_WARNING_PREFIX = "WEATHER_"
+#: 기상 해석 단계가 내는 경고 코드 (``API_SPEC §1.6``) — **명시 집합**이다.
+#:
+#: 접두사(``WEATHER_``)로 거르면 Townsin-Kwon 모델이 내는 ``EXPERIMENTAL_MODEL``·``CB_*``가
+#: 빠진다 — 「CB가 선종 기본값(추정치)이었나」를 이 블록에서 볼 수 없게 된다. 코드의 소유자는
+#: ``services/weather.py``이므로 그 상수를 가져온다. 새 코드가 생기면 여기에 더한다.
+_WEATHER_WARNINGS = frozenset(
+    {
+        WARNING_WEATHER_STALE,
+        WARNING_WEATHER_NONE_FALLBACK,
+        WARNING_EXPERIMENTAL_MODEL,
+        WARNING_CB_ESTIMATED,
+        WARNING_CB_OUT_OF_RANGE,
+    }
+)
 
 
 def _weather(run: CalculationRun) -> dict[str, object] | None:
@@ -80,11 +99,7 @@ def _weather(run: CalculationRun) -> dict[str, object] | None:
         ),
         None,
     )
-    warnings = [
-        code
-        for code in (run.warnings_json or [])
-        if isinstance(code, str) and code.startswith(_WEATHER_WARNING_PREFIX)
-    ]
+    warnings = [code for code in (run.warnings_json or []) if code in _WEATHER_WARNINGS]
     return {
         "model_requested": result_json.get("weather_model_requested"),
         "model_used": used,

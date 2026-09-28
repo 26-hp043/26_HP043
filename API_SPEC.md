@@ -550,8 +550,8 @@ GET /api/v1/calculations
 |---|---|---|
 | `model_requested` | string \| null | 요청한 기상 모델(`§4.1` `weather_model` 코드). **`#2012` 이전 계산은 `null`**(기록 없음) — 그때까지 요청은 입력 해시 재료로만 쓰이고 저장되지 않았다 |
 | `model_used` | string \| null | **실제로 적용된** 모델. fallback이면 요청과 다르다(`NONE`) — `PRD §11.6` |
-| `snapshot_id` | string \| null | 보정에 쓴 기상 스냅샷(`§9.1`) id. 보정하지 않았으면 `null` |
-| `warnings` | string[] | 이 계산의 경고 중 기상 코드만(`§1.6` `WEATHER_STALE` · `WEATHER_NONE_FALLBACK`) |
+| `snapshot_id` | string \| null | 보정에 쓴 기상 스냅샷(`§9.1`) id. 보정하지 않았으면 `null`. ⚠️ **2026-09-12(`#904` · PR #1007) 이전 계산은 보정했어도 `null`이다** — 그때까지 계산 이력에 스냅샷을 남기지 않았다 |
+| `warnings` | string[] | 이 계산의 경고 중 **기상 해석 단계가 낸 코드**만(`§1.6` `WEATHER_STALE` · `WEATHER_NONE_FALLBACK` · `EXPERIMENTAL_MODEL` · `CB_ESTIMATED` · `CB_OUT_OF_RANGE`) — 뒤의 셋은 실험 모델(`TOWNSIN_KWON_ALPHA`)이 방형계수를 쓸 때 붙는다 |
 
 > **요청과 실제를 나눠 싣는 이유** — 조회가 실패하면 요청은 `SIMPLE_RULE`인데 계산은 `NONE`으로 돈다. 요청만 보이면 보정되지 않은 값을 보정된 값으로 읽는다. 종전에는 실제 모델·스냅샷·경고가 DB에 있는데도 응답에 없어, 운영 확인(`#790`)이 스냅샷 수신 시각과 계산 시각을 **대조해 추정**해야 했다. 값은 저장된 것을 옮길 뿐 다시 계산하지 않는다(`TECH_SPEC §5.4`). 요청 모델은 계산 결과 저장본에만 기록되며 `POST /scenarios/compare` 응답(`§5.1`)은 바뀌지 않는다.
 

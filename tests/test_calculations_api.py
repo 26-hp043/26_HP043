@@ -283,6 +283,24 @@ class TestListCalculations:
         # 기상 경고만 싣는다 — 다른 경고는 이 블록의 일이 아니다.
         assert weather["warnings"] == ["WEATHER_NONE_FALLBACK"]
 
+    def test_the_townsin_model_warnings_travel_with_the_weather(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """실험 모델이 붙이는 ``EXPERIMENTAL_MODEL``·``CB_ESTIMATED``도 기상 해석의 경고다.
+
+        ``WEATHER_`` 접두사로 걸렀다면 빠졌다 — 「CB가 선종 기본값이었나」를 볼 수 없다.
+        """
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={
+                "weather_model_requested": "TOWNSIN_KWON_ALPHA",
+                "scenarios": [{"weather_model_used": "TOWNSIN_KWON_ALPHA"}],
+            },
+            warnings_json=["EXPERIMENTAL_MODEL", "CB_ESTIMATED", "REFERENCE_ONLY"],
+        )
+        weather = self._item(wired, monkeypatch, row)["weather"]
+        assert weather["warnings"] == ["EXPERIMENTAL_MODEL", "CB_ESTIMATED"]
+
     def test_a_scenario_saved_before_the_request_was_recorded_says_so(
         self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
     ):
@@ -309,7 +327,8 @@ class TestListCalculations:
 
         블록을 내면 「모델을 골랐는데 쓰지 않았다」로 읽힌다.
         """
-        row = FakeCalcRow(parameters_used={"weather_model": "NONE", "weather_factor": None})
+        # 실제 저장 형태 — ``weather_model``은 입력 해시 재료일 뿐 저장되지 않는다.
+        row = FakeCalcRow(warnings_json=["REFERENCE_ONLY"])
         item = self._item(wired, monkeypatch, row)
         assert "weather" in item and item["weather"] is None
 
