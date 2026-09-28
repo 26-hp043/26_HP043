@@ -64,6 +64,7 @@ from cii_platform.port_calls.reconcile import (
     FIELD_BERTH_END,
     FIELD_BERTH_START,
     FIELD_DEPARTURE,
+    FIELD_ORDER,
     EnteredTime,
     Mismatch,
     RecordedCall,
@@ -169,10 +170,10 @@ ISSUE_CODES: dict[str, tuple[str, ...]] = {
         ANOMALY_SPEED_MISMATCH,
     ),
     SEVERITY_UNCONFIRMED: (UNCONFIRMED_COMPLETED,),
-    SEVERITY_PUBLIC_RECORD: tuple(
-        f"{PUBLIC_RECORD_CODE}:{field}"
-        for field in (FIELD_DEPARTURE, FIELD_ARRIVAL, FIELD_BERTH_START, FIELD_BERTH_END)
-    ),
+    # 필드 목록은 ``reconcile.FIELD_ORDER``를 그대로 쓴다 — 대조 칸을 늘리면 여기가 함께
+    # 늘어 정본 표 대조(``test_issue_codes_match_spec``)가 붉어진다. 다시 나열하면 새 칸이
+    # 검사를 비껴간다.
+    SEVERITY_PUBLIC_RECORD: tuple(f"{PUBLIC_RECORD_CODE}:{field}" for field in FIELD_ORDER),
 }
 #: ``issues[].cii_impact_reason``에 나갈 수 있는 값 전부 (#2019).
 IMPACT_REASONS: tuple[str, ...] = (IMPACT_ONLY_VOYAGE, IMPACT_BASE_UNAVAILABLE)
