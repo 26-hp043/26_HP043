@@ -14,6 +14,9 @@
 #   rehearse        가장 최근 덤프(또는 `dump`)를 새 DB에 복구해 대조한 뒤 지운다. 운영 DB는
 #                   건드리지 않는다.
 #   collect         app-01에서 공적 재항 기록을 한 번 수집한다(#1197 · 실패가 있으면 exit 1).
+#   bench           app-01 백엔드 컨테이너 안에서 계산 엔진 벤치마크 PERF-001·003·004를 잰다
+#                   (#790 · `python -m cii_platform.calc.bench` · 목표 초과면 exit 1). DB를 쓰지
+#                   않는다. `nice -n 10`으로 우선순위를 낮춰 서비스 요청에 CPU를 양보한다.
 #   rollback-drill  app-01 백엔드를 `image_sha` 이미지로 바꿔 헬스 commit을 확인하고, 잠시
 #                   뒤 **원래 이미지로 되돌린다**(OPERATIONS §3.6.2 · #789). 실패해도
 #                   되돌린다(trap). 두 커밋 사이에 마이그레이션 변경이 있으면 시작하지 않는다.
@@ -39,7 +42,7 @@ on:
       task:
         description: "작업"
         type: choice
-        options: [inspect, backup, rehearse, collect, rollback-drill, restore, app-start]
+        options: [inspect, backup, rehearse, collect, bench, rollback-drill, restore, app-start]
         default: inspect
       image_sha:
         description: "rollback-drill: 잠시 띄울 이전 이미지 커밋 (12자리)"
@@ -364,6 +367,24 @@ jobs:
           set -euo pipefail
           cd ~/bluelog
           docker compose -f docker-compose.prod.app.yml exec -T backend python -m cii_platform.port_calls.collect </dev/null
+          ENDSSH
+
+      # ------------------------------------------------------------------
+      # bench — 계산 엔진 벤치마크 (#790)
+      # ------------------------------------------------------------------
+      # PERF-002(시나리오 비교)·PERF-005(선대 요약)는 운영 DB에 행을 만들었다 지워야 해서
+      # 여기서 돌리지 않는다 — CI(`tests/test_benchmarks.py`)만 판정한다.
+      # 떠 있는 백엔드와 같은 이미지·같은 CPU·같은 메모리 상한에서 재려고 `exec`로 들어간다.
+      # `nice -n 10`은 권한 없이도 우선순위를 **낮출** 수 있어 USER cii로도 동작한다.
+      - name: 계산 엔진 벤치마크 (app-01)
+        if: inputs.task == 'bench'
+        run: |
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" bash -s <<'ENDSSH'
+          set -euo pipefail
+          cd ~/bluelog
+          # 어느 커밋을 잰 것인지 남긴다 — 헬스 응답의 `commit`
+          echo "[app-01] 헬스 $(curl -fsS --max-time 5 http://127.0.0.1:8001/api/v1/health </dev/null || echo 응답 없음)"
+          docker compose -f docker-compose.prod.app.yml exec -T backend nice -n 10 python -m cii_platform.calc.bench </dev/null
           ENDSSH
 
       # ------------------------------------------------------------------
