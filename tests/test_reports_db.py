@@ -293,6 +293,18 @@ async def test_annual_report_carries_the_rating_boundaries(session, vessel_id):
         ["106", "118"],
         ["118", "—"],
     ]
+    # 리터럴만 맞추면 「같은 값」일 뿐이다 — YTD 엔진이 고르는 **같은 경계 행**인지 본다.
+    from cii_platform.db.repositories import vessel as vessel_repo
+    from cii_platform.services.ytd_cii import _select_rating_boundary
+
+    chosen = await _select_rating_boundary(session, await vessel_repo.get_by_id(session, vessel_id))
+    upper_edges = [rows[g][1] for g in "ABCD"]
+    assert [Decimal(edge) for edge in upper_edges] == [
+        Decimal(chosen.d1) * 100,
+        Decimal(chosen.d2) * 100,
+        Decimal(chosen.d3) * 100,
+        Decimal(chosen.d4) * 100,
+    ]
     published = current["ytd"]["boundaries"]
     assert rows["A"][3] == _display(published["superior_boundary"], "cii")
     assert rows["C"][2:] == [
@@ -333,9 +345,11 @@ async def test_annual_trend_is_a_chart_that_keeps_its_table(session, vessel_id):
 
     trend = _section(document, "연도별 추이")
     assert isinstance(trend, ChartSection) and trend.chart == "trend"
-    csv_text = render_csv(document)
-    for header in trend.table.headers:
-        assert header in csv_text
+    # 낱말이 아니라 **행**으로 본다 — 「연도」·「등급」은 다른 절에도 있어 표를 빼도 통과한다.
+    csv_rows = list(csv.reader(io.StringIO(render_csv(document).lstrip("\ufeff"))))
+    assert trend.table.headers in csv_rows
+    this_year = next(row for row in trend.table.rows if row[0] == str(YEAR))
+    assert this_year in csv_rows
 
 
 @pytest.mark.asyncio

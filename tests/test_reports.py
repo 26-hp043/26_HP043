@@ -1637,8 +1637,56 @@ def test_a_marker_beyond_the_axis_is_pinned_and_says_so():
 
 def test_band_without_this_year_draws_no_marker():
     """올해 실적이 없으면 위치 표시가 없다 — 없는 위치를 만들지 않는다."""
-    html = render_html(_document(sections=[_band(markers=[])]))
-    assert 'stroke-width="2"' not in html
+    with_marker = render_html(_document(sections=[_band()]))
+    without = render_html(_document(sections=[_band(markers=[])]))
+    assert "올해 누적 실적 (기준 대비 %) 102.3" in with_marker
+    assert "올해 누적 실적" not in without
+    # 위치 선은 밴드를 세로로 가로지르는 유일한 선이다
+    assert with_marker.count("<line x1=") - without.count("<line x1=") == 1
+
+
+def _band_rows(edges: list[str]) -> ChartSection:
+    """경계 네 값(기준 대비 %)으로 밴드를 만든다. CII 칸은 이 검사와 무관해 비운다."""
+    lows, highs = ["—", *edges], [*edges, "—"]
+    return ChartSection(
+        chart="rating_band",
+        table=TableSection(
+            title="등급 경계",
+            headers=list(BAND_HEADERS),
+            rows=[[g, lo, hi, "—", "—"] for g, lo, hi in zip("ABCDE", lows, highs, strict=True)],
+        ),
+    )
+
+
+def _letter_positions(html: str) -> dict[str, float]:
+    return {
+        grade: float(x)
+        for x, grade in re.findall(
+            r'<text x="([\d.]+)" y="[\d.]+" text-anchor="middle" fill="#1a1a18">([A-E])</text>',
+            html,
+        )
+    }
+
+
+def test_a_narrow_first_grade_keeps_its_letter_outside_the_bar():
+    """로로선 계열은 d1이 0.76이라 A가 축(74~175%)의 2%뿐이다 — 문자 바탕보다 좁다.
+
+    축은 디자인 확정값이라 두고, 문자를 막대 **바깥**에 세워 잃지 않는다. 표에 있는 등급이
+    그림에서 사라지면 「그 등급은 없다」로 읽힌다.
+    """
+    html = render_html(_document(sections=[_band_rows(["76", "89", "108", "127"])]))
+    letters = _letter_positions(html)
+    assert set(letters) == set("ABCDE")
+    bar_start = float(re.search(r'<rect x="([\d.]+)" y="24.0"', html).group(1))
+    assert letters["A"] < bar_start, "A 문자가 막대 안의 좁은 조각에 눌려 있다"
+    assert 'fill="url(#grade0-A)"' in html, "좁아도 A 구간 자체는 그린다"
+
+
+def test_a_grade_pushed_off_the_axis_still_shows_its_letter():
+    """d1이 축 하한(74%)보다 작아도 A 문자는 남는다 — 예외 없이 사라지던 경로다."""
+    html = render_html(_document(sections=[_band_rows(["66", "80", "100", "120"])]))
+    assert set(_letter_positions(html)) == set("ABCDE")
+    assert 'fill="url(#grade0-A)"' not in html, "축 밖 구간은 면이 없다 — 문자만 남는다"
 
 
 def test_trend_letters_each_point_with_its_grade():
@@ -1665,6 +1713,13 @@ def test_trend_breaks_the_line_where_a_year_is_missing():
     html = render_html(_document(sections=[_trend(rows)]))
     # 실적·기준 각각 두 토막 → 넷
     assert html.count("<polyline") == 4
+
+
+def test_trend_with_equal_values_draws_one_axis_label():
+    """값이 전부 같으면 세로축 눈금을 같은 자리에 두 번 그리지 않는다."""
+    rows = [["2024", "7.0", "7.0", "C"], ["2025", "7.0", "7.0", "C"]]
+    html = render_html(_document(sections=[_trend(rows)]))
+    assert html.count('text-anchor="end" fill="#5f5e5a">7.0</text>') == 1
 
 
 def test_trend_with_nothing_to_draw_keeps_only_the_table():
@@ -1699,6 +1754,13 @@ def test_a_lead_pointing_at_a_missing_row_is_refused():
     section = KeyValueSection(title="YTD", rows=[("등급", "C")], lead=("실적 CII",))
     with pytest.raises(ValueError, match="결론"):
         render_html(_document(sections=[section]))
+
+
+def test_a_lead_label_that_names_two_rows_is_refused():
+    """같은 이름이 둘이면 PDF는 하나만 결론으로 세우고 CSV는 둘 다 내 두 포맷이 갈린다."""
+    section = KeyValueSection(title="YTD", rows=[("등급", "C"), ("등급", "D")], lead=("등급",))
+    with pytest.raises(ValueError, match="여러 행"):
+        render_csv(_document(sections=[section]))
 
 
 def test_csv_keeps_every_row_regardless_of_the_lead():

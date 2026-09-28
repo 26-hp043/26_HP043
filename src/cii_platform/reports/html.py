@@ -287,7 +287,8 @@ def _svg_open(title: str, height: int) -> str:
 def _band_svg(section: ChartSection, prefix: str) -> str:
     """등급 경계 밴드 — 구간마다 무늬와 **등급 문자**, 경계에 기준 대비 %."""
     low, high = BAND_AXIS
-    left, width = 8.0, _CHART_WIDTH - 16.0
+    # 좌우 여백은 **막대 바깥에 등급 문자를 둘 자리**다 — 아래 「좁은 구간」 참조.
+    left, width = 24.0, _CHART_WIDTH - 48.0
     top, bar = 24.0, 34.0
 
     def x(value: float) -> float:
@@ -296,22 +297,37 @@ def _band_svg(section: ChartSection, prefix: str) -> str:
 
     parts = [_svg_open(section.title, 90), _band_patterns(prefix)]
     rows = section.table.rows
-    for grade, lower, upper, *_ in rows:
+    last = len(rows) - 1
+    for position, (grade, lower, upper, *_) in enumerate(rows):
         start = _number(lower)
         end = _number(upper)
         x0 = x(low if start is None else start)
         x1 = x(high if end is None else end)
-        if x1 <= x0:
-            continue  # 축 밖으로 완전히 밀려난 구간 — 그릴 자리가 없다(문자는 표에 있다)
-        parts.append(
-            f'<rect x="{x0:.1f}" y="{top}" width="{x1 - x0:.1f}" height="{bar}" '
-            f'fill="url(#{prefix}-{escape(grade)})" stroke="{_INK}" stroke-width="0.8"/>'
-        )
+        if x1 > x0:
+            parts.append(
+                f'<rect x="{x0:.1f}" y="{top}" width="{x1 - x0:.1f}" height="{bar}" '
+                f'fill="url(#{prefix}-{escape(grade)})" stroke="{_INK}" stroke-width="0.8"/>'
+            )
         middle = (x0 + x1) / 2
+        letter_y = top + bar / 2 + 4.5
+        # ⚠️ **좁은 구간에서 문자를 잃지 않는다.** 축(74~175%)은 디자인 확정값인데 로로선
+        # 계열은 d1이 0.76이라 A가 축의 2%(약 12px)뿐이다 — 문자 바탕(16px)보다 좁다.
+        # 끝 구간은 막대 **바깥**에, 가운데 구간은 막대 **위**에 문자를 둔다. 축 밖으로
+        # 완전히 밀려난 끝 구간도 문자는 남긴다 — 표에 있는 등급이 그림에서 사라지면
+        # 「그 등급은 없다」로 읽힌다.
+        if x1 - x0 >= 18:
+            parts.append(
+                f'<rect x="{middle - 8:.1f}" y="{top + bar / 2 - 9:.1f}" width="16" height="18" '
+                f'fill="{_PAPER}"/>'
+            )
+        elif position == 0:
+            middle = x0 - 10
+        elif position == last:
+            middle = x1 + 10
+        else:
+            letter_y = top - 10
         parts.append(
-            f'<rect x="{middle - 8:.1f}" y="{top + bar / 2 - 9:.1f}" width="16" height="18" '
-            f'fill="{_PAPER}"/>'
-            f'<text x="{middle:.1f}" y="{top + bar / 2 + 4.5:.1f}" text-anchor="middle" '
+            f'<text x="{middle:.1f}" y="{letter_y:.1f}" text-anchor="middle" '
             f'fill="{_INK}">{escape(grade)}</text>'
         )
     # 경계 눈금 — 표의 「기준 대비 상한」을 그대로 적는다(마지막 행은 상한이 없다).
@@ -364,7 +380,8 @@ def _trend_svg(section: ChartSection) -> str:
         return ""
 
     height = 210
-    left, right, top, bottom = 64.0, 16.0, 30.0, 34.0
+    # 위쪽 여백은 범례(y 9~16)와 가장 높은 점 위의 등급 문자(점 − 8)가 겹치지 않을 만큼 둔다.
+    left, right, top, bottom = 64.0, 16.0, 40.0, 34.0
     low, high = min(values), max(values)
     pad = (high - low) * 0.15 or 1.0
     y_low, y_high = low - pad, high + pad
@@ -386,7 +403,8 @@ def _trend_svg(section: ChartSection) -> str:
         for column in (attained_i, required_i)
         if (value := _number(row[column])) is not None
     ]
-    for value, cell in (min(cells), max(cells)):
+    # 값이 전부 같으면 한 줄만 — 같은 자리에 눈금을 두 번 그리지 않는다.
+    for value, cell in dict.fromkeys((min(cells), max(cells))):
         parts.append(
             f'<line x1="{left}" y1="{y(value):.1f}" x2="{_CHART_WIDTH - right}" '
             f'y2="{y(value):.1f}" stroke="{_FACE}" stroke-width="1"/>'

@@ -100,10 +100,17 @@ class KeyValueSection:
     lead: tuple[str, ...] = ()
 
     def validate(self) -> None:
-        labels = {label for label, _ in self.rows}
+        labels = [label for label, _ in self.rows]
         missing = [label for label in self.lead if label not in labels]
         if missing:
             raise ValueError(f"{self.title}: 결론으로 지정한 행이 없습니다 ({missing})")
+        # 결론은 항목명으로 가리키므로 **한 행**이어야 한다. 같은 이름이 둘이면 PDF는 하나만
+        # 결론으로 세우고 CSV는 둘 다 내 두 포맷이 갈린다.
+        ambiguous = [label for label in self.lead if labels.count(label) > 1]
+        if ambiguous:
+            raise ValueError(
+                f"{self.title}: 결론으로 지정한 항목명이 여러 행에 있습니다 ({ambiguous})"
+            )
 
 
 @dataclass(frozen=True)
