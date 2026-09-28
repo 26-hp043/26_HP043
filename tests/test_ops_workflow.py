@@ -144,6 +144,22 @@ def test_app_start_task_and_pipefail() -> None:
     assert wf["jobs"]["ops"]["defaults"]["run"]["shell"] == "bash"
 
 
+def test_bench_runs_engine_only_at_low_priority() -> None:
+    """`bench`가 패키지 모듈로 엔진만 재고, 우선순위를 낮춰 서비스에 양보한다 (`#790`).
+
+    운영 이미지에는 ``tests/``·pytest가 없다 — 그래서 ``cii_platform.calc.bench``를
+    ``exec``로 부른다. DB에 행을 쓰는 `PERF-002`·`PERF-005`는 이 경로에 없다.
+    """
+    wf = _workflow()
+    triggers = wf.get("on") or wf.get(True)
+    assert "bench" in triggers["workflow_dispatch"]["inputs"]["task"]["options"]
+    step = _step("계산 엔진 벤치마크 (app-01)")
+    assert step["if"] == "inputs.task == 'bench'"
+    run = step["run"]
+    assert "exec -T backend nice -n 10 python -m cii_platform.calc.bench </dev/null" in run
+    assert "pytest" not in run and "scenario" not in run
+
+
 def test_backup_reclaims_root_owned_dir() -> None:
     # 2026-09-26 첫 백업이 root 소유 backups/에 막혔다 — 덤프 전에 되돌려야 한다
     run = _step("백업 (db-01)")["run"]
