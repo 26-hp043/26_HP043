@@ -1237,3 +1237,123 @@ def test_grades_are_letters_so_black_and_white_keeps_them():
     rendered = render_html(document)
     for grade in "ABCDE":
         assert f"<td>{grade}</td>" in rendered
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 인쇄 굵기와 표지 위계 — `#2003` · `DESIGN_SYSTEM §3` · `§0.2` 제약 1 · `§14`
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: HTML 기본 스타일이 **굵게** 그리는 태그. 선언이 없으면 `§3` 밖의 `700`이 조용히
+#: 인쇄된다 — 이 이슈(`#2003`)가 생긴 이유가 그것이다.
+BOLD_BY_DEFAULT = frozenset({"b", "strong", "h1", "h2", "h3", "h4", "h5", "h6", "th"})
+
+#: 인쇄면. 종이는 흰색이고, 면책 상자와 표 머리글만 `#f8f8f6`이다. 대비는 **더 어두운
+#: 쪽**을 기준으로 잰다 (`§0.2` 제약 6).
+DARKEST_PAPER = "#F8F8F6"
+
+
+def _css_rules(css: str) -> list[tuple[list[str], str]]:
+    """스타일시트를 ``(선택자 목록, 선언 묶음)``으로 자른다.
+
+    주석과 ``@page``를 먼저 걷는다 — ``@page``는 중첩 블록이라 단순 분할로는 잘리지
+    않고, 주석 안의 예시 선언이 검사 대상으로 섞인다.
+    """
+    text = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    text = re.sub(r"@page\s*\{(?:[^{}]|\{[^{}]*\})*\}", "", text, flags=re.S)
+    rules = []
+    for block in text.split("}"):
+        selectors, brace, body = block.partition("{")
+        if not brace:
+            continue
+        rules.append(([s.strip() for s in selectors.split(",") if s.strip()], body))
+    return rules
+
+
+def _tags_declaring_weight(css: str) -> set[str]:
+    """``font-weight``를 정하는 규칙이 닿는 **태그 이름**을 모은다.
+
+    선택자의 **마지막 조각**이 실제로 칠해지는 요소다 — ``.meta b``는 ``b``다.
+    """
+    tags = set()
+    for selectors, body in _css_rules(css):
+        if "font-weight" not in body:
+            continue
+        for selector in selectors:
+            tag = re.match(r"[a-z][a-z0-9]*", selector.split()[-1])
+            if tag:
+                tags.add(tag.group())
+    return tags
+
+
+def _declarations(css: str, selector: str) -> dict[str, str]:
+    """한 선택자의 선언을 ``속성: 값``으로 모은다 (뒤에 온 선언이 이긴다)."""
+    found: dict[str, str] = {}
+    for selectors, body in _css_rules(css):
+        if selector not in selectors:
+            continue
+        for declaration in body.split(";"):
+            name, colon, value = declaration.partition(":")
+            if colon:
+                found[name.strip()] = value.strip()
+    return found
+
+
+def _relative_luminance(colour: str) -> float:
+    body = colour.lstrip("#")
+    if len(body) == 3:
+        body = "".join(c * 2 for c in body)
+    channels = []
+    for index in (0, 2, 4):
+        value = int(body[index : index + 2], 16) / 255
+        channels.append(value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4)
+    red, green, blue = channels
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _contrast(first: str, second: str) -> float:
+    one, two = _relative_luminance(first), _relative_luminance(second)
+    lighter, darker = max(one, two), min(one, two)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def test_no_element_falls_back_to_the_browser_default_weight():
+    """기본값에 맡기면 `§3` 밖의 `700`이 **오류 없이** 인쇄된다 (`#2003`).
+
+    `#2001`이 표 머리글 하나만 고쳤을 때 제목 둘과 ``<b>`` 둘이 그대로 남아 있었다 —
+    스타일시트에 그 자리가 **적혀 있지 않아서** 눈에 띄지 않았다. 문서에 실제로 나오는
+    태그를 세어 선언과 맞춘다.
+    """
+    rendered = render_html(_document())
+    used = {tag for tag in BOLD_BY_DEFAULT if re.search(rf"<{tag}[\s>]", rendered)}
+    assert used, "표본 문서에 굵게 그려지는 태그가 없다 — `_document()`가 바뀌었는지 볼 것"
+    missing = used - _tags_declaring_weight(STYLESHEET)
+    assert not missing, (
+        f"굵기 선언 없이 브라우저 기본값으로 인쇄되는 태그: {sorted(missing)} — "
+        "`§3`(400·500)을 벗어난 굵기가 조용히 나간다"
+    )
+
+
+def test_the_meta_tells_label_from_value_by_size_and_tone():
+    """굵기를 쓸 수 없는 자리라 **두 채널**로 가른다 (`#2003` 확정).
+
+    한 채널만 남기면 구분이 물러진다 — 색조만 쓴 시안이 흑백 확대에서 그랬다. 순서(라벨이
+    값 앞에 온다)가 주 채널이므로 색이 단독으로 뜻을 지지 않는다(`§14`).
+    """
+    label = _declarations(STYLESHEET, ".meta")
+    value = _declarations(STYLESHEET, ".meta b")
+
+    label_pt = float(label["font-size"].removesuffix("pt"))
+    value_pt = float(value["font-size"].removesuffix("pt"))
+    assert value_pt > label_pt, f"값이 라벨보다 크지 않다 ({value_pt}pt ≤ {label_pt}pt)"
+
+    assert _relative_luminance(value["color"]) < _relative_luminance(label["color"]), (
+        "값이 라벨보다 어둡지 않다 — 색조 채널이 뒤집혔다"
+    )
+
+
+def test_the_meta_tones_clear_the_contrast_floor():
+    """`§0.2` 제약 1 — 가장 약한 글자도 4.5:1을 넘는다. 제약 6대로 더 어두운 면을 기준한다."""
+    for role, selector in (("라벨", ".meta"), ("값", ".meta b")):
+        colour = _declarations(STYLESHEET, selector)["color"]
+        ratio = _contrast(colour, DARKEST_PAPER)
+        assert ratio >= 4.5, f"{role}({colour}) 대비 {ratio:.2f} — 4.5 미만"
