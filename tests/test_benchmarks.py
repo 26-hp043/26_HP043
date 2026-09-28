@@ -167,6 +167,22 @@ def test_monte_carlo_5000_p95(capsys):
     assert p95_s < P95_MONTE_CARLO_5000
 
 
+def test_bench_main_exit_code_follows_target(monkeypatch, capsys):
+    """운영 실행(``python -m cii_platform.calc.bench``)이 목표 초과를 종료 코드로 알린다 (`#790`).
+
+    `ops.yml` `bench`의 성패는 이 종료 코드 하나로 갈린다 — 초과를 0으로 내면 운영 실행이
+    초록으로 끝난다. 실제 워크로드 대신 빈 함수로 바꿔 판정 배선만 본다.
+    """
+    monkeypatch.setattr(bench, "CASES", (bench.Case("PERF-X", "빈 함수", lambda: None, 1.0),))
+    assert bench.main() == 0
+    assert "통과" in capsys.readouterr().out
+
+    monkeypatch.setattr(bench, "CASES", (bench.Case("PERF-X", "빈 함수", lambda: None, 0.0),))
+    assert bench.main() == 1
+    out = capsys.readouterr().out
+    assert "초과" in out and "1건 목표 초과" in out
+
+
 # ── PERF-002 기능② 시나리오 3개 비교 ─────────────────────────────────────────
 
 
