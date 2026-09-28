@@ -294,12 +294,13 @@ def test_grade_ranges_hand_the_model_finished_sentences() -> None:
 
     row = {"d1": "0.8600", "d2": "0.9400", "d3": "1.0600", "d4": "1.1800"}
     ranges = chat_tools._grade_ranges(row)
+    # `#1973` 폐기 후속 — 배수마다 화면 자릿수의 백분율을 함께 싣는다(「106%」로 말해도 산다).
     assert ranges == {
-        "A": "0.8600배 이하",
-        "B": "0.8600배 초과 ~ 0.9400배 이하",
-        "C": "0.9400배 초과 ~ 1.0600배 이하",
-        "D": "1.0600배 초과 ~ 1.1800배 이하",
-        "E": "1.1800배 초과",
+        "A": "0.8600배(86.0%) 이하",
+        "B": "0.8600배(86.0%) 초과 ~ 0.9400배(94.0%) 이하",
+        "C": "0.9400배(94.0%) 초과 ~ 1.0600배(106.0%) 이하",
+        "D": "1.0600배(106.0%) 초과 ~ 1.1800배(118.0%) 이하",
+        "E": "1.1800배(118.0%) 초과",
     }
     assert not any("이상" in text or "미만" in text for text in ranges.values())
 
@@ -309,7 +310,42 @@ def test_grade_ranges_hand_the_model_finished_sentences() -> None:
         grade = determine_rating(
             attained_cii=Decimal(value), required_cii=Decimal(1), d_vector=d
         ).rating
-        assert ranges[grade].endswith(f"{value}배 이하"), (key, grade, ranges[grade])
+        percent = (Decimal(value) * 100).quantize(Decimal("0.1"))
+        assert ranges[grade].endswith(f"{value}배({percent}%) 이하"), (key, grade, ranges[grade])
+
+
+def test_grade_ranges_and_all_year_reductions_let_the_usual_phrasing_pass_the_guard() -> None:
+    """IT-CHAT-079 (`#1973` 폐기 후속) — 「106%」·「2023년 5%」로 말한 답이 **폐기되지 않는다**.
+
+    운영에서 「벌크선 D등급 경계」 질문의 답이 No-Compute로 폐기됐다. 도구는 배수(``1.0600``)와
+    물은 해의 감축률 하나만 줬는데, 사람이 흔히 쓰는 표기(백분율)나 다른 해의 감축률을 덧붙이면
+    그 수가 도구 응답에 없어 답 전체가 버려진다. 도구가 **그 표기와 그 값을 함께 싣는지**를
+    수치 가드로 직접 돌려 본다 — 문자열 모양이 아니라 **가드를 통과하는가**가 지킬 성질이다.
+    """
+    from cii_platform.services.llm_guard import verify_numbers
+
+    ranges = chat_tools._grade_ranges(
+        {"d1": "0.8600", "d2": "0.9400", "d3": "1.0600", "d4": "1.1800"}
+    )
+    tool_output = json.dumps(
+        {
+            "rating_boundaries": [{"grade_ranges": ranges}],
+            "reduction_factor": {
+                "year": 2026,
+                "z_factor_percent": "11.0",
+                "by_year": [
+                    {"year": 2023, "z_factor_percent": "5.0"},
+                    {"year": 2026, "z_factor_percent": "11.0"},
+                ],
+            },
+        },
+        ensure_ascii=False,
+    )
+    verify_numbers(
+        "D등급은 실적 CII가 기준 CII의 106% 초과 ~ 118% 이하입니다. "
+        "참고로 2023년 감축률은 5%였습니다.",
+        [tool_output],
+    )
 
 
 def test_grade_ranges_are_not_invented_when_a_boundary_is_missing() -> None:

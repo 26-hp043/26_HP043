@@ -507,6 +507,52 @@ async def test_every_turn_is_audited(migrated_db, app_fresh_engine):
         await _cleanup()
 
 
+async def test_a_discard_is_audited_without_the_users_numbers(migrated_db, app_fresh_engine):
+    """IT-CHAT-080 (`#1973`) — 폐기한 턴이 감사 로그에 ``CHAT_DISCARD`` 한 건으로 남는다.
+
+    운영 폐기의 막힌 수치가 앱 로그에만 있다가 컨테이너 교체로 사라졌다. 감사 로그에는
+    **종류 · 부른 도구 · 막힌 수치 · 걸린 시간**만 싣고, 막힌 수치에서 **질문에 있던 수**는
+    뺀다(선사 기밀이 지우지 않는 표에 남지 않게). 답 본문 · 질문 원문은 싣지 않는다.
+    """
+    question = "우리 배 CII가 7.3인데 D등급 경계는?"
+    answer = "7.3이면 D등급이고 경계는 1.23입니다."
+    _use(FakeProvider([LLMResponse(text=answer)]))  # 도구 없이 수치 → No-Compute 폐기
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": question}, headers=headers)
+            assert response.status_code == 200
+            data = response.json()["data"]
+            assert data["discarded"] is True, data
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT entity_type, details_json FROM audit_log "
+                            "WHERE \"action\" = 'CHAT_DISCARD'"
+                        ).columns(details_json=JSONText())
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        assert len(rows) == 1, rows
+        details = rows[0]["details_json"]
+        assert rows[0]["entity_type"] == "chat_session"
+        assert details["kind"] == "no-compute"
+        assert details["tools"] == []
+        assert details["blocked_numbers"] == ["1.23"], "질문에 있던 수가 감사 로그에 남았다"
+        assert isinstance(details["elapsed_ms"], int) and details["elapsed_ms"] >= 0
+        dumped = json.dumps(details, ensure_ascii=False)
+        assert answer not in dumped and question not in dumped and "D등급" not in dumped
+    finally:
+        await _cleanup()
+
+
 async def test_another_users_session_is_not_found(migrated_db, app_fresh_engine):
     """IT-CHAT-032 — 남의 대화는 **404**다 (``API_SPEC §15.4``).
 
