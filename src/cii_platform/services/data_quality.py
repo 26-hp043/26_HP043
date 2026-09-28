@@ -44,6 +44,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.calc.data_quality import (
+    ANOMALY_FUEL_VS_MODEL,
+    ANOMALY_SPEED_ABOVE_REFERENCE,
+    ANOMALY_SPEED_MISMATCH,
     VoyageObservation,
     co2_grams,
     completeness_ratio,
@@ -61,6 +64,7 @@ from cii_platform.port_calls.reconcile import (
     FIELD_BERTH_END,
     FIELD_BERTH_START,
     FIELD_DEPARTURE,
+    FIELD_ORDER,
     EnteredTime,
     Mismatch,
     RecordedCall,
@@ -68,6 +72,7 @@ from cii_platform.port_calls.reconcile import (
 )
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
+    UNAVAILABLE_MISSING_SPEC,
     UNAVAILABLE_NO_DATA,
     UNAVAILABLE_NO_PARAMETERS,
     spec_gap,
@@ -78,6 +83,7 @@ from cii_platform.services.request_cache import put as cache_put
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
+    SUBSTITUTION_AXIS_DISTANCE,
     SUBSTITUTION_AXIS_FUEL,
     YtdCiiOutput,
     compute_ytd_cii,
@@ -133,6 +139,44 @@ IMPACT_ONLY_VOYAGE = "ONLY_VOYAGE"
 IMPACT_BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 
 _STATUS_COMPLETED = "COMPLETED"
+#: 실적 확정 전 행의 ``codes`` — 항차 상태 값을 그대로 쓴다.
+UNCONFIRMED_COMPLETED = _STATUS_COMPLETED
+
+#: ``issues[].codes``에 나갈 수 있는 코드 전부 — **심각도마다** (#2019).
+#:
+#: 코드를 만드는 곳은 여럿이다(``calc/data_quality.py`` · ``services/fleet_summary.py`` ·
+#: ``services/ytd_cii.py`` · 이 파일). 화면이 한국어로 옮기는 표(``copy.ts`` ``REASON_TEXT``)는
+#: 모르는 코드를 **코드 그대로** 보여 주므로, 여기서 새 코드가 생겨도 아무 검사도 실패하지
+#: 않았다. 이 표가 서버 쪽 한 자리이고, ``tests/test_data_quality_codes_sync.py``가 이것을
+#: ``API_SPEC §2.16`` 표와, 화면 검사(``reasonCodes.sync.test.ts``)가 그 표를 ``REASON_TEXT``와
+#: 대조한다.
+#:
+#: 값은 **콜론 앞머리**다 — ``FUEL:HFO``의 ``FUEL``. 뒤쪽이 유종처럼 열린 값이면 앞머리만
+#: 옮기면 되지만, 공적 기록 행은 뒤쪽이 필드 코드라 화면이 **전체 코드**로 옮긴다 — 그래서
+#: 그 넷은 전체 코드로 적는다.
+ISSUE_CODES: dict[str, tuple[str, ...]] = {
+    SEVERITY_SUBSTITUTED: (SUBSTITUTION_AXIS_DISTANCE, SUBSTITUTION_AXIS_FUEL),
+    SEVERITY_UNAVAILABLE: (
+        UNAVAILABLE_NO_DATA,
+        UNAVAILABLE_MISSING_SPEC,
+        UNAVAILABLE_NO_PARAMETERS,
+        UNAVAILABLE_CALCULATION_ERROR,
+        UNAVAILABLE_FUEL_UNFILLED,
+        UNAVAILABLE_FUEL_NO_RECORD,
+    ),
+    SEVERITY_ANOMALY: (
+        ANOMALY_FUEL_VS_MODEL,
+        ANOMALY_SPEED_ABOVE_REFERENCE,
+        ANOMALY_SPEED_MISMATCH,
+    ),
+    SEVERITY_UNCONFIRMED: (UNCONFIRMED_COMPLETED,),
+    # 필드 목록은 ``reconcile.FIELD_ORDER``를 그대로 쓴다 — 대조 칸을 늘리면 여기가 함께
+    # 늘어 정본 표 대조(``test_issue_codes_match_spec``)가 붉어진다. 다시 나열하면 새 칸이
+    # 검사를 비껴간다.
+    SEVERITY_PUBLIC_RECORD: tuple(f"{PUBLIC_RECORD_CODE}:{field}" for field in FIELD_ORDER),
+}
+#: ``issues[].cii_impact_reason``에 나갈 수 있는 값 전부 (#2019).
+IMPACT_REASONS: tuple[str, ...] = (IMPACT_ONLY_VOYAGE, IMPACT_BASE_UNAVAILABLE)
 _CII_DIGITS = 4
 _RATIO_DIGITS = 4
 #: CO₂ 톤 문자열의 소수 자릿수 — `§2.7` ``co2_ton``과 같다. 표시(소수 1)보다 길어 **절사**한다
@@ -489,7 +533,7 @@ async def get_fleet_data_quality(
                 voyage_issues.append((SEVERITY_ANOMALY, list(judgement.codes)))
 
             if voyage.status == _STATUS_COMPLETED:
-                voyage_issues.append((SEVERITY_UNCONFIRMED, [_STATUS_COMPLETED]))
+                voyage_issues.append((SEVERITY_UNCONFIRMED, [UNCONFIRMED_COMPLETED]))
 
             if vessel_records:
                 entries = [

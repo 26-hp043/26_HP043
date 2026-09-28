@@ -4,10 +4,15 @@ import '../../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { DISPLAY_UNITS } from '../../display/format'
+import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
 import { FLEET_REDUCTION_COPY, TARGET_TEXT } from './copy'
-import type { EvaluateRequest, EvaluateResult, FleetReductionProvider } from './types'
+import type {
+  EvaluateRequest,
+  EvaluateResult,
+  FleetReductionProvider,
+  SavedPlanSummary,
+} from './types'
 
 /**
  * 함대 감축 계획 화면 (`UIFLOW 2-10` · #513).
@@ -507,6 +512,140 @@ describe('도구 줄 — 연료 단가 · 계획 저장 (#1757)', () => {
     expect(document.getElementById('fr-save-blocked')?.textContent).toBe(
       FLEET_REDUCTION_COPY.saveBlockedByPrice,
     )
+  })
+})
+
+/**
+ * 이어받은 단가의 출처 (#2020).
+ *
+ * 가장 최근 계획의 단가를 새 계획에 채우는 것은 09-13 결정이다(`PRD §12.3.2` · `API_SPEC §2.17.3`).
+ * 종전에는 **아무 말 없이** 채워, 사용자는 지금 시세로 넣은 값으로 읽고 그대로 저장할 수 있었다.
+ *
+ * 문장은 표시 문구라(`AGENTS §4.6`) 리터럴로 단언하지 않는다 — **어느 계획에서 왔는지가 보이는가**,
+ * **이어받은 그대로가 아닐 때 사라지는가**를 본다.
+ */
+describe('이어받은 단가는 출처를 말한다 (#2020)', () => {
+  const SAVED: SavedPlanSummary = {
+    planId: 'p1',
+    planName: '8월 감속안',
+    regulationYear: 2026,
+    target: 'NO_AT_RISK',
+    adjustments: [{ vesselId: 'v1', percent: 5 }],
+    prices: { charterUsdPerDay: { v1: '15000' }, fuelUsdPerTon: { HFO: '600' } },
+    createdAt: '2026-08-20T03:00:00Z',
+  }
+
+  function renderWithPlans(plans: SavedPlanSummary[]) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    const provider = {
+      evaluate: vi.fn(async (_req: EvaluateRequest) =>
+        result({ costs: { ...result().costs, missingFuelPrices: ['HFO'] } }),
+      ),
+      save: vi.fn(async (req: EvaluateRequest & { planName: string }) => ({
+        ...SAVED,
+        planId: 'p2',
+        planName: req.planName,
+        prices: req.prices,
+      })),
+      list: vi.fn(async () => plans),
+    } satisfies FleetReductionProvider
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={provider} />
+      </MemoryRouter>,
+    )
+    return provider
+  }
+
+  /** 출처 문장 — 계획 이름을 담은 상태 문장. 문구가 아니라 「이름이 보이는가」로 찾는다. */
+  const sourceLine = () =>
+    screen.queryAllByRole('status').find((el) => el.textContent?.includes(SAVED.planName)) ?? null
+
+  it('⚠️ 이어받으면 어느 계획에서 언제 왔는지 보인다 — 접힌 연료 단가 밖에서', async () => {
+    renderWithPlans([SAVED])
+    await screen.findByText('MV One')
+
+    const line = await waitFor(() => {
+      const found = sourceLine()
+      expect(found).not.toBeNull()
+      return found as HTMLElement
+    })
+    expect(line.textContent).toContain(formatTimestamp(SAVED.createdAt as string))
+    // 이어받은 용선료는 표에 있다 — 접힌 안쪽에만 적으면 표를 보는 사용자에게 안 보인다.
+    expect(line.closest('details')).toBeNull()
+    expect((screen.getByLabelText('MV One 일일 용선료 (USD)') as HTMLInputElement).value).toBe('15000')
+  })
+
+  it('단가 칸을 하나라도 고치면 사라진다 — 그때부터는 이어받은 값이 아니다', async () => {
+    renderWithPlans([SAVED])
+    await waitFor(() => expect(sourceLine()).not.toBeNull())
+
+    fireEvent.change(await screen.findByLabelText('MV One 일일 용선료 (USD)'), {
+      target: { value: '16000' },
+    })
+    expect(sourceLine()).toBeNull()
+  })
+
+  it('연료 단가를 고쳐도 사라진다', async () => {
+    renderWithPlans([SAVED])
+    await waitFor(() => expect(sourceLine()).not.toBeNull())
+
+    fireEvent.change(await screen.findByLabelText('중유 (HFO)'), { target: { value: '650' } })
+    expect(sourceLine()).toBeNull()
+  })
+
+  it('저장한 계획이 없으면 말할 출처가 없다', async () => {
+    renderWithPlans([])
+    await screen.findByText('MV One')
+    await screen.findByText(FLEET_REDUCTION_COPY.noPlans)
+
+    // 이름으로 찾는 것만으로는 빈 단언이다(이름이 있을 수 없다). 문구 함수에서 **이름 뒤의 고정
+    // 부분**을 뽑아, 어느 상태 문장에도 그것이 없음을 본다 — 문장의 위치·클래스가 바뀌어도
+    // 거짓 통과하지 않고, 문구를 바꿔도 함께 따라간다(`AGENTS §4.6`).
+    const tail = FLEET_REDUCTION_COPY.inheritedPrices('\u0000', null).split('\u0000')[1]
+    expect(tail.trim()).not.toBe('')
+    for (const el of screen.queryAllByRole('status')) expect(el.textContent ?? '').not.toContain(tail)
+  })
+
+  it('⚠️ 단가 없이 저장한 계획이면 이어받은 값이 없다 — 「이어받았다」고 적지 않는다', async () => {
+    renderWithPlans([{ ...SAVED, prices: { charterUsdPerDay: {}, fuelUsdPerTon: { HFO: ' ' } } }])
+    await screen.findByText('MV One')
+    await screen.findByText(FLEET_REDUCTION_COPY.loadPlaceholder)
+
+    expect(sourceLine()).toBeNull()
+  })
+
+  it('⚠️ 불러오기는 그 계획을 연 것이다 — 이어받음 문장을 쓰지 않는다', async () => {
+    const other: SavedPlanSummary = { ...SAVED, planId: 'p0', planName: '7월 기준안' }
+    renderWithPlans([SAVED, other])
+    await waitFor(() => expect(sourceLine()).not.toBeNull())
+
+    fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.loadLabel), {
+      target: { value: 'p0' },
+    })
+    expect(sourceLine()).toBeNull()
+    expect(
+      screen.queryAllByRole('status').some((el) => el.textContent?.includes(other.planName)),
+    ).toBe(false)
+  })
+
+  it('이어받은 단가로 저장하면 그 단가는 새 계획의 가정이다 — 문장을 내린다', async () => {
+    const provider = renderWithPlans([SAVED])
+    await waitFor(() => expect(sourceLine()).not.toBeNull())
+
+    fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
+      target: { value: '9월안' },
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: FLEET_REDUCTION_COPY.saveButton }))
+    })
+
+    await waitFor(() => expect(provider.save).toHaveBeenCalledTimes(1))
+    // 결정 — 저장된 계획에 출처를 남기지 않는다. 요청 모양은 그대로다.
+    expect(Object.keys(provider.save.mock.calls[0][0]).sort()).toEqual(
+      ['adjustments', 'planName', 'prices', 'regulationYear', 'target'].sort(),
+    )
+    expect(sourceLine()).toBeNull()
   })
 })
 
