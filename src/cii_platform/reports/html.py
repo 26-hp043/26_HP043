@@ -27,6 +27,8 @@ from cii_platform.reports.document import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from cii_platform.reports.document import ReportDocument
 
 #: 표지 워드마크. `frontend/public/brand/bluelog-logo-dark.svg`를 **그대로** 박아 둔다.
@@ -129,8 +131,39 @@ def _looks_numeric(value: str) -> bool:
     return True
 
 
+#: 값이 없다는 표기 (``DESIGN_SYSTEM §4.2`` · ``services/report.py``의 ``_display``).
+#: 열 종류를 판정할 때 **세지 않는다** — 빈칸 하나가 수치 열을 문자 열로 뒤집으면 그 표의
+#: 자릿수가 통째로 어긋난다. ``tests/test_reports.py``가 이 값이 문서 쪽과 같은지 본다.
+MISSING_VALUE = "—"
+
+
 def _cell(value: str, tag: str = "td") -> str:
     css = ' class="num"' if _looks_numeric(value) else ""
+    return f"<{tag}{css}>{escape(value)}</{tag}>"
+
+
+def _numeric_column(cells: Sequence[str]) -> bool:
+    """열 **전체**가 수치인가 (`#2004`).
+
+    스타일시트가 적어 둔 것은 「수치 **열**은 오른쪽 정렬 — 세로로 자릿수가 맞아야
+    읽힌다」인데, 구현은 **셀마다 따로** 판정하고 있었다. 그래서 둘이 어긋났다.
+
+    * 머리글이 자기 열과 반대쪽에 붙었다 — 「실적 CII」는 글자라 왼쪽, 그 아래 ``6.98``은
+      숫자라 오른쪽. 자릿수를 맞춰 읽으라는 정렬인데 그 기준선이 머리글에서 끊겼다.
+    * 같은 열 안에서도 ``—`` 하나가 줄을 흐트러뜨렸다.
+
+    ``TableSection.kinds``를 쓰지 않는다. 그 선언은 **CSV 직렬화**를 위한 것이고(`#1247`),
+    정렬과 뜻이 다르다 — 「완료 항차」는 ``3 (+진행 중 1)`` 꼴이 섞인다는 이유로
+    ``string``으로 선언돼 있지만 읽는 사람에게는 수치 열이다. 선언에 두 번째 뜻을 얹으면
+    한쪽을 고칠 때 다른 쪽이 조용히 움직인다.
+    """
+    present = [cell for cell in cells if cell.strip() and cell.strip() != MISSING_VALUE]
+    return bool(present) and all(_looks_numeric(cell) for cell in present)
+
+
+def _aligned(value: str, tag: str, numeric: bool) -> str:
+    """열 판정을 받아 그리는 셀. 머리글과 값이 **같은 판정**을 쓴다."""
+    css = ' class="num"' if numeric else ""
     return f"<{tag}{css}>{escape(value)}</{tag}>"
 
 
@@ -144,9 +177,22 @@ def _section_html(section: KeyValueSection | TableSection) -> str:
         )
         parts.append(f"<table><tbody>{rows}</tbody></table>")
     else:
-        head = "".join(_cell(header, "th") for header in section.headers)
+        # 열마다 한 번 판정하고 머리글과 값이 그 하나를 함께 쓴다 (`#2004`).
+        numeric = [
+            _numeric_column([row[index] for row in section.rows])
+            for index in range(len(section.headers))
+        ]
+        head = "".join(
+            _aligned(header, "th", is_num)
+            for header, is_num in zip(section.headers, numeric, strict=True)
+        )
         body = "".join(
-            "<tr>" + "".join(_cell(cell) for cell in row) + "</tr>" for row in section.rows
+            "<tr>"
+            + "".join(
+                _aligned(cell, "td", is_num) for cell, is_num in zip(row, numeric, strict=True)
+            )
+            + "</tr>"
+            for row in section.rows
         )
         parts.append(f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
 

@@ -37,7 +37,13 @@ from cii_platform.reports.document import (
     ReportDocument,
     TableSection,
 )
-from cii_platform.reports.html import LOGO_SVG, STYLESHEET, render_html
+from cii_platform.reports.html import (
+    LOGO_SVG,
+    MISSING_VALUE,
+    STYLESHEET,
+    render_html,
+)
+from cii_platform.reports.html import _section_html as section_html
 
 
 def _document(**over) -> ReportDocument:
@@ -1357,3 +1363,99 @@ def test_the_meta_tones_clear_the_contrast_floor():
         colour = _declarations(STYLESHEET, selector)["color"]
         ratio = _contrast(colour, DARKEST_PAPER)
         assert ratio >= 4.5, f"{role}({colour}) 대비 {ratio:.2f} — 4.5 미만"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 정렬은 셀이 아니라 열이 정한다 — `#2004`
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: ⚠️ 속성 앞의 공백을 **요구한다.** `[^>]*`로 두면 `<thead>`가 `th` + `ead`로 잡혀
+#: 첫 칸이 통째로 밀린다 — 이 파일을 쓰면서 실제로 걸렸다.
+_CELL = re.compile(r"<(?P<tag>th|td)(?P<attrs>(?:\s[^>]*)?)>(?P<text>.*?)</(?P=tag)>", re.S)
+
+
+def _alignment(section: TableSection) -> tuple[list[bool], list[list[bool]]]:
+    """표 한 장을 ``(머리글 정렬, 행마다의 정렬)``로 읽는다. ``True``가 오른쪽이다."""
+    rendered = section_html(section)
+    head_html, _, body_html = rendered.partition("</thead>")
+    header = ['class="num"' in m.group("attrs") for m in _CELL.finditer(head_html)]
+    rows: list[list[bool]] = []
+    for row_html in body_html.split("<tr>")[1:]:
+        rows.append(['class="num"' in m.group("attrs") for m in _CELL.finditer(row_html)])
+    return header, rows
+
+
+def test_the_header_sits_on_the_same_side_as_its_column():
+    """`#2004` — 머리글이 자기 열과 반대쪽에 붙어 있었다.
+
+    스타일시트가 적어 둔 것은 「수치 **열**은 오른쪽 정렬 — 세로로 자릿수가 맞아야
+    읽힌다」인데 구현이 **셀마다** 판정해, 「실적 CII」는 글자라 왼쪽이고 그 아래 `6.98`은
+    숫자라 오른쪽이었다. 자릿수를 맞춰 읽으라는 정렬의 기준선이 머리글에서 끊겼다.
+    """
+    section = TableSection(
+        title="연도별 추이",
+        headers=["연도", "상태", "실적 CII", "등급", "거리 (nm)"],
+        rows=[
+            ["2024", "확정", "6.98", "B", "82,441"],
+            ["2025", "진행 중", "7.31", "C", "76,002"],
+        ],
+    )
+    header, rows = _alignment(section)
+    for index, is_num in enumerate(header):
+        column = {row[index] for row in rows}
+        assert column == {is_num}, (
+            f"{section.headers[index]}: 머리글은 {'오른쪽' if is_num else '왼쪽'}인데 값은 {column}"
+        )
+    assert header == [True, False, True, False, True]
+
+
+def test_a_missing_value_does_not_flip_a_numeric_column():
+    """`—` 하나가 열을 뒤집으면 그 표의 자릿수가 통째로 어긋난다."""
+    section = TableSection(
+        title="연료 내역",
+        headers=["유종", "실적 (t)"],
+        rows=[["중유", "1,204.5"], ["경유", MISSING_VALUE], ["LNG", "88.0"]],
+    )
+    header, rows = _alignment(section)
+    assert header == [False, True]
+    # 빈칸도 열을 따라 오른쪽에 선다 — 숫자들의 오른쪽 끝과 같은 선이다.
+    assert [row[1] for row in rows] == [True, True, True]
+
+
+def test_one_word_in_a_column_pulls_the_whole_column_left():
+    """반대 방향도 고정한다 — 한 칸이라도 수치가 아니면 열이 수치 열이 아니다.
+
+    「빈칸은 세지 않는다」만 있으면 **아무 글자나** 들어와도 열이 오른쪽에 남는다.
+    """
+    section = TableSection(
+        title="완료 항차",
+        headers=["연도", "항차"],
+        rows=[["2024", "21"], ["2025", "집계 중"]],
+    )
+    header, rows = _alignment(section)
+    assert header == [True, False]
+    assert [row[1] for row in rows] == [False, False]
+
+
+def test_the_column_kinds_declaration_does_not_decide_alignment():
+    """`kinds`는 **CSV 직렬화** 선언이다 (`#1247`) — 정렬과 뜻이 다르다.
+
+    「완료 항차」는 `3 (+진행 중 1)` 꼴이 섞인다는 이유로 `string`으로 선언돼 있지만
+    읽는 사람에게는 수치 열이다. 선언에 두 번째 뜻을 얹으면 한쪽을 고칠 때 다른 쪽이
+    조용히 움직인다.
+    """
+    section = TableSection(
+        title="완료 항차",
+        headers=["완료 항차"],
+        kinds=["string"],
+        rows=[["21"], ["12 (+진행 중 1)"]],
+    )
+    header, _ = _alignment(section)
+    assert header == [True], "`string` 선언이 정렬을 끌어갔다"
+
+
+def test_the_missing_marker_matches_the_document_side():
+    """표기가 갈리면 열 판정이 **조용히** 빈칸을 값으로 세고 열이 뒤집힌다."""
+    from cii_platform.services.report import _display
+
+    assert _display(None, "cii") == MISSING_VALUE
