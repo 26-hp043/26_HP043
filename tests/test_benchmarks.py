@@ -18,14 +18,19 @@
 `PRD §16.1` 표의 초 단위 값을 옮겨 적었다. 이 파일에서 완화하지 않는다 — 임계값을
 코드에서 낮추면 정본이 요구하는 성능이 조용히 달라진다.
 
-케이스: PERF-001 · PERF-002 · PERF-003 · PERF-004 (`TEST_PLAN §14.5`)
+## 워크로드는 `cii_platform.calc.bench`에 한 벌만 있다 (`#790`)
+
+`PERF-001`·`003`·`004`의 워크로드·측정 함수·임계값은 패키지 모듈이 갖고 이 파일은
+불러 쓴다 — 운영 서버(app-01)에서 ``python -m cii_platform.calc.bench``로 **같은 계산**을
+재기 위해서다. 두 벌이면 CI가 잰 것과 운영에서 잰 것이 조용히 갈라진다.
+
+케이스: PERF-001 · PERF-002 · PERF-003 · PERF-004 · PERF-005 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations
 
 import gc
 import json
-import math
 import time
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
@@ -35,28 +40,27 @@ from uuid import UUID, uuid4
 from fixture_loader import assert_layer1_equal
 from sqlalchemy import bindparam, text
 
-from cii_platform.calc.annual_simulation import (
-    CompletedTotals,
-    RemainingVoyage,
-    project_deterministic,
-    simulate_annual,
+from cii_platform.calc import bench
+from cii_platform.calc.bench import (
+    MEASURED_RUNS,
+    P95_CII_CALCULATION,
+    P95_DETERMINISTIC,
+    P95_MONTE_CARLO_5000,
+    WARMUP_RUNS,
+    cii_calculation_workload,
+    deterministic_workload,
+    measure,
+    monte_carlo_workload,
+    p95,
 )
-from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii, calculate_required_cii
-from cii_platform.calc.rating_engine import DVector
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
 from cii_platform.db.types import UuidText
 from cii_platform.services.fleet_summary import get_fleet_summary
 from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
-# ── `TEST_PLAN §6` `[ORACLE-M-3]` 측정 조건 ──────────────────────────────────
-WARMUP_RUNS = 10
-MEASURED_RUNS = 100
-
 # ── `PRD §16.1` p95 목표 (초) — 정본 값 그대로 ────────────────────────────────
-P95_CII_CALCULATION = 1.0
+# `PERF-001`·`003`·`004`의 목표·측정 조건(warm-up 10 · 측정 100)은 `calc.bench`에 있다.
 P95_SCENARIO_COMPARE = 5.0
-P95_DETERMINISTIC = 1.0
-P95_MONTE_CARLO_5000 = 3.0
 #: PERF-005 — 선대 상한(200척)에서 대시보드 한 번의 조회. `PRD §16.1` 「초기 페이지 로드」.
 P95_FLEET_SUMMARY = 3.0
 #: `PRD §5.1`이 정한 선대 상한. 이 규모에서 재는 것이 사무직의 하루와 맞다.
@@ -88,31 +92,13 @@ _DELETE_RUNS = text("DELETE FROM calculation_run WHERE id IN :ids").bindparams(
 _FIXTURE_1 = Path(__file__).parent / "fixtures" / "cii" / "bulk_50000_hfo_2026.json"
 
 
-def _p95(samples: list[float]) -> float:
-    """nearest-rank p95 — 정렬한 표본의 ``ceil(0.95 × n)``번째."""
-    ordered = sorted(samples)
-    return ordered[math.ceil(0.95 * len(ordered)) - 1]
-
-
 def _measure(fn: Callable[[], object]) -> float:
-    """``fn``을 warm-up 뒤 100회 재고 p95(초)를 낸다. 측정 구간에서 GC를 멈춘다."""
-    for _ in range(WARMUP_RUNS):
-        fn()
-    samples: list[float] = []
-    gc.collect()
-    gc.disable()
-    try:
-        for _ in range(MEASURED_RUNS):
-            started = time.perf_counter()
-            fn()
-            samples.append(time.perf_counter() - started)
-    finally:
-        gc.enable()
-    return _p95(samples)
+    """``fn``을 warm-up 뒤 100회 재고 p95(초)를 낸다 — `calc.bench.measure` 그대로."""
+    return p95(measure(fn))
 
 
 async def _measure_async(fn: Callable[[], Awaitable[object]]) -> float:
-    """비동기 판 — ``await`` 왕복까지 측정에 넣는다."""
+    """비동기 판 — ``await`` 왕복까지 측정에 넣는다. 조건은 `calc.bench.measure`와 같다."""
     for _ in range(WARMUP_RUNS):
         await fn()
     samples: list[float] = []
@@ -125,7 +111,7 @@ async def _measure_async(fn: Callable[[], Awaitable[object]]) -> float:
             samples.append(time.perf_counter() - started)
     finally:
         gc.enable()
-    return _p95(samples)
+    return p95(samples)
 
 
 # ── PERF-001 일반 CII 계산 ────────────────────────────────────────────────────
@@ -135,73 +121,38 @@ def test_cii_calculation_p95(capsys):
     """PERF-001 — Fixture 1 기반 attained + required 계산이 p95 < 1초.
 
     워크로드가 **실제 Fixture 1**인지를 먼저 단언한다 — 값이 어긋나면 벤치마크가
-    다른 계산을 재고 있는 것이다.
+    다른 계산을 재고 있는 것이다. 운영 이미지에는 fixture 파일이 없어 `calc.bench`가
+    입력을 상수로 들고 있다 — **그 상수가 파일과 같은지**를 먼저 본다(`#790`).
     """
     fixture = json.loads(_FIXTURE_1.read_text(encoding="utf-8"))
     inp, expected = fixture["input"], fixture["expected"]
-    fuel_uses = [
-        FuelUse(f["fuel_type"], Decimal(str(f["fuel_ton"])), Decimal(str(f["cf"])))
+    assert [(f.fuel_code, f.fuel_ton, f.cf_value) for f in bench.FIXTURE_1_FUEL_USES] == [
+        (f["fuel_type"], Decimal(str(f["fuel_ton"])), Decimal(str(f["cf"])))
         for f in inp["fuel_uses"]
     ]
-    capacity = Decimal(expected["transport_capacity"])
-    distance = Decimal(str(inp["distance_nm"]))
-    # `PRD §3.3.4` reference line — BULK_CARRIER · DWT < 279,000 · 2026 z=11 (Fixture 1 조건).
-    a, c, z = Decimal("4745"), Decimal("0.622"), Decimal("11")
+    assert Decimal(expected["transport_capacity"]) == bench.FIXTURE_1_TRANSPORT_CAPACITY
+    assert Decimal(expected["reference_capacity"]) == bench.FIXTURE_1_REFERENCE_CAPACITY
+    assert Decimal(str(inp["distance_nm"])) == bench.FIXTURE_1_DISTANCE_NM
 
-    def workload():
-        attained = calculate_attained_cii(fuel_uses, capacity, distance)
-        required = calculate_required_cii(a, c, Decimal(expected["reference_capacity"]), z)
-        return attained, required
-
+    workload = cii_calculation_workload
     attained, required = workload()
     # 정본값 30자리와 작업 정밀도 원값의 비교 — `TEST_PLAN §9.1` 규칙(`fixture_loader`).
     assert_layer1_equal(str(attained.attained_cii), expected["attained_cii"])
     assert_layer1_equal(str(required.required_cii), expected["required_cii"])
 
-    p95 = _measure(workload)
-    print(f"PERF-001 p95={p95 * 1000:.2f} ms (목표 {P95_CII_CALCULATION * 1000:.0f} ms)")
-    assert p95 < P95_CII_CALCULATION
+    p95_s = _measure(workload)
+    print(f"PERF-001 p95={p95_s * 1000:.2f} ms (목표 {P95_CII_CALCULATION * 1000:.0f} ms)")
+    assert p95_s < P95_CII_CALCULATION
 
 
 # ── PERF-003 · PERF-004 기능③ — 단일 선박 · 12개월 항차 ───────────────────────
 
-_CF_HFO = 3.114
-_CAPACITY = Decimal("50000")
-_REQUIRED = Decimal("5.045066")
-#: `PRD §3.3.6` d-vector (BULK_CARRIER).
-_D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
-_SEED = 12345
-
-#: 상반기 6개월은 확정 실적, 하반기 6개월은 잔여 계획 — 「12개월 항차 데이터」.
-_COMPLETED = CompletedTotals(co2_g=6 * 250 * _CF_HFO * 1e6, distance_nm=6 * 3000.0)
-_REMAINING = [
-    RemainingVoyage(
-        distance_nm=3000.0,
-        fuel_ton=250.0,
-        cf=_CF_HFO,
-        speed_kn=14.0,
-        reference_speed_kn=14.0,
-        base_daily_foc_ton=30.0,
-    )
-    for _ in range(6)
-]
-
 
 def test_deterministic_projection_p95(capsys):
     """PERF-003 — 연간 결정론 계산이 p95 < 1초."""
-
-    def workload():
-        return project_deterministic(
-            completed=_COMPLETED,
-            remaining=_REMAINING,
-            transport_capacity=_CAPACITY,
-            required_cii=_REQUIRED,
-            d_vector=_D_VECTOR,
-        )
-
-    p95 = _measure(workload)
-    print(f"PERF-003 p95={p95 * 1000:.2f} ms (목표 {P95_DETERMINISTIC * 1000:.0f} ms)")
-    assert p95 < P95_DETERMINISTIC
+    p95_s = _measure(deterministic_workload)
+    print(f"PERF-003 p95={p95_s * 1000:.2f} ms (목표 {P95_DETERMINISTIC * 1000:.0f} ms)")
+    assert p95_s < P95_DETERMINISTIC
 
 
 def test_monte_carlo_5000_p95(capsys):
@@ -210,23 +161,26 @@ def test_monte_carlo_5000_p95(capsys):
     ``runs=5_000``은 `PRD §12.2` 기본값이자 `§16.1`이 목표를 정한 조건이다 — 화면
     체감치(`#67` 08-29 코멘트)는 1,000회 기준이라 이 조건을 잰 적이 없었다.
     """
+    assert monte_carlo_workload().runs == 5_000
+    p95_s = _measure(monte_carlo_workload)
+    print(f"PERF-004 p95={p95_s * 1000:.2f} ms (목표 {P95_MONTE_CARLO_5000 * 1000:.0f} ms)")
+    assert p95_s < P95_MONTE_CARLO_5000
 
-    def workload():
-        return simulate_annual(
-            completed=_COMPLETED,
-            remaining=_REMAINING,
-            transport_capacity=_CAPACITY,
-            required_cii=_REQUIRED,
-            d_vector=_D_VECTOR,
-            target_rating="C",
-            seed=_SEED,
-            runs=5_000,
-        )
 
-    assert workload().runs == 5_000
-    p95 = _measure(workload)
-    print(f"PERF-004 p95={p95 * 1000:.2f} ms (목표 {P95_MONTE_CARLO_5000 * 1000:.0f} ms)")
-    assert p95 < P95_MONTE_CARLO_5000
+def test_bench_main_exit_code_follows_target(monkeypatch, capsys):
+    """운영 실행(``python -m cii_platform.calc.bench``)이 목표 초과를 종료 코드로 알린다 (`#790`).
+
+    `ops.yml` `bench`의 성패는 이 종료 코드 하나로 갈린다 — 초과를 0으로 내면 운영 실행이
+    초록으로 끝난다. 실제 워크로드 대신 빈 함수로 바꿔 판정 배선만 본다.
+    """
+    monkeypatch.setattr(bench, "CASES", (bench.Case("PERF-X", "빈 함수", lambda: None, 1.0),))
+    assert bench.main() == 0
+    assert "통과" in capsys.readouterr().out
+
+    monkeypatch.setattr(bench, "CASES", (bench.Case("PERF-X", "빈 함수", lambda: None, 0.0),))
+    assert bench.main() == 1
+    out = capsys.readouterr().out
+    assert "초과" in out and "1건 목표 초과" in out
 
 
 # ── PERF-002 기능② 시나리오 3개 비교 ─────────────────────────────────────────
@@ -278,9 +232,9 @@ async def test_scenario_compare_p95(migrated_db, app_fresh_engine, capsys):
             "DETOUR",
             "SLOW_STEAMING",
         ]
-        p95 = await _measure_async(workload)
-        print(f"PERF-002 p95={p95 * 1000:.2f} ms (목표 {P95_SCENARIO_COMPARE * 1000:.0f} ms)")
-        assert p95 < P95_SCENARIO_COMPARE
+        p95_s = await _measure_async(workload)
+        print(f"PERF-002 p95={p95_s * 1000:.2f} ms (목표 {P95_SCENARIO_COMPARE * 1000:.0f} ms)")
+        assert p95_s < P95_SCENARIO_COMPARE
     finally:
         async with sessionmaker() as session:
             scenarios = await session.execute(_DELETE_SCENARIOS, {"ids": scenario_ids})
@@ -373,9 +327,9 @@ async def test_fleet_summary_200_vessels_p95(migrated_db, app_fresh_engine, caps
         # 200척이 실제로 집계에 들어갔는지 — 빈 선대를 빠르게 재고 통과하지 않는다.
         assert first["summary"]["total"] >= BENCH_FLEET_SIZE
 
-        p95 = await _measure_async(summary)
-        print(f"PERF-005 p95={p95 * 1000:.2f} ms (목표 {P95_FLEET_SUMMARY * 1000:.0f} ms)")
-        assert p95 < P95_FLEET_SUMMARY
+        p95_s = await _measure_async(summary)
+        print(f"PERF-005 p95={p95_s * 1000:.2f} ms (목표 {P95_FLEET_SUMMARY * 1000:.0f} ms)")
+        assert p95_s < P95_FLEET_SUMMARY
     finally:
         async with sessionmaker() as session:
             removed = await session.execute(
