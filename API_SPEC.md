@@ -520,8 +520,20 @@ GET /api/v1/calculations
         "attained_cii": "4.982400",
         "estimated_rating": "C"
       },
+      "weather": null,
       "needs_recalc": false,
       "created_at": "2026-07-03T12:00:00Z"
+    },
+    {
+      "calculation_run_id": "uuid",
+      "calculation_type": "SCENARIO",
+      "...": "…",
+      "weather": {
+        "model_requested": "SIMPLE_RULE",
+        "model_used": "NONE",
+        "snapshot_id": null,
+        "warnings": ["WEATHER_NONE_FALLBACK"]
+      }
     }
   ],
   "meta": {
@@ -531,6 +543,17 @@ GET /api/v1/calculations
   }
 }
 ```
+
+**`data[].weather` (#2012):** 기상 보정을 실제로 적용하는 계산(`SCENARIO` — `§5.1`)에만 객체이고, 그 밖의 종류는 `null`이다.
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `model_requested` | string \| null | 요청한 기상 모델(`§4.1` `weather_model` 코드). **`#2012` 이전 계산은 `null`**(기록 없음) — 그때까지 요청은 입력 해시 재료로만 쓰이고 저장되지 않았다 |
+| `model_used` | string \| null | **실제로 적용된** 모델. fallback이면 요청과 다르다(`NONE`) — `PRD §11.6` |
+| `snapshot_id` | string \| null | 보정에 쓴 기상 스냅샷(`§9.1`) id. 보정하지 않았으면 `null`. ⚠️ **2026-09-12(`#904` · PR #1007) 이전 계산은 보정했어도 `null`이다** — 그때까지 계산 이력에 스냅샷을 남기지 않았다 |
+| `warnings` | string[] | 이 계산의 경고 중 **기상 해석 단계가 낸 코드**만(`§1.6` `WEATHER_STALE` · `WEATHER_NONE_FALLBACK` · `EXPERIMENTAL_MODEL` · `CB_ESTIMATED` · `CB_OUT_OF_RANGE`) — 뒤의 셋은 실험 모델(`TOWNSIN_KWON_ALPHA`)이 방형계수를 쓸 때 붙는다 |
+
+> **요청과 실제를 나눠 싣는 이유** — 조회가 실패하면 요청은 `SIMPLE_RULE`인데 계산은 `NONE`으로 돈다. 요청만 보이면 보정되지 않은 값을 보정된 값으로 읽는다. 종전에는 실제 모델·스냅샷·경고가 DB에 있는데도 응답에 없어, 운영 확인(`#790`)이 스냅샷 수신 시각과 계산 시각을 **대조해 추정**해야 했다. 값은 저장된 것을 옮길 뿐 다시 계산하지 않는다(`TECH_SPEC §5.4`). 요청 모델은 계산 결과 저장본에만 기록되며 `POST /scenarios/compare` 응답(`§5.1`)은 바뀌지 않는다.
 
 **`meta` 필드:**
 
@@ -4924,3 +4947,4 @@ POST /api/v1/chat
 | 2026-09-26 | `#1948` | **v1.47 — §3.12 공적 기록으로 채우기 신설**(`POST /voyages/{id}/public-record-fill` · #1923 · `#1197` 2단계). 데이터 점검의 「공적 기록과 다름」 행에서 누른 칸 하나를 공적 재항 기록의 시각으로 바꾼다 — 서버가 기록을 다시 읽어 넣고(없음 404 · 다른 배 422 · 화면이 본 값과 다르면 409), 확정 항차는 `revert_confirmed: true`가 있어야 되돌리기 전환을 거쳐 채우며(없으면 422 · 2026-09-26 사용자 결정 B), 되돌리기·값 변경·감사(`VOYAGE_TRANSITION` · `VOYAGE_ACTUALS_FILL`)가 한 트랜잭션이다. 함께 §3.1 항차 객체에 `actual_departure_source`·`actual_arrival_source` · §2.10 구간 객체에 `started_at_source`·`ended_at_source` · §3.6·§2.11 「사람이 넣는 경로는 `USER_INPUT`만 받고, 시각을 다른 값으로 바꾸면 출처는 `null`」 각주(결정 A) · §2.16 `public_record.voyage_status`와 `mismatches[]`의 `call_year`·`call_seq`·`fetched_at`·`period_id` · §12 요약표 행. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1923) |
 | 2026-09-28 | `#1986` | §15.1 응답 예시의 `disclaimer`를 **`PRD §6.3` 새 챗봇 면책 문구**로 (`#1973` ③). 「화면의 결과를 읽는 도구 (#1533)」 문단의 인용도 새 문구에 맞춰 「면책이 말하는 BlueLog의 계산 결과를 화면과 같은 수로 인용하는 경로」로 고쳤다 — 옛 인용 「화면의 계산 결과를 풀어 쓴 것」이 사라져 문장이 성립하지 않게 된다. `§4.3`상 값 정정이라 버전은 올리지 않는다 |
 | 2026-09-28 | `#2010` | §8.4 문서 구성에 **「등급 경계」 행** · 연도별 추이에 차트 표기 (`#2002` · `PRD §25.3`). 경계값은 `§2.14` `ytd.boundaries`를 옮긴 것이다 — 리포트가 재계산하지 않는다. 응답 필드는 바뀌지 않는다(문서 내용만). `§4.3`상 행 추가라 버전은 올리지 않는다 (#2002) |
+| 2026-09-28 | `#2013` | §1.9 응답에 **`data[].weather`** 블록과 필드 표 — 요청 모델 · 실제 적용 모델 · 기상 스냅샷 id · 기상 경고 (`#2012`). 기상을 적용하는 `SCENARIO`에만 객체이고 그 밖은 `null`이다. 실제 모델·스냅샷·경고는 이미 저장돼 있었는데 응답에 없어, `#790` 운영 확인이 스냅샷 수신 시각과 계산 시각을 **대조해 추정**해야 했다. 요청 모델은 입력 해시 재료로만 쓰이고 저장되지 않아 **`#2012` 이전 계산은 `null`**이다 — 이후 계산은 저장본(`result_json.weather_model_requested`)에 남기며 `§5.1` 응답은 바뀌지 않는다. `§4.3`상 필드 표 추가라 버전은 올리지 않는다 (#2012) |

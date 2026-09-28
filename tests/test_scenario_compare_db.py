@@ -276,7 +276,51 @@ async def _seed_fresh_snapshot(session) -> UUID:
     return snapshot.id
 
 
-async def _compare(session, *, weather_model: str | None, with_coordinates: bool = True):
+def _working_provider():
+    """조회가 **성공하는** 공급자 (`#2012`).
+
+    `test_weather_fallback_db.working_provider()`와 같은 모양이다.
+
+    그 파일에서 가져오지 않고 옮겨 둔다 — 테스트 파일끼리 import하면 CI의 수집 경로에서
+    깨진다.
+    """
+    import httpx
+
+    from cii_platform.weather.open_meteo import MARINE_ENDPOINT, OpenMeteoProvider
+
+    marine = {
+        "hourly": {
+            "time": ["2026-08-18T12:00"],
+            "wave_height": [2.0],
+            "wave_direction": [0.0],
+            "wave_period": [7.0],
+        }
+    }
+    wind = {
+        "hourly": {
+            "time": ["2026-08-18T12:00"],
+            "wind_speed_10m": [8.0],
+            "wind_direction_10m": [90.0],
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(MARINE_ENDPOINT):
+            return httpx.Response(200, json=marine)
+        return httpx.Response(200, json=wind)
+
+    return OpenMeteoProvider(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+
+
+async def _compare(
+    session,
+    *,
+    weather_model: str | None,
+    with_coordinates: bool = True,
+    weather_provider=None,
+):
     from cii_platform.db.demo_seed import VESSEL_ID_BULK
     from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
@@ -291,7 +335,8 @@ async def _compare(session, *, weather_model: str | None, with_coordinates: bool
         weather_model=weather_model,
         **coordinates,
     )
-    return await compare_scenarios(session, payload, weather_provider=_dead_provider())
+    provider = weather_provider if weather_provider is not None else _dead_provider()
+    return await compare_scenarios(session, payload, weather_provider=provider)
 
 
 async def _recorded(session, run_id: str):
@@ -416,3 +461,55 @@ async def test_fallback_comparison_points_at_no_snapshot(wx_session):
     assert run_snapshot is None
     assert factors == {1.0}
     assert "WEATHER_NONE_FALLBACK" in result["warnings"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 계산 이력이 실제로 쓴 기상을 보인다 (#2012)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _listed_weather(session, run_id: str) -> dict:
+    """계산 이력 조회(`API_SPEC §1.9`)가 그 계산에 싣는 ``weather`` 블록."""
+    from cii_platform.db.demo_seed import VESSEL_ID_BULK
+    from cii_platform.services.calculation import list_calculation_runs
+
+    rows, _ = await list_calculation_runs(
+        session, calculation_type="SCENARIO", vessel_id=UUID(VESSEL_ID_BULK), limit=100
+    )
+    row = next(r for r in rows if same_uuid(r["calculation_run_id"], run_id))
+    return row["weather"]
+
+
+async def test_calculation_list_shows_the_weather_actually_used(wx_session):
+    """`#2012` — 조회가 성공하면 요청 모델 = 실제 모델과 **그 조회가 남긴** 스냅샷이 보인다.
+
+    종전에는 셋 다 DB에 있는데 응답에 없어, `#790` 운영 확인이 스냅샷 시각과 계산 시각을
+    대조해 추정해야 했다. 캐시를 심지 않고 **실제 조회 성공** 경로를 태운다.
+    """
+    result = await _compare(
+        wx_session, weather_model="SIMPLE_RULE", weather_provider=_working_provider()
+    )
+    run_snapshot, _, _ = await _recorded(wx_session, result["calculation_run_id"])
+    assert run_snapshot is not None, "조회가 성공했는데 스냅샷을 남기지 않았다"
+
+    weather = await _listed_weather(wx_session, result["calculation_run_id"])
+    assert weather["model_requested"] == "SIMPLE_RULE"
+    assert weather["model_used"] == "SIMPLE_RULE"
+    assert uuid_canon(weather["snapshot_id"]) == uuid_canon(run_snapshot)
+    assert weather["warnings"] == []
+
+
+async def test_calculation_list_shows_the_fallback_when_the_fetch_fails(wx_session):
+    """`#2012` — 좌표는 있는데 **조회 자체가 실패**하고 캐시도 없으면 요청과 실제가 갈린다.
+
+    `test_fallback_comparison_points_at_no_snapshot`의 「좌표 없음」과 다른 경로다. 요청 모델만
+    보이면 보정되지 않은 값을 보정된 값으로 읽는다(`PRD §11.6`).
+    """
+    result = await _compare(wx_session, weather_model="SIMPLE_RULE")
+    assert "WEATHER_NONE_FALLBACK" in result["warnings"]
+
+    weather = await _listed_weather(wx_session, result["calculation_run_id"])
+    assert weather["model_requested"] == "SIMPLE_RULE"
+    assert weather["model_used"] == "NONE"
+    assert weather["snapshot_id"] is None
+    assert weather["warnings"] == ["WEATHER_NONE_FALLBACK"]

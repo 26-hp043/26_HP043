@@ -60,6 +60,9 @@ class FakeCalcRow:
     )
     needs_recalc: bool = False
     created_at: datetime = field(default_factory=lambda: datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC))
+    parameters_used: dict[str, object] = field(default_factory=dict)
+    warnings_json: list[str] | None = None
+    weather_snapshot_id: str | None = None
 
 
 @pytest.fixture
@@ -220,6 +223,114 @@ class TestListCalculations:
 
         item = wired.get(ENDPOINT).json()["data"][0]
         assert item["result_summary"] == {}
+
+    def _item(self, wired: TestClient, monkeypatch: pytest.MonkeyPatch, row) -> dict:
+        from cii_platform.services import calculation as svc
+
+        async def fake_list_runs(_session, **_kwargs):
+            return [row]
+
+        monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
+        return wired.get(ENDPOINT).json()["data"][0]
+
+    def test_scenario_carries_the_weather_it_actually_used(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """`#2012` — 요청 모델 · **실제로 쓴** 모델 · 스냅샷이 응답에 나간다.
+
+        종전에는 셋 다 DB에 있는데 응답에 없어, `#790` 운영 확인이 스냅샷 시각과 계산 시각을
+        대조해 **추정**해야 했다.
+        """
+        snapshot = str(uuid4())
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={
+                "weather_model_requested": "SIMPLE_RULE",
+                "scenarios": [
+                    {"scenario_type": "DIRECT", "weather_model_used": "SIMPLE_RULE"},
+                    {"scenario_type": "DETOUR", "weather_model_used": "SIMPLE_RULE"},
+                ],
+            },
+            warnings_json=["REFERENCE_ONLY"],
+            weather_snapshot_id=snapshot,
+        )
+        assert self._item(wired, monkeypatch, row)["weather"] == {
+            "model_requested": "SIMPLE_RULE",
+            "model_used": "SIMPLE_RULE",
+            "snapshot_id": snapshot,
+            "warnings": [],
+        }
+
+    def test_a_fallback_shows_the_requested_and_the_used_model_apart(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """조회가 실패하면 요청은 보정인데 계산은 NONE이다 — 둘이 **갈려서** 보여야 한다.
+
+        요청 모델만 보이면 보정되지 않은 값을 보정된 값으로 읽는다(`PRD §11.6`).
+        """
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={
+                "weather_model_requested": "SIMPLE_RULE",
+                "scenarios": [{"weather_model_used": "NONE"}],
+            },
+            warnings_json=["WEATHER_NONE_FALLBACK", "REFERENCE_ONLY"],
+        )
+        weather = self._item(wired, monkeypatch, row)["weather"]
+        assert weather["model_requested"] == "SIMPLE_RULE"
+        assert weather["model_used"] == "NONE"
+        assert weather["snapshot_id"] is None
+        # 기상 경고만 싣는다 — 다른 경고는 이 블록의 일이 아니다.
+        assert weather["warnings"] == ["WEATHER_NONE_FALLBACK"]
+
+    def test_the_townsin_model_warnings_travel_with_the_weather(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """실험 모델이 붙이는 ``EXPERIMENTAL_MODEL``·``CB_ESTIMATED``도 기상 해석의 경고다.
+
+        ``WEATHER_`` 접두사로 걸렀다면 빠졌다 — 「CB가 선종 기본값이었나」를 볼 수 없다.
+        """
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={
+                "weather_model_requested": "TOWNSIN_KWON_ALPHA",
+                "scenarios": [{"weather_model_used": "TOWNSIN_KWON_ALPHA"}],
+            },
+            warnings_json=["EXPERIMENTAL_MODEL", "CB_ESTIMATED", "REFERENCE_ONLY"],
+        )
+        weather = self._item(wired, monkeypatch, row)["weather"]
+        assert weather["warnings"] == ["EXPERIMENTAL_MODEL", "CB_ESTIMATED"]
+
+    def test_a_scenario_saved_before_the_request_was_recorded_says_so(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """`#2012` 이전 계산은 요청 모델이 저장되지 않았다 — 지어내지 않고 ``null``이다.
+
+        fallback 여부는 그때도 경고가 말한다.
+        """
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={"scenarios": [{"weather_model_used": "NONE"}]},
+            warnings_json=["WEATHER_NONE_FALLBACK"],
+        )
+        weather = self._item(wired, monkeypatch, row)["weather"]
+        assert weather["model_requested"] is None
+        assert weather["model_used"] == "NONE"
+        assert weather["warnings"] == ["WEATHER_NONE_FALLBACK"]
+
+    def test_a_calculation_that_applies_no_weather_has_no_weather_block(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """항차 계산은 ``weather_model``을 해시 재료로만 싣고 보정은 하지 않는다.
+
+        ``weather_factor``가 ``None``이다.
+
+        블록을 내면 「모델을 골랐는데 쓰지 않았다」로 읽힌다.
+        """
+        # 실제 저장 형태 — ``weather_model``은 입력 해시 재료일 뿐 저장되지 않는다.
+        row = FakeCalcRow(warnings_json=["REFERENCE_ONLY"])
+        item = self._item(wired, monkeypatch, row)
+        assert "weather" in item and item["weather"] is None
 
     def test_filters_forwarded(self, wired: TestClient, monkeypatch: pytest.MonkeyPatch):
         """쿼리 파라미터가 저장소로 그대로 전달된다 (AND 결합)."""
