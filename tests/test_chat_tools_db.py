@@ -632,10 +632,22 @@ async def test_lookup_regulation_quotes_the_seeded_table_with_sources(session, v
     assert all(row["source_ref"] for row in result["rating_boundaries"])
     # `#1973` 후속 — 구간 문장은 **같은 행의 d 값**으로 조립된다(새 값이 아니다).
     for row in result["rating_boundaries"]:
-        assert row["grade_ranges"]["D"] == f"{row['d3']}배 초과 ~ {row['d4']}배 이하"
-        assert row["grade_ranges"]["A"] == f"{row['d1']}배 이하"
+        assert row["grade_ranges"]["D"].startswith(f"{row['d3']}배(")
+        assert (
+            row["grade_ranges"]["D"].endswith("이하")
+            and f" ~ {row['d4']}배(" in (row["grade_ranges"]["D"])
+        )
+        assert row["grade_ranges"]["A"].startswith(f"{row['d1']}배(")
     assert result["reduction_factor"]["year"] == 2026
     assert result["reduction_factor"]["source_ref"]
+    # `#1973` 폐기 후속 — 규제연도 표 **전체**가 연도와 짝지어 실린다. 값은 같은 조회
+    # 서비스에서 온다(하드코딩이 아니다).
+    all_years = await param_service.list_regulation_years(session)
+    assert [
+        (row["year"], row["z_factor_percent"], row["source_ref"])
+        for row in result["reduction_factor"]["by_year"]
+    ] == [(row["year"], row["z_factor_percent"], row["source_ref"]) for row in all_years]
+    assert len(result["reduction_factor"]["by_year"]) > 1
     assert result["fuel_cf"]["fuel_code"] == "HFO"
     assert result["fuel_cf"]["source_ref"]
     # 판본·활성·생성 시각은 보내지 않는다 — 좁게 시작한다.
