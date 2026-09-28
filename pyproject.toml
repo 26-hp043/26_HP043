@@ -36,7 +36,7 @@ dependencies = [
     # 낮은 하한을 고집할 이유가 없고, 고집하면 머지마다 같은 충돌이 되돌아온다.
     "alembic>=1.20.0,<2.0",
     "fastapi>=0.141.1,<0.150",
-    "uvicorn[standard]>=0.53.0,<0.60",
+    "uvicorn[standard]>=0.54.0,<0.60",
     "httpx>=0.28.1,<0.29",
     # `#1664` — 보고서·내보내기가 `ZoneInfo("Asia/Seoul")`을 쓴다(`services/report.py` ·
     # `services/data_export.py`). Linux 이미지는 OS의 `/usr/share/zoneinfo`로 풀리지만
