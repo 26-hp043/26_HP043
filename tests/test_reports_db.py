@@ -13,7 +13,10 @@
 
 from __future__ import annotations
 
+import csv
+import io
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -24,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.reports.csv_export import render_csv
-from cii_platform.reports.document import TableSection
+from cii_platform.reports.document import ChartSection, TableSection
 from cii_platform.services import report as report_service
 from cii_platform.services.data_quality import SEVERITY_UNCONFIRMED, get_fleet_data_quality
 from cii_platform.services.report import build_annual_report, build_voyage_report
@@ -267,6 +270,75 @@ async def test_annual_report_reuses_computed_values(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_annual_report_carries_the_rating_boundaries(session, vessel_id):
+    """`#2002` 완료 기준 ③ — 등급 경계값이 문서에 실리고 **CSV에도 나온다**.
+
+    CII 경계는 YTD 엔진이 낸 ``ytd.boundaries``를 옮긴 것이어야 한다(재계산 금지) —
+    화면(`§2.14`)과 같은 값이다. 백분율은 심은 경계 행(0.86 · 0.94 · 1.06 · 1.18)이다.
+    """
+    from cii_platform.services.cii_current import get_current_cii
+    from cii_platform.services.report import _display
+
+    await _make_voyage(session, vessel_id)
+    current, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=AS_OF)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    band = _section(document, "등급 경계")
+    assert isinstance(band, ChartSection) and band.chart == "rating_band"
+    rows = {row[0]: row[1:] for row in band.table.rows}
+    assert [rows[g][:2] for g in "ABCDE"] == [
+        ["—", "86"],
+        ["86", "94"],
+        ["94", "106"],
+        ["106", "118"],
+        ["118", "—"],
+    ]
+    published = current["ytd"]["boundaries"]
+    assert rows["A"][3] == _display(published["superior_boundary"], "cii")
+    assert rows["C"][2:] == [
+        _display(published["lower_boundary"], "cii"),
+        _display(published["upper_boundary"], "cii"),
+    ]
+    assert rows["E"][2] == _display(published["inferior_boundary"], "cii")
+
+    # 올해 위치 — 기준 대비 비율(`§2.14` ``ratio_to_required``)을 %로 옮긴 것
+    ((label, value),) = band.markers
+    ratio = Decimal(current["ytd"]["ratio_to_required"]) * 100
+    assert abs(Decimal(value) - ratio) <= Decimal("0.05"), (value, ratio)
+
+    csv_rows = list(csv.reader(io.StringIO(render_csv(document).lstrip("\ufeff"))))
+    assert ["등급 경계"] in csv_rows
+    assert ["C", "94", "106", *rows["C"][2:]] in csv_rows
+    assert [label, value] in csv_rows
+
+
+@pytest.mark.asyncio
+async def test_annual_report_declares_its_conclusion(session, vessel_id):
+    """결론은 YTD 섹션이 **선언**한다 — 올해 누적 등급과 값 한 쌍 (`#2002` · `§8.6`)."""
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    ytd = _section(document, "2026년 누적 (YTD)")
+    assert ytd.lead == ("현재 누적 기준 예상 등급", "실적 CII (attained)")
+    # 다른 섹션은 결론을 선언하지 않는다 — 결론이 둘이면 결론이 아니다.
+    others = [s for s in document.sections if s is not ytd and getattr(s, "lead", ()) != ()]
+    assert others == []
+
+
+@pytest.mark.asyncio
+async def test_annual_trend_is_a_chart_that_keeps_its_table(session, vessel_id):
+    """추이 차트는 표를 품는다 — CSV는 그 표를 그대로 낸다 (`PRD §16.4`)."""
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    trend = _section(document, "연도별 추이")
+    assert isinstance(trend, ChartSection) and trend.chart == "trend"
+    csv_text = render_csv(document)
+    for header in trend.table.headers:
+        assert header in csv_text
+
+
+@pytest.mark.asyncio
 async def test_not_underway_section_splits_by_type(session, vessel_id):
     """접안·묘박의 이동 거리 0과 운하 통과의 거리는 유형별로 나눠야 보인다."""
     period_id = uuid4()
@@ -448,6 +520,9 @@ def _numeric_declared_cells(document) -> list[tuple[str, str, str]]:
     """(표 제목, 머리글, 셀) — 수치로 선언된 열의 값 전부."""
     cells = []
     for section in document.sections:
+        # 차트가 품은 표도 CSV로 나간다 (`#2002`).
+        if isinstance(section, ChartSection):
+            section = section.table
         if not isinstance(section, TableSection) or section.kinds is None:
             continue
         for row in section.rows:
@@ -503,12 +578,17 @@ async def test_every_report_table_declares_its_numeric_columns(session, vessel_i
     voyage_doc = await build_voyage_report(session, voyage_id, as_of=AS_OF)
     annual_doc = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
 
+    # 차트가 품은 표도 CSV로 나가므로 선언 검사 대상이다 (`#2002`).
     tables = [
-        s for doc in (voyage_doc, annual_doc) for s in doc.sections if isinstance(s, TableSection)
+        s.table if isinstance(s, ChartSection) else s
+        for doc in (voyage_doc, annual_doc)
+        for s in doc.sections
+        if isinstance(s, (TableSection, ChartSection))
     ]
     assert {t.title for t in tables} >= {
         "연료 내역",
         "시나리오 사후 비교",
+        "등급 경계",
         "연도별 추이",
         "not under way 기여",
         "제출 전 자체 점검",

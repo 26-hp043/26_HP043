@@ -4,19 +4,35 @@
 않는다 — ``PRD §25.4``가 *"PDF용 수치를 별도로 계산하면 포맷마다 값이 갈린다"* 를
 경고하는 지점이다.
 
-문서는 **제목 + 메타 + 섹션 목록**이다. 섹션은 둘 중 하나다.
+문서는 **제목 + 메타 + 섹션 목록**이다. 섹션은 셋 중 하나다.
 
 * :class:`KeyValueSection` — 항목·값 쌍 (항차 요약, 목표 현황)
-* :class:`TableSection` — 머리글 + 행 (연료 내역, 연도별 추이, 시나리오 비교)
+* :class:`TableSection` — 머리글 + 행 (연료 내역, 시나리오 비교)
+* :class:`ChartSection` — **표를 품은** 차트 (등급 경계 밴드, 연도별 추이)
 
-두 형태로 충분한 이유는 리포트가 **문서이지 화면이 아니기** 때문이다. 차트·배지는
-PDF에서 잉크만 쓰고 CSV에서는 표현되지 않아, 두 포맷이 같은 내용을 담지 못하게 된다.
+## 차트는 표를 진다 (`#2002`)
+
+종전에는 두 형태로 충분하다고 적고 차트를 거절했다 — 차트는 PDF에서 잉크만 쓰고 CSV에서는
+표현되지 않아, 두 포맷이 같은 내용을 담지 못하게 된다는 이유였다. **그 이유는 지금도
+유효하다.** 달라진 것은 규격에 답이 있다는 점이다 — ``PRD §16.4`` 「차트·확률분포는 **표
+요약 제공**」.
+
+:class:`ChartSection`은 :class:`TableSection`을 **필드로** 갖는다. 표 없이는 만들 수 없고,
+CSV는 그 표를 쓰고 PDF는 차트와 표를 함께 쓴다. 두 포맷의 내용이 갈리지 않는다는 조건을
+**타입이 지킨다.** 차트가 그리는 값도 전부 그 표(와 :attr:`ChartSection.markers`)에서
+읽는다 — 렌더러가 값을 만들지 않는다는 위 원칙이 차트에도 그대로다.
+
+## 섹션 분기는 소진형이다
+
+렌더러는 섹션 종류마다 ``isinstance``로 갈라 그린다. **``else``에서 조용히 넘어가면 새 종류는
+CSV에서 제목만 남고 내용이 사라진다** — 예외도 나지 않는다(`#2002`가 찾은 종전 모양).
+그래서 분기의 끝은 ``assert_never``다. 종류를 더하면 타입 검사와 테스트가 먼저 실패한다.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, assert_never
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -75,6 +91,19 @@ class KeyValueSection:
     rows: list[tuple[str, str]]
     #: 섹션 아래에 붙는 각주. `COR-1` 같은 표기 의무를 싣는다.
     note: str | None = None
+    #: 이 섹션의 **결론**인 행의 항목명 (`#2002`). 비우면 결론이 없는 섹션이다.
+    #:
+    #: 위치로 짚지 않고 **선언**한다. 「첫 섹션의 첫 행」을 결론으로 읽는 렌더러는 섹션이나
+    #: 행 순서가 바뀌는 날 **조용히 다른 값을 결론으로 인쇄한다.** 둘까지 받는 것은 결론이
+    #: 등급과 값 **한 쌍**이기 때문이다(``DESIGN_SYSTEM §8.6`` — 「등급 배지와 값은 한 사실」).
+    #: CSV는 이 선언을 쓰지 않는다 — 행은 그대로 전부 나간다.
+    lead: tuple[str, ...] = ()
+
+    def validate(self) -> None:
+        labels = {label for label, _ in self.rows}
+        missing = [label for label in self.lead if label not in labels]
+        if missing:
+            raise ValueError(f"{self.title}: 결론으로 지정한 행이 없습니다 ({missing})")
 
 
 @dataclass(frozen=True)
@@ -106,7 +135,77 @@ class TableSection:
                 )
 
 
-Section = KeyValueSection | TableSection
+#: 차트의 종류 (`#2002`). 종류마다 품은 표가 가져야 할 열이 정해져 있다.
+#:
+#: * ``rating_band`` — 등급 경계 밴드. 표 한 행이 한 등급의 구간이다(:data:`BAND_HEADERS`)
+#: * ``trend`` — 연도별 추이. 표에 :data:`TREND_COLUMNS`가 있어야 한다
+ChartKind = Literal["rating_band", "trend"]
+
+#: 등급 경계 표의 머리글 — **이 순서 그대로**다. 렌더러가 열을 이름으로 찾지 않고 자리로
+#: 읽으므로, 순서가 어긋나면 밴드가 다른 열의 값으로 그려진다. :meth:`ChartSection.validate`가
+#: 문서를 만든 쪽에서 잡는다.
+#:
+#: 구간은 **(하한, 상한]** 이다 — 경계값과 정확히 같으면 더 우수한 등급이다(``PRD §3.3.6``).
+BAND_HEADERS: tuple[str, ...] = (
+    "등급",
+    "기준 대비 하한 (%)",
+    "기준 대비 상한 (%)",
+    "CII 하한",
+    "CII 상한",
+)
+
+#: 밴드 표의 행 순서. 등급 문자는 **표가 싣는다** — 렌더러가 순서로 A~E를 붙이지 않는다.
+BAND_GRADES: tuple[str, ...] = ("A", "B", "C", "D", "E")
+
+#: 추이 차트가 읽는 열. 표에는 다른 열이 더 있어도 된다(연도별 추이는 8열이다).
+TREND_COLUMNS: tuple[str, ...] = ("연도", "실적 CII", "기준 CII", "등급")
+
+
+@dataclass(frozen=True)
+class ChartSection:
+    """표를 품은 차트 섹션 (`#2002` · ``PRD §16.4``).
+
+    **표 없이는 만들 수 없다** — :attr:`table`이 필수 필드다. CSV는 이 표를 그대로 쓰고,
+    PDF는 차트를 그린 뒤 **표를 함께 싣는다**(차트가 있어도 표를 남긴다 — ``§16.4``).
+
+    :attr:`markers`는 차트 위에 표시하는 값(예: 올해 누적의 기준 대비 위치)이다. 표의 행이
+    아닌 값이라 따로 두되, **CSV에도 표 아래 항목·값 행으로 나간다** — 차트에만 있는 값은
+    이 모델에 둘 자리가 없다.
+    """
+
+    chart: ChartKind
+    table: TableSection
+    markers: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def title(self) -> str:
+        return self.table.title
+
+    @property
+    def note(self) -> str | None:
+        return self.table.note
+
+    def validate(self) -> None:
+        self.table.validate()
+        if self.chart == "rating_band":
+            if tuple(self.table.headers) != BAND_HEADERS:
+                raise ValueError(
+                    f"{self.title}: 등급 밴드 표의 머리글이 규격과 다릅니다 ({self.table.headers})"
+                )
+            grades = tuple(row[0] for row in self.table.rows)
+            if grades != BAND_GRADES:
+                raise ValueError(
+                    f"{self.title}: 등급 밴드 표의 행이 A~E 순서가 아닙니다 ({grades})"
+                )
+        elif self.chart == "trend":
+            missing = [name for name in TREND_COLUMNS if name not in self.table.headers]
+            if missing:
+                raise ValueError(f"{self.title}: 추이 차트가 읽을 열이 없습니다 ({missing})")
+        else:
+            assert_never(self.chart)
+
+
+Section = KeyValueSection | TableSection | ChartSection
 
 
 @dataclass(frozen=True)
@@ -127,7 +226,13 @@ class ReportDocument:
     warnings: list[str] = field(default_factory=list)
 
     def validate(self) -> None:
-        """표 섹션의 열 수를 확인한다. 문서를 만든 쪽에서 잡아야 할 오류다."""
+        """섹션마다의 규격(표 열 수 · 결론 행 · 차트가 읽을 열)을 확인한다.
+
+        문서를 만든 쪽에서 잡아야 할 오류다. 분기는 소진형이다 — 섹션 종류가 늘면 여기서
+        먼저 실패한다(`#2002`).
+        """
         for section in self.sections:
-            if isinstance(section, TableSection):
+            if isinstance(section, (KeyValueSection, TableSection, ChartSection)):
                 section.validate()
+            else:
+                assert_never(section)

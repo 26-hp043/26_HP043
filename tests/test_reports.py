@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import io
 import re
 import threading
 import time
+from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
 
@@ -26,13 +28,16 @@ import pytest
 from cii_platform.reports.csv_export import (
     BOM,
     NUMERIC_CELL,
+    _iter_csv_chunks,
     iter_table_csv,
     render_csv,
     sanitize,
     serialize_cell,
 )
 from cii_platform.reports.document import (
+    BAND_HEADERS,
     DISCLAIMER,
+    ChartSection,
     KeyValueSection,
     ReportDocument,
     TableSection,
@@ -1459,3 +1464,275 @@ def test_the_missing_marker_matches_the_document_side():
     from cii_platform.services.report import _display
 
     assert _display(None, "cii") == MISSING_VALUE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 결론 · 차트 · 소진형 분기 — `#2002` · `PRD §16.4` · `DESIGN_SYSTEM §2.4.4` · `§8.6` · `§14`
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _band(markers=(("올해 누적 실적 (기준 대비 %)", "102.3"),)) -> ChartSection:
+    return ChartSection(
+        chart="rating_band",
+        table=TableSection(
+            title="등급 경계",
+            headers=list(BAND_HEADERS),
+            kinds=["string", "numeric", "numeric", "numeric", "numeric"],
+            rows=[
+                ["A", "—", "86", "—", "6.013"],
+                ["B", "86", "94", "6.013", "6.572"],
+                ["C", "94", "106", "6.572", "7.411"],
+                ["D", "106", "118", "7.411", "8.250"],
+                ["E", "118", "—", "8.250", "—"],
+            ],
+        ),
+        markers=list(markers),
+    )
+
+
+def _trend(rows=None) -> ChartSection:
+    return ChartSection(
+        chart="trend",
+        table=TableSection(
+            title="연도별 추이",
+            headers=["연도", "실적 CII", "기준 CII", "등급"],
+            rows=rows
+            or [
+                ["2024", "6.410", "7.201", "B"],
+                ["2025", "6.900", "7.100", "B"],
+                ["2026", "7.152", "6.991", "C"],
+            ],
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class _UnknownSection:
+    """아직 렌더러가 모르는 섹션 종류 — 새 종류를 더한 날의 모양이다."""
+
+    title: str = "새 섹션"
+    note: str | None = None
+    rows: tuple = (("항목", "값"),)
+
+
+def test_csv_fails_loudly_on_a_section_kind_it_does_not_know():
+    """종전에는 ``else``가 없어 **제목만 쓰고 내용을 버렸다** — 예외도 없이 (`#2002`).
+
+    검증(``validate``)을 건너뛰고 본문을 직접 불러, 분기 자체가 소진형인지 본다.
+    """
+    document = ReportDocument(title="t", slug="t", sections=[_UnknownSection()])  # type: ignore[list-item]
+    with pytest.raises(AssertionError):
+        "".join(_iter_csv_chunks(document))
+
+
+def test_html_fails_loudly_on_a_section_kind_it_does_not_know():
+    """HTML도 같다 — 종전에는 ``else``가 표를 떠맡아 새 종류를 표인 척 그리려 했다."""
+    with pytest.raises(AssertionError):
+        section_html(_UnknownSection())  # type: ignore[arg-type]
+
+
+def test_document_validation_also_refuses_an_unknown_section_kind():
+    """검증이 먼저 막는다 — 렌더러에 닿기 전이다."""
+    document = ReportDocument(title="t", slug="t", sections=[_UnknownSection()])  # type: ignore[list-item]
+    with pytest.raises(AssertionError):
+        document.validate()
+
+
+def test_a_chart_cannot_be_built_without_its_table():
+    """`PRD §16.4` 「차트는 표 요약 제공」을 **타입이** 지킨다."""
+    with pytest.raises(TypeError):
+        ChartSection(chart="trend")  # type: ignore[call-arg]
+
+
+def test_the_band_table_must_follow_the_declared_columns():
+    """렌더러가 열을 자리로 읽는다 — 머리글이 어긋나면 다른 열의 값으로 밴드가 그려진다."""
+    wrong = ChartSection(
+        chart="rating_band",
+        table=TableSection(title="등급 경계", headers=["등급", "상한"], rows=[["A", "86"]]),
+    )
+    with pytest.raises(ValueError, match="머리글"):
+        render_html(_document(sections=[wrong]))
+
+
+def test_the_band_rows_carry_the_grade_letters_in_order():
+    """등급 문자는 **표가 싣는다** — 렌더러가 순서로 A~E를 붙이지 않는다."""
+    band = _band()
+    swapped = ChartSection(
+        chart="rating_band",
+        table=TableSection(
+            title=band.title,
+            headers=band.table.headers,
+            rows=[band.table.rows[1], band.table.rows[0], *band.table.rows[2:]],
+        ),
+    )
+    with pytest.raises(ValueError, match="A~E"):
+        render_csv(_document(sections=[swapped]))
+
+
+def test_a_trend_chart_needs_the_columns_it_draws():
+    missing = ChartSection(
+        chart="trend",
+        table=TableSection(title="연도별 추이", headers=["연도", "등급"], rows=[["2026", "C"]]),
+    )
+    with pytest.raises(ValueError, match="실적 CII"):
+        render_html(_document(sections=[missing]))
+
+
+def test_csv_writes_the_chart_table_and_its_markers():
+    """차트는 CSV에서 표현되지 않는다 — **품은 표와 표시값**이 그 내용이다 (`#2002` 완료 기준 ③)."""
+    rows = list(csv.reader(io.StringIO(render_csv(_document(sections=[_band()])).lstrip(BOM))))
+    assert list(BAND_HEADERS) in rows
+    assert ["B", "86", "94", "6.013", "6.572"] in rows
+    # 경계값은 수치 열 선언을 따라 접두 없이 나간다.
+    assert ["E", "118", "—", "8.250", "—"] in rows
+    assert ["올해 누적 실적 (기준 대비 %)", "102.3"] in rows
+
+
+def test_html_keeps_the_table_under_the_chart():
+    """차트가 있어도 표는 남는다 (`PRD §16.4`)."""
+    html = render_html(_document(sections=[_band(), _trend()]))
+    assert html.count('<svg class="chart"') == 2
+    assert html.count("<table>") == 2
+    assert "<td>B</td>" in html and "6.572" in html
+
+
+def test_every_band_grade_is_drawn_with_its_pattern_and_its_letter():
+    """흑백 인쇄에서 등급을 가르는 것은 **무늬와 문자**다 (`DESIGN_SYSTEM §14` · `§0.2` 제약 2)."""
+    html = render_html(_document(sections=[_band()]))
+    for grade in "ABCDE":
+        assert f'fill="url(#grade0-{grade})"' in html, f"{grade} 구간에 무늬가 없다"
+        assert re.search(rf'text-anchor="middle" fill="#1a1a18">{grade}</text>', html), grade
+
+
+def test_band_patterns_follow_section_2_4_4():
+    """`§2.4.4` 🔒 — A 없음(면) · B 45° · C 도트 · D 135° · E 크로스해치."""
+    html = render_html(_document(sections=[_band()]))
+
+    def pattern(grade: str) -> str:
+        found = re.search(rf'<pattern id="grade0-{grade}"[^>]*>.*?</pattern>', html)
+        assert found, grade
+        return found.group(0)
+
+    assert "<line" not in pattern("A") and "<circle" not in pattern("A")
+    assert "rotate(45)" in pattern("B") and pattern("B").count("<line") == 1
+    assert "<circle" in pattern("C")
+    assert "rotate(135)" in pattern("D") and pattern("D").count("<line") == 1
+    assert pattern("E").count("<line") == 2
+
+
+def test_band_labels_its_edges_from_the_table():
+    """눈금은 표의 「기준 대비 상한」을 그대로 적는다 — 렌더러가 경계를 만들지 않는다."""
+    html = render_html(_document(sections=[_band()]))
+    for edge in ["86", "94", "106", "118"]:
+        assert f">{edge}%</text>" in html
+
+
+def test_a_marker_beyond_the_axis_is_pinned_and_says_so():
+    """축(74~175%) 밖의 위치는 끝에 붙이고 화살표로 알린다 — 값은 문구에 그대로."""
+    html = render_html(_document(sections=[_band(markers=[("올해 누적", "190.0")])]))
+    assert "올해 누적 190.0 ▶" in html
+    html = render_html(_document(sections=[_band(markers=[("올해 누적", "60.0")])]))
+    assert "◀ 올해 누적 60.0" in html
+
+
+def test_band_without_this_year_draws_no_marker():
+    """올해 실적이 없으면 위치 표시가 없다 — 없는 위치를 만들지 않는다."""
+    html = render_html(_document(sections=[_band(markers=[])]))
+    assert 'stroke-width="2"' not in html
+
+
+def test_trend_letters_each_point_with_its_grade():
+    """차트 선에는 무늬를 쓰지 않는다 — **마커 모양과 등급 문자**가 보조 채널이다 (`§2.4.4`)."""
+    html = render_html(_document(sections=[_trend()]))
+    svg = html[
+        html.index('<svg class="chart"') : html.index("</svg>", html.index('<svg class="chart"'))
+    ]
+    assert svg.count("<circle") == 3 + 1  # 점 셋 + 범례 하나
+    for grade in ["B", "C"]:
+        assert f">{grade}</text>" in svg
+    assert 'stroke-dasharray="4 3"' in svg, "기준 CII가 점선으로 갈리지 않는다"
+
+
+def test_trend_breaks_the_line_where_a_year_is_missing():
+    """없는 값을 이어 그리면 그 사이에 값이 있던 것처럼 읽힌다."""
+    rows = [
+        ["2023", "6.1", "7.3", "A"],
+        ["2024", "6.4", "7.2", "B"],
+        ["2025", "—", "—", "—"],
+        ["2026", "7.1", "7.0", "C"],
+        ["2027", "7.2", "6.9", "D"],
+    ]
+    html = render_html(_document(sections=[_trend(rows)]))
+    # 실적·기준 각각 두 토막 → 넷
+    assert html.count("<polyline") == 4
+
+
+def test_trend_with_nothing_to_draw_keeps_only_the_table():
+    rows = [["2025", "—", "—", "—"]]
+    html = render_html(_document(sections=[_trend(rows)]))
+    assert '<svg class="chart"' not in html
+    assert ">2025</td>" in html
+
+
+def test_the_lead_is_declared_not_positional():
+    """결론은 **선언**으로 가리킨다 — 위치로 짚으면 순서가 바뀌는 날 다른 값을 결론으로 인쇄한다."""
+    section = KeyValueSection(
+        title="2026년 누적 (YTD)",
+        rows=[("실적 CII (attained)", "7.152"), ("기준 CII", "6.991"), ("예상 등급", "C")],
+        lead=("예상 등급", "실적 CII (attained)"),
+    )
+    html = section_html(section)
+    lead = re.search(r'<p class="lead">(.*?)</p>', html).group(1)
+    # 선언한 순서대로 — 등급 다음 값
+    assert lead.index("예상 등급") < lead.index("실적 CII (attained)")
+    assert "<b>C</b>" in lead and "<b>7.152</b>" in lead
+    # 결론 행은 표에서 빠지고 나머지만 남는다
+    assert html.count("7.152") == 1
+    assert '<td class="label">기준 CII</td>' in html
+
+
+def test_a_section_without_a_lead_has_no_lead_block():
+    assert 'class="lead"' not in render_html(_document())
+
+
+def test_a_lead_pointing_at_a_missing_row_is_refused():
+    section = KeyValueSection(title="YTD", rows=[("등급", "C")], lead=("실적 CII",))
+    with pytest.raises(ValueError, match="결론"):
+        render_html(_document(sections=[section]))
+
+
+def test_csv_keeps_every_row_regardless_of_the_lead():
+    """결론 선언은 표현이다 — CSV는 행을 전부 그대로 낸다."""
+    section = KeyValueSection(
+        title="YTD", rows=[("등급", "C"), ("실적 CII", "7.152")], lead=("등급",)
+    )
+    rows = list(csv.reader(io.StringIO(render_csv(_document(sections=[section])).lstrip(BOM))))
+    assert ["등급", "C"] in rows and ["실적 CII", "7.152"] in rows
+
+
+def test_charts_stay_inside_the_report_palette():
+    """차트도 닫힌 집합 안이다 — 등급 색을 쓰지 않고 **무늬와 문자**로 가른다 (`§14`)."""
+    rendered = render_html(_document(sections=[_band(), _trend()]))
+    allowed = NEUTRAL_INK | {BRAND_NAVY.upper()} | _hexes(LOGO_ASSET.read_text(encoding="utf-8"))
+    assert _hexes(rendered) - allowed == set()
+
+
+def test_charts_fetch_nothing_from_outside_the_document():
+    """무늬는 ``url(#…)`` 문서 조각으로만 참조한다 — 렌더링이 네트워크를 타지 않는다."""
+    rendered = render_html(_document(sections=[_band(), _trend()]))
+    body = rendered.replace(LOGO_SVG, "")
+    assert not re.findall(r"url\(\s*(?!#)[^)]*\)", body)
+    assert "href=" not in body and "src=" not in body
+
+
+def test_chart_axis_labels_use_the_caption_size():
+    """`DESIGN_SYSTEM §3` caption(12) · `§9.1` 🔒 — viewBox가 본문 폭에 맞아 SVG 12가 12px다."""
+    html = render_html(_document(sections=[_band(), _trend()]))
+    assert html.count('font-size="12"') == 2
+    assert html.count('viewBox="0 0 672 ') == 2
+
+
+def test_pattern_ids_do_not_collide_between_charts():
+    html = render_html(_document(sections=[_band(), _band()]))
+    ids = re.findall(r'<pattern id="([^"]+)"', html)
+    assert len(ids) == len(set(ids)) == 10
