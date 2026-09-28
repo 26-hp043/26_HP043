@@ -718,6 +718,30 @@ def _pick(row: dict[str, object], fields: tuple[str, ...]) -> dict[str, object]:
     return {key: row.get(key) for key in fields}
 
 
+def _grade_ranges(row: dict[str, object]) -> dict[str, str]:
+    """등급별 구간을 **완성된 문장**으로 — 「앞 경계 초과 · 자기 경계 이하」 (`#1973` 후속).
+
+    프롬프트 규칙만으로는 모델이 방향을 뒤집었다 — 규칙을 고친 뒤에도 운영 답이 「D: 1.0600배
+    이상, 1.1800배 미만」이었다(09-28). 모델에게 방향을 **추론하게 두지 않고** 옮겨 적을 문장을
+    준다. 경계값과 정확히 같으면 더 우수한 등급이다(``PRD §3.3.6`` ·
+    ``rating_engine.determine_rating``의 ``<=``).
+
+    **새 값이 아니다.** 같은 행의 d1~d4(저장된 자릿수 그대로의 문자열)를 조립할 뿐이라 수치
+    검증(`llm_guard`)이 대조하는 숫자도 같다. 하나라도 비면 문장을 만들지 않는다 — 빈칸을
+    채워 넣으면 없는 경계를 말하게 된다.
+    """
+    d1, d2, d3, d4 = (row.get(key) for key in ("d1", "d2", "d3", "d4"))
+    if None in (d1, d2, d3, d4):
+        return {}
+    return {
+        "A": f"{d1}배 이하",
+        "B": f"{d1}배 초과 ~ {d2}배 이하",
+        "C": f"{d2}배 초과 ~ {d3}배 이하",
+        "D": f"{d3}배 초과 ~ {d4}배 이하",
+        "E": f"{d4}배 초과",
+    }
+
+
 async def _lookup_regulation(
     session: AsyncSession, arguments: dict[str, object], vessel_id: object | None
 ) -> str:
@@ -760,7 +784,12 @@ async def _lookup_regulation(
 
     result: dict[str, object] = {
         "reference_lines": [_pick(row, _REFERENCE_LINE_FIELDS) for row in lines],
-        "rating_boundaries": [_pick(row, _BOUNDARY_FIELDS) for row in boundaries],
+        # 구간 문장은 행 안에 싣는다 — 외부 전송 화이트리스트(`llm_guard`)는 최상위 키를 보며
+        # `rating_boundaries`는 이미 허용돼 있다. 담는 값이 바뀌므로 `PRD §16.3.1` 각주에 적었다.
+        "rating_boundaries": [
+            {**_pick(row, _BOUNDARY_FIELDS), "grade_ranges": _grade_ranges(row)}
+            for row in boundaries
+        ],
         # 표에 없는 연도면 **None**으로 둔다 — 가까운 연도의 값을 대신 주면 다른 해의 감축률을
         # 그 해의 것으로 말하게 된다.
         "reduction_factor": (
