@@ -215,7 +215,14 @@ async def answer(
                 ip_address=ip_address,
             )
     except TimeoutError:
-        return _result(TURN_TIMEOUT_MESSAGE, [], discarded=True, vessel_resolved=False)
+        return _result(
+            TURN_TIMEOUT_MESSAGE,
+            [],
+            discarded=True,
+            vessel_resolved=False,
+            discard_kind="turn-timeout",
+            chat_session_id=chat_session_id,
+        )
 
 
 async def _answer_turn(
@@ -281,16 +288,34 @@ async def _answer_turn(
             response = await provider.complete(messages=messages, tools=tool_schemas())
         except LLMError as exc:
             # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`).
-            return _result(str(exc), used_tools, discarded=True)
+            return _result(
+                str(exc),
+                used_tools,
+                discarded=True,
+                discard_kind="provider-error",
+                chat_session_id=chat_session_id,
+            )
 
         if response.stop_reason == STOP_REFUSAL:
-            return _result(REFUSAL_MESSAGE, used_tools, discarded=True)
+            return _result(
+                REFUSAL_MESSAGE,
+                used_tools,
+                discarded=True,
+                discard_kind="refusal",
+                chat_session_id=chat_session_id,
+            )
 
         # ⚠️ **잘린 응답으로는 도구도 돌리지 않는다.** `tool_use` 블록의 **인자가
         # 잘려** 있을 수 있어(벤더 문서), 그대로 돌리면 **엉뚱한 값으로 계산한다** —
         # 그리고 그 결과는 수학 검증을 통과한다(도구가 실제로 낸 값이므로).
         if response.stop_reason in STOP_TRUNCATED:
-            return _result(TRUNCATED_MESSAGE, used_tools, discarded=True)
+            return _result(
+                TRUNCATED_MESSAGE,
+                used_tools,
+                discarded=True,
+                discard_kind="truncated",
+                chat_session_id=chat_session_id,
+            )
 
         if not response.tool_calls:
             reply = response.text
@@ -302,6 +327,8 @@ async def _answer_turn(
                 used_tools,
                 discarded=True,
                 vessel_resolved=effective_vessel is not None,
+                discard_kind="tool-budget",
+                chat_session_id=chat_session_id,
             )
 
         # ⚠️ **도구 왕복은 짝으로 보낸다** (`Anthropic Messages API` 규격).
@@ -351,7 +378,13 @@ async def _answer_turn(
             )
         messages.append({"role": "user", "content": results})
     else:
-        return _result(TOOL_BUDGET_MESSAGE, used_tools, discarded=True)
+        return _result(
+            TOOL_BUDGET_MESSAGE,
+            used_tools,
+            discarded=True,
+            discard_kind="tool-budget",
+            chat_session_id=chat_session_id,
+        )
 
     try:
         prior_answers = [
@@ -365,15 +398,15 @@ async def _answer_turn(
         # `#1535` — 대신 **무엇이 막혔는지만** 남긴다. 운영 4회차의 폐기는 저장도 로그도
         # 없어 막힌 수치를 되찾을 수 없었다. 수치 · 그 턴에 부른 도구 이름 · 세션만 싣고
         # **답 본문 · 질문 · 사용자는 싣지 않는다**(`PRD §16.3.1`).
-        _log.warning(
-            "챗봇 답 폐기(No-Compute) — 세션 %s · 막힌 수치 %s · 부른 도구 %s",
-            chat_session_id,
-            ", ".join(exc.numbers) or "(없음)",
-            ", ".join(used_tools) or "(없음)",
-        )
+        #
+        # `#1985` — 그 한 줄을 `_result`가 남긴다. 종전에는 폐기 경로 **일곱 중 이 하나만**
+        # 경고를 두어 나머지 여섯은 운영에서 「답이 저장되지 않았다」만 남았다.
         return _result(
             DISCARDED_MESSAGE,
             used_tools,
+            discard_kind="no-compute",
+            chat_session_id=chat_session_id,
+            detail=f"막힌 수치 {', '.join(exc.numbers) or '(없음)'}",
             discarded=True,
             vessel_resolved=effective_vessel is not None,
         )
@@ -397,13 +430,48 @@ async def _answer_turn(
     )
 
 
+#: 폐기 기록 한 줄의 **고정 접두어** (`#1985`).
+#:
+#: 운영 점검(``ops.yml task=inspect``)이 앱 로그에서 이 문자열로 줄을 골라낸다. 바꾸면 그
+#: 단계가 조용히 아무것도 못 찾으므로 ``tests/test_chat_discard_log.py``가 양쪽을 대조한다.
+DISCARD_LOG_PREFIX = "챗봇 답 폐기"
+
+
 def _result(
     text: str,
     used_tools: list[str],
     *,
     discarded: bool,
     vessel_resolved: bool = False,
+    discard_kind: str | None = None,
+    chat_session_id: UUID | None = None,
+    detail: str | None = None,
 ) -> dict[str, object]:
+    """턴 하나의 응답 봉투. **폐기면 여기서 한 줄을 남긴다** (`#1985`).
+
+    ## 왜 호출부가 아니라 여기인가
+
+    폐기 경로가 일곱(종류로는 여섯)이고 ``#1535``가 그중 **하나**(No-Compute)에만 경고를
+    두었다. 나머지는 경고조차 없어 운영에서 *「답이 저장되지 않았다」*는 사실만 남았다.
+    호출부마다 적으면 새 경로가 생길 때 빠지는데, 빠진 것은 **화면이 깨지지 않으므로**
+    발견이 늦다. 봉투를 만드는 이 자리에서 남기면 빠질 수 없다.
+
+    ## 무엇을 싣지 않는가
+
+    **답 본문 · 질문 · 사용자 · IP를 싣지 않는다** (``PRD §16.3.1``). 공개 저장소의 Actions
+    로그로 나가는 줄이므로, 실려도 되는 것은 **폐기 종류 · 세션 · 부른 도구 이름**과
+    경로별 부가값(막힌 수치처럼 그 자체로는 사람을 가리키지 않는 것)뿐이다.
+    """
+    if discarded:
+        # 종류를 적지 않은 폐기는 없다 — 적지 않으면 점검에서 가를 수 없다.
+        _log.warning(
+            "%s(%s) — 세션 %s · 부른 도구 %s%s",
+            DISCARD_LOG_PREFIX,
+            discard_kind or "unknown",
+            chat_session_id,
+            ", ".join(used_tools) or "(없음)",
+            f" · {detail}" if detail else "",
+        )
     return {
         "answer": text,
         # 면책은 **폐기했을 때도** 붙는다 — 「모든 응답에 disclaimer」가 완료 기준이다.
