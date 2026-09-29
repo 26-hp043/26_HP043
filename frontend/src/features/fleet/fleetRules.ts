@@ -158,11 +158,26 @@ export function unavailableText(reason: UnavailableReason | null): string {
  * 사유를 셋으로 나눈 이유가 여기에 있다. 「실적 없음」은 항차를 등록하면 풀리고,
  * 「제원 미입력」은 선박 정보를 채워야 풀리며, 「기준값 없음」은 **사용자가 할 수 있는
  * 것이 없다** — 이것을 「항차를 등록하세요」로 안내하면 해도 안 되는 일을 시키는 것이다.
+ *
+ * ## ⚠️ `MISSING_SPEC`이 세는 것은 셋이 아니라 둘이다 (`#2056`)
+ *
+ * 종전 문구는 「선박 제원(**선종·DWT·GT**)으로 계산할 수 없습니다」였다. 셋을 나열했지만
+ * 서버가 보는 것은 그게 아니다 — `spec_gap()`이 부르는 `resolve_transport_capacity()`는
+ *
+ * ⑴ `capacity_axis(ship_type)` — 지원하는 13개 선종에 없으면 실패
+ * ⑵ `_capacity_for_axis(vessel, axis)` — **그 선종의 축 하나**가 비었거나 0 이하면 실패
+ *
+ * 둘만 본다. DWT 기준 선종은 GT가 비어 있어도 걸리지 않고 그 반대도 같다. 그런데 종전
+ * 문구는 **GT 기준 선박의 사용자에게 DWT를 확인하라고** 말하고 있었다 — 채워도 아무것도
+ * 바뀌지 않는다. 화면이 서버보다 넓게 말한 자리다.
+ *
+ * 「제원」은 남긴다. `#2037`이 가른 것은 **화면 전용 어휘**(「제원 미비」 → 「입력 미완료」)이고,
+ * 이 문장은 서버 사유(`MISSING_SPEC`)를 푸는 쪽이라 서버 어휘를 그대로 쓴다.
  */
 export function unavailableHint(reason: UnavailableReason | null): string {
   switch (reason) {
     case 'MISSING_SPEC':
-      return '선박 제원(선종·DWT·GT)으로 계산할 수 없습니다. 선박 정보를 확인하세요.'
+      return '선종과 용량 제원이 있어야 계산할 수 있습니다. 용량은 선종에 따라 DWT 또는 GT입니다 — 선박 정보를 확인하세요.'
     case 'NO_PARAMETERS':
       return '이 선종의 규정 기준값이 등록되지 않았습니다. 운영자에게 문의하세요.'
     case 'CALCULATION_ERROR':
