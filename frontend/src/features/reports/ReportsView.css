@@ -179,7 +179,24 @@
   flex-wrap: wrap;
 }
 
-.rp__actions button {
+/*
+ * 동작 버튼의 **기본 모양** (`#2047`).
+ *
+ * ⚠️ 종전에는 `.rp__actions button`이었다. 그 선택자는 **클래스 하나 + 타입 하나**라
+ * 특이도가 `0-1-1`인데, 주 동작을 표시하는 `.rp__primary`는 `0-1-0`이다. 나중에 쓴
+ * 쪽이 이기는 것은 **특이도가 같을 때**뿐이므로 `.rp__primary`의 `background` ·
+ * `border-color` · `color` **세 줄이 통째로 버려졌고**, PDF 버튼이 나머지 둘과 똑같이
+ * 그려졌다. 코드는 「PDF가 주 동작」이라고 적고 있었지만 **읽는 사람에게만** 그랬다.
+ *
+ * 그래서 기본 쪽을 **클래스로 내린다.** 둘이 `0-1-0`으로 같아지면 소스 순서가
+ * 판정하고, 변종을 더할 때마다 같은 싸움을 다시 하지 않아도 된다. 반대로
+ * `.rp__actions .rp__primary`로 변종의 특이도를 **올리는** 길도 있으나 그때는
+ * 변종이 늘 때마다 덧대야 한다 — `#2015`가 표에서 한쪽에만 덧대다 두 화면의 증상이
+ * 뒤집혔던 자리와 같은 형태다.
+ *
+ * `styles/variantWins.sync.test.ts`가 이 역전을 센다.
+ */
+.rp__action {
   border: 1px solid var(--color-border-control);
   background: var(--surface-card);
   color: var(--text-primary);
@@ -189,17 +206,17 @@
   cursor: pointer;
 }
 
-.rp__actions button:hover:not(:disabled) {
+.rp__action:hover:not(:disabled) {
   border-color: var(--semantic-primary);
   color: var(--color-link);
 }
 
-.rp__actions button:focus-visible {
+.rp__action:focus-visible {
   outline: var(--focus-outline);
   outline-offset: 2px;
 }
 
-.rp__actions button:disabled {
+.rp__action:disabled {
   opacity: 0.6;
   cursor: default;
 }

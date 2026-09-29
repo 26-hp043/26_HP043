@@ -557,6 +557,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
           <div className="rp__actions">
             <button
               type="button"
+              className="rp__action"
               onClick={() => void run('preview')}
               disabled={busy !== null}
               data-testid="preview-button"
@@ -565,7 +566,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             </button>
             <button
               type="button"
-              className="rp__primary"
+              className="rp__action rp__primary"
               onClick={() => void run('pdf')}
               disabled={busy !== null}
               data-testid="pdf-button"
@@ -574,6 +575,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             </button>
             <button
               type="button"
+              className="rp__action"
               onClick={() => void run('csv')}
               disabled={busy !== null}
               data-testid="csv-button"
