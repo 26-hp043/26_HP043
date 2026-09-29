@@ -74,6 +74,38 @@ function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 /**
+ * 연도별 실적 응답 (`API_SPEC §2.7` · #2017). 화면이 들어오면 **선박 상세와 같은 조회**를 하므로
+ * 모든 스텁이 이 경로에 답해야 한다 — 답하지 않으면 실적 블록이 실패 상태가 되어 `alert`가 하나
+ * 더 생기고, 검증 오류를 `alert`로 찾는 검사들이 엉뚱한 것을 잡는다. 블록 자체의 검사는
+ * `AnnualSimulation.actuals.test.tsx`에 있다.
+ */
+function historyBody() {
+  return {
+    data: {
+      vessel_id: VESSEL_ID,
+      transport_capacity_basis: 'DWT',
+      years: [
+        {
+          regulation_year: 2025,
+          status: 'CONFIRMED',
+          data_available: true,
+          reason: null,
+          attained_cii: '5.412300',
+          required_cii: '5.100000',
+          rating: 'D',
+          voyage_count: 10,
+          in_progress_voyage_count: 0,
+          total_distance_nm: '60000.0',
+          total_fuel_ton: '9000.0',
+          fuels: [],
+        },
+      ],
+    },
+    meta: { as_of: AS_OF },
+  }
+}
+
+/**
  * `reproduce`에 줄 응답을 바꿔 끼울 수 있게 한다. 실행은 부를 때마다 새
  * `simulation_id`를 준다 — 실제 서버가 그렇고, 재현 상태가 **새 결과에 남지 않는가**를
  * 보려면 두 실행이 구분돼야 한다.
@@ -91,6 +123,7 @@ function stubServer(reproduce: () => Response = () => jsonResponse(body('sim-1')
       runs += 1
       return jsonResponse(body(`sim-${runs}`))
     }
+    if (url.includes('/cii-history')) return jsonResponse(historyBody())
     return jsonResponse({ data: {} })
   })
   vi.stubGlobal('fetch', fetchImpl)
@@ -235,6 +268,7 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
         return jsonResponse({ data: [{ year: 2026 }] })
       }
       if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -334,6 +368,7 @@ describe('주소의 연도로 시작한다 (#891)', () => {
         void init
         return jsonResponse(body('sim-y'))
       }
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -393,6 +428,7 @@ describe('이 실행에 쓴 항차 (#992)', () => {
       if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
       if (url.endsWith('/snapshot-voyages')) return jsonResponse(SNAPSHOT)
       if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-1'))
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     renderScreen()
@@ -460,6 +496,7 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
         return jsonResponse({ data: [{ year: 2026 }] })
       }
       if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -571,6 +608,7 @@ describe('실적 보정계수 (#363)', () => {
         return jsonResponse({ data: [{ year: 2026 }] })
       }
       if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -731,6 +769,7 @@ describe('선박 전환과 늦은 응답 (#1094)', () => {
           await held
           return jsonResponse(body('sim-late'))
         }
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
         return jsonResponse({ data: {} })
       }),
     )
@@ -878,6 +917,7 @@ describe('⑵ 확률 스택 바 — 0% 구간에는 초점이 가지 않는다 (
       const url = String(input)
       if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
       if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -914,6 +954,7 @@ describe('⑷ 주소의 연도는 목록과 대조된 뒤에만 쓴다 (#1096)',
         return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'x' } }, 500)
       }
       if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-x'))
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -1031,6 +1072,7 @@ describe('스냅샷 항차의 연료량이 없으면 「—」다 (#1095 ⑷)', 
         })
       }
       if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-1'))
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     renderScreen()
@@ -1292,6 +1334,7 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
           return jsonResponse({ data: [{ year: 2026 }] })
         }
         if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
         return jsonResponse({ data: {} })
       }),
     )
@@ -1452,6 +1495,7 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
         runs += 1
         return jsonResponse(body(`sim-${runs}`))
       }
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
       return jsonResponse({ data: {} })
     })
     vi.stubGlobal('fetch', fetchImpl)
@@ -1579,6 +1623,7 @@ describe('마지막 결과 복원과 선박 전환 (#1927 · #1701 후속)', () 
           return jsonResponse({ data: [], meta: { next_cursor: null } })
         }
         if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(body('sim-last'))
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
         return jsonResponse({ data: {} })
       }),
     )
@@ -1636,6 +1681,7 @@ describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후�
           })
         }
         if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(body('sim-last'))
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
         return jsonResponse({ data: {} })
       }),
     )

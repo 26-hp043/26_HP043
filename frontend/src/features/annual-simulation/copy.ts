@@ -285,6 +285,43 @@ export const ANNUAL_COPY = {
   reproduceErrorAction: '재현',
   reproduceErrorFallback: '같은 결과를 재현하지 못했습니다.',
 
+  /* ── 연도별 실적 (#2017 · `API_SPEC §2.7`) ─────────────────────────── */
+  /*
+   * 시뮬레이션 결과 **위**에 두는 블록이다 — 지나간 해의 확정 등급·실적 CII·기준 CII와
+   * 올해 누적. 확률을 싣지 않는다: 지나간 해는 잔여 계획이 없어 Monte Carlo 분포가 점
+   * 하나로 무너진다(`PRD §12.4.1` · `#2017` 정정 코멘트). 캡션이 **아래 결과와 성격이
+   * 다르다**는 사실을 말한다 — 같은 화면에서 확정 실적과 확률 예측이 같은 무게로 읽히면
+   * `PRD §3.2`(공식 CII와 추정값의 구분)가 흐려진다. ⚠️ 문구·배치는 개발 임시안이다.
+   */
+  actualsTitle: '연도별 실적',
+  actualsCaption:
+    '지나간 해의 확정 실적과 올해 누적입니다. 등록된 항차로 집계한 값이라 아래 시뮬레이션 결과와 달리 확률이 없습니다.',
+  /** 캡션 뒤에 붙는 단위 — `{unit}`은 서버가 준 축(`transport_capacity_basis`)으로 만든다 */
+  actualsUnit: '단위 {unit}',
+  actualsLoading: '연도별 실적을 불러오는 중입니다…',
+  // 제목은 `ErrorState`가 「{대상}을 불러오지 못했습니다」로 짓는다(`PRD §6.4`).
+  actualsErrorSubject: '연도별 실적',
+  actualsErrorFallback: '연도별 실적을 불러오지 못했습니다.',
+  /** 서버가 준 연도가 하나도 없다 — 받지 못한 것과 다르다 */
+  actualsEmpty: '표시할 연도가 없습니다.',
+  actualsColumnYear: '연도',
+  actualsColumnKind: '구분',
+  actualsColumnAttained: '실적 CII',
+  actualsColumnRequired: '기준 CII',
+  actualsColumnRating: '등급',
+  actualsColumnVoyages: '완료 항차',
+  actualsConfirmed: '확정',
+  /** `status: IN_PROGRESS` 행 — 연중 집계라 확정이 아니다 */
+  actualsInProgress: '올해 누적',
+  /*
+   * `data_available=false`인 해의 사유 (`API_SPEC §2.7` `reason`). 표 칸은 「—」로 두고 이유는
+   * 표 아래 한 번 적는다(`UIFLOW 2-3` #1580). 사유마다 사용자가 할 일이 다르다 — 파라미터는
+   * 운영자, 실적은 항차 등록.
+   */
+  actualsReasonNoParams: '{year}년 규정 파라미터가 등록되지 않아 산출할 수 없습니다.',
+  actualsReasonNoData: '{year}년에 등록된 항차 실적이 없습니다.',
+  actualsReasonOther: '{year}년 실적을 산출하지 못했습니다 ({reason}).',
+
   loading: '시뮬레이션을 실행하는 중입니다…',
   empty: '실행 조건을 고르고 실행해 주세요.',
   /*

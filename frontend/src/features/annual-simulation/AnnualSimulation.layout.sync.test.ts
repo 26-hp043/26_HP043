@@ -36,6 +36,17 @@ describe('카드 예산 — `DESIGN_SYSTEM §5`', () => {
   })
 })
 
+describe('연도별 실적 블록 — 카드 예산 밖 (#2017 · `DESIGN_SYSTEM §5`)', () => {
+  it('면을 띄우지 않는다 — 배경 · 테두리 · 그림자 없이 바닥에 놓인다', () => {
+    /*
+     * 카드 예산 4개는 입력 · 결론 띠 · 확률 분포 · 민감도로 차 있다. 이 블록이 카드가 되면
+     * 예산을 넘고, 기록된 값이 추정 카드와 같은 모양이 되어 `PRD §3.2`의 구분이 흐려진다.
+     */
+    const body = rule('.annual-sim__actuals')
+    expect(body).not.toMatch(/background|box-shadow|border/)
+  })
+})
+
 describe('스택 바 구간 안 문자 — `DESIGN_SYSTEM §10.2` 🔒 · `§14`', () => {
   it('글자 뒤에 표면색 바탕을 깐다 — 후광만으로는 사선 무늬 틈이 비친다', () => {
     const body = rule('.annual-sim__seg-label')
