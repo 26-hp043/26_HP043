@@ -208,6 +208,15 @@ export function VesselManagement() {
     }
   }, [loadGrades])
 
+  /*
+   * 표가 없는 채로 받기가 실패하면 등급순 선택지가 잠긴다. 받는 동안 등급순을 골라 두었으면
+   * 잠긴 선택지가 선택된 채로 남아 정렬 근거 없이 목록이 서므로 기본 정렬로 되돌린다 —
+   * 렌더 중에 고치는 것은 React가 권하는 「이전 값에 맞춰 상태 조정」 형태다(효과를 거치면
+   * 한 프레임 잠긴 선택지가 보인다). 직전 표가 남는 다시 받기 실패(`refreshFailed`)는
+   * 잠그지 않으므로 그대로 둔다.
+   */
+  if (gradeTable.status === 'failed' && sortKey === 'grade') setSortKey('gaps')
+
   const sorted = useMemo(
     () => sortVessels(vessels, sortKey, (v) => gradeRank(gradeCellOf(gradeTable, v.id))),
     [vessels, sortKey, gradeTable],
@@ -367,6 +376,7 @@ export function VesselManagement() {
       setVessels((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
       setActionNotice(`${updated.name}의 정보를 저장했습니다.`)
       // 제원이 바뀌면 등급이 바뀔 수 있다 — 「제원 미입력」이 풀리는 것이 이 화면의 일이다.
+      // 저장 한 번마다 **선대 전체 요약**(`/fleet/summary`)을 다시 받는다 — 선박 하나만 묻는 경로가 없다.
       void loadGrades()
       // 이 선박의 폼일 때만 닫는다. 그 사이 열린 다른 선박의 폼은 그대로 둔다.
       setEdit((current) => (current !== null && current.id === target.id ? null : current))
@@ -650,12 +660,17 @@ export function VesselManagement() {
           */}
           {(gradeTable.status === 'failed' ||
             (gradeTable.status === 'ready' && gradeTable.refreshFailed === true)) && (
-            <p
-              className="vm__partial vm__grade-failed"
-              id={GRADE_FAILED_LINE_ID}
-              data-testid="grade-failed-line"
-            >
-              <span>
+            <p className="vm__partial vm__grade-failed" data-testid="grade-failed-line">
+              {/*
+                정렬 칸의 `aria-describedby`는 **문장만** 가리킨다 — 줄 전체를 가리키면 버튼
+                이름(「다시 시도」)까지 사유로 읽힌다. 다시 받기 실패는 값이 보이던 중에 생기므로
+                `role="status"`로 낭독에 알린다. 처음 받기 실패는 칸이 `—`로 보이는 상태라
+                알리지 않는다(화면을 열 때 한꺼번에 읽히는 목록과 같다).
+              */}
+              <span
+                id={GRADE_FAILED_LINE_ID}
+                role={gradeTable.status === 'ready' ? 'status' : undefined}
+              >
                 {gradeTable.status === 'failed'
                   ? `${GRADE_FAILED_LINE} ${GRADE_SORT_DISABLED_REASON}`
                   : GRADE_REFRESH_FAILED_TEXT}
@@ -856,7 +871,7 @@ export function VesselManagement() {
   )
 }
 
-/** 목록 위 「받지 못함」 한 줄 — 잠긴 등급순 정렬 칸이 사유로 가리킨다(`aria-describedby`). */
+/** 목록 위 「받지 못함」 한 줄의 문장 — 잠긴 등급순 정렬 칸이 사유로 가리킨다(`aria-describedby`). */
 const GRADE_FAILED_LINE_ID = 'vm-grade-failed-line'
 
 /**
@@ -872,7 +887,7 @@ function GradeCellView({ cell }: { cell: GradeCell }) {
   if (cell.kind === 'rated') {
     return (
       <div className="vm__cell vm__num vm__grade" data-grade-state="rated">
-        <span className="sr-only">올해 누적 등급 </span>
+        {/* 접두어는 배지 이름이 이미 말한다 — sr-only를 더하면 「올해 누적 등급」이 두 번 읽힌다. */}
         <GradeBadge rating={cell.rating} size="xs" label={`올해 누적 등급 ${cell.rating}`} />
         <span className="vm__grade-cii">
           <span className="sr-only"> 올해 누적 CII </span>
