@@ -290,6 +290,29 @@ export function formatTimestamp(value: string | Date): string {
 }
 
 /**
+ * 순간이 속한 **KST 달력의 해** (`DESIGN_SYSTEM §4.4` 🔒 · #2056).
+ *
+ * 「올해」를 판정하는 자리는 위 `formatTimestamp`와 같은 시간대여야 한다 — 서버가 UTC로
+ * 준 `as_of`를 UTC 달력으로 읽으면 KST 1월 1일 0시~9시 사이의 실행이 **지난해**가 된다.
+ * 기기 시간대로 읽으면 같은 실행이 기기마다 다른 해가 된다. 둘 다 `§4.4`가 막은 것이다.
+ *
+ * 해석할 수 없는 값은 `null` — 지어낸 해로 판정하지 않는다. **오프셋(`Z` · `±hh:mm` · `±hhmm`)이
+ * 없는 문자열도 `null`이다** — `Date`가 그런 값을 **기기 시간대**로 읽으므로, 통과시키면 위
+ * 두 번째 갈래(기기마다 다른 해)가 뒷문으로 돌아온다. 서버는 `as_of`를 UTC 오프셋과 함께
+ * 준다(`API_SPEC §6.1`). `Date` 인스턴스는 이미 순간이라 그대로 받는다. 위 `formatTimestamp`도
+ * 같은 전제(오프셋이 있는 ISO 문자열)로 동작하며, 이 검사는 여기에만 둔다.
+ */
+export function kstYear(value: string | Date): number | null {
+  if (typeof value === 'string' && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return null
+  const at = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(at.getTime())) return null
+  const year = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric' })
+    .formatToParts(at)
+    .find((part) => part.type === 'year')?.value
+  return year === undefined ? null : Number(year)
+}
+
+/**
  * KST 시각의 UTC 기준 시차 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
  *
  * **한국은 서머타임을 쓰지 않는다** — 1988년 서울 올림픽 때가 마지막이다. 그래서 KST는

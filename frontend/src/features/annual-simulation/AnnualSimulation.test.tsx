@@ -1700,19 +1700,40 @@ describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후�
 })
 
 describe('남은 해 기준 한 줄 (#2043)', () => {
+  /*
+   * 표시 조건이 **지금의 해**도 보므로(`#2056` C⑤ · 지난해 결과를 올해 복원하면 싣지 않는다)
+   * 시계를 고정한다 — 고정하지 않으면 아래 2026 픽스처가 2027년 1월 1일에 전부 붉어진다.
+   * `data-quality/DataQuality.test.tsx`(#1584)와 같은 방식이다: `Date`만 가짜로 두어
+   * `findBy*`·`waitFor`의 실제 타이머는 그대로 돈다.
+   */
+  const NOW = '2026-09-21T06:00:00Z'
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(NOW))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   function withOutlook(outlook: FutureYearOutlook[] | undefined) {
     const payload = body('sim-1') as Record<string, any>
     if (outlook !== undefined) payload.data.future_years_outlook = outlook
     return payload
   }
 
-  function stubWith(payload: unknown) {
+  /** 기준 시각을 바꿔 끼운 응답 — 「올해」는 기기 시계가 아니라 이 값의 해다 (#2056). */
+  function withAsOf(payload: Record<string, any>, asOf: string) {
+    payload.meta = { ...payload.meta, as_of: asOf }
+    return payload
+  }
+
+  function stubWith(payload: unknown, years: number[] = [2026]) {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: unknown) => {
         const url = String(input)
         if (url.includes('/parameters/regulation-years')) {
-          return jsonResponse({ data: [{ year: 2026 }] })
+          return jsonResponse({ data: years.map((year) => ({ year })) })
         }
         if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
         return jsonResponse({ data: {} })
@@ -1827,7 +1848,7 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     ).toBeTruthy()
   })
 
-  it('빈 목록(올해 뒤의 기준 없음)은 등급을 그리지 않고 계산할 것이 없었다고 말한다', async () => {
+  it('빈 목록(올해 뒤의 기준 없음)은 등급을 그리지 않고 실행한 해가 표의 마지막 해였다고 말한다 (#2056 C⑤)', async () => {
     stubWith(withOutlook([]))
     renderScreen()
     await runOnce()
@@ -1836,7 +1857,144 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     // 등급·가정 문구가 없다 — 「이후 해는 괜찮다」로 읽히면 안 된다.
     expect(within(line).queryAllByTestId('annual-sim-future-year')).toHaveLength(0)
     expect(line.textContent).not.toContain(ANNUAL_COPY.futureYearsAssumption)
-    expect(line.textContent).toContain(ANNUAL_COPY.futureYearsUnavailable)
+    // 표시 문구라 성질을 본다(`AGENTS §4.6`) — **그 실행의 규제연도**가 문장에 들어가고,
+    // 자리표시자가 남지 않는다. 마지막 해를 박아 두면 규정연도 표가 늘 때 거짓말이 된다.
+    expect(line.textContent).toContain('2026년')
+    expect(line.textContent).not.toContain('{year}')
+    expect(line.textContent).not.toMatch(/\b[A-E]\b/)
+  })
+
+  it('지나간 해로 실행하면 줄을 싣지 않는다 — 서버가 목록을 실어도 (#2056 C⑤)', async () => {
+    // 기준 시각은 2026년(`AS_OF`)인데 2025로 실행 — 2025의 연말 예상을 2026~2030 기준에
+    // 대 보는 것은 「이대로면」이 뜻하는 바가 아니다. 위 연도별 실적 블록이 그 해를 맡는다.
+    stubWith(withOutlook(OUTLOOK), [2025, 2026])
+    renderScreen('/annual?year=2025')
+    await runOnce()
+
+    expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('지나간 해로 실행하면 빈 목록 문구도 싣지 않는다 — 「마지막 해」가 아니라 지나간 해다', async () => {
+    stubWith(withOutlook([]), [2025, 2026])
+    renderScreen('/annual?year=2025')
+    await runOnce()
+
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('기준 시각이 지난해인 실행은 지금이 올해여도 싣지 않는다 — 지금만으로 판정하지 않는다', async () => {
+    // 2026으로 실행했는데 기준 시각이 2025년이면 올해가 아니다 — 지금(2026)만 보면 보인다.
+    stubWith(withAsOf(withOutlook(OUTLOOK), '2025-06-01T00:00:00Z'))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('지금이 다음 해면 같은 실행도 싣지 않는다 — 기준 시각만으로 판정하지 않는다', async () => {
+    // 기준 시각 2026 · 실행 2026인데 지금은 2027 — 아래 결과는 이미 지나간 해다.
+    vi.setSystemTime(new Date('2027-03-01T00:00:00Z'))
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('지난해에 실행한 지난해 결과를 올해 복원하면 싣지 않는다 (#1701 복원 · 지나간 해)', async () => {
+    // 2025-12에 실행한 2025 결과가 마지막 결과로 남아 있고, 2026-01에 화면을 연다.
+    vi.setSystemTime(new Date('2026-01-15T03:00:00Z'))
+    const payload = withAsOf(withOutlook(OUTLOOK), '2025-12-15T03:00:00Z')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2025 }, { year: 2026 }] })
+        }
+        if (url.includes('/annual-simulations?vessel_id=')) {
+          return jsonResponse({
+            data: [
+              {
+                simulation_id: 'sim-last',
+                calculation_run_id: 'run-sim-last',
+                regulation_year: 2025,
+                target_rating: 'C',
+                simulation_runs: 5000,
+                as_of: null,
+                created_at: '2025-12-15T03:00:00+00:00',
+                needs_recalc: false,
+              },
+            ],
+            meta: { next_cursor: null },
+          })
+        }
+        if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(payload)
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    renderScreen()
+    // 복원된 결과가 그려졌다 — 그 위에 「이대로면 2026년 …」이 없다.
+    expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
+    expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('해의 경계는 KST다 — UTC로는 아직 지난해인 새해 첫 시각의 실행도 올해다 (`DESIGN_SYSTEM §4.4` 🔒)', async () => {
+    // UTC 2025-12-31 15:00 = KST 2026-01-01 00:00. 기준 시각과 지금이 그 순간이다 —
+    // UTC 달력으로 읽으면 어느 쪽이든 2025라 숨겨진다.
+    vi.setSystemTime(new Date('2025-12-31T15:00:00Z'))
+    stubWith(withAsOf(withOutlook(OUTLOOK), '2025-12-31T15:00:00Z'))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByTestId('annual-sim-future-years')).toBeTruthy()
+  })
+
+  it('그 1분 전은 KST로도 지난해라 싣지 않는다', async () => {
+    stubWith(withAsOf(withOutlook(OUTLOOK), '2025-12-31T14:59:00Z'))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+
+  it('같은 등급이 이어져도 해마다 따로 적는다 — 「2027–2029 D」로 묶지 않는다 (#2056 C③)', async () => {
+    // 기준선이 해마다 내려간다는 사실은 해마다 적어야 보인다.
+    const sameRating = OUTLOOK.slice(0, 3).map((row) => ({ ...row, projected_rating: 'D' as const }))
+    stubWith(withOutlook(sameRating))
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-future-years')
+    const years = within(line).getAllByTestId('annual-sim-future-year')
+    expect(years).toHaveLength(3)
+    years.forEach((node, index) => {
+      expect(node.textContent).toContain(String(sameRating[index].regulation_year))
+      expect(within(node).getByText('D')).toBeTruthy()
+    })
+    // 구간 표기(연도–연도)가 어디에도 없다.
+    expect(line.textContent).not.toMatch(/\d{4}\s*[–\-~]\s*\d{4}/)
+  })
+
+  it('가정 문구는 줄 바로 아래에 있고 하단 면책 배너에 합쳐지지 않는다 (#2056 C④)', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-future-years')
+    const assumption = within(line).getByText(ANNUAL_COPY.futureYearsAssumption)
+    // 「이대로면 …」 줄의 **바로 다음** 요소다 — 한정하는 대상에서 떨어지면 무엇에 대한 가정인지 사라진다.
+    expect(assumption.previousElementSibling?.textContent).toContain(ANNUAL_COPY.futureYearsLabel)
+    // 배너(`role="note"` · `.disclaimer-banner`) 안에 있지 않다.
+    expect(assumption.closest('[role="note"], .disclaimer-banner')).toBeNull()
+    for (const banner of document.querySelectorAll('[role="note"], .disclaimer-banner')) {
+      expect(banner.textContent).not.toContain(ANNUAL_COPY.futureYearsAssumption)
+    }
   })
 
   it('키가 없는 옛 실행에는 줄 자체가 없다 — 빈 목록과 같게 그리지 않는다', async () => {
