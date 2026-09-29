@@ -8,7 +8,7 @@ import { AnnualSimulation } from './AnnualSimulation'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
-import type { FeedbackBlock, ReductionPlanBlock } from './types'
+import type { FeedbackBlock, FutureYearOutlook, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
@@ -1696,5 +1696,154 @@ describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후�
 
     expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
     expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+  })
+})
+
+describe('남은 해 기준 한 줄 (#2043)', () => {
+  function withOutlook(outlook: FutureYearOutlook[] | undefined) {
+    const payload = body('sim-1') as Record<string, any>
+    if (outlook !== undefined) payload.data.future_years_outlook = outlook
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+        return jsonResponse({ data: {} })
+      }),
+    )
+  }
+
+  // `API_SPEC §6.1` 예시와 같은 값 — 50,000 DWT 벌크선 · 연말 예상 5.02 · required × d 절사.
+  const OUTLOOK = [
+    {
+      regulation_year: 2027,
+      required_cii: '4.896265',
+      boundaries: {
+        superior_boundary: '4.210788',
+        lower_boundary: '4.602489',
+        upper_boundary: '5.190041',
+        inferior_boundary: '5.777592',
+      },
+      projected_rating: 'C',
+    },
+    {
+      regulation_year: 2028,
+      required_cii: '4.747464',
+      boundaries: {
+        superior_boundary: '4.082819',
+        lower_boundary: '4.462616',
+        upper_boundary: '5.032311',
+        inferior_boundary: '5.602007',
+      },
+      projected_rating: 'C',
+    },
+    {
+      regulation_year: 2029,
+      required_cii: '4.598662',
+      boundaries: {
+        superior_boundary: '3.954850',
+        lower_boundary: '4.322743',
+        upper_boundary: '4.874582',
+        inferior_boundary: '5.426422',
+      },
+      projected_rating: 'D',
+    },
+    {
+      regulation_year: 2030,
+      required_cii: '4.449861',
+      boundaries: {
+        superior_boundary: '3.826881',
+        lower_boundary: '4.182870',
+        upper_boundary: '4.716853',
+        inferior_boundary: '5.250837',
+      },
+      projected_rating: 'D',
+    },
+  ] satisfies FutureYearOutlook[]
+
+  it('서버가 판정한 남은 해의 등급을 해마다 순서대로 보인다 — 화면이 경계를 다시 판정하지 않는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const years = within(screen.getByTestId('annual-sim-future-years')).getAllByTestId(
+      'annual-sim-future-year',
+    )
+    // 목록의 해 **전부**가 서버 순서대로 — 어느 해도 빠지거나 뒤바뀌지 않는다.
+    expect(years).toHaveLength(OUTLOOK.length)
+    years.forEach((node, index) => {
+      expect(node.textContent).toContain(String(OUTLOOK[index].regulation_year))
+      // 올해 등급(C)이 아니라 서버 값(2029 · 2030의 D)이 그대로 — 화면이 올해 등급을 옮겨 적지 않는다.
+      expect(within(node).getByText(OUTLOOK[index].projected_rating)).toBeTruthy()
+    })
+    expect(years.filter((node) => within(node).queryByText('D')).length).toBe(2)
+  })
+
+  it('등급 문자 뒤에 「등급」이 읽힌다 — 낭독이 「D」 한 글자로 끝나지 않는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const years = within(screen.getByTestId('annual-sim-future-years')).getAllByTestId(
+      'annual-sim-future-year',
+    )
+    years.forEach((node, index) => {
+      // 시각 숨김이라 보이는 글자에는 없고 텍스트 콘텐츠(낭독)에는 있다.
+      const unit = within(node).getByText(ANNUAL_COPY.futureYearRatingUnit.trim(), {
+        exact: false,
+      })
+      expect(unit.classList.contains('sr-only')).toBe(true)
+      expect(node.textContent).toMatch(
+        new RegExp(`${OUTLOOK[index].projected_rating}\\s*${ANNUAL_COPY.futureYearRatingUnit}`),
+      )
+    })
+  })
+
+  it('지난 해로 보내는 링크를 두지 않는다 — 위 연도별 실적 블록이 이미 맡는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    expect(within(screen.getByTestId('annual-sim-future-years')).queryByRole('link')).toBeNull()
+  })
+
+  it('가정을 함께 밝힌다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    // 정본 문구 (PRD §6.3) — 바꾸려면 PRD 개정이 먼저다.
+    expect(
+      within(screen.getByTestId('annual-sim-future-years')).getByText(
+        '올해 연말 예상 CII가 이후 해에도 그대로라고 보고 남은 규정연도의 기준에 대 본 참고 등급입니다.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('빈 목록(올해 뒤의 기준 없음)은 등급을 그리지 않고 계산할 것이 없었다고 말한다', async () => {
+    stubWith(withOutlook([]))
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-future-years')
+    // 등급·가정 문구가 없다 — 「이후 해는 괜찮다」로 읽히면 안 된다.
+    expect(within(line).queryAllByTestId('annual-sim-future-year')).toHaveLength(0)
+    expect(line.textContent).not.toContain(ANNUAL_COPY.futureYearsAssumption)
+    expect(line.textContent).toContain(ANNUAL_COPY.futureYearsUnavailable)
+  })
+
+  it('키가 없는 옛 실행에는 줄 자체가 없다 — 빈 목록과 같게 그리지 않는다', async () => {
+    stubWith(withOutlook(undefined))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
   })
 })

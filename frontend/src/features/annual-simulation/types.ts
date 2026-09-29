@@ -173,6 +173,28 @@ export interface SnapshotBlock {
   voyage_count: number
 }
 
+/**
+ * 남은 해 기준 등급 한 해분 — `API_SPEC §6.1` `future_years_outlook[]` (#2043).
+ *
+ * 올해 결정론 연말 예상 CII **하나**를 **그 규정연도의 required CII · 경계**에 대 본 등급이다.
+ * 경계는 서버가 판정했고 값도 함께 실렸다 — 화면이 `required_cii`·`boundaries`로 다시
+ * 판정하지 않는다(`#2002`).
+ */
+export interface FutureYearOutlook {
+  /** **숫자** — 올해 뒤의 규정연도 */
+  regulation_year: number
+  /** Layer 1 — 그 해 required CII */
+  required_cii: string
+  /** Layer 1 — 그 해 등급 경계 4종 (`§2.14` `ytd.boundaries`와 같은 키) */
+  boundaries: {
+    superior_boundary: string
+    lower_boundary: string
+    upper_boundary: string
+    inferior_boundary: string
+  }
+  projected_rating: Rating
+}
+
 /** `POST /annual-simulations` 응답의 `data`. */
 export interface AnnualSimulationResult {
   simulation_id: string
@@ -191,6 +213,12 @@ export interface AnnualSimulationResult {
    * 이유다. 화면이 부재를 다룬다(카드를 그리지 않는다).
    */
   feedback?: FeedbackBlock
+  /**
+   * 남은 해 기준 등급 (#2043) — 규정연도 표에서 올해 뒤의 해 전부, 오름차순. **두 상태다** —
+   * 목록(빈 목록은 「올해 뒤의 규정연도가 표에 없어 계산할 것이 없다」 · 2030년) ·
+   * **키 없음**(`#2043` 이전 실행). 둘을 같게 그리면 「이후 해는 괜찮다」로 읽힐 수 있다.
+   */
+  future_years_outlook?: FutureYearOutlook[]
   monte_carlo: MonteCarloBlock
   /** `PRD §9.4.2` — **목표 달성 확률 기반**이다. 화면이 다시 판정하지 않는다 */
   risk_level: RiskLevel
