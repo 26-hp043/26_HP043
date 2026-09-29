@@ -223,6 +223,22 @@ def _tool_output_numbers(tool_outputs: list[str]) -> set[str]:
     return numbers
 
 
+def user_number_forms(texts: Sequence[str]) -> set[str]:
+    """사용자가 친 수와 **그 표시 자릿수 표기** (`#1973` 폐기 후속).
+
+    허용 집합이 아니다 — :func:`verify_numbers`는 user 메시지를 허용하지 않는다(아래 주석).
+    이 집합은 폐기 기록에서 **빼는 데만** 쓴다. 사용자가 친 수(선사의 운항 값일 수 있다)를
+    모델이 되풀이해 막히면, 그대로 적는 순간 지우지 못하는 감사 로그와 공개 Actions 로그에
+    남는다. 반올림 표기까지 넓히는 것은 도구 수와 같은 이유다 — 「7.3456」을 친 사용자의
+    수가 답에서 「7.35」로 나와도 **같은 값**이다.
+    """
+    forms: set[str] = set()
+    for text in texts:
+        for token in extract_numbers(text):
+            forms.update(_rounded_forms(token))
+    return forms
+
+
 def verify_numbers(
     answer: str,
     tool_outputs: list[str],

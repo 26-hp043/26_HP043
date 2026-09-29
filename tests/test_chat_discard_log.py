@@ -102,6 +102,29 @@ def test_the_line_carries_kind_session_and_tools_only(caplog) -> None:
     assert secret not in line
 
 
+def test_an_all_user_numbers_discard_does_not_read_as_blank(caplog) -> None:
+    """IT-CHAT-080 (`#1973` 폐기 후속) — 막힌 수가 **전부 사용자 수**면 그렇게 적는다.
+
+    수치 검증은 막힌 수가 하나 이상일 때만 폐기한다. 호출부가 사용자가 친 수를 빼고 나면 목록이
+    빌 수 있는데, 그때 「막힌 수치 」로 빈칸을 두거나 「(없음)」으로 적으면 **막힌 수 없이
+    폐기됐다**로 읽힌다.
+    """
+    with caplog.at_level(logging.WARNING, logger=chat.__name__):
+        envelope = chat._result(
+            "폐기",
+            [],
+            discarded=True,
+            discard_kind="no-compute",
+            chat_session_id=uuid4(),
+            blocked_numbers=[],
+        )
+
+    line = caplog.records[0].getMessage()
+    assert "막힌 수치 (사용자가 친 수만" in line, line
+    assert "막힌 수치 (없음)" not in line
+    assert envelope[chat._DISCARD_AUDIT_KEY]["blocked_numbers"] == []
+
+
 def test_success_does_not_log(caplog) -> None:
     """IT-CHAT-075 — 폐기가 아니면 한 줄도 남기지 않는다(로그가 성공으로 덮이지 않는다)."""
     with caplog.at_level(logging.WARNING, logger=chat.__name__):

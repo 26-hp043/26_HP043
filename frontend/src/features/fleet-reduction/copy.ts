@@ -68,6 +68,15 @@ export const FLEET_REDUCTION_COPY = {
   fuelPricesNone: '이 계획에는 연료 단가가 필요하지 않습니다.',
   fuelPricesTitle: '연료 단가 (USD/t)',
   pricesNote: '단가는 이 계획의 가정값이며 계획과 함께 저장됩니다.',
+  /*
+   * 직전 계획에서 이어받은 단가의 출처 (#2020). 조용히 채우면 사용자는 **지금 시세로 넣은 값**으로
+   * 읽고 그대로 저장한다 — 어느 계획에서 언제 온 값인지 보여야 그대로 쓸지 고칠지 정할 수 있다
+   * (항차 계획 거리의 「좌표 추정」 표시와 같은 판단 · `#1256`). 표시 문구다(`AGENTS §4.6`).
+   */
+  inheritedPrices: (planName: string, savedAt: string | null) =>
+    savedAt === null
+      ? `「${planName}」의 단가를 이어받았습니다.`
+      : `「${planName}」(${savedAt})의 단가를 이어받았습니다.`,
 
   distributionTitle: '연말 등급 분포',
   before: '조정 전',
