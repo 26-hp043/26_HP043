@@ -11,8 +11,11 @@
 }
 
 .ytds__canvas {
-  inline-size: 100%;
-  block-size: auto;
+  /*
+   * 뷰박스가 **실제 픽셀**이라 늘이지 않는다 (`#2038`). `inline-size: 100%`를 두면
+   * 잰 폭과 그린 폭이 한 프레임 어긋나 선이 밀린다.
+   */
+  display: block;
 }
 
 /*
@@ -66,10 +69,10 @@
   stroke-width: 1;
 }
 
-/* 실적 — 실선 2px · text 색 (`§9.2`). */
+/* 실적 — 실선 1.5px · text 색 (`§9.2` · `v2.34`). */
 .ytds__actual {
   stroke: var(--color-text);
-  stroke-width: 2;
+  stroke-width: 1.5;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -78,10 +81,10 @@
   fill: var(--color-text);
 }
 
-/* 계획 — 점선 `6 4` 2px · 계열색 S1 (`§9.2` · `§9.3`). */
+/* 계획 — 점선 `6 4` 1.5px · 계열색 S1 (`§9.2` · `v2.34` · `§9.3`). */
 .ytds__plan {
   stroke: var(--color-primary);
-  stroke-width: 2;
+  stroke-width: 1.5;
   stroke-dasharray: 6 4;
   stroke-linejoin: round;
   stroke-linecap: round;

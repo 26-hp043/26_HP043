@@ -1,3 +1,4 @@
+import { useChartWidth } from '../../display/chartBox'
 import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped } from '../../display/format'
@@ -26,13 +27,20 @@ import { voyageCountText } from './voyageCount'
  * 등급은 막대 색 + 문자 라벨로 함께 표시한다.
  */
 
-const VIEW_W = 320
-const VIEW_H = 120
-const PAD_L = 8
-const PAD_R = 8
-const PAD_T = 16
+/*
+ * 높이는 **폭과 무관하게 고정한다** (`#2038`) — 폭은 `useChartWidth()`가 실제 픽셀로
+ * 재고 뷰박스가 그 값을 쓰므로 배율이 `1.0×`다. 종전에는 `320×120` 뷰박스가 폭
+ * 100%로 늘어나 1100에서 `930×349`, 1440에서 `614×230`이었다 — **넓은 창에서 더
+ * 작았다**(2단 → 1단 재배치 때문). 아래 여백값도 그때는 배율만큼 부풀던 값이라,
+ * 1:1로 바꾸며 **그리던 크기에 맞춰 다시 잡았다.**
+ */
+const VIEW_H = 200
+const PAD_L = 16
+const PAD_R = 16
+// 막대 위 라벨(HTML)이 앉을 자리. 배율이 없어지며 유저 단위 16이 곧 16px가 됐다.
+const PAD_T = 44
 // 연도 라벨이 SVG 밖으로 나가 아래 여백이 거의 필요 없다 (#723).
-const PAD_B = 6
+const PAD_B = 10
 
 interface CiiHistoryChartProps {
   years: CiiYear[]
@@ -40,6 +48,8 @@ interface CiiHistoryChartProps {
 }
 
 export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
+  // 훅은 이른 `return`보다 **앞에** 둔다 — 조건부 호출은 React가 허용하지 않는다.
+  const { ref: boxRef, width: VIEW_W } = useChartWidth()
   const unit = ciiUnit(basis)
   const withData = years.filter((y) => y.dataAvailable && y.attainedCii !== null)
 
@@ -96,9 +106,11 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
         HTML이 맡는다. 자리는 뷰박스 좌표를 백분율로 바꿔 맞춘다 — 배율이 바뀌어도
         선과 글자가 함께 움직인다.
       */}
-      <div className="history__plot">
+      <div className="history__plot" ref={boxRef}>
         <svg
           className="history__chart"
+          width={VIEW_W}
+          height={VIEW_H}
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           role="img"
           aria-label={`연도별 CII 이력 차트. 값은 아래 「${TABLE_TOGGLE}」에 있습니다. 단위 ${unit}.`}
