@@ -166,6 +166,20 @@
  * 공용 클래스로 바뀌면 조용히 안 걸리므로 입력칸 자체에 이름을 준다.
  */
 .scenario-comparison__control {
+  /*
+   * ⚠️ **이 줄이 없으면 UA 기본값이 그려진다** (`#2046`).
+   *
+   * `global.css`가 `input·select·button·textarea`에 `font-family: inherit`를 걸어
+   * 두었지만 **`font-size`는 걸지 않았다.** 컨트롤은 글자 크기를 상속하지 않으므로
+   * 부모의 본문 15가 내려오지 않고 Chrome 기본값 `13.33px`이 남는다 — `§3`이 적은
+   * 값이 화면에 나오지 않는다.
+   *
+   * 이 자리가 그랬다. 저장소를 세어 보니 **집의 컨트롤 높이 `40px`을 선언한 규칙
+   * 스물둘 중 여덟**이 같은 줄을 빠뜨리고 있었고, 항로 비교 · 선박 관리 · 항차 CII
+   * 동작의 컨트롤 블록은 **같은 일곱 줄을 복사한 것**인데 셋 다 이 줄만 없었다.
+   * `styles/controlFont.sync.test.ts`가 `40px` 가족 전체를 센다.
+   */
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */

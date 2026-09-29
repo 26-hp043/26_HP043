@@ -93,6 +93,7 @@
 }
 
 .vessel-management__button {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-16);
   border: 1px solid var(--color-border-control);
@@ -126,6 +127,7 @@
 }
 
 .vessel-management__submit {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-24);
   border: none;
@@ -200,6 +202,9 @@
  * 클래스로 바뀌면 조용히 안 걸리므로 입력칸에 이름을 준다.
  */
 .vessel-management__control {
+  /* `§3`이 적은 값이 화면에 나오려면 이 줄이 있어야 한다 — 컨트롤은 글자 크기를
+     상속하지 않는다 (`#2046`의 세 복사본 중 하나). */
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */

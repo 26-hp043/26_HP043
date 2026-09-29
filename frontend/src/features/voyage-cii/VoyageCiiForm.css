@@ -115,6 +115,7 @@
 
 /* 선택지가 하나뿐인 항목 — 컨트롤 없이 값만 보인다 */
 .voyage-cii-form__static {
+  font-size: var(--font-size-body);
   display: flex;
   align-items: center;
   min-height: 40px;
