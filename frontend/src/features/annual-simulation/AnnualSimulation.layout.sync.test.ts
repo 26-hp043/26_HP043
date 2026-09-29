@@ -63,3 +63,11 @@ describe('분포 범위 막대 높이 — `DESIGN_SYSTEM §10.1` 〔확정〕 20
     expect(body).not.toMatch(/height:\s*\d+px/)
   })
 })
+
+describe('연도별 실적 표의 정렬 — 숫자만 오른쪽 (#2017 · `DESIGN_SYSTEM §8`)', () => {
+  it('공용 표 규칙이 모든 칸을 오른쪽에 붙이므로, 이 표의 문자 칸은 왼쪽으로 되돌린다', () => {
+    // 공용 규칙이 오른쪽이라는 전제가 바뀌면 이 검사도 다시 본다.
+    expect(CSS).toMatch(/\.annual-sim__table th,\s*\.annual-sim__table td\s*\{[^}]*text-align:\s*right/)
+    expect(rule('.annual-sim__actuals-table :is(th, td):not(.num)')).toMatch(/text-align:\s*left/)
+  })
+})
