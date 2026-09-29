@@ -9,7 +9,7 @@ import type { VesselListOptions } from './provider'
  * `API_SPEC §2.1`이 `search`(선박명 또는 IMO)와 `ship_type`을 **처음부터** 정의하고
  * 있고 서버도 둘 다 구현했다. 화면이 쓰지 않았을 뿐이다.
  *
- * 화면에서 거르면 **받은 페이지 안에서만** 맞다 — 지금 정렬과 제원 미비 칩이 그렇고,
+ * 화면에서 거르면 **받은 페이지 안에서만** 맞다 — 지금 정렬과 입력 미완료 칩이 그렇고,
  * 화면이 그 사실을 적고 있다(`LOADED_PARTIAL_HINT` · `#1102` ⑶). 검색을 같은 방식으로
  * 하면 찾는 배가 다음 페이지에 있을 때 **「없다」와 「이 페이지에 없다」가 같은 모양**이
  * 된다. `#1741`이 선박 상세 항차 목록에서 화면 정렬을 거절한 이유와 같다.
@@ -47,7 +47,7 @@ export function toListOptions(query: VesselQuery, cursor?: string): VesselListOp
   return options
 }
 
-/** 조건이 하나라도 걸려 있는가. 제원 미비 칩은 **화면 몫**이라 따로 받는다. */
+/** 조건이 하나라도 걸려 있는가. 입력 미완료 칩은 **화면 몫**이라 따로 받는다. */
 export function isFiltered(query: VesselQuery, specGapOnly: boolean): boolean {
   return query.search.trim() !== '' || query.shipType !== '' || specGapOnly
 }
@@ -72,7 +72,7 @@ export function activeFilters(query: VesselQuery, specGapOnly: boolean): ActiveF
     const option = SHIP_TYPE_OPTIONS.find((item) => item.code === query.shipType)
     filters.push({ key: 'shipType', label: `선종 ${option?.label ?? query.shipType}` })
   }
-  if (specGapOnly) filters.push({ key: 'specGap', label: '제원 미비만' })
+  if (specGapOnly) filters.push({ key: 'specGap', label: '입력 미완료만' })
   return filters
 }
 
