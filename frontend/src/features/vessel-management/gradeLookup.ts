@@ -22,7 +22,7 @@ import type { Rating } from '../voyage-cii/types'
  * | 상태 | 뜻 | 사용자가 할 일 |
  * |---|---|---|
  * | `loading` | 아직 받는 중 | 기다린다 |
- * | `failed` | 요약을 **받지 못했다** | 다시 연다 · 운영자 문의 |
+ * | `failed` | 요약을 **받지 못했다** | 목록 위 「다시 시도」 |
  * | `unavailable` | 받았는데 서버가 **값을 내지 못했다**(사유 4종) | 사유마다 다르다(`unavailableHint`) |
  * | `rated` | 값이 있다 | — |
  *
@@ -33,7 +33,7 @@ import type { Rating } from '../voyage-cii/types'
  */
 
 /** 행에 붙일 값 — 대시보드가 파싱한 `FleetVessel`에서 필요한 것만 옮긴다. */
-export type GradeEntry = Pick<
+type GradeEntry = Pick<
   FleetVessel,
   'ytdRating' | 'ytdAttainedCii' | 'ytdRequiredCii' | 'dataAvailable' | 'unavailableReason'
 >
@@ -47,8 +47,8 @@ export type GradeTable =
       byId: ReadonlyMap<string, GradeEntry>
       /**
        * 다시 받기(제원 저장 뒤)가 실패했다. 표는 **직전에 받은 것 그대로**다 — 값이 있던
-       * 칸을 「받지 못함」으로 바꾸면 방금까지 보이던 등급이 사라진다. 이 플래그를 화면에
-       * 어떻게 알릴지는 디자인 확인 ⑶(받지 못함 표시)에 따라 바뀔 수 있다.
+       * 칸을 「받지 못함」으로 바꾸면 방금까지 보이던 등급이 사라진다. 화면은 이 플래그를
+       * 목록 위 한 줄(`GRADE_REFRESH_FAILED_TEXT`) + 「다시 시도」로 알린다(디자인 확인 ⑶).
        */
       refreshFailed?: boolean
     }
@@ -144,15 +144,35 @@ export function gradeRank(cell: GradeCell): number | null {
   return cell.kind === 'rated' ? GRADE_ORDER[cell.rating] : null
 }
 
-/** 요약을 받지 못했을 때의 짧은 표시. 「실적 없음」 등 서버 사유와 다른 말이어야 한다. */
-export const GRADE_FAILED_TEXT = '불러오지 못함'
-export const GRADE_FAILED_HINT =
-  '선대 요약을 불러오지 못해 등급을 표시할 수 없습니다. 목록은 그대로 쓸 수 있습니다.'
+/*
+ * ── 화면 문구 (#2018 · 디자인 확인 ⑶ 2026-09-29 `rlatnals4114`) ─────────────
+ *
+ * 전부 **표시 문구**다(`AGENTS §4.6`) — 원문은 디자인 담당이 정해 올리기로 했고, 지금 것은
+ * 개발 임시 문구다. 정해진 것은 문구가 아니라 **갈래**다.
+ *
+ * - **받지 못함**(연결의 문제)은 **목록 위 한 줄**로 한 번만 말한다. 호출이 실패하면 모든
+ *   행이 같은 상태라 행마다 적으면 같은 말이 스무 번 뜬다. 칸에는 `—`만 둔다.
+ * - **계산하지 못함**(선박의 문제)은 칸마다 `unavailableText()`로 말한다(대시보드와 같은 문구).
+ * - 둘은 **문장에서도 갈린다** — 사용자가 할 일이 다르다(앞은 다시 시도, 뒤는 제원·항차 입력).
+ */
 export const GRADE_LOADING_TEXT = '불러오는 중'
 export const GRADE_ABSENT_HINT = '아직 선대 요약에 없는 선박입니다. 다시 열면 표시됩니다.'
-/**
- * 다시 받기가 실패했을 때 목록 위 한 줄 — 표시 문구다(`AGENTS §4.6` · 디자인 담당이 바꿀
- * 수 있다). 노출 여부·위치는 디자인 확인 ⑶(받지 못함 표시)에 따라 바뀔 수 있다.
- */
+/** 처음 받기가 실패했을 때 목록 위 한 줄. */
+export const GRADE_FAILED_LINE =
+  '등급을 받아 오지 못해 등급 칸을 비워 두었습니다. 선박을 계산하지 못한 것이 아니라 연결 문제입니다.'
+/** 다시 받기(제원 저장 뒤)가 실패했을 때 목록 위 한 줄 — 칸은 직전 값 그대로다. */
 export const GRADE_REFRESH_FAILED_TEXT =
-  '등급을 새로 고치지 못했습니다. 표시된 등급은 저장 전에 받은 값입니다.'
+  '등급을 새로 받아 오지 못했습니다. 표시된 등급은 저장 전에 받은 값입니다.'
+/** 목록 위 한 줄 옆의 텍스트 버튼(`DESIGN_SYSTEM §8`). */
+export const GRADE_RETRY_TEXT = '다시 시도'
+/**
+ * 받지 못한 상태에서 등급순 선택지를 잠그는 사유 — `DESIGN_SYSTEM §14` 「비활성 컨트롤은
+ * 왜를 함께 낸다」. 정렬할 값이 없는데 고를 수 있으면 눌러 보고서야 알게 된다.
+ *
+ * 두 자리에 나눠 낸다. **선택지 옆에는 짧게**(`GRADE_SORT_DISABLED_SUFFIX`) — `<select>`는
+ * 가장 긴 선택지만큼 넓어지므로, 긴 문장을 붙이면 받지 못한 동안만 정렬 칸이 300px 가까이
+ * 늘었다(1440 실측). **문장은 목록 위 한 줄**(`GRADE_SORT_DISABLED_REASON`)이 맡고,
+ * 정렬 칸이 `aria-describedby`로 그 줄을 가리켜 낭독에도 닿는다.
+ */
+export const GRADE_SORT_DISABLED_SUFFIX = '(받지 못함)'
+export const GRADE_SORT_DISABLED_REASON = '등급순 정렬은 등급을 받은 뒤에 쓸 수 있습니다.'

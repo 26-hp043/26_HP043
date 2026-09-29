@@ -8,6 +8,13 @@ import { VesselManagement } from './VesselManagement'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
+import { MISSING } from './listRules'
+import {
+  GRADE_FAILED_LINE,
+  GRADE_RETRY_TEXT,
+  GRADE_SORT_DISABLED_REASON,
+  GRADE_SORT_DISABLED_SUFFIX,
+} from './gradeLookup'
 
 /**
  * 최초 조회 중 본문이 비지 않는다 (#824 ⑷).
@@ -940,26 +947,132 @@ describe('올해 누적 등급 열 (#2018)', () => {
     expect(spec.dataset.gradeState).toBe('unavailable')
     // 대시보드 문구 함수와 같은 값이다 — 베끼면 두 화면이 갈린다.
     expect(spec.textContent).toContain(unavailableText('MISSING_SPEC'))
-    expect(spec.getAttribute('title')).toBe(unavailableHint('MISSING_SPEC'))
+    // 배지 대신 문구다 — 배지(img)가 없다.
+    expect(within(spec).queryByRole('img')).toBeNull()
+    // 할 일 문장(`unavailableHint`)은 행에 넣지 않는다 — 화면에도, 낭독에도, 툴팁에도 (디자인 ⑵).
+    expect(spec.textContent).not.toContain(unavailableHint('MISSING_SPEC'))
+    expect(spec.getAttribute('title')).toBeNull()
+    expect(document.body.textContent).not.toContain(unavailableHint('MISSING_SPEC'))
 
     // 요약에 없는 배(요약 뒤 등록 등)는 받지 못함도 계산 못 함도 아니다.
     expect(gradeCell('다신규호').dataset.gradeState).toBe('absent')
   })
 
-  it('요약이 실패해도 목록은 뜨고, 등급 칸은 서버 사유와 다른 말을 한다', async () => {
+  const REASONS = ['NO_DATA', 'MISSING_SPEC', 'NO_PARAMETERS', 'CALCULATION_ERROR'] as const
+
+  it('요약이 실패해도 목록은 뜨고, 등급 칸은 `—`만 — 받지 못한 사실은 목록 위 한 줄이 한 번 말한다', async () => {
     stubServer({ summaryStatus: 500 })
     await renderScreen()
     await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
 
-    // 목록은 그대로 — 세 척 모두 있고 수정 버튼도 있다.
+    // 목록은 그대로 — 세 척 모두 있고 수정 버튼도 있다. 화면 단위 오류가 아니다.
     expect(screen.getByText('나제원호')).toBeTruthy()
     expect(screen.getByText('다신규호')).toBeTruthy()
     expect(screen.getAllByRole('button', { name: '수정' })).toHaveLength(3)
+    expect(screen.queryByRole('alert')).toBeNull()
 
-    const failed = gradeCell('가등급호').textContent ?? ''
-    for (const reason of ['NO_DATA', 'MISSING_SPEC', 'NO_PARAMETERS', 'CALCULATION_ERROR'] as const) {
-      expect(failed).not.toContain(unavailableText(reason))
+    // 칸은 세 척 모두 같은 `—` — 값이 없는 다른 칸(기준속도 등)과 같은 표시다.
+    const cells = ['가등급호', '나제원호', '다신규호'].map((name) => gradeCell(name))
+    for (const cell of cells) {
+      expect(cell.dataset.gradeState).toBe('failed')
+      expect(cell.textContent?.replace('올해 누적 등급', '').trim()).toBe(MISSING)
     }
+
+    // 목록 위 한 줄은 **하나**이고 행 안에 있지 않다.
+    const lines = screen.getAllByTestId('grade-failed-line')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].closest('.vm__list')).toBeNull()
+    const lineText = (lines[0].textContent ?? '').replace(GRADE_RETRY_TEXT, '').trim()
+    // 그 문장은 행에 반복되지 않는다.
+    for (const cell of cells) expect(cell.textContent).not.toContain(lineText)
+
+    // 「받지 못함」과 「계산하지 못함」이 문장에서 갈린다 — 서버 사유 문구를 쓰지 않는다.
+    for (const reason of REASONS) {
+      expect(lineText).not.toContain(unavailableText(reason))
+      expect(lineText).not.toBe(unavailableHint(reason))
+    }
+  })
+
+  it('받지 못했을 때 「다시 시도」(텍스트 버튼)가 요약을 다시 묻고, 성공하면 한 줄이 걷힌다', async () => {
+    const urls = stubServer({ summaryStatus: 500, summaryReplies: [summaryResponse()] })
+    await renderScreen()
+    const line = await screen.findByTestId('grade-failed-line')
+    const retry = within(line).getByRole('button', { name: GRADE_RETRY_TEXT })
+    expect(retry.className).toContain('vm__retry')
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(2)
+    expect(screen.queryByTestId('grade-failed-line')).toBeNull()
+  })
+
+  it('받지 못한 동안 등급순 선택지는 잠기고 사유를 함께 낸다 (DESIGN_SYSTEM §14)', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+
+    const option = screen
+      .getByTestId('vessel-sort')
+      .querySelector('option[value="grade"]') as HTMLOptionElement
+    expect(option.disabled).toBe(true)
+    // 잠긴 선택지는 짧은 꼬리를 달고, 사유 문장은 목록 위 한 줄이 갖는다 — 정렬 칸이
+    // 그 줄을 가리켜 낭독에도 닿는다. 이름만 남은 잠긴 선택지는 왜 안 되는지 말하지 않는다.
+    expect(option.textContent).toContain(GRADE_SORT_DISABLED_SUFFIX)
+    const describedBy = screen.getByTestId('vessel-sort').getAttribute('aria-describedby')
+    expect(describedBy).not.toBeNull()
+    const reasonLine = document.getElementById(describedBy!)
+    expect(reasonLine).toBe(screen.getByTestId('grade-failed-line'))
+    expect(reasonLine!.textContent).toContain(GRADE_SORT_DISABLED_REASON)
+    // 다른 정렬은 그대로 쓸 수 있다.
+    const others = [...screen.getByTestId('vessel-sort').querySelectorAll('option')].filter(
+      (o) => o.value !== 'grade',
+    )
+    expect(others.every((o) => !o.disabled)).toBe(true)
+  })
+
+  it('받았으면 등급순 선택지는 열려 있다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    const option = screen
+      .getByTestId('vessel-sort')
+      .querySelector('option[value="grade"]') as HTMLOptionElement
+    expect(option.disabled).toBe(false)
+    expect(option.textContent).not.toContain(GRADE_SORT_DISABLED_SUFFIX)
+    expect(screen.getByTestId('vessel-sort').getAttribute('aria-describedby')).toBeNull()
+  })
+
+  /**
+   * 칸 순서 · 머리글 정렬 (디자인 ⑴ · `#2015`).
+   *
+   * 목록은 `<table>`이 아니라 `<ul>` + 그리드라 `test/tableColumns.ts`(thead 기준)를 쓸 수
+   * 없다 — 같은 대조를 머리줄(`.vm__head`)의 칸과 각 행(`.vm__row`)의 같은 번째 칸으로 한다.
+   */
+  it('등급 칸은 「선박」 다음 · 「선종」 앞이고, 머리글과 값이 같은 정렬 클래스를 받는다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    const heads = [...document.querySelectorAll('.vm__head > *')]
+    const labels = heads.map((el) => (el.textContent ?? '').trim())
+    const at = labels.indexOf('올해 누적 등급')
+    expect(at).toBeGreaterThan(0)
+    expect(labels[at - 1]).toBe('선박')
+    expect(labels[at + 1]).toBe('선종')
+
+    // 같은 번째 칸이 행마다 등급 칸이다 — 머리글과 값이 한 열에 선다.
+    const rows = [...document.querySelectorAll('.vm__row')]
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row.children[at].classList.contains('vm__grade')).toBe(true)
+      // 머리글과 값이 **같은** 정렬 클래스 — 한쪽에만 걸면 `#2015`다.
+      expect(row.children[at].classList.contains('vm__num')).toBe(
+        heads[at].classList.contains('vm__num'),
+      )
+    }
+    expect(heads[at].classList.contains('vm__num')).toBe(true)
+    // 기준 CII는 싣지 않는다 — 요약 응답의 `ytd_required_cii`(5.000000)가 칸에 없다.
+    expect(gradeCell('가등급호').textContent).not.toContain(ytdCiiText('5.000000'))
   })
 
   it('선종 조건은 `/vessels`가 거르고, 요약은 다시 받지 않는다', async () => {
@@ -1068,10 +1181,13 @@ describe('올해 누적 등급 열 (#2018)', () => {
     stubServer({ summaryReplies: [jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, 500)] })
     await renderScreen()
     await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
-    expect(screen.queryByTestId('grade-refresh-failed')).toBeNull()
+    expect(screen.queryByTestId('grade-failed-line')).toBeNull()
 
     await saveRatedVessel()
-    await screen.findByTestId('grade-refresh-failed')
+    const line = await screen.findByTestId('grade-failed-line')
+    // 처음 받기 실패와 다른 문장이다 — 칸이 빈 것이 아니라 직전 값이 남아 있다.
+    expect(line.textContent).not.toContain(GRADE_FAILED_LINE)
+    expect(within(line).getByRole('button', { name: GRADE_RETRY_TEXT })).toBeTruthy()
     // 칸은 「받지 못함」이 아니라 직전 값 그대로다.
     expect(gradeCell('가등급호').dataset.gradeState).toBe('rated')
     expect(within(gradeCell('가등급호')).getByRole('img', { name: /E/ })).toBeTruthy()

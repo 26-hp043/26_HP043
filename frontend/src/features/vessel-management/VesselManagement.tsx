@@ -8,17 +8,19 @@ import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
 // 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
 import { UnderwayChip } from '../fleet/UnderwayChip'
-import { toUnderwayState, unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
+import { toUnderwayState, unavailableText, ytdCiiText } from '../fleet/fleetRules'
 // 등급은 대시보드와 **같은 경로·같은 파싱**에서 받는다 (#2018) — `gradeLookup.ts`.
 import { createApiFleetProvider } from '../fleet/apiProvider'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import {
   GRADE_ABSENT_HINT,
-  GRADE_FAILED_HINT,
-  GRADE_FAILED_TEXT,
+  GRADE_FAILED_LINE,
   GRADE_LOADING_TEXT,
   GRADE_REFRESH_FAILED_TEXT,
+  GRADE_RETRY_TEXT,
+  GRADE_SORT_DISABLED_REASON,
+  GRADE_SORT_DISABLED_SUFFIX,
   gradeCellOf,
   gradeRank,
   loadGradeTable,
@@ -176,18 +178,20 @@ export function VesselManagement() {
    * 때(첫 로드 · 직전 실패)만 세우고, 표가 있으면 그대로 둔 채 받아 성공할 때 바꾼다.
    *
    * 다시 받기가 실패하면 **직전 표를 유지**하고 `refreshFailed`만 세운다 — 방금까지 보이던
-   * 등급을 「받지 못함」으로 지우지 않는다. 그 사실을 화면에 어떻게 알릴지는 디자인 확인
-   * ⑶(받지 못함 표시)에 따라 바뀔 수 있다(지금은 목록 위 한 줄 · `GRADE_REFRESH_FAILED_TEXT`).
+   * 등급을 「받지 못함」으로 지우지 않는다. 화면은 목록 위 한 줄 + 「다시 시도」로 알린다
+   * (디자인 확인 ⑶ · 2026-09-29). 다시 시도를 누르면 그 줄을 걷고 받는다 — 실패하면 다시 선다.
    */
   const loadGrades = useCallback(async () => {
     gradeGeneration.current += 1
     const ticket = gradeGeneration.current
-    setGradeTable((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }))
+    setGradeTable((prev) =>
+      prev.status === 'ready' ? { ...prev, refreshFailed: false } : { status: 'loading' },
+    )
     try {
       const table = await loadGradeTable(fleetProvider)
       if (ticket === gradeGeneration.current) setGradeTable({ status: 'ready', ...table })
     } catch {
-      // 사유 문구는 싣지 않는다 — 목록 위 오류가 아니라 칸의 상태다(`GRADE_FAILED_HINT`).
+      // 사유 문구는 싣지 않는다 — 받지 못한 사실은 목록 위 한 줄이 한 번만 말한다(`GRADE_FAILED_LINE`).
       if (ticket === gradeGeneration.current) {
         setGradeTable((prev) =>
           prev.status === 'ready' ? { ...prev, refreshFailed: true } : { status: 'failed' },
@@ -614,13 +618,22 @@ export function VesselManagement() {
               <select
                 value={sortKey}
                 onChange={(event) => setSortKey(event.target.value as VesselSortKey)}
+                aria-describedby={gradeTable.status === 'failed' ? GRADE_FAILED_LINE_ID : undefined}
                 data-testid="vessel-sort"
               >
-                {SORT_KEYS.map((key) => (
-                  <option key={key} value={key}>
-                    {SORT_LABEL[key]}
-                  </option>
-                ))}
+                {/*
+                  등급을 받지 못했으면 등급순을 잠그고 **사유를 함께 낸다**(`DESIGN_SYSTEM §14`
+                  「비활성 컨트롤은 왜를 함께 낸다」 · 디자인 확인 ⑶). 선택지에는 짧은 꼬리만,
+                  문장은 목록 위 한 줄에 둔다 — 근거는 `GRADE_SORT_DISABLED_SUFFIX` 주석.
+                */}
+                {SORT_KEYS.map((key) => {
+                  const locked = key === 'grade' && gradeTable.status === 'failed'
+                  return (
+                    <option key={key} value={key} disabled={locked}>
+                      {locked ? `${SORT_LABEL[key]} ${GRADE_SORT_DISABLED_SUFFIX}` : SORT_LABEL[key]}
+                    </option>
+                  )
+                })}
               </select>
             </label>
             </div>
@@ -628,10 +641,28 @@ export function VesselManagement() {
 
           {hasMore && <p className="vm__partial">{LOADED_PARTIAL_HINT}</p>}
 
-          {/* 다시 받기 실패 — 노출 여부·위치는 디자인 확인 ⑶에 따라 바뀔 수 있다 (#2018). */}
-          {gradeTable.status === 'ready' && gradeTable.refreshFailed === true && (
-            <p className="vm__partial" data-testid="grade-refresh-failed">
-              {GRADE_REFRESH_FAILED_TEXT}
+          {/*
+            등급을 받지 못함 — **행에 반복하지 않고 목록 위 한 줄로** 한 번만 말한다
+            (디자인 확인 ⑶ · 2026-09-29 `rlatnals4114`). 호출이 실패하면 모든 행이 같은
+            상태라 행마다 적으면 같은 말이 스무 번 뜬다. 화면 단위 오류로 올리지 않는다 —
+            목록은 떠야 한다(`PRD §16.2` 장애 격리). 처음 받기 실패와 다시 받기 실패는
+            문장이 다르다 — 앞은 칸이 비었고, 뒤는 직전 값이 남아 있다.
+          */}
+          {(gradeTable.status === 'failed' ||
+            (gradeTable.status === 'ready' && gradeTable.refreshFailed === true)) && (
+            <p
+              className="vm__partial vm__grade-failed"
+              id={GRADE_FAILED_LINE_ID}
+              data-testid="grade-failed-line"
+            >
+              <span>
+                {gradeTable.status === 'failed'
+                  ? `${GRADE_FAILED_LINE} ${GRADE_SORT_DISABLED_REASON}`
+                  : GRADE_REFRESH_FAILED_TEXT}
+              </span>
+              <button type="button" className="vm__retry" onClick={() => void loadGrades()}>
+                {GRADE_RETRY_TEXT}
+              </button>
             </p>
           )}
 
@@ -669,7 +700,8 @@ export function VesselManagement() {
             <li className="vm__head" aria-hidden="true">
               <span />
               <span>선박</span>
-              <span>올해 누적 등급</span>
+              {/* 값과 **같은 정렬 클래스**를 머리글에도 건다 — 한쪽에만 걸면 `#2015`가 된다. */}
+              <span className="vm__num">올해 누적 등급</span>
               <span>선종</span>
               <span>용량</span>
               <span>기준속도</span>
@@ -804,8 +836,9 @@ export function VesselManagement() {
       )}
 
       {/*
-        올해 누적 등급은 공식 등급이 아니다 (`PRD §3.3.7` 각주) — 대시보드와 같은 배너로
-        알린다(`DESIGN_SYSTEM §13`). 위치·모양은 디자인 담당 확인 대기(#2018 ⑷).
+        올해 누적 등급은 공식 등급이 아니다 (`PRD §3.3.7` 각주) — 대시보드와 같은 배너·같은
+        문구(`PRD §6.3`)로 알린다(`DESIGN_SYSTEM §13`). 위치·모양은 디자인 답이 없어(#2018 ⑷)
+        대시보드와 같은 방식(목록 아래 `DisclaimerBanner estimate`)을 유지한다.
       */}
       {vessels.length > 0 && <DisclaimerBanner estimate />}
 
@@ -823,17 +856,22 @@ export function VesselManagement() {
   )
 }
 
+/** 목록 위 「받지 못함」 한 줄 — 잠긴 등급순 정렬 칸이 사유로 가리킨다(`aria-describedby`). */
+const GRADE_FAILED_LINE_ID = 'vm-grade-failed-line'
+
 /**
- * 올해 누적 등급 칸 (#2018).
+ * 올해 누적 등급 칸 (#2018 · 디자인 확인 2026-09-29 `rlatnals4114`).
  *
- * 네 상태를 **서로 다른 말**로 그린다(`gradeLookup.ts`). 값이 없는 칸의 짧은 문구와
- * 할 일은 대시보드의 것을 그대로 쓴다(`unavailableText` · `unavailableHint`) — 베끼면
- * 두 화면의 표기가 갈린다. 모양은 디자인 담당 확인 대기(#2018 ⑴~⑶).
+ * - ⑴ 등급 배지 **위**, 올해 누적 CII를 **그 아래 작은 글씨**로 쌓는다(`vm__ident`와 같은
+ *   적층 — 행 높이가 늘지 않는다). 기준 CII는 넣지 않는다. 우측 정렬 · `tabular-nums`.
+ * - ⑵ 계산하지 못한 배는 배지 대신 `unavailableText()`를 `caption` 크기로 — 대시보드와
+ *   같은 문구다. **`unavailableHint()`(할 일 문장)는 행에 넣지 않는다** — 목록은 훑는 자리다.
+ * - ⑶ 받지 못함은 칸에 `—`만 둔다. 사실은 목록 위 한 줄이 한 번 말한다.
  */
 function GradeCellView({ cell }: { cell: GradeCell }) {
   if (cell.kind === 'rated') {
     return (
-      <div className="vm__cell vm__grade" data-grade-state="rated">
+      <div className="vm__cell vm__num vm__grade" data-grade-state="rated">
         <span className="sr-only">올해 누적 등급 </span>
         <GradeBadge rating={cell.rating} size="xs" label={`올해 누적 등급 ${cell.rating}`} />
         <span className="vm__grade-cii">
@@ -847,13 +885,13 @@ function GradeCellView({ cell }: { cell: GradeCell }) {
     cell.kind === 'loading'
       ? { text: GRADE_LOADING_TEXT, hint: undefined }
       : cell.kind === 'failed'
-        ? { text: GRADE_FAILED_TEXT, hint: GRADE_FAILED_HINT }
+        ? { text: MISSING, hint: undefined }
         : cell.kind === 'absent'
           ? { text: MISSING, hint: GRADE_ABSENT_HINT }
-          : { text: unavailableText(cell.reason), hint: unavailableHint(cell.reason) }
+          : { text: unavailableText(cell.reason), hint: undefined }
   return (
     <div
-      className="vm__cell vm__cell--empty vm__grade"
+      className="vm__cell vm__cell--empty vm__num vm__grade vm__grade--empty"
       data-grade-state={cell.kind}
       title={hint}
       aria-busy={cell.kind === 'loading' ? true : undefined}
