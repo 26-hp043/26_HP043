@@ -507,6 +507,110 @@ async def test_every_turn_is_audited(migrated_db, app_fresh_engine):
         await _cleanup()
 
 
+async def test_a_discard_is_audited_without_the_users_numbers(migrated_db, app_fresh_engine):
+    """IT-CHAT-080 (`#1973`) — 폐기한 턴이 감사 로그에 ``CHAT_DISCARD`` 한 건으로 남는다.
+
+    운영 폐기의 막힌 수치가 앱 로그에만 있다가 컨테이너 교체로 사라졌다. 감사 로그에는
+    **종류 · 부른 도구 · 막힌 수치 · 걸린 시간**만 싣고, 막힌 수치에서 **질문에 있던 수**는
+    뺀다(선사 기밀이 지우지 않는 표에 남지 않게). 답 본문 · 질문 원문은 싣지 않는다.
+    """
+    question = "우리 배 CII가 7.3인데 D등급 경계는?"
+    answer = "7.3이면 D등급이고 경계는 1.23입니다."
+    _use(FakeProvider([LLMResponse(text=answer)]))  # 도구 없이 수치 → No-Compute 폐기
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": question}, headers=headers)
+            assert response.status_code == 200
+            data = response.json()["data"]
+            assert data["discarded"] is True, data
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT entity_type, details_json FROM audit_log "
+                            "WHERE \"action\" = 'CHAT_DISCARD'"
+                        ).columns(details_json=JSONText())
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        assert len(rows) == 1, rows
+        details = rows[0]["details_json"]
+        assert rows[0]["entity_type"] == "chat_session"
+        assert details["kind"] == "no-compute"
+        assert details["tools"] == []
+        assert details["blocked_numbers"] == ["1.23"], "질문에 있던 수가 감사 로그에 남았다"
+        assert isinstance(details["elapsed_ms"], int) and details["elapsed_ms"] >= 0
+        dumped = json.dumps(details, ensure_ascii=False)
+        assert answer not in dumped and question not in dumped and "D등급" not in dumped
+    finally:
+        await _cleanup()
+
+
+async def test_a_discard_drops_numbers_from_earlier_questions_too(
+    migrated_db, app_fresh_engine, caplog
+):
+    """IT-CHAT-080 (`#1973` 폐기 후속) — **이전 턴 질문의 수와 그 반올림 표기**도 빠진다.
+
+    수치 검증은 이력의 user 메시지를 허용하지 않는다(``llm_guard.verify_numbers``). 그래서
+    1턴에 친 수를 2턴 답이 되풀이하면 막힌다 — 이번 질문만 보고 거르면 그 수가 감사 로그
+    (지우지 않는다)와 앱 로그 줄(공개 Actions 로그로 나간다)에 그대로 남는다. 「7.3456」을
+    친 사용자의 수가 답에서 「7.35」·「7.346」으로 나와도 같은 값이다. 두 기록은 **같은 목록**을
+    쓴다.
+    """
+    first_question = "우리 배 attained CII가 7.3456이야"
+    second_question = "그럼 등급은 어떻게 돼?"
+    second_answer = "7.35(7.346)이면 D등급이고 경계는 1.23입니다."
+    _use(FakeProvider([LLMResponse(text="알겠습니다."), LLMResponse(text=second_answer)]))
+    caplog.set_level(logging.WARNING, logger="cii_platform.services.chat")
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post("/api/v1/chat", json={"message": first_question}, headers=headers)
+            assert first.status_code == 200
+            assert first.json()["data"]["discarded"] is False
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": second_question, "session_id": first.json()["data"]["session_id"]},
+                headers=headers,
+            )
+            assert second.status_code == 200
+            assert second.json()["data"]["discarded"] is True, second.json()
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT details_json FROM audit_log WHERE \"action\" = 'CHAT_DISCARD'"
+                        ).columns(details_json=JSONText())
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        assert len(rows) == 1, rows
+        assert rows[0]["details_json"]["blocked_numbers"] == ["1.23"], (
+            "이전 턴 질문의 수(또는 그 반올림 표기)가 감사 로그에 남았다"
+        )
+
+        logged = [r.getMessage() for r in caplog.records if r.name == "cii_platform.services.chat"]
+        assert len(logged) == 1, logged
+        assert "1.23" in logged[0]
+        for number in ("7.3456", "7.346", "7.35"):
+            assert number not in logged[0], f"사용자가 친 수 {number}가 앱 로그 줄에 남았다"
+    finally:
+        await _cleanup()
+
+
 async def test_another_users_session_is_not_found(migrated_db, app_fresh_engine):
     """IT-CHAT-032 — 남의 대화는 **404**다 (``API_SPEC §15.4``).
 

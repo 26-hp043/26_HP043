@@ -1,3 +1,4 @@
+import { useChartWidth } from '../../display/chartBox'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { formatTimestamp } from '../../display/format'
 import { ciiUnit } from '../voyage-cii/resultRules'
@@ -29,9 +30,12 @@ import './YtdSeriesChart.css'
  * 쓴다(`API_SPEC §1.7`) — 화면에 보이는 숫자는 서버가 확정한 자릿수다.
  */
 
-/* 뷰박스 — 실제 크기는 CSS가 정한다(`§0.2` 치수는 Figma 소유). */
-const VIEW_W = 720
-const VIEW_H = 220
+/*
+ * 높이 — **폭과 무관하게 고정한다** (`#2038`). 폭은 `useChartWidth()`가 실제 픽셀로
+ * 재고 뷰박스가 그 값을 쓰므로 배율이 `1.0×`다. 종전에는 `720×220` 뷰박스를 폭
+ * 100%로 늘려 1920에서 `1574×481`(창 높이의 53%)이 됐다.
+ */
+const VIEW_H = 200
 const PAD_L = 34
 const PAD_R = 44
 const PAD_T = 12
@@ -53,6 +57,8 @@ const NO_TREND_TEXT = '확정된 항차가 1건이라 아직 추세를 그리지
 const EMPTY_TEXT = '올해 누적 추이를 그릴 항차가 아직 없습니다.'
 
 export function YtdSeriesChart({ series }: { series: YtdSeries }) {
+  // 훅은 이른 `return`보다 **앞에** 둔다 — 조건부 호출은 React가 허용하지 않는다.
+  const { ref: boxRef, width: VIEW_W } = useChartWidth()
   const unit = ciiUnit(series.capacityBasis)
   const points = series.points
   if (points.length === 0) {
@@ -112,9 +118,11 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
   const todayX = actual.length > 0 ? xOf(actual[actual.length - 1].at) : null
 
   return (
-    <div className="ytds">
+    <div className="ytds" ref={boxRef}>
       <svg
         className="ytds__canvas"
+        width={VIEW_W}
+        height={VIEW_H}
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
         role="img"
         aria-label={`올해 누적 CII 추이. 실적 ${actual.length}점 · 계획 ${plan.length}점. 값은 아래 표에 있습니다.`}
