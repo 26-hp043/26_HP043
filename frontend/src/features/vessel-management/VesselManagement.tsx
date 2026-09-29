@@ -146,8 +146,8 @@ export function VesselManagement() {
   const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
   const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
   /*
-   * 「제원 미비만」 필터 (#1424). 종전에는 미비 선박만 보려면 **정렬밖에** 없었다 —
-   * 「제원 미비 먼저」는 위로 올릴 뿐이라, 20척을 불러온 화면에서 어디까지가 미비인지
+   * 「입력 미완료만」 필터 (#1424 · 문구 #2037). 종전에는 그 선박만 보려면 **정렬밖에**
+   * 없었다 — 「입력 미완료 먼저」는 위로 올릴 뿐이라, 20척을 불러온 화면에서 어디까지인지
    * 세어 가며 읽어야 했다.
    *
    * 정렬과 **같은 판정**(`hasSpecGap`)을 쓴다. 갈리면 정렬로 맨 위에 온 배가 필터에서
@@ -393,7 +393,7 @@ export function VesselManagement() {
         ── 조회 조건 — 검색 · 선종 (#1783) ────────────────────────────────
 
         **카드 밖에 둔다.** 조건에 걸려 목록이 비면 카드가 통째로 사라지는데, 카드 안에
-        두면 그때 **조건을 지울 길까지 함께 사라진다.** 아래 제원 미비 칩·정렬은 카드
+        두면 그때 **조건을 지울 길까지 함께 사라진다.** 아래 입력 미완료 칩·정렬은 카드
         머리에 그대로 둔다 — 그 둘은 **불러온 목록**에 대한 것이라 목록이 없으면 뜻도 없다.
 
         서버가 거르는 것과 화면이 거르는 것이 이 선으로 갈린다(`queryRules.ts`).
@@ -431,7 +431,7 @@ export function VesselManagement() {
       {/*
         걸린 조건 — **걸어 놓고 잊는 것이 필터의 주된 사고다.** 목록이 짧아진 이유가
         화면 어딘가의 눌린 컨트롤뿐이면 사용자는 「선박이 사라졌다」로 읽는다.
-        제원 미비 칩도 여기에 들어온다 — 카드가 사라졌을 때 그것을 지울 곳이 여기뿐이다.
+        입력 미완료 칩도 여기에 들어온다 — 카드가 사라졌을 때 그것을 지울 곳이 여기뿐이다.
       */}
       {filters.length > 0 && (
         /*
@@ -517,7 +517,7 @@ export function VesselManagement() {
             */}
             <div className="vm__list-tools">
             {/*
-              제원 미비 필터 칩 (#1424).
+              입력 미완료 필터 칩 (#1424 · 문구 #2037).
 
               **0척이어도 숨기지 않고, 비활성으로도 두지 않는다.** 자리가 사라지면
               「그런 기능이 없다」로 읽히고(사이드바 비활성 항목·상단바 종 버튼이 같은
@@ -542,7 +542,7 @@ export function VesselManagement() {
               {specGapOnly ? (
                 <Icon glyph={Check} className="vm__gap-filter-check" size="inline" />
               ) : null}
-              제원 미비 {gapCount}
+              입력 미완료 {gapCount}
             </button>
             <label className="sort">
               <span className="sr-only">정렬 기준</span>
