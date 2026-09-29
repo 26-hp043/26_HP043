@@ -260,8 +260,16 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
   )
 }
 
-/** 연도별 표를 여는 접기의 이름 (#1571) — 차트 `aria-label`이 같은 이름으로 가리킨다. */
-const TABLE_TOGGLE = '표로 보기'
+/*
+ * 연도별 표를 여는 접기의 이름 (#1571 신설 · #2052 이름 갱신) — 차트 `aria-label`이 같은
+ * 이름으로 가리킨다.
+ *
+ * 종전 「표로 보기」는 **무엇이 열리는지 말하지 않았다.** 이 접기 바로 아래(`VesselDetail.tsx`)에
+ * 이미 펼쳐진 「제원」 표 모양(`<dl>`)이 있어, 접기가 그 아래 것을 여는 손잡이처럼 읽혔다
+ * (`#2052` — 디자인 `rlatnals4114` 제안). 「연도별」을 앞에 붙여 **이 접기가 여는 대상**을
+ * 스스로 말하게 한다.
+ */
+const TABLE_TOGGLE = '연도별 표로 보기'
 
 /** 올해(진행 중) 막대 라벨 (#1571) — 값은 「올해 누적」 카드 한 곳에 있다. */
 const IN_PROGRESS_CAP = '진행 중'
