@@ -71,3 +71,32 @@ describe('연도별 실적 표의 정렬 — 숫자만 오른쪽 (#2017 · `DESI
     expect(rule('.annual-sim__actuals-table :is(th, td):not(.num)')).toMatch(/text-align:\s*left/)
   })
 })
+
+describe('남은 해 기준 한 줄의 가정 문구 — 줄 바로 아래, 하단 배너 밖 (#2056 C④ 디자인 확정)', () => {
+  /*
+   * `DESIGN_SYSTEM §13`의 「하단 고지는 배너 한 칸」은 화면 바닥 고지의 규칙이고, 이 문장은
+   * 바로 위 한 줄(「이대로면 …」)을 한정하는 문맥이다. 한정하는 대상에서 떨어지면 무엇에 대한
+   * 가정인지 사라진다. 화면 검사는 렌더된 자리를 보고, 여기서는 **배너 쪽 소스가 이 문구를
+   * 모른다**는 것을 잠근다 — 배너에 합치는 변경은 페이지나 배너 파일을 거쳐야 한다.
+   */
+  const here = fileURLToPath(new URL('.', import.meta.url))
+  const read = (relative: string): string => readFileSync(join(here, relative), 'utf8')
+
+  it('가정 문구를 그리는 곳은 `FutureYearsLine` 하나다', () => {
+    const source = read('AnnualSimulation.tsx')
+    const start = source.indexOf('function FutureYearsLine(')
+    const end = source.indexOf('\nfunction Result(', start)
+    expect(start).toBeGreaterThan(-1)
+    expect(end).toBeGreaterThan(start)
+    const inside = source.slice(start, end)
+    expect(inside).toContain('ANNUAL_COPY.futureYearsAssumption')
+    // 함수 밖(주석 제외)에는 없다 — `onDisclaimer`로 배너에 넘기는 자리가 생기면 여기서 붉어진다.
+    const outside = (source.slice(0, start) + source.slice(end)).replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(outside).not.toContain('futureYearsAssumption')
+  })
+
+  it('페이지의 하단 배너와 배너 부품은 이 문구를 모른다', () => {
+    expect(read('../../pages/AnnualGradePage.tsx')).not.toContain('futureYearsAssumption')
+    expect(read('../../components/DisclaimerBanner.tsx')).not.toContain('futureYearsAssumption')
+  })
+})

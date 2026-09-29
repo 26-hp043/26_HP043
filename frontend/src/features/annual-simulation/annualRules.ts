@@ -5,6 +5,7 @@ import {
   formatGrouped,
   formatPercent,
   formatTimestamp,
+  kstYear,
 } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
@@ -423,4 +424,36 @@ export function estimateNoticeText(asOf: string | undefined): string {
   if (asOf === undefined) return ANNUAL_COPY.estimateNotice
   const time = formatTimestamp(asOf)
   return `${ANNUAL_COPY.estimateNotice} ${ANNUAL_COPY.estimateAsOf.replace('{time}', time)}`
+}
+
+/**
+ * 「이대로면 …」 남은 해 기준 한 줄을 싣는 조건 — **실행한 규제연도 == 올해** (`#2056` 디자인 확정 C⑤).
+ *
+ * 폼에서 2024를 골라 실행하면 결과는 2024의 연말 예상인데, 그것을 2025~2030 기준에 대 보는
+ * 것은 「이대로면」이 뜻하는 바가 아니다. 서버는 지나간 해 실행에도 목록을 싣는다 —
+ * 재현 계약(`TECH_SPEC §5.4`)이라 그대로 두고, 화면이 싣지 않는다.
+ *
+ * 「올해」는 **둘 다**여야 한다 — ⑴ 그 실행의 기준 시각 `meta.as_of`의 해 ⑵ 지금(`now`)의 해.
+ * ⑴만 보면 2025-12에 실행한 2025 결과를 2026에 다시 열었을 때(`#1701` 마지막 결과 복원)
+ * **지나간 해의 결과 위에** 「이대로면 2026년 …」을 싣는다 — 디자인 문언은 「아래 결과가
+ * 지나간 해일 때는 싣지 마세요」다. ⑵만 보면 기준 시각이 지난해인 실행을 올해 것으로 읽는다.
+ * 이것은 계산이 아니라 **표시 조건**이라 지금 시각을 봐도 재현 계약(`TECH_SPEC §5.4`)과 무관하다.
+ *
+ * 해는 `DESIGN_SYSTEM §4.4` 🔒대로 KST 달력으로 센다(`kstYear`). 기준 시각이 없으면 올해인지
+ * 알 수 없으므로 싣지 않는다 — 서버는 시각을 늘 싣고(`API_SPEC §6.1` 계약 ⑵), 없는 값을
+ * 기기 시계로 메우지 않는다. `now`는 호출부가 읽어 넘긴다(`pickDefaultYear`와 같은 이유 —
+ * 함수 안에서 `new Date()`를 부르면 검사가 해를 고정할 수 없다).
+ */
+export function futureYearsLineShown(year: string, asOf: string | undefined, now: Date): boolean {
+  if (asOf === undefined) return false
+  const run = Number(year)
+  return run === kstYear(asOf) && run === kstYear(now)
+}
+
+/**
+ * 남은 해가 없을 때(빈 목록)의 문구 — 실행한 규제연도가 표의 **마지막 해**였다는 사실을 말한다
+ * (`#2056` 디자인 확정 C⑤). 해를 박아 두지 않는다 — 규정연도 표가 늘면 마지막 해가 바뀐다.
+ */
+export function futureYearsUnavailableText(year: string): string {
+  return ANNUAL_COPY.futureYearsUnavailable.replace('{year}', year)
 }

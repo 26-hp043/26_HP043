@@ -37,6 +37,8 @@ import {
   reductionCutText,
   resultConditionsText,
   estimateNoticeText,
+  futureYearsLineShown,
+  futureYearsUnavailableText,
   targetVesselText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -783,14 +785,36 @@ type ReproduceState =
  * **두 상태를 가른다**(`FutureYearOutlook` 타입 주석). 키가 없는 옛 실행은 그리지 않는다 —
  * 「계산하지 않았다」를 「이후 해는 괜찮다」로 읽히게 두지 않으려고 빈 목록은 사유를 말한다.
  * 등급 문자 뒤에 시각 숨김 「등급」을 붙여 낭독이 「2027년 D 등급」으로 읽히게 한다(`§14`).
- * 모양(머리말 · 구분자 · 배지 없음 · 위치)은 디자인 담당 확인 전이라 기존 조건 줄의 틀을 그대로 쓴다.
+ *
+ * 모양은 `rlatnals4114`의 2026-09-29 확정이다(`#2056` C · `UIFLOW 2-3`) — 머리말 「이대로면」 ·
+ * 구분자 「·」 · 배지 없는 글자 등급 · 결론 띠 아래. 그때 붙은 조건 둘:
+ * - **지나간 해의 실행에는 이 줄을 싣지 않는다** — 실행한 규제연도가 기준 시각(`as_of`)의
+ *   해이자 **지금**의 해일 때만 그린다(`futureYearsLineShown`). 지금을 함께 보는 것은 지난해
+ *   결과를 올해 복원했을 때(`#1701`)를 위해서다. 빈 목록 문구도 같은 조건이다.
+ * - **같은 등급의 연속 해를 묶지 않는다** — 해마다 한 항목이다. 「2027–2029 D」로 접으면
+ *   기준선이 해마다 내려간다는 사실이 사라진다.
+ * 가정 문구는 이 줄 **바로 아래**에 둔다 — 하단 면책 배너에 합치지 않는다(`#2056` C④).
+ * `DESIGN_SYSTEM §13`의 「배너 한 칸」은 화면 바닥 고지의 규칙이고, 이 문장은 바로 위
+ * 한 줄을 한정하는 문맥이라 그 대상에서 떨어지면 무엇에 대한 가정인지 사라진다.
  */
-function FutureYearsLine({ outlook }: { outlook: AnnualSimulationResult['future_years_outlook'] }) {
+function FutureYearsLine({
+  outlook,
+  year,
+  asOf,
+}: {
+  outlook: AnnualSimulationResult['future_years_outlook']
+  /** 실행한 규제연도 (`RunConditions.year`) */
+  year: string
+  /** 그 실행의 기준 시각 (`meta.as_of`) — 「올해」의 근거 */
+  asOf: string | undefined
+}) {
   if (!outlook) return null
+  // 지금을 **여기서 읽어** 넘긴다 — 검사는 `vi.useFakeTimers({ toFake: ['Date'] })`로 해를 고정한다.
+  if (!futureYearsLineShown(year, asOf, new Date())) return null
   return (
     <div className="annual-sim__future-years" data-testid="annual-sim-future-years">
       {outlook.length === 0 ? (
-        <p className="annual-sim__notice">{ANNUAL_COPY.futureYearsUnavailable}</p>
+        <p className="annual-sim__notice">{futureYearsUnavailableText(year)}</p>
       ) : (
         <>
           <p className="annual-sim__conditions">
@@ -906,7 +930,11 @@ function Result({
             {ANNUAL_COPY.lastRunNeedsRecalc}
           </p>
         ) : null}
-        <FutureYearsLine outlook={result.future_years_outlook} />
+        <FutureYearsLine
+          outlook={result.future_years_outlook}
+          year={conditions.year}
+          asOf={result.as_of}
+        />
         {result.is_sample_data ? (
           <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
         ) : (
