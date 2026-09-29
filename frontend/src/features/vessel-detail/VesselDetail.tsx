@@ -25,6 +25,7 @@ import {
   toDecimalInput,
 } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
+import { YtdNotice } from './YtdNotice'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
 import { VerdictStrip } from '../../components/VerdictStrip'
@@ -673,10 +674,8 @@ export function VesselDetail({
             */}
           <Link to={SCREEN_BY_ID.DATA_QUALITY.path}>{SCREEN_BY_ID.DATA_QUALITY.label}</Link>
         </p>
-        <p className="vd__note">
-          올해 값은 연중 누적 예측값이며 <b>공식 등급이 아닙니다</b>. 공식 등급은 연말
-          DCS 보고·검증 후 확정됩니다.
-        </p>
+        {/* 문장은 연간 등급 관리의 실적 표와 공유한다 (#2017) — `YtdNotice.tsx`. */}
+        <YtdNotice className="vd__note" />
       </div>
 
       {/*

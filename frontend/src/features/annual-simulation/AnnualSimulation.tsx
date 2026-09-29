@@ -52,7 +52,7 @@ import { publishScreenResult } from '../assistant/screenResult'
 import { AnnualPlayback } from './visualization/AnnualPlayback'
 import type { AnnualMapGeometryProvider } from './visualization/model'
 import { YearlyActuals, type ActualsState } from './YearlyActuals'
-import { createApiVesselDetailProvider } from '../vessel-detail/apiProvider'
+import { createApiVesselDetailProvider, VesselDetailError } from '../vessel-detail/apiProvider'
 import type { VesselDetailProvider } from '../vessel-detail/types'
 
 /**
@@ -135,6 +135,9 @@ export function AnnualSimulation({
    * 연도별 실적의 출처 (#2017) — **선박 상세와 같은 조회**(`GET /vessels/{id}/cii-history`)다.
    * 이 화면이 경로를 따로 정의하지 않는다: 같은 경로를 두 곳이 정의하면 한쪽만 고쳐진 날
    * 두 화면이 다른 값을 말한다(`#750` · `#866`). 검사가 시간을 쥐려고 주입한다.
+   *
+   * ⚠️ **안정된 참조**를 넘겨야 한다 — 이 값은 조회 effect의 의존성이라, 렌더마다 새 객체를
+   * 만들어 넘기면 렌더마다 다시 받는다. 호출자가 `useMemo`로 쥐거나 모듈 상수로 둔다.
    */
   historyProvider?: Pick<VesselDetailProvider, 'load'>
 }) {
@@ -366,6 +369,8 @@ export function AnnualSimulation({
           vesselId,
           status: 'error',
           message: error instanceof Error ? error.message : ANNUAL_COPY.actualsErrorFallback,
+          // 없는 선박(404)에는 재시도를 주지 않는다 — 다시 눌러도 같은 실패다(선박 상세 · `#694`).
+          retryable: !(error instanceof VesselDetailError && error.notFound),
         })
       },
     )
@@ -672,16 +677,22 @@ export function AnnualSimulation({
         첫 블록만 폼 옆에 올린 뒤 나머지를 아래 줄로 흘려보낸다.
       */}
       {/*
-        오른쪽 기둥 — **연도별 실적이 위, 올해 시뮬레이션 결과가 아래** (#2017). 실적은
+        오른쪽 기둥 — **연도별 실적이 위, 시뮬레이션 결과가 아래** (#2017). 실적은
         결과 컨테이너 **밖**에 둔다: 결과의 첫 자리는 결론 띠여야 하고(`DESIGN_SYSTEM §8.6` 🔒),
         지나간 해의 기록은 그 결과의 일부가 아니다. 선박이 없으면 실적을 그리지 않는다 —
         아래 자리표시자가 「선박을 먼저 선택하라」를 이미 말하고 있어 같은 말을 두 번 두지 않는다.
+
+        선박을 바꾸는 동안 **절은 남기고 본문만 「받는 중」**으로 둔다 — 절을 없앴다 다시 그리면
+        제목이 깜빡이고 낭독이 다시 시작된다. 앞 배의 표가 새 배 이름 아래 보이지 않게 하는
+        가드(`actuals.vesselId`)는 그대로다.
       */}
       <div className="annual-sim__column">
-        {actuals !== null && actuals.vesselId === shell.vesselId ? (
+        {shell.vesselId !== null && actuals !== null ? (
           <YearlyActuals
-            state={actuals}
+            state={actuals.vesselId === shell.vesselId ? actuals : { status: 'loading' }}
             onRetry={() => setActualsAttempt((attempt) => attempt + 1)}
+            // 결과의 해가 표의 확정 행과 같으면 두 값의 계산 경로가 다르다는 한 줄을 표 아래에 둔다.
+            simulatedYear={state.status === 'success' ? Number(state.conditions.year) : undefined}
           />
         ) : null}
         <div className="annual-sim__results">

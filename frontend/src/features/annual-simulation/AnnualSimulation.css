@@ -701,6 +701,17 @@
   min-width: 0;
 }
 
+/*
+ * 실적 표의 숫자 칸(실적 · 기준 · 완료 항차)만 오른쪽 정렬 — 머리글과 값이 같은 규칙을 받는다
+ * (`#2015` · 선박 상세 `.history__table`과 같은 방식). 민감도 표가 쓰는 `.annual-sim__table`의
+ * 공용 규칙은 건드리지 않고 이 표의 클래스에만 건다. 연도 · 구분 · 등급은 문자라 왼쪽 그대로다.
+ */
+.annual-sim__actuals-table th.num,
+.annual-sim__actuals-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .annual-sim__placeholder {
   background: var(--color-surface);
   border: 1px solid var(--color-border);

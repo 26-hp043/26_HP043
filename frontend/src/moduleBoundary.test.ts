@@ -375,9 +375,11 @@ describe('기능 사이 요청 계층 import (#1249)', () => {
      * 고쳐졌을 때 두 화면이 다른 값을 말한다(`#750` · `#866`).
      */
     'features/annual-simulation/AnnualSimulation.tsx → vessel-detail/apiProvider',
+    // 위 결합의 검사 — 없는 선박(404)의 오류 계약(`VesselDetailError.notFound`)을 대역으로 만든다.
+    'features/annual-simulation/AnnualSimulation.actuals.test.tsx → vessel-detail/apiProvider',
   ].sort()
 
-  it('요청 계층 결합은 사유가 적힌 일곱뿐이다', () => {
+  it('요청 계층 결합은 사유가 적힌 여덟뿐이다', () => {
     expect(crossFeatureProviderImports()).toEqual(COMPOSITION)
   })
 
