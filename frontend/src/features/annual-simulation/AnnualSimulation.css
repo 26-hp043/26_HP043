@@ -395,6 +395,7 @@
 }
 
 .annual-sim__form button[type='submit'] {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-24);
   border: none;
@@ -664,6 +665,7 @@
 }
 
 .annual-sim__reproduce button {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-16);
   border: 1px solid var(--color-border-control);
