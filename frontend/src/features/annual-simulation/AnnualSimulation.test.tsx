@@ -1720,16 +1720,52 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     )
   }
 
-  const BOUNDARIES = {
-    superior_boundary: '4.203371',
-    lower_boundary: '4.594382',
-    upper_boundary: '5.180899',
-    inferior_boundary: '5.767416',
-  }
+  // `API_SPEC §6.1` 예시와 같은 값 — 50,000 DWT 벌크선 · 연말 예상 5.02 · required × d 절사.
   const OUTLOOK = [
-    { regulation_year: 2027, required_cii: '4.887641', boundaries: BOUNDARIES, projected_rating: 'D' },
-    { regulation_year: 2028, required_cii: '4.738862', boundaries: BOUNDARIES, projected_rating: 'D' },
-    { regulation_year: 2030, required_cii: '4.441305', boundaries: BOUNDARIES, projected_rating: 'E' },
+    {
+      regulation_year: 2027,
+      required_cii: '4.896265',
+      boundaries: {
+        superior_boundary: '4.210788',
+        lower_boundary: '4.602489',
+        upper_boundary: '5.190041',
+        inferior_boundary: '5.777592',
+      },
+      projected_rating: 'C',
+    },
+    {
+      regulation_year: 2028,
+      required_cii: '4.747464',
+      boundaries: {
+        superior_boundary: '4.082819',
+        lower_boundary: '4.462616',
+        upper_boundary: '5.032311',
+        inferior_boundary: '5.602007',
+      },
+      projected_rating: 'C',
+    },
+    {
+      regulation_year: 2029,
+      required_cii: '4.598662',
+      boundaries: {
+        superior_boundary: '3.954850',
+        lower_boundary: '4.322743',
+        upper_boundary: '4.874582',
+        inferior_boundary: '5.426422',
+      },
+      projected_rating: 'D',
+    },
+    {
+      regulation_year: 2030,
+      required_cii: '4.449861',
+      boundaries: {
+        superior_boundary: '3.826881',
+        lower_boundary: '4.182870',
+        upper_boundary: '4.716853',
+        inferior_boundary: '5.250837',
+      },
+      projected_rating: 'D',
+    },
   ] satisfies FutureYearOutlook[]
 
   it('서버가 판정한 남은 해의 등급을 해마다 순서대로 보인다 — 화면이 경계를 다시 판정하지 않는다', async () => {
@@ -1744,9 +1780,38 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     expect(years).toHaveLength(OUTLOOK.length)
     years.forEach((node, index) => {
       expect(node.textContent).toContain(String(OUTLOOK[index].regulation_year))
-      // 올해 등급(C)이 아니라 서버 값(D · E)이 그대로 — 화면이 올해 등급을 옮겨 적지 않는다.
+      // 올해 등급(C)이 아니라 서버 값(2029 · 2030의 D)이 그대로 — 화면이 올해 등급을 옮겨 적지 않는다.
       expect(within(node).getByText(OUTLOOK[index].projected_rating)).toBeTruthy()
     })
+    expect(years.filter((node) => within(node).queryByText('D')).length).toBe(2)
+  })
+
+  it('등급 문자 뒤에 「등급」이 읽힌다 — 낭독이 「D」 한 글자로 끝나지 않는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    const years = within(screen.getByTestId('annual-sim-future-years')).getAllByTestId(
+      'annual-sim-future-year',
+    )
+    years.forEach((node, index) => {
+      // 시각 숨김이라 보이는 글자에는 없고 텍스트 콘텐츠(낭독)에는 있다.
+      const unit = within(node).getByText(ANNUAL_COPY.futureYearRatingUnit.trim(), {
+        exact: false,
+      })
+      expect(unit.classList.contains('sr-only')).toBe(true)
+      expect(node.textContent).toMatch(
+        new RegExp(`${OUTLOOK[index].projected_rating}\\s*${ANNUAL_COPY.futureYearRatingUnit}`),
+      )
+    })
+  })
+
+  it('지난 해로 보내는 링크를 두지 않는다 — 위 연도별 실적 블록이 이미 맡는다', async () => {
+    stubWith(withOutlook(OUTLOOK))
+    renderScreen()
+    await runOnce()
+
+    expect(within(screen.getByTestId('annual-sim-future-years')).queryByRole('link')).toBeNull()
   })
 
   it('가정을 함께 밝힌다', async () => {
@@ -1760,15 +1825,6 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
         '올해 연말 예상 CII가 이후 해에도 그대로라고 보고 남은 규정연도의 기준에 대 본 참고 등급입니다.',
       ),
     ).toBeTruthy()
-  })
-
-  it('지난 해 추세는 선박 상세로 보낸다 — 선택된 선박의 경로다', async () => {
-    stubWith(withOutlook(OUTLOOK))
-    renderScreen()
-    await runOnce()
-
-    const link = within(screen.getByTestId('annual-sim-future-years')).getByRole('link')
-    expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL_ID}`)
   })
 
   it('빈 목록(올해 뒤의 기준 없음)은 등급을 그리지 않고 계산할 것이 없었다고 말한다', async () => {

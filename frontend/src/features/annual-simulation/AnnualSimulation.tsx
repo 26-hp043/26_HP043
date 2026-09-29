@@ -13,7 +13,6 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
-import { vesselPath } from '../../layout/globalContext'
 
 /**
  * 잔여 계획 항차가 0건임을 알리는 경고 코드 (`calc/annual_simulation.py`).
@@ -744,7 +743,6 @@ export function AnnualSimulation({
               restored={state.restored}
               provider={provider}
               mapGeometryProvider={mapGeometryProvider}
-              vesselId={shell.vesselId}
             />
           ) : null}
         </div>
@@ -776,24 +774,19 @@ type ReproduceState =
 
 /**
  * 남은 해 기준 한 줄 (#2043 · 디자인 담당 제안 「남은 해 전부」) — 올해 결과 **하나**를 올해
- * 뒤의 규정연도마다의 기준에 대 본 등급. 「이대로면 2027년 D · 2028년 D · 2030년 E」.
+ * 뒤의 규정연도마다의 기준에 대 본 등급. 「이대로면 2027년 C · 2028년 C · 2029년 D · 2030년 D」.
  *
  * 시뮬레이션을 다시 돌리지 않는다 — 위 「연도별 실적」(지나간 해 · 확정)과 달리 이 줄은
  * **예측** 쪽이라 결론 띠 아래 조건 줄들 사이에 둔다. 등급은 서버가 그 해의 경계로 판정한
- * 값 그대로다(`#2002`).
+ * 값 그대로다(`#2002`). 지나간 해는 위 블록이 맡으므로 이 줄은 이력 링크를 두지 않는다.
  *
  * **두 상태를 가른다**(`FutureYearOutlook` 타입 주석). 키가 없는 옛 실행은 그리지 않는다 —
  * 「계산하지 않았다」를 「이후 해는 괜찮다」로 읽히게 두지 않으려고 빈 목록은 사유를 말한다.
+ * 등급 문자 뒤에 시각 숨김 「등급」을 붙여 낭독이 「2027년 D 등급」으로 읽히게 한다(`§14`).
  * 모양(머리말 · 구분자 · 배지 없음 · 위치)은 디자인 담당 확인 전이라 기존 조건 줄의 틀을 그대로 쓴다.
  */
-function FutureYearsLine({
-  outlook,
-  vesselId,
-}: {
-  outlook: AnnualSimulationResult['future_years_outlook']
-  vesselId: string | null
-}) {
-  if (outlook === undefined) return null
+function FutureYearsLine({ outlook }: { outlook: AnnualSimulationResult['future_years_outlook'] }) {
+  if (!outlook) return null
   return (
     <div className="annual-sim__future-years" data-testid="annual-sim-future-years">
       {outlook.length === 0 ? (
@@ -807,17 +800,13 @@ function FutureYearsLine({
                 {index > 0 ? ' · ' : null}
                 {`${row.regulation_year}${ANNUAL_COPY.futureYearSuffix}`}{' '}
                 <strong>{row.projected_rating}</strong>
+                <span className="sr-only">{` ${ANNUAL_COPY.futureYearRatingUnit}`}</span>
               </span>
             ))}
           </p>
           <p className="annual-sim__notice">{ANNUAL_COPY.futureYearsAssumption}</p>
         </>
       )}
-      {vesselId ? (
-        <Link className="annual-sim__fleet-link" to={vesselPath(vesselId)}>
-          {ANNUAL_COPY.historyLink}
-        </Link>
-      ) : null}
     </div>
   )
 }
@@ -828,10 +817,8 @@ function Result({
   restored,
   provider,
   mapGeometryProvider,
-  vesselId = null,
 }: {
   result: AnnualSimulationResult
-  vesselId?: string | null
   conditions: RunConditions
   restored?: { createdAt: string; needsRecalc: boolean }
   provider: AnnualSimulationProvider
@@ -919,7 +906,7 @@ function Result({
             {ANNUAL_COPY.lastRunNeedsRecalc}
           </p>
         ) : null}
-        <FutureYearsLine outlook={result.future_years_outlook} vesselId={vesselId} />
+        <FutureYearsLine outlook={result.future_years_outlook} />
         {result.is_sample_data ? (
           <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
         ) : (

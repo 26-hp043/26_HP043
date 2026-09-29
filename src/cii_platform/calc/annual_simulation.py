@@ -389,7 +389,7 @@ def project_deterministic(
 
 @layer1_context
 def rate_against_future_year(
-    *, projection: DeterministicProjection, future_required_cii: Decimal, d_vector: DVector
+    *, attained_cii: Decimal, future_required_cii: Decimal, d_vector: DVector
 ) -> RatingResult:
     """올해 연말 예상 CII를 **이후 해의 required CII·경계**에 대 본 등급 (#2043).
 
@@ -400,7 +400,9 @@ def rate_against_future_year(
 
     경계 판정은 :func:`determine_rating`을 **그대로** 부른다 — 포함 방향(초과 · 이하 ·
     같으면 더 우수한 등급 · `PRD §3.3.6`)을 다시 적으면 올해 판정과 갈릴 수 있다.
-    ``projection.attained_cii``는 **공표 확정 전 원값**이어야 한다(`#179`).
+    ``attained_cii``는 올해 결정론 연말 예상(:class:`DeterministicProjection` 의
+    ``attained_cii``)의 **공표 확정 전 원값**이어야 한다(`#179`) — 이 함수가 읽는 것은
+    그 한 값뿐이라 투영 전체를 받지 않는다.
 
     등급과 함께 **경계 4종**을 돌려준다 — 화면이 경계를 다시 계산하지 않도록 응답이
     싣는다(`#2002`). 경계값은 체인 종단이라 공표 확정은 호출부가 한다.
@@ -408,7 +410,7 @@ def rate_against_future_year(
     ``d_vector``는 선종의 것이라 해와 무관하다 — 바뀌는 것은 required CII뿐이다.
     """
     return determine_rating(
-        attained_cii=projection.attained_cii,
+        attained_cii=attained_cii,
         required_cii=future_required_cii,
         d_vector=d_vector,
     )

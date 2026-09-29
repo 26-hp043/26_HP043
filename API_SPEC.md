@@ -3231,7 +3231,7 @@ POST /api/v1/annual-simulations
     },
     "reduction_plan": {
       "target_rating": "B",
-      "target_cii": "4.742300",
+      "target_cii": "4.742362",
       "allowed_planned_M_gco2": "665580000.000000",
       "required_cut_gco2": "330900000.000000",
       "required_cut_fuel_ton": "36.260000",
@@ -3317,16 +3317,40 @@ POST /api/v1/annual-simulations
     "future_years_outlook": [
       {
         "regulation_year": 2027,
-        "required_cii": "4.887641",
+        "required_cii": "4.896265",
         "boundaries": {
-          "superior_boundary": "4.203371", "lower_boundary": "4.594382",
-          "upper_boundary": "5.180899", "inferior_boundary": "5.767416"
+          "superior_boundary": "4.210788", "lower_boundary": "4.602489",
+          "upper_boundary": "5.190041", "inferior_boundary": "5.777592"
+        },
+        "projected_rating": "C"
+      },
+      {
+        "regulation_year": 2028,
+        "required_cii": "4.747464",
+        "boundaries": {
+          "superior_boundary": "4.082819", "lower_boundary": "4.462616",
+          "upper_boundary": "5.032311", "inferior_boundary": "5.602007"
+        },
+        "projected_rating": "C"
+      },
+      {
+        "regulation_year": 2029,
+        "required_cii": "4.598662",
+        "boundaries": {
+          "superior_boundary": "3.954850", "lower_boundary": "4.322743",
+          "upper_boundary": "4.874582", "inferior_boundary": "5.426422"
         },
         "projected_rating": "D"
       },
-      { "regulation_year": 2028, "required_cii": "4.738862", "boundaries": { "...": "..." }, "projected_rating": "D" },
-      { "regulation_year": 2029, "required_cii": "4.590083", "boundaries": { "...": "..." }, "projected_rating": "E" },
-      { "regulation_year": 2030, "required_cii": "4.441305", "boundaries": { "...": "..." }, "projected_rating": "E" }
+      {
+        "regulation_year": 2030,
+        "required_cii": "4.449861",
+        "boundaries": {
+          "superior_boundary": "3.826881", "lower_boundary": "4.182870",
+          "upper_boundary": "4.716853", "inferior_boundary": "5.250837"
+        },
+        "projected_rating": "D"
+      }
     ],
     "snapshot": {
       "snapshot_id": "uuid",
@@ -3361,7 +3385,7 @@ POST /api/v1/annual-simulations
 > | `boundaries` | object | 그 해 등급 경계 4종 — `§2.14` `ytd.boundaries`와 같은 키(`superior_boundary` · `lower_boundary` · `upper_boundary` · `inferior_boundary`) · Layer 1 6자리 절사 |
 > | `projected_rating` | string (A~E) | 올해 연말 예상 CII를 그 해 경계에 대 본 등급 |
 >
-> **두 상태를 가른다** — ⑴ 목록: 계산했다. **빈 목록 `[]`**은 올해 뒤의 규정연도가 표에 없어(2030년 실행) 계산할 것이 없다는 뜻이다 ⑵ **키 없음**: 이 필드 이전(`#2043` 전)에 실행한 결과다. `§6.2` 조회는 저장된 응답을 그대로 내므로 옛 실행에는 키가 없다. `§6.4` 재현은 원본에 있을 때만 다시 내고 대조한다. 남은 해의 Z-factor는 `parameters_used` **v3**의 `future_regulation_years` 블록으로 **전부** `parameter_hash`에 들어간다(`TECH_SPEC §5.2.1.2`) — 어느 해의 감축률이 개정되거나 새 해가 적재되면 재현이 409로 드러난다. 가정 문구 원문은 `PRD §6.3` 「연간 등급 관리 — 남은 해 기준 가정」. 예시의 `2028`~`2030` 행은 `boundaries`를 줄여 적었다 — 실제 응답은 해마다 네 값을 다 싣는다.
+> **두 상태를 가른다** — ⑴ 목록: 계산했다. **빈 목록 `[]`**은 올해 뒤의 규정연도가 표에 없어(2030년 실행) 계산할 것이 없다는 뜻이다 ⑵ **키 없음**: 이 필드 이전(`#2043` 전)에 실행한 결과다. `§6.2` 조회는 저장된 응답을 그대로 내므로 옛 실행에는 키가 없다. `§6.4` 재현은 원본에 있을 때만 **저장된 해 집합으로** 다시 내고 대조한다. 남은 해의 Z-factor는 `parameters_used` **v3**의 `future_regulation_years` 블록으로 **전부** `parameter_hash`에 들어간다(`TECH_SPEC §5.2.1.2`) — 대 본 해 중 어느 해의 감축률이 개정되거나 그 해가 비활성이 되면 재현이 409로 드러난다. **표에 새 해(2031~)가 적재되는 것은 409 사유가 아니다** — 재현은 표를 다시 읽지 않고 저장된 해 집합의 지금 Z만 대조한다(대상 해의 Z가 하나도 바뀌지 않은 실행이 새 해 적재만으로 재현 불가가 되면 안 된다). 가정 문구 원문은 `PRD §6.3` 「연간 등급 관리 — 남은 해 기준 가정」. 예시는 50,000 DWT 벌크선(`a` 4745 · `c` 0.622 · 2026년 Z 11%)에서 연말 예상 `5.02`를 그대로 둔 값이다 — 올해 required `5.045066`(`target_cii` = × d2 0.94 = `4.742362`)이고 이후 해는 같은 기준선에 그 해 Z만 바꾼 것이라, 5.02는 2027·2028의 `upper_boundary`(5.190041 · 5.032311) 이하라 C, 2029부터 그 위(4.874582 · 4.716853)라 D다.
 
 > **[#816] `meta.as_of` — 집계에 실제로 쓴 기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵). 명시 실행은 그 값, 미명시 실행은 서버가 확정한 시각(스냅숏 생성 시각과 같은 뜻)이 실린다. `§6.2` 조회·`§6.4` 재현도 같은 규칙으로 같은 값을 낸다 — 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
 
@@ -3497,7 +3521,7 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 
 | Status | Code | 조건 |
 |---|---|---|
-| 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. |
+| 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. v3 행(`#2043`)은 **저장된 `future_regulation_years` 해 집합**의 지금 Z로 대조한다 — 대 본 해의 Z 개정·비활성은 409, 표에 새 해가 적재된 것은 409가 아니다(`§6.1` `[#2043]` 각주) |
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 원본과 다른 `model_version`에서 재현했고 **결과도 다름**. `details[]`에 달라진 필드(`field` · `stored` · `current`). 새 환경에서 새로 실행한다 (#833) |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | 재현 결과의 `input_hash` 또는 Monte Carlo 결과가 원본과 불일치. canonical test vector 실패 가능. |
 | 422 | `CALCULATION_ERROR` | 스냅샷에 **거리가 없다** — `§6.1`과 같은 코드·같은 문구다(`#1084`). 실행 단계에서 이미 422로 막히므로 저장된 실행으로는 여기에 닿지 않지만, **두 경로가 같은 상태를 다르게 설명하지 않도록** 배선을 한 곳에 두었다 |
@@ -4979,4 +5003,4 @@ POST /api/v1/chat
 | 2026-09-28 | `#2014` | §15.1 `lookup_regulation` 줄에 등급 경계 행의 **`grade_ranges`** (`#1973` 후속 · `PRD §16.3.1`). 규칙만으로는 모델이 경계 포함 방향을 뒤집어, 옮겨 적을 구간 문장을 도구가 준다. `§4.3`상 줄 보강이라 버전은 올리지 않는다 (#1973) |
 | 2026-09-28 | `#2021` | §2.16 `issues[].severity` 표 `UNAVAILABLE` 행에 **⑶ `FUEL_NO_RECORD`** 추가와 `[#2019]` 각주 — 이 표의 `codes` 열을 코드 집합의 정본으로 두고 서버(`ISSUE_CODES`)·화면(`REASON_TEXT`)을 양쪽에서 대조한다. `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었는데 표에만 없었다 — 대조 검사가 처음 돌며 드러났다. 응답은 바뀌지 않는다. `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2019) |
 | 2026-09-29 | `#2036` | §15.1 `lookup_regulation` 줄 — `grade_ranges` 예시에 **백분율 표기**(「1.0600배(106.0%)」)와 감축률 **`reduction_factor.by_year`**(규제연도 표 전체) (`#1973` 폐기 후속 · `PRD §16.3.1`). 운영 「벌크선 D등급 경계」 답이 도구에 없는 표기·다른 해 값으로 폐기됐다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#1973) |
-| 2026-09-29 | `#___` | §6.1 응답에 **`future_years_outlook[]`**(남은 해 기준 등급) 예시와 `[#2043]` 각주 — 필드 표(`boundaries` 포함) · 두 상태(목록 · 키 없음 — 빈 목록은 「올해 뒤의 규정연도 없음」) · `parameters_used` v3의 `future_regulation_years` (`#2043` · `#2017`에서 분리). 디자인 담당 제안대로 **다음 해 하나가 아니라 남은 규정연도 전부**를 싣는다 — 같은 CII 하나를 여러 해의 기준에 대는 것이라 시뮬레이션을 다시 돌리지 않는다. 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 v3 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2043) |
+| 2026-09-29 | `#___` | §6.1 응답에 **`future_years_outlook[]`**(남은 해 기준 등급) 예시와 `[#2043]` 각주 — 필드 표(`boundaries` 포함) · 두 상태(목록 · 키 없음 — 빈 목록은 「올해 뒤의 규정연도 없음」) · `parameters_used` v3의 `future_regulation_years` (`#2043` · `#2017`에서 분리). 디자인 담당 제안대로 **다음 해 하나가 아니라 남은 규정연도 전부**를 싣는다 — 같은 CII 하나를 여러 해의 기준에 대는 것이라 시뮬레이션을 다시 돌리지 않는다. 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 v3 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). 리뷰 반영 — ⑴ 예시를 50,000 DWT 벌크선 한 기준선의 실값으로 정합시켰다(`target_cii` `4.742300` → `4.742362` · 남은 해 네 행의 required·경계 전부 · 등급은 그 값으로 산술 판정한 C·C·D·D — 종전 D·D·E·E는 예시의 `5.02`로는 나올 수 없었다) ⑵ `§6.4` 재현은 **저장된 해 집합**으로 대조한다(표에 새 해가 적재된 것은 409 사유가 아니다 — 각주와 오류 표에 명시). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2043) |

@@ -42,7 +42,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -121,9 +121,13 @@ logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from cii_platform.db.models.cii_reference_line import CiiReferenceLine
+    from cii_platform.db.models.regulation_year import RegulationYear
 
 #: ``PRD §8.1.2`` — 잔여 계획 항차의 집계 정책. ``ytd_cii``는 이 값을 집계에 넣지
 #: 않으므로 상수를 두지 않았다(연중 누적에 계획 전량을 더하면 「누적」의 정의가 깨진다).
@@ -1160,9 +1164,14 @@ PARAMETERS_SCHEMA_V2 = 2
 #: ⚠️ **v1 · v2 빌더는 동결 그대로 둔다** — 그 행들의 ``parameter_hash`` 재현이 걸려 있다.
 PARAMETERS_SCHEMA_V3 = 3
 
+
+class _Omit:
+    """「이 블록을 싣지 않는다」 표지의 타입 (#2043) — 값은 :data:`_OMIT` 하나뿐이다."""
+
+
 #: 「이 블록을 싣지 않는다」 표지 (#2043). 빈 목록은 「남은 규정연도가 없어 계산할 것이
 #: 없다」라는 **값**이라, 싣지 않는 것(v1 · v2 행의 재현)과 구분해야 한다.
-_OMIT: Any = object()
+_OMIT: Final = _Omit()
 
 
 def parameters_schema_version(stored: dict | None) -> int:
@@ -1328,7 +1337,9 @@ def _parameters_used_v2(
     }
 
 
-def _parameters_used_v3(*, future_regulations, **v2_kwargs) -> dict[str, object]:
+def _parameters_used_v3(
+    *, future_regulations: Sequence[RegulationYear], **v2_kwargs
+) -> dict[str, object]:
     """``TECH_SPEC §5.2.1.2`` — **v3** (#2043).
 
     v2를 **글자 하나 고치지 않고** 펼친 뒤 남은 규정연도 목록 한 블록과 그 출처를 더한다.
@@ -1352,20 +1363,46 @@ def _parameters_used_v3(*, future_regulations, **v2_kwargs) -> dict[str, object]
     }
 
 
-async def _load_future_regulation_years(session: AsyncSession, regulation_year: int) -> list:
-    """올해 **뒤**의 활성 규정연도 행 — 연도 오름차순. **없으면 빈 목록** — 오류가 아니다 (#2043).
+async def _load_future_regulation_years(
+    session: AsyncSession, regulation_year: int
+) -> list[RegulationYear]:
+    """**새 실행**이 대 볼 해 — 올해 **뒤**의 활성 규정연도 행 전부, 연도 오름차순 (#2043).
 
-    올해 행이 없으면 실행 자체가 409인 것(``_load_regulation_year``)과 다르다. 남은 해
-    기준은 보조 한 줄이라, 규정연도 표의 마지막 해(2030)에 실행을 막을 이유가 없다.
-    목록은 ``list_regulation_years``가 활성 행만 연도순으로 주므로 여기서는 올해 이하만
-    거른다 — 지나간 해의 기준에 대 보는 것은 이 줄의 질문이 아니다.
+    **없으면 빈 목록** — 오류가 아니다. 올해 행이 없으면 실행 자체가 409인 것
+    (``_load_regulation_year``)과 다르다. 남은 해 기준은 보조 한 줄이라, 규정연도 표의
+    마지막 해(2030)에 실행을 막을 이유가 없다. 목록은 ``list_regulation_years``가 활성
+    행만 연도순으로 주므로 여기서는 올해 이하만 거른다 — 지나간 해의 기준에 대 보는 것은
+    이 줄의 질문이 아니다. **재현은 이 함수를 쓰지 않는다** — 아래
+    :func:`_load_stored_future_regulation_years`.
     """
     rows = await param_repo.list_regulation_years(session)
     return [row for row in rows if int(row.year) > regulation_year]
 
 
+async def _load_stored_future_regulation_years(
+    session: AsyncSession, stored: dict
+) -> list[RegulationYear]:
+    """**재현**이 대 볼 해 — 저장된 v3 행이 실제로 썼던 해 집합의 **지금 활성 행** (#2043).
+
+    「표의 올해 뒤 전부」를 다시 읽으면, 나중에 새 해(2031~)가 적재되는 순간 그 해와
+    무관한 v3 실행 전부가 재현 409가 된다 — 대상 해의 Z는 하나도 바뀌지 않았는데.
+    그래서 재현은 저장된 ``future_regulation_years``의 **해 집합만** 읽어 그 해들의 지금
+    Z를 대조한다. 새 해 추가는 409 사유가 아니고, 대상 해의 **Z 개정**(값이 달라진다)과
+    **비활성·삭제**(행이 빠져 목록 길이가 달라진다)는 여전히 해시 불일치 409다.
+    ``get_regulation_year``가 활성 행만 주므로 비활성은 여기서 자연히 빠진다.
+    """
+    years = [int(item["year"]) for item in stored.get("future_regulation_years") or []]
+    rows = [await param_repo.get_regulation_year(session, year) for year in years]
+    return [row for row in rows if row is not None]
+
+
 def _future_years_outlook(
-    *, future_regulations, reference_line, reference_capacity: Decimal, d_vector, deterministic
+    *,
+    future_regulations: Sequence[RegulationYear],
+    reference_line: CiiReferenceLine,
+    reference_capacity: Decimal,
+    d_vector: DVector,
+    deterministic: DeterministicProjection,
 ) -> list[dict[str, object]]:
     """``API_SPEC §6.1`` ``future_years_outlook`` (#2043 · 남은 규정연도 전부).
 
@@ -1384,7 +1421,9 @@ def _future_years_outlook(
             z_factor_percent=Decimal(str(row.z_factor_percent)),
         ).required_cii
         rated = rate_against_future_year(
-            projection=deterministic, future_required_cii=required, d_vector=d_vector
+            attained_cii=deterministic.attained_cii,
+            future_required_cii=required,
+            d_vector=d_vector,
         )
         outlook.append(
             {
@@ -1410,7 +1449,7 @@ def _payload(
     target_rating: str,
     warnings: list[str],
     fuel_cf_alternative=None,
-    future_years_outlook: Any = _OMIT,
+    future_years_outlook: list[dict[str, object]] | _Omit = _OMIT,
 ) -> dict[str, object]:
     """``API_SPEC §6.1`` 응답의 본문 — **식별자와 스냅샷 블록을 뺀 나머지**다.
 
@@ -1500,7 +1539,7 @@ def _payload(
     # 남은 해 기준 (#2043). v3 실행에만 키가 있다 — 빈 목록은 「남은 규정연도가 없어
     # 계산할 것이 없다」이고, 키가 없는 것은 「이 기능 이전의 실행」이다. 둘을 같게 그리면
     # 화면이 구분할 길이 없다.
-    if future_years_outlook is not _OMIT:
+    if not isinstance(future_years_outlook, _Omit):
         payload["future_years_outlook"] = future_years_outlook
     return payload
 
@@ -2219,11 +2258,14 @@ async def reproduce_annual_simulation(
     if schema_version >= PARAMETERS_SCHEMA_V2:
         live_cf, fuel_sources = await _live_fuel_types_from_snapshot(session, voyages_json)
         v2_inputs = {"live_cf": live_cf, "fuel_type_sources": fuel_sources}
-    # v3 행은 남은 규정연도를 **지금 값으로** 읽는다 (#2043) — 개정됐거나 새로 적재됐다면
-    # 해시가 어긋나 409가 나야 한다. v1 · v2 행은 그 블록이 없었으므로 읽지 않는다.
-    future_regulations: Any = _OMIT
+    # v3 행은 **저장된 해 집합**의 지금 Z를 읽는다 (#2043) — 그 해들이 개정·비활성됐다면
+    # 해시가 어긋나 409가 나야 하고, 표에 새 해가 적재된 것은 409 사유가 아니다
+    # (`_load_stored_future_regulation_years`). v1 · v2 행은 그 블록이 없었으므로 읽지 않는다.
+    future_regulations: list[RegulationYear] | _Omit = _OMIT
     if schema_version >= PARAMETERS_SCHEMA_V3:
-        future_regulations = await _load_future_regulation_years(session, row.regulation_year)
+        future_regulations = await _load_stored_future_regulation_years(
+            session, row.parameters_used or {}
+        )
         v2_inputs["future_regulations"] = future_regulations
 
     parameters_used = build_parameters_used(
@@ -2500,7 +2542,7 @@ def _recompute(
     alternative_fuel: str | None = None,
     alternative_cf: Decimal | None = None,
     not_underway_json: dict | None = None,
-    future_regulations: Any = _OMIT,
+    future_regulations: Sequence[RegulationYear] | _Omit = _OMIT,
 ) -> dict[str, object]:
     """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
 
@@ -2615,7 +2657,7 @@ def _recompute(
         # 「원본을 다시 돌려 확인했다」는 응답의 뜻이 깨진다.
         future_years_outlook=(
             _OMIT
-            if future_regulations is _OMIT
+            if isinstance(future_regulations, _Omit)
             else _future_years_outlook(
                 future_regulations=future_regulations,
                 reference_line=reference_line,

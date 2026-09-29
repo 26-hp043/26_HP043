@@ -220,6 +220,7 @@ async def test_future_years_outlook_rates_this_year_against_every_remaining_year
     assert expected_years[:2] == [YEAR + 1, YEAR + 2]
     assert [row["regulation_year"] for row in outlook] == expected_years
 
+    attained = Decimal(det["projected_attained_cii"])
     for row in outlook:
         nxt = await load_projection_context(
             session, vessel_id=vessel_id, regulation_year=row["regulation_year"]
@@ -227,18 +228,31 @@ async def test_future_years_outlook_rates_this_year_against_every_remaining_year
         assert row["required_cii"] == str(
             nxt.required_cii.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING)
         )
-        rated = determine_rating(
-            attained_cii=Decimal(det["projected_attained_cii"]),
-            required_cii=nxt.required_cii,
-            d_vector=nxt.d_vector,
-        )
-        assert row["projected_rating"] == rated.rating
+        # 경계 4종은 그 해 컨텍스트의 required × d — 절사 뒤 문자 단위로 같다.
         assert row["boundaries"] == {
             key: str(value.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING))
-            for key, value in rated.boundaries.items()
+            for key, value in determine_rating(
+                attained_cii=attained, required_cii=nxt.required_cii, d_vector=nxt.d_vector
+            ).boundaries.items()
         }
+        # 등급은 **응답이 실은 경계 문자열**과 포함 방향(`PRD §3.3.6` — 경계 이하)으로
+        # 대조한다. 6자리 절사값으로 등급을 다시 판정하면 경계에 붙은 값에서 갈릴 수 있어,
+        # 「등급이 그 경계 구간 안에 있다」만 단언한다 — 절사는 단조라 부등식은 보존된다.
+        b = row["boundaries"]
+        upper_of = {
+            "A": b["superior_boundary"],
+            "B": b["lower_boundary"],
+            "C": b["upper_boundary"],
+            "D": b["inferior_boundary"],
+        }
+        lower_of = {"B": upper_of["A"], "C": upper_of["B"], "D": upper_of["C"], "E": upper_of["D"]}
+        rating = row["projected_rating"]
+        if rating in upper_of:
+            assert attained <= Decimal(upper_of[rating]), (rating, row)
+        if rating in lower_of:
+            assert attained >= Decimal(lower_of[rating]), (rating, row)
         # 기준이 조여지므로 같은 CII의 등급은 같거나 나빠진다.
-        assert row["projected_rating"] >= det["projected_rating"]
+        assert rating >= det["projected_rating"]
 
     assert [row["year"] for row in result["parameters_used"]["future_regulation_years"]] == [
         str(year) for year in expected_years
@@ -252,7 +266,7 @@ async def test_future_years_outlook_is_empty_when_no_later_year_is_loaded(
     """#2043 — 올해 뒤의 규정연도가 없으면(2030년) 블록은 **빈 목록**이고 실행은 그대로 간다.
 
     올해 행이 없으면 409인 것과 다르다 — 보조 한 줄 때문에 실행을 막지 않는다.
-    빈 목록은 해시 재료에도 남고, 재현도 같은 빈 목록을 낸다.
+    빈 목록은 해시 재료에도 남고, 재현은 저장된 해 집합(없음)으로 같은 빈 목록을 낸다.
     """
 
     async def _none(_session, _year):

@@ -212,6 +212,8 @@ export const ANNUAL_COPY = {
   futureYearsLabel: '이대로면',
   /* 해 하나 — 「2027년」. 등급 문자는 그 뒤에 따로 붙는다. */
   futureYearSuffix: '년',
+  /* 등급 문자 뒤의 시각 숨김 단위 — 낭독에서 「D」가 「D 등급」으로 읽히게 (`§14`). */
+  futureYearRatingUnit: '등급',
   /*
    * ⚠️ 정본 문구 (`PRD §6.3` 「연간 등급 관리 — 남은 해 기준 가정」) — 바꾸려면 PRD 개정이
    * 먼저다(`AGENTS §4.6`). 가정을 밝히지 않으면 사용자는 이후 해 예측으로 읽는다.
@@ -219,8 +221,6 @@ export const ANNUAL_COPY = {
   futureYearsAssumption:
     '올해 연말 예상 CII가 이후 해에도 그대로라고 보고 남은 규정연도의 기준에 대 본 참고 등급입니다.',
   futureYearsUnavailable: '올해 뒤의 규제 기준이 표에 없어 남은 해 기준 등급을 내지 않았습니다.',
-  /* 지난 해 추세는 선박 상세의 연도별 이력이 맡는다 (`PRD §12.7` `[#2043]`). */
-  historyLink: '연도별 CII 이력 보기',
 
   /*
    * ⚠️ **「무엇을 고정했는지」를 말한다.** 부등식의 미지수가 둘(잔여 연료·잔여 거리)이라

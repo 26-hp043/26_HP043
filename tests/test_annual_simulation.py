@@ -1229,7 +1229,7 @@ def test_every_publish_call_names_its_kind():
 
 
 def _projection(attained: Decimal) -> DeterministicProjection:
-    """``rate_against_future_year``가 읽는 것은 ``attained_cii``뿐이다."""
+    """``_future_years_outlook``이 투영에서 읽는 것은 ``attained_cii``뿐이다."""
     return DeterministicProjection(
         attained_cii=attained,
         rating="C",
@@ -1251,14 +1251,14 @@ def test_future_year_rating_keeps_the_boundary_direction():
     future_required = Decimal("4.8")
     on_boundary = future_required * D_VECTOR.d3
     rated = rate_against_future_year(
-        projection=_projection(on_boundary), future_required_cii=future_required, d_vector=D_VECTOR
+        attained_cii=on_boundary, future_required_cii=future_required, d_vector=D_VECTOR
     )
     assert rated.rating == "C"
     assert rated.boundaries["upper_boundary"] == on_boundary
     just_above = on_boundary + Decimal("1E-20")
     assert (
         rate_against_future_year(
-            projection=_projection(just_above),
+            attained_cii=just_above,
             future_required_cii=future_required,
             d_vector=D_VECTOR,
         ).rating
@@ -1276,10 +1276,10 @@ def test_a_stricter_future_year_never_improves_the_rating(attained):
     좋아지는 결과가 나오면 그것은 계산이 아니라 조립(연도 뒤바뀜)의 결함이다.
     """
     this_year = rate_against_future_year(
-        projection=_projection(Decimal(attained)), future_required_cii=REQUIRED, d_vector=D_VECTOR
+        attained_cii=Decimal(attained), future_required_cii=REQUIRED, d_vector=D_VECTOR
     ).rating
     future_year = rate_against_future_year(
-        projection=_projection(Decimal(attained)),
+        attained_cii=Decimal(attained),
         future_required_cii=REQUIRED * Decimal("0.97"),
         d_vector=D_VECTOR,
     ).rating
@@ -1360,8 +1360,9 @@ def test_v3_adds_the_future_years_block_on_top_of_an_untouched_v2():
 def test_v3_records_no_remaining_years_as_an_empty_list():
     """#2043 — 2030년처럼 뒤에 해가 없으면 블록이 **빈 목록**이다(빠지지 않는다).
 
-    「없어서 계산하지 않았다」가 해시에 남아야, 나중에 그 해가 적재되면 재현이 409로
-    드러난다. 키를 빼 버리면 적재 전후의 해시 재료가 같아진다. 응답 블록도 빈 목록이다.
+    키를 빼면 v3 행이 v2와 같은 모양이 되어, 재현이 「대 본 해가 없었다」를 읽을 자리가
+    없다 — 재현은 저장된 해 집합으로 다시 만들므로(`TECH_SPEC §5.2.1.2`) 빈 집합도 값이다.
+    응답 블록도 빈 목록이다.
     """
     v3 = build_parameters_used(PARAMETERS_SCHEMA_V3, **_v3_kwargs([]))
     assert v3["future_regulation_years"] == []

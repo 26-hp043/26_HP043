@@ -626,6 +626,60 @@ async def test_v2_rows_reproduce_without_the_future_years_block(
 
 
 @pytest.mark.asyncio
+async def test_reproduce_ignores_a_regulation_year_loaded_after_the_run(session, executed):
+    """#2043 — 표에 **새 해**가 적재돼도 그 해와 무관한 v3 실행은 그대로 재현된다.
+
+    v3의 ``future_regulation_years``는 실행 시점에 대 본 해 집합이지 「표의 상태」가
+    아니다. 재현이 표를 다시 읽으면 2031을 넣는 순간 그 전의 실행 전부가 409가 된다 —
+    대상 해의 Z는 하나도 바뀌지 않았는데. 재현은 **저장된 해 집합**만 읽는다
+    (`TECH_SPEC §5.2.1.2`).
+    """
+    stored_years = [r["year"] for r in executed["parameters_used"]["future_regulation_years"]]
+    new_year = max(int(y) for y in stored_years) + 1
+    await ensure_regulation_year(session, new_year, z_factor=30.0)
+
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+    assert again["parameter_hash"] == executed["parameter_hash"]
+    assert again["data"]["future_years_outlook"] == executed["data"]["future_years_outlook"]
+    assert [r["year"] for r in again["parameters_used"]["future_regulation_years"]] == stored_years
+    assert str(new_year) not in stored_years
+
+
+@pytest.mark.asyncio
+async def test_reproduce_refuses_when_a_future_year_z_factor_changed(session, executed):
+    """#2043 — 대 본 해 중 하나의 **Z가 개정**되면 409다 — 그 블록이 해시 재료인 이유.
+
+    올해(2026) Z는 그대로 두고 **뒷해**만 바꾼다 — v2까지의 재료로는 잡히지 않던 변화다.
+    """
+    target = executed["parameters_used"]["future_regulation_years"][-1]["year"]
+    await session.execute(
+        text('UPDATE regulation_year SET z_factor_percent = 40 WHERE "year" = :y'),
+        {"y": int(target)},
+    )
+
+    with pytest.raises(ParameterError):
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+
+@pytest.mark.asyncio
+async def test_reproduce_refuses_when_a_future_year_is_deactivated(session, executed):
+    """#2043 — 대 본 해가 **비활성**(개정으로 대체 · `054`)되면 409다.
+
+    활성 행만 읽으므로 그 해가 목록에서 빠지고, 저장된 목록과 길이부터 달라 해시가
+    어긋난다. 「값은 같은데 행이 바뀐」 경우가 조용히 통과하지 않는다 — 개정은 새 판본
+    행 + 활성 전환이라 실제로는 Z 개정과 함께 온다.
+    """
+    target = executed["parameters_used"]["future_regulation_years"][0]["year"]
+    await session.execute(
+        text('UPDATE regulation_year SET is_active = 0 WHERE "year" = :y'), {"y": int(target)}
+    )
+
+    with pytest.raises(ParameterError):
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+
+@pytest.mark.asyncio
 async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
     session, executed, monkeypatch
 ):
