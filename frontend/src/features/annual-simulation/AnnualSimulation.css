@@ -33,6 +33,17 @@
   align-items: start;
 }
 
+/*
+ * 오른쪽 기둥 (#2017) — 연도별 실적(위) + 시뮬레이션 결과(아래)를 세로로 쌓는다. 결과
+ * 컨테이너의 첫 자식이 결론 띠라는 `§8.6` 🔒을 지키려고 실적을 결과 **밖**에 둔다.
+ */
+.annual-sim__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-24);
+  min-width: 0;
+}
+
 .annual-sim__results {
   display: flex;
   flex-direction: column;
@@ -676,6 +687,35 @@
 .annual-sim__reproduce button:disabled {
   color: var(--color-text-disabled);
   cursor: not-allowed;
+}
+
+/*
+ * 연도별 실적 (#2017) — **카드가 아니다.** `§5` 카드 예산(4개)은 입력 · 결론 띠 · 확률 분포 ·
+ * 민감도로 이미 차 있고, 기록된 값을 바닥에 두는 것이 곧 아래 추정 카드와 모양을 가르는
+ * 방법이다(`PRD §3.2`). 배경·테두리·그림자를 두지 않는다. ⚠️ 개발 임시안.
+ */
+.annual-sim__actuals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+/*
+ * 실적 표의 숫자 칸(실적 · 기준 · 완료 항차)만 오른쪽 정렬 — 머리글과 값이 같은 규칙을 받는다
+ * (`#2015` · 선박 상세 `.history__table`과 같은 방식). 민감도 표가 쓰는 `.annual-sim__table`의
+ * 공용 규칙은 건드리지 않고 이 표의 클래스에만 건다. 연도 · 구분 · 등급은 문자라 왼쪽이다 —
+ * 공용 규칙 `.annual-sim__table th, td`가 **모든 칸을 오른쪽에** 붙이므로 되돌리는 규칙을
+ * 따로 둔다. 「그대로 왼쪽」으로 두면 공용 규칙이 이겨 문자 칸이 오른쪽에 붙는다(#2017 실측).
+ */
+.annual-sim__actuals-table th.num,
+.annual-sim__actuals-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__actuals-table :is(th, td):not(.num) {
+  text-align: left;
 }
 
 .annual-sim__placeholder {
