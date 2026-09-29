@@ -55,12 +55,10 @@ const SRC = dirOf(import.meta.url, '..')
 const EXEMPT: Readonly<Record<string, string>> = {
   'features/data-quality/DataQuality.css|.dq__tile dd|.dq__hint':
     '같은 파일이 `.dq__tile dd.dq__hint`로 **이미 덧댔다** — 문맥 안에서는 이기고 있다',
-  'features/scenario-comparison/ScenarioComparison.css|.scenario-table th|.scenario-table__corner':
-    '⚠️ **결함 · 후속 `#2062`** — 표 모서리 칸이 caption(12)을 잃고 **body(15)**로 그려진다(실측). 주석이 적어 둔 「시나리오 이름과 같은 무게로 읽히지 않게」가 정확히 반대로 나온다',
-  'features/scenario-comparison/ScenarioComparison.css|.scenario-table th|.scenario-table__scenario':
-    '⚠️ **결함 · 후속 `#2062`** — 시나리오 머리 칸의 `vertical-align: bottom`이 **`middle`**에 진다(실측). 이름이 두 줄이 되는 칸이 생기면 머리 줄이 어긋난다',
   'features/scenario-comparison/ScenarioComparison.css|.scenario-table tbody tr:last-child > *|.scenario-table__scenario':
     '거짓 양성 — 이 검사는 `thead`/`tbody`를 가르지 않는다. 대상은 `thead`의 칸이라 `tbody` 규칙이 닿지 않는다',
+  'features/scenario-comparison/ScenarioComparison.css|.scenario-table tbody tr:last-child > *|.scenario-table__cell':
+    '거짓 양성 — **의도된 구조적 재정의**다(`#2062`). 마지막 행의 테두리를 지우는 규칙은 `tr:last-child`로 범위를 좁혀 특이도가 `0-2-2`이고, `.scenario-table__cell`(`0-1-0`)보다 항상 세므로 소스 순서와 무관하게 이긴다. `.scenario-table__cell`이 이 행의 셀에도 클래스를 달면서(§표 전체 `th`·`td`가 이 클래스를 공유한다) 검사에 처음 잡혔을 뿐, `border-block-end`가 마지막 행에서 사라지는 동작은 클래스를 달기 전과 같다(실측 — `getComputedStyle().borderBottomWidth` 전후 동일)',
 }
 
 function walk(dir: string, ext: RegExp, skipTest: boolean): string[] {

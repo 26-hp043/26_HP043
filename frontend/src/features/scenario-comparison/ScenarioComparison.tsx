@@ -1414,11 +1414,15 @@ function ScenarioTable({
           </caption>
           <thead>
             <tr>
-              <th scope="col" className="scenario-table__corner">
+              <th scope="col" className="scenario-table__cell scenario-table__corner">
                 지표
               </th>
               {scenarios.map((scenario) => (
-                <th scope="col" key={scenario.scenario_type} className="scenario-table__scenario">
+                <th
+                  scope="col"
+                  key={scenario.scenario_type}
+                  className="scenario-table__cell scenario-table__scenario"
+                >
                   <span className="scenario-table__name">
                     {scenario.scenario_name}
                     {/*
@@ -1436,9 +1440,11 @@ function ScenarioTable({
           </thead>
           <tbody>
             <tr>
-              <th scope="row">참고 등급</th>
+              <th scope="row" className="scenario-table__cell">
+                참고 등급
+              </th>
               {scenarios.map((scenario) => (
-                <td key={scenario.scenario_type}>
+                <td key={scenario.scenario_type} className="scenario-table__cell">
                   <GradeBadge
                     rating={scenario.estimated_rating}
                     label={`${scenario.scenario_name} 참고 등급 ${scenario.estimated_rating}`}
@@ -1459,20 +1465,24 @@ function ScenarioTable({
             />
 
             <tr>
-              <th scope="row">다음 경계까지</th>
+              <th scope="row" className="scenario-table__cell">
+                다음 경계까지
+              </th>
               {scenarios.map((scenario) => (
-                <td key={scenario.scenario_type}>
+                <td key={scenario.scenario_type} className="scenario-table__cell">
                   {marginDisplay(scenario.estimated_rating, scenario.next_worse_boundary_margin_ratio).text}
                 </td>
               ))}
             </tr>
 
             <tr>
-              <th scope="row">위험도</th>
+              <th scope="row" className="scenario-table__cell">
+                위험도
+              </th>
               {scenarios.map((scenario) => {
                 const risk = riskLabel(scenario.risk_level)
                 return (
-                  <td key={scenario.scenario_type}>
+                  <td key={scenario.scenario_type} className="scenario-table__cell">
                     {risk.withIcon ? (
                       // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
                       <span className="scenario-table__risk-icon">
@@ -1592,14 +1602,14 @@ function MetricRow({
 }) {
   return (
     <tr>
-      <th scope="row">
+      <th scope="row" className="scenario-table__cell">
         {label}
         {unit ? <span className="scenario-table__unit"> ({unit})</span> : null}
       </th>
       {scenarios.map((scenario, index) => {
         const scenarioDelta = deltas[index]
         return (
-          <td key={scenario.scenario_type} className="scenario-table__num">
+          <td key={scenario.scenario_type} className="scenario-table__cell scenario-table__num">
             <span className="scenario-table__value">{value(scenario)}</span>
             {delta !== undefined && digits !== undefined && scenarioDelta !== null ? (
               <DeltaValue value={delta(scenarioDelta)} digits={digits} />
