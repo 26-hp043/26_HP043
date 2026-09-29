@@ -958,11 +958,11 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 
 > `voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`). 다만 CF는 **행에** 박고 분포는 **해시에** 담는데, 분포가 계산 전체에 걸리는 값이라 특정 행에 붙일 자리가 없기 때문이다.
 
-##### 5.2.1.2 기능③ `parameters_used` — 스키마 v1 · v2 · v3 (#816 · #1306 · #2017)
+##### 5.2.1.2 기능③ `parameters_used` — 스키마 v1 · v2 · v3 (#816 · #1306 · #2043)
 
 **기능③은 위 `§5.2.1` 형태를 그대로 쓰지 않는다.** 저장 형식이 세 번 있었고, 세 형식이 **지금도 함께 유효하다.**
 
-| 블록 | v1 (`#816` 이전 저장 행) | v2 (`#816` ~ `#2017` 이전) | v3 (`#2017` 이후 신규 실행) |
+| 블록 | v1 (`#816` 이전 저장 행) | v2 (`#816` ~ `#2043` 이전) | v3 (`#2043` 이후 신규 실행) |
 |---|---|---|---|
 | `regulation_year` | ✅ | ✅ | ✅ |
 | `reference_line` | ✅ | ✅ | ✅ |
@@ -970,8 +970,8 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 | `simulation_profile` (`§5.2.1.1`) | ✅ | ✅ | ✅ |
 | `fuel_types` | ❌ 없음 | ✅ 계획 항차에 곱한 **활성 CF**(`#832`) — **이 실행이 실제로 쓴 유종만** · 코드순 | ✅ v2와 같다 |
 | `parameter_source_version` | ❌ 없음 | ❌ 없음 — 아래 `parameter_sources`가 대신한다 | ❌ 없음 |
-| `parameter_sources` | ❌ 없음 | ✅ 출처 4키 | ✅ 출처 5키 — v2의 넷 + `next_regulation_year`(없으면 `null`) |
-| `next_regulation_year` | ❌ 없음 | ❌ 없음 | ✅ **다음 규정연도** `{year, z_factor_percent}` — 표에 없으면(2030년 다음) **`null`** |
+| `parameter_sources` | ❌ 없음 | ✅ 출처 4키 | ✅ 출처 5키 — v2의 넷 + `future_regulation_years` `[{year, source_ref}]`(`fuel_types`와 같은 꼴 · 없으면 `[]`) |
+| `future_regulation_years` | ❌ 없음 | ❌ 없음 | ✅ **올해 뒤의 규정연도 전부** `[{year, z_factor_percent}]` — 연도 오름차순 · 표에 없으면(2030년 실행) **`[]`** |
 | `parameter_schema_version` | ❌ **없음 — 없으면 v1이다** | ✅ `2` | ✅ `3` |
 
 v2 예시 (v1 블록에 더해지는 것만):
@@ -997,31 +997,41 @@ v2 예시 (v1 블록에 더해지는 것만):
 }
 ```
 
-v3 예시 (v2에 더해지는 것만 · 2026년 실행 — 다음 규정연도 2027):
+v3 예시 (v2에 더해지는 것만 · 2026년 실행 — 올해 뒤의 규정연도 2027~2030):
 
 ```json
 {
-  "next_regulation_year": { "year": "2027", "z_factor_percent": "13.6250" },
+  "future_regulation_years": [
+    { "year": "2027", "z_factor_percent": "13.6250" },
+    { "year": "2028", "z_factor_percent": "16.2500" },
+    { "year": "2029", "z_factor_percent": "18.8750" },
+    { "year": "2030", "z_factor_percent": "21.5000" }
+  ],
   "parameter_sources": {
-    "next_regulation_year": "MEPC.400(83)"
+    "future_regulation_years": [
+      { "year": "2027", "source_ref": "MEPC.400(83)" },
+      { "year": "2028", "source_ref": "MEPC.400(83)" },
+      { "year": "2029", "source_ref": "MEPC.400(83)" },
+      { "year": "2030", "source_ref": "MEPC.400(83)" }
+    ]
   },
   "parameter_schema_version": 3
 }
 ```
 
-다음 해가 규정연도 표에 없을 때(2030년 실행) — 키를 빼지 않고 값을 `null`로 싣는다:
+올해 뒤의 해가 규정연도 표에 없을 때(2030년 실행) — 키를 빼지 않고 값을 빈 목록으로 싣는다:
 
 ```json
 {
-  "next_regulation_year": null,
+  "future_regulation_years": [],
   "parameter_sources": {
-    "next_regulation_year": null
+    "future_regulation_years": []
   },
   "parameter_schema_version": 3
 }
 ```
 
-`parameter_sources`는 v2의 네 키를 그대로 두고 `next_regulation_year` 하나를 더한 것이다 — 위 예시는 더해진 키만 적었다. 값은 전부 문자열이다(`year`도 문자열 · `API_SPEC §1.7`의 Layer 1 규칙과 같은 직렬화).
+`parameter_sources`는 v2의 네 키를 그대로 두고 `future_regulation_years` 하나를 더한 것이다 — 위 예시는 더해진 키만 적었다. 값은 전부 문자열이다(`year`도 문자열 · `API_SPEC §1.7`의 Layer 1 규칙과 같은 직렬화). 예시의 Z 값은 `PRD §3.4` 감축률 표를 옮겨 적은 것이며 해시 재료는 **DB의 활성 행**이다.
 
 **판정 규칙.** `parameter_schema_version`이 **없으면 v1**, 있으면 **정수여야 한다** — 정수가 아니면(`null`·문자열·실수·불리언) **손상된 행**으로 보고 거부한다(v1으로 흡수하면 손상이 옛 형식으로 오인된다). 정수이지만 **알려진 버전(1·2·3)이 아니면** 빌더 선택(`build_parameters_used`)에서 거부한다 — 모르는 버전을 v1로 떨어뜨리면 해시 불일치가 「버전 차이」인지 「값 차이」인지 가려지지 않는다.
 
@@ -1031,7 +1041,7 @@ v3 예시 (v2에 더해지는 것만 · 2026년 실행 — 다음 규정연도 2
 
 **`parameter_source_version`을 쓰지 않은 이유.** 그 필드는 **기준선 하나의 `source_ref`만** 담는데(예시의 `imo-mepc-2024-q1`은 규정 묶음 버전처럼 읽히지만 실제 값은 `MEPC.353(78)`), 출처는 기준선·등급 경계·Z-factor·연료 넷이다. 하나만 실으면 **CF 개정이 `parameter_hash`에 드러나지 않는다** — 재현성 계약의 구멍이라 v2에서 `parameter_sources`로 바꿨다.
 
-**`next_regulation_year`를 싣는 이유 (v3 · `#2017`).** 응답의 `next_year_outlook`(다음 해 기준 등급 · `API_SPEC §6.1`)이 다음 해 Z-factor로 계산된다. 이 값이 해시에 없으면 다음 해 감축률이 개정돼도 재현이 조용히 통과한다 — v2가 CF에서 막은 구멍과 같다. 다음 해가 표에 없으면 키를 빼지 않고 **`null`**로 싣는다: 나중에 그 해가 적재되면 해시 재료가 달라져야 재현이 409로 드러난다. **결과 블록은 v3 행에만 있다** — 실행 경로는 실제로 만든 `parameters_used`의 버전을 보고 싣고, v1 · v2 행의 재현은 블록을 새로 만들지 않는다.
+**`future_regulation_years`를 싣는 이유 (v3 · `#2043`).** 응답의 `future_years_outlook[]`(남은 해 기준 등급 · `API_SPEC §6.1`)이 올해 뒤의 해마다의 Z-factor로 계산된다. 이 값들이 해시에 없으면 어느 해의 감축률이 개정돼도 재현이 조용히 통과한다 — v2가 CF에서 막은 구멍과 같다. 다음 해 하나가 아니라 **목록 전부**가 재료다(응답이 전부를 싣는다). 올해 뒤의 해가 표에 없으면 키를 빼지 않고 **`[]`**로 싣는다: 나중에 그 해가 적재되면 해시 재료가 달라져야 재현이 409로 드러난다. **결과 블록은 v3 행에만 있다** — 실행 경로는 실제로 만든 `parameters_used`의 버전을 보고 싣고, v1 · v2 행의 재현은 블록을 새로 만들지 않는다.
 
 > 구현: `services/annual_simulation.py` `_parameters_used_v1` · `_parameters_used_v2` · `_parameters_used_v3` · `parameters_schema_version`. 응답 계약은 `API_SPEC §6.1` 각주가 이 절을 가리킨다.
 
@@ -2278,4 +2288,4 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 | 2026-09-24 | `#1877` | §16.3 항차 갈래의 **FK 잠금 두 질문을 실측값으로 교체** (`#1868`). ⑽-a: 자식 INSERT가 얻은 부모 S는 **커밋까지 쥔다**(3/3 · 종전 「미측정(정황)」). ⑽-b: **FK 열을 바꾸지 않는 UPDATE도 부모 S를 요구한다**(3/3 · 대조군 — 다른 부모의 자식 UPDATE·자식 DELETE는 기다리지 않는다). 그러면 항차 X를 쥔 채 `voyage`를 UPDATE하는 다섯 경로 전부가 정박 구간 생성과 같은 교착 모양이고, 실제 표에서 3/3 교착했다(`errno=-968`). 선박 선잠금을 채택 `CREATE_NEW_VOYAGE` 한 곳에서 `voyage_repo.get_by_id(for_update=True)`로 옮겨 다섯 경로가 선박 → 항차 순이 되게 했다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 (#1868) |
 | 2026-09-26 | `#1948` | §13.1 감사 대상에 **공적 기록으로 채우기(`VOYAGE_ACTUALS_FILL`)** 추가와 `[#1923]` 각주 — 확정 항차면 되돌리기 전환 · 값 변경 · 감사 둘이 한 번의 커밋이다(`#1625` 패턴 · `API_SPEC §3.12`). `AGENTS §4.3`상 항목 추가·각주라 버전은 올리지 않는다 (#1923) |
 | 2026-09-27 | `#785` | **§19.5에 「배포 대상」 확정 기재.** 「어디에 올릴 것인지」가 정해졌는데 정본 어디에도 없었다 — 프록시·인증서·비밀 관리·배포 절차가 전부 이 결정에 물려 있어, 적어 두지 않으면 **다음 사람이 세 안을 처음부터 다시 견준다.** OCI Always-Free 2대(`app-01`·`db-01`) + `docker compose` · 화면은 Cloudflare Pages(같은 오리진 프록시 · `#1322`) · API는 Cloudflare Tunnel이 준 호스트명(`#1496` — Workers는 IP로 `fetch`할 수 없다) · HTTPS는 Cloudflare가 종단한다. ⚠️ **인바운드 포트를 열지 않는다** — `#785`가 「80·443만」으로 적었던 자리를 터널이 대신하고, 백엔드는 루프백에만 게시한다(`#786`). 도메인은 사지 않았다: Pages와 터널이 둘 다 HTTPS·안정 주소를 주어 「실제 서비스처럼」이 이미 충족된다. 스왑 2GB는 `#1911`이 더한 것이다(0이던 동안 배포가 호스트를 두 번 멈춰 세웠다). `AGENTS §4.3`상 절 내 항목 추가라 버전은 올리지 않는다 (#785) |
-| 2026-09-28 | `#___` | §5.2.1.2에 **기능③ `parameters_used` v3** — `next_regulation_year` 블록과 출처 5번째 키, 싣는 이유, 결과 블록이 v3 행에만 있다는 것 (`#2017`). v1 · v2 빌더는 그대로이며 v3는 v2에 더하는 방식이다. v2 예시 아래에 **v3 예시**(2027 블록 · 2030년 `null` 형태)를 더했다 — 키 이름은 `_parameters_used_v3`가 만드는 그대로다. `§4.3`상 표 열·각주 추가라 버전은 올리지 않는다 (#2017) |
+| 2026-09-29 | `#___` | §5.2.1.2에 **기능③ `parameters_used` v3** — `future_regulation_years` 블록(올해 뒤의 규정연도 **전부** · 오름차순)과 출처 5번째 키(`[{year, source_ref}]`), 싣는 이유, 결과 블록이 v3 행에만 있다는 것 (`#2043` · `#2017`에서 분리). v1 · v2 빌더는 그대로이며 v3는 v2에 더하는 방식이다. v2 예시 아래에 **v3 예시**(2027~2030 목록 · 2030년 실행의 `[]` 형태)를 더했다 — 키 이름은 `_parameters_used_v3`가 만드는 그대로다. `§4.3`상 표 열·각주 추가라 버전은 올리지 않는다 (#2043) |

@@ -62,7 +62,7 @@ from cii_platform.calc.annual_simulation import (
     fuel_cf_alternative_projection,
     profile_from_rows,
     project_deterministic,
-    rate_against_next_year,
+    rate_against_future_year,
     simulate_annual,
 )
 from cii_platform.calc.cii_engine import calculate_required_cii
@@ -927,10 +927,10 @@ async def run_annual_simulation(
         profile=profile,
     )
 
-    # 다음 해 기준 (#2017) — 없으면 `None`이고 실행은 그대로 간다.
-    next_regulation = await _load_next_regulation_year(session, regulation_year)
+    # 남은 해 기준 (#2043) — 없으면 빈 목록이고 실행은 그대로 간다.
+    future_regulations = await _load_future_regulation_years(session, regulation_year)
 
-    # 새 실행은 최신 스키마로 만든다 — 지금은 v3다 (#2017 · v2는 #816 ⑶).
+    # 새 실행은 최신 스키마로 만든다 — 지금은 v3다 (#2043 · v2는 #816 ⑶).
     # 재현은 **저장된 행의 버전으로** 다시 만드므로 v1 · v2 실행의 해시는 그대로 재현된다.
     parameters_used = build_parameters_used(
         PARAMETERS_SCHEMA_V3,
@@ -941,7 +941,7 @@ async def run_annual_simulation(
         profile_rows=profile_rows,
         live_cf=inputs.live_cf,
         fuel_type_sources=inputs.fuel_type_sources,
-        next_regulation=next_regulation,
+        future_regulations=future_regulations,
     )
 
     # 대체 연료 지렛대 (#756 ⑴ · 결정요청 v9 「나」 — 질량 유지). 사용자가 고른
@@ -983,10 +983,10 @@ async def run_annual_simulation(
         warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings, *extra_warnings],
         fuel_cf_alternative=fuel_cf_alternative,
         # 블록을 싣는지는 **실제로 만든 ``parameters_used``의 버전**이 정한다 — 해시에
-        # 다음 해 Z가 없는 행(v1 · v2)에 이 값을 저장하면 재현이 그 값을 대조할 근거가 없다.
-        next_year_outlook=(
-            _next_year_outlook(
-                next_regulation=next_regulation,
+        # 남은 해 Z가 없는 행(v1 · v2)에 이 값을 저장하면 재현이 그 값을 대조할 근거가 없다.
+        future_years_outlook=(
+            _future_years_outlook(
+                future_regulations=future_regulations,
                 reference_line=reference_line,
                 reference_capacity=context.reference_capacity,
                 d_vector=d_vector,
@@ -1152,15 +1152,15 @@ PARAMETERS_SCHEMA_V1 = 1
 #: ⚠️ **v1 빌더는 동결 그대로 둔다** — v1 행의 ``parameter_hash`` 재현이 걸려 있다.
 PARAMETERS_SCHEMA_V2 = 2
 
-#: v3 (#2017). v2 블록에 **다음 규정연도**(``next_regulation_year``)를 더한다 — 응답의
-#: ``next_year_outlook``(다음 해 기준 등급)이 그 해의 Z-factor로 계산되므로, 그 값이
-#: ``parameter_hash``에 드러나지 않으면 다음 해 감축률이 개정돼도 재현이 조용히 통과한다
-#: (`#816` ⑶이 CF에서 막은 것과 같은 구멍).
+#: v3 (#2043). v2 블록에 **남은 규정연도 목록**(``future_regulation_years``)을 더한다 —
+#: 응답의 ``future_years_outlook``(남은 해 기준 등급)이 그 해들의 Z-factor로 계산되므로,
+#: 그 값이 ``parameter_hash``에 드러나지 않으면 이후 해 감축률이 개정돼도 재현이 조용히
+#: 통과한다(`#816` ⑶이 CF에서 막은 것과 같은 구멍).
 #:
 #: ⚠️ **v1 · v2 빌더는 동결 그대로 둔다** — 그 행들의 ``parameter_hash`` 재현이 걸려 있다.
 PARAMETERS_SCHEMA_V3 = 3
 
-#: 「이 블록을 싣지 않는다」 표지 (#2017). ``None``은 「다음 해 규정연도가 없어 계산할 수
+#: 「이 블록을 싣지 않는다」 표지 (#2043). 빈 목록은 「남은 규정연도가 없어 계산할 것이
 #: 없다」라는 **값**이라, 싣지 않는 것(v1 · v2 행의 재현)과 구분해야 한다.
 _OMIT: Any = object()
 
@@ -1208,7 +1208,7 @@ def build_parameters_used(version: int, **kwargs) -> dict[str, object]:
     if version == PARAMETERS_SCHEMA_V1:
         return _parameters_used_v1(**kwargs)
     if version == PARAMETERS_SCHEMA_V2:
-        return _parameters_used_v2(**{k: v for k, v in kwargs.items() if k != "next_regulation"})
+        return _parameters_used_v2(**{k: v for k, v in kwargs.items() if k != "future_regulations"})
     if version == PARAMETERS_SCHEMA_V3:
         return _parameters_used_v3(**kwargs)
     raise ValueError(f"알 수 없는 parameters_used 스키마 버전: {version}")
@@ -1328,66 +1328,73 @@ def _parameters_used_v2(
     }
 
 
-def _parameters_used_v3(*, next_regulation, **v2_kwargs) -> dict[str, object]:
-    """``TECH_SPEC §5.2.1.2`` — **v3** (#2017).
+def _parameters_used_v3(*, future_regulations, **v2_kwargs) -> dict[str, object]:
+    """``TECH_SPEC §5.2.1.2`` — **v3** (#2043).
 
-    v2를 **글자 하나 고치지 않고** 펼친 뒤 다음 규정연도 한 블록과 그 출처를 더한다.
-    다음 해가 규정연도 표에 없으면(2030년 다음) 블록 값이 ``null``이다 — 「없어서
+    v2를 **글자 하나 고치지 않고** 펼친 뒤 남은 규정연도 목록 한 블록과 그 출처를 더한다.
+    올해 뒤의 해가 규정연도 표에 없으면(2030년) 블록 값이 **빈 목록**이다 — 「없어서
     계산하지 않았다」가 해시 재료에 남아야, 나중에 그 해가 적재되면 재현이 409로 드러난다.
+    출처는 ``fuel_types``와 같은 꼴(``[{year, source_ref}]``)로 해마다 싣는다.
     """
     base = _parameters_used_v2(**v2_kwargs)
     sources = dict(base["parameter_sources"])  # type: ignore[arg-type]
-    sources["next_regulation_year"] = (
-        next_regulation.source_ref if next_regulation is not None else None
-    )
+    sources["future_regulation_years"] = [
+        {"year": str(row.year), "source_ref": row.source_ref} for row in future_regulations
+    ]
     return {
         **base,
-        "next_regulation_year": (
-            {
-                "year": str(next_regulation.year),
-                "z_factor_percent": str(next_regulation.z_factor_percent),
-            }
-            if next_regulation is not None
-            else None
-        ),
+        "future_regulation_years": [
+            {"year": str(row.year), "z_factor_percent": str(row.z_factor_percent)}
+            for row in future_regulations
+        ],
         "parameter_sources": sources,
         "parameter_schema_version": PARAMETERS_SCHEMA_V3,
     }
 
 
-async def _load_next_regulation_year(session: AsyncSession, regulation_year: int):
-    """다음 규정연도 행. **없으면 ``None``** — 오류가 아니다 (#2017).
+async def _load_future_regulation_years(session: AsyncSession, regulation_year: int) -> list:
+    """올해 **뒤**의 활성 규정연도 행 — 연도 오름차순. **없으면 빈 목록** — 오류가 아니다 (#2043).
 
-    올해 행이 없으면 실행 자체가 409인 것(``_load_regulation_year``)과 다르다. 다음 해
+    올해 행이 없으면 실행 자체가 409인 것(``_load_regulation_year``)과 다르다. 남은 해
     기준은 보조 한 줄이라, 규정연도 표의 마지막 해(2030)에 실행을 막을 이유가 없다.
+    목록은 ``list_regulation_years``가 활성 행만 연도순으로 주므로 여기서는 올해 이하만
+    거른다 — 지나간 해의 기준에 대 보는 것은 이 줄의 질문이 아니다.
     """
-    return await param_repo.get_regulation_year(session, regulation_year + 1)
+    rows = await param_repo.list_regulation_years(session)
+    return [row for row in rows if int(row.year) > regulation_year]
 
 
-def _next_year_outlook(
-    *, next_regulation, reference_line, reference_capacity: Decimal, d_vector, deterministic
-) -> dict[str, object] | None:
-    """``API_SPEC §6.1`` ``next_year_outlook`` (#2017 · 결정요청 「가」).
+def _future_years_outlook(
+    *, future_regulations, reference_line, reference_capacity: Decimal, d_vector, deterministic
+) -> list[dict[str, object]]:
+    """``API_SPEC §6.1`` ``future_years_outlook`` (#2043 · 남은 규정연도 전부).
 
-    required CII는 올해와 **같은 함수 · 같은 기준선 · 같은 reference capacity**로 내고
-    Z-factor만 다음 해 것을 쓴다(`PRD §3.3.4~§3.3.5`). 경계 판정은 엔진의
-    :func:`rate_against_next_year` — 화면이 경계를 다시 계산하지 않는다(`#2002`).
+    올해 연말 예상 CII **하나**를 남은 규정연도마다의 required CII · 경계에 대 본다 —
+    시뮬레이션을 다시 돌리지 않으므로 비교의 바탕이 하나다. required CII는 올해와
+    **같은 함수 · 같은 기준선 · 같은 reference capacity**로 내고 Z-factor만 그 해 것을
+    쓴다(`PRD §3.3.4~§3.3.5`). 경계 판정은 엔진의 :func:`rate_against_future_year`이고
+    경계 4종도 함께 싣는다 — 화면이 경계를 다시 계산하지 않는다(`#2002`).
     """
-    if next_regulation is None:
-        return None
-    next_required = calculate_required_cii(
-        a=Decimal(str(reference_line.a_decimal)),
-        c=Decimal(str(reference_line.c)),
-        reference_capacity=reference_capacity,
-        z_factor_percent=Decimal(str(next_regulation.z_factor_percent)),
-    ).required_cii
-    return {
-        "regulation_year": int(next_regulation.year),
-        "required_cii": _publish(next_required, "cii"),
-        "projected_rating": rate_against_next_year(
-            projection=deterministic, next_required_cii=next_required, d_vector=d_vector
-        ),
-    }
+    outlook: list[dict[str, object]] = []
+    for row in future_regulations:
+        required = calculate_required_cii(
+            a=Decimal(str(reference_line.a_decimal)),
+            c=Decimal(str(reference_line.c)),
+            reference_capacity=reference_capacity,
+            z_factor_percent=Decimal(str(row.z_factor_percent)),
+        ).required_cii
+        rated = rate_against_future_year(
+            projection=deterministic, future_required_cii=required, d_vector=d_vector
+        )
+        outlook.append(
+            {
+                "regulation_year": int(row.year),
+                "required_cii": _publish(required, "cii"),
+                "boundaries": {k: _publish(v, "cii") for k, v in rated.boundaries.items()},
+                "projected_rating": rated.rating,
+            }
+        )
+    return outlook
 
 
 def _payload(
@@ -1403,7 +1410,7 @@ def _payload(
     target_rating: str,
     warnings: list[str],
     fuel_cf_alternative=None,
-    next_year_outlook: Any = _OMIT,
+    future_years_outlook: Any = _OMIT,
 ) -> dict[str, object]:
     """``API_SPEC §6.1`` 응답의 본문 — **식별자와 스냅샷 블록을 뺀 나머지**다.
 
@@ -1490,11 +1497,11 @@ def _payload(
             ),
             "rating_change": f"{deterministic.rating}→{fuel_cf_alternative.rating}",
         }
-    # 다음 해 기준 (#2017). v3 실행에만 키가 있다 — ``None``은 「다음 해 규정연도가 없어
-    # 계산할 수 없다」이고, 키가 없는 것은 「이 기능 이전의 실행」이다. 둘을 같게 그리면
+    # 남은 해 기준 (#2043). v3 실행에만 키가 있다 — 빈 목록은 「남은 규정연도가 없어
+    # 계산할 것이 없다」이고, 키가 없는 것은 「이 기능 이전의 실행」이다. 둘을 같게 그리면
     # 화면이 구분할 길이 없다.
-    if next_year_outlook is not _OMIT:
-        payload["next_year_outlook"] = next_year_outlook
+    if future_years_outlook is not _OMIT:
+        payload["future_years_outlook"] = future_years_outlook
     return payload
 
 
@@ -1559,11 +1566,11 @@ def _envelope(
     # `PRD §12.2.1` 실적 보정계수(`#363`) — 같은 이유로 옮겨 싣고, 블록 이전 실행에는 없다.
     if "feedback" in payload:
         data["feedback"] = payload["feedback"]
-    # 다음 해 기준 (#2017) — **`None`도 옮긴다.** 「다음 해가 없어 계산할 수 없다」는 값이고,
-    # 키가 없는 것(이 기능 이전의 실행)과 화면이 가를 수 있어야 한다. ⚠️ 이 자리를 빠뜨리면
-    # 저장 본문에만 있고 응답에는 한 번도 나가지 않는다 — `#433`이 그 모양이었다.
-    if "next_year_outlook" in payload:
-        data["next_year_outlook"] = payload["next_year_outlook"]
+    # 남은 해 기준 (#2043) — **빈 목록도 옮긴다.** 「남은 해가 없어 계산할 것이 없다」는
+    # 값이고, 키가 없는 것(이 기능 이전의 실행)과 화면이 가를 수 있어야 한다. ⚠️ 이 자리를
+    # 빠뜨리면 저장 본문에만 있고 응답에는 한 번도 나가지 않는다 — `#433`이 그 모양이었다.
+    if "future_years_outlook" in payload:
+        data["future_years_outlook"] = payload["future_years_outlook"]
     # 대체 연료 지렛대 (#756 ⑴) — 본문에 있을 때만. ⚠️ `#433`의 교훈: 여기를
     # 잊으면 저장은 됐는데 **응답에 한 번도 나가지 않는다.**
     return {
@@ -2212,12 +2219,12 @@ async def reproduce_annual_simulation(
     if schema_version >= PARAMETERS_SCHEMA_V2:
         live_cf, fuel_sources = await _live_fuel_types_from_snapshot(session, voyages_json)
         v2_inputs = {"live_cf": live_cf, "fuel_type_sources": fuel_sources}
-    # v3 행은 다음 규정연도를 **지금 값으로** 읽는다 (#2017) — 개정됐거나 새로 적재됐다면
+    # v3 행은 남은 규정연도를 **지금 값으로** 읽는다 (#2043) — 개정됐거나 새로 적재됐다면
     # 해시가 어긋나 409가 나야 한다. v1 · v2 행은 그 블록이 없었으므로 읽지 않는다.
-    next_regulation: Any = _OMIT
+    future_regulations: Any = _OMIT
     if schema_version >= PARAMETERS_SCHEMA_V3:
-        next_regulation = await _load_next_regulation_year(session, row.regulation_year)
-        v2_inputs["next_regulation"] = next_regulation
+        future_regulations = await _load_future_regulation_years(session, row.regulation_year)
+        v2_inputs["future_regulations"] = future_regulations
 
     parameters_used = build_parameters_used(
         schema_version,
@@ -2309,7 +2316,7 @@ async def reproduce_annual_simulation(
         apply_feedback_factor=row.apply_feedback_factor,
         alternative_fuel=row.alternative_fuel,
         alternative_cf=alternative_cf,
-        next_regulation=next_regulation,
+        future_regulations=future_regulations,
     )
 
     # `TECH_SPEC §5.4` 1항 — 같은 결과를 약속하는 조건은 **input_hash · parameter_hash ·
@@ -2493,7 +2500,7 @@ def _recompute(
     alternative_fuel: str | None = None,
     alternative_cf: Decimal | None = None,
     not_underway_json: dict | None = None,
-    next_regulation: Any = _OMIT,
+    future_regulations: Any = _OMIT,
 ) -> dict[str, object]:
     """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
 
@@ -2604,13 +2611,13 @@ def _recompute(
         remaining_voyage_count=_plan_voyage_count(voyages_json),
         target_rating=target_rating,
         warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings, *extra_warnings],
-        # v3 행만 다시 낸다(#2017) — v1 · v2 원본에 없던 블록을 재현이 새로 만들면
+        # v3 행만 다시 낸다(#2043) — v1 · v2 원본에 없던 블록을 재현이 새로 만들면
         # 「원본을 다시 돌려 확인했다」는 응답의 뜻이 깨진다.
-        next_year_outlook=(
+        future_years_outlook=(
             _OMIT
-            if next_regulation is _OMIT
-            else _next_year_outlook(
-                next_regulation=next_regulation,
+            if future_regulations is _OMIT
+            else _future_years_outlook(
+                future_regulations=future_regulations,
                 reference_line=reference_line,
                 reference_capacity=reference_capacity,
                 d_vector=d_vector,
@@ -2644,12 +2651,12 @@ def _assert_same_outcome(stored: dict, reproduced: dict) -> None:
         raise ReproducibilityError(
             "재현 결과의 예상 등급이 원본과 다릅니다. 재현성 검증 실패 — 관리자에게 문의하세요."
         )
-    # 다음 해 기준 (#2017) — 원본에 있을 때만 본다(v3 행). 결정론이라 환경과 무관하게
+    # 남은 해 기준 (#2043) — 원본에 있을 때만 본다(v3 행). 결정론이라 환경과 무관하게
     # 같아야 한다.
-    if "next_year_outlook" in stored and reproduced.get("next_year_outlook") != stored.get(
-        "next_year_outlook"
+    if "future_years_outlook" in stored and reproduced.get("future_years_outlook") != stored.get(
+        "future_years_outlook"
     ):
         raise ReproducibilityError(
-            "재현 결과의 다음 해 기준 등급이 원본과 다릅니다. 재현성 검증 실패 — "
+            "재현 결과의 남은 해 기준 등급이 원본과 다릅니다. 재현성 검증 실패 — "
             "관리자에게 문의하세요."
         )

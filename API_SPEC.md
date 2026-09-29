@@ -3314,11 +3314,20 @@ POST /api/v1/annual-simulations
         "rating_change": "C→C"
       }
     },
-    "next_year_outlook": {
-      "regulation_year": 2027,
-      "required_cii": "4.887641",
-      "projected_rating": "D"
-    },
+    "future_years_outlook": [
+      {
+        "regulation_year": 2027,
+        "required_cii": "4.887641",
+        "boundaries": {
+          "superior_boundary": "4.203371", "lower_boundary": "4.594382",
+          "upper_boundary": "5.180899", "inferior_boundary": "5.767416"
+        },
+        "projected_rating": "D"
+      },
+      { "regulation_year": 2028, "required_cii": "4.738862", "boundaries": { "...": "..." }, "projected_rating": "D" },
+      { "regulation_year": 2029, "required_cii": "4.590083", "boundaries": { "...": "..." }, "projected_rating": "E" },
+      { "regulation_year": 2030, "required_cii": "4.441305", "boundaries": { "...": "..." }, "projected_rating": "E" }
+    ],
     "snapshot": {
       "snapshot_id": "uuid",
       "created_at": "2026-07-03T12:00:00Z",
@@ -3343,26 +3352,27 @@ POST /api/v1/annual-simulations
 }
 ```
 
-> **[#2017] `next_year_outlook` — 다음 해 기준 등급** (`PRD §12.7` 「다음 해 기준 등급」 · 사용자 결정 「가」). 올해 **결정론 연말 예상 CII**(`deterministic.projected_attained_cii`의 공표 전 원값)를 **다음 규정연도(`regulation_year + 1`)의 required CII와 등급 경계**에 대 본 등급이다. required CII는 올해와 같은 기준선 · 같은 reference capacity에 Z-factor만 다음 해 것을 쓰고, 경계 판정은 올해 등급과 같은 함수다(포함 방향 `PRD §3.3.6`). 화면은 경계를 다시 계산하지 않는다(`#2002`).
+> **[#2043] `future_years_outlook[]` — 남은 해 기준 등급** (`PRD §12.7` 「남은 해 기준 등급」 · 디자인 담당 제안 「남은 해 전부」 · 2026-09-29 개발 결정). 올해 **결정론 연말 예상 CII**(`deterministic.projected_attained_cii`의 공표 전 원값) **하나**를 규정연도 표(`PRD §3.4`)에서 **올해 뒤의 활성 규정연도마다의 required CII와 등급 경계**에 대 본 등급이다 — 연도 오름차순, 표에 있는 해 전부. 시뮬레이션을 다시 돌리지 않으므로 비교의 바탕이 하나다. required CII는 올해와 같은 기준선 · 같은 reference capacity에 Z-factor만 그 해 것을 쓰고, 경계 판정은 올해 등급과 같은 함수다(포함 방향 `PRD §3.3.6`). 경계 4종도 함께 싣는다 — 화면은 경계를 다시 계산하지 않는다(`#2002`).
 >
 > | 필드 | 타입 | 설명 |
 > |---|---|---|
-> | `regulation_year` | int | 다음 규정연도 |
-> | `required_cii` | string (Layer 1 · 6자리 절사) | 다음 해 required CII |
-> | `projected_rating` | string (A~E) | 올해 연말 예상 CII를 다음 해 경계에 대 본 등급 |
+> | `regulation_year` | int | 올해 뒤의 규정연도 |
+> | `required_cii` | string (Layer 1 · 6자리 절사) | 그 해 required CII |
+> | `boundaries` | object | 그 해 등급 경계 4종 — `§2.14` `ytd.boundaries`와 같은 키(`superior_boundary` · `lower_boundary` · `upper_boundary` · `inferior_boundary`) · Layer 1 6자리 절사 |
+> | `projected_rating` | string (A~E) | 올해 연말 예상 CII를 그 해 경계에 대 본 등급 |
 >
-> **세 상태를 가른다** — ⑴ 객체: 계산했다 ⑵ **`null`**: 다음 규정연도가 표에 없어(2030년 다음) 계산할 수 없다 ⑶ **키 없음**: 이 필드 이전(`#2017` 전)에 실행한 결과다. `§6.2` 조회는 저장된 응답을 그대로 내므로 옛 실행에는 키가 없다. `§6.4` 재현은 원본에 있을 때만 다시 내고 대조한다. 다음 해 Z-factor는 `parameters_used` **v3**의 `next_regulation_year` 블록으로 `parameter_hash`에 들어간다(`TECH_SPEC §5.2.1.2`) — 다음 해 감축률이 개정되면 재현이 409로 드러난다. 가정 문구 원문은 `PRD §6.3` 「연간 등급 관리 — 다음 해 기준 가정」.
+> **두 상태를 가른다** — ⑴ 목록: 계산했다. **빈 목록 `[]`**은 올해 뒤의 규정연도가 표에 없어(2030년 실행) 계산할 것이 없다는 뜻이다 ⑵ **키 없음**: 이 필드 이전(`#2043` 전)에 실행한 결과다. `§6.2` 조회는 저장된 응답을 그대로 내므로 옛 실행에는 키가 없다. `§6.4` 재현은 원본에 있을 때만 다시 내고 대조한다. 남은 해의 Z-factor는 `parameters_used` **v3**의 `future_regulation_years` 블록으로 **전부** `parameter_hash`에 들어간다(`TECH_SPEC §5.2.1.2`) — 어느 해의 감축률이 개정되거나 새 해가 적재되면 재현이 409로 드러난다. 가정 문구 원문은 `PRD §6.3` 「연간 등급 관리 — 남은 해 기준 가정」. 예시의 `2028`~`2030` 행은 `boundaries`를 줄여 적었다 — 실제 응답은 해마다 네 값을 다 싣는다.
 
 > **[#816] `meta.as_of` — 집계에 실제로 쓴 기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵). 명시 실행은 그 값, 미명시 실행은 서버가 확정한 시각(스냅숏 생성 시각과 같은 뜻)이 실린다. `§6.2` 조회·`§6.4` 재현도 같은 규칙으로 같은 값을 낸다 — 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
 
-> **[#816 ⑶] `parameters_used` v2** (2026-09-18 결정) — **현행은 v3다**(`#2017`, 아래 표 끝 행). v2는 v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지를 더했다:
+> **[#816 ⑶] `parameters_used` v2** (2026-09-18 결정) — **현행은 v3다**(`#2043`, 아래 표 끝 행). v2는 v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지를 더했다:
 >
 > | 필드 | 뜻 |
 > |---|---|
 > | `fuel_types` | 계획 항차에 곱한 **활성 CF** (`#832`). `[{code, cf}]` — 이 실행이 실제로 쓴 유종만. CF 개정이 `parameter_hash`에 드러나지 않으면 재현성 계약이 성립하지 않는다 |
 > | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 `[{code, source_ref}]` (유종별 출처). 종전 `parameter_source_version`은 기준선 하나만 담었다 |
-> | `parameter_schema_version` | 현행 `3`(`#2017` 전 실행은 `2`). **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1·v2 실행의 해시를 그대로 재생한다 |
-> | `next_regulation_year` (v3) | 다음 규정연도 `{year, z_factor_percent}` — 다음 해가 규정연도 표에 없으면(2030년 다음) **`null`**. 출처는 `parameter_sources.next_regulation_year`(없으면 `null`). 위 `[#2017]` 각주의 `next_year_outlook`이 이 값으로 계산된다 |
+> | `parameter_schema_version` | 현행 `3`(`#2043` 전 실행은 `2`). **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1·v2 실행의 해시를 그대로 재생한다 |
+> | `future_regulation_years` (v3) | 올해 뒤의 규정연도 `[{year, z_factor_percent}]` — 연도 오름차순, 표에 없으면(2030년 실행) **`[]`**. 출처는 `parameter_sources.future_regulation_years` `[{year, source_ref}]`(`fuel_types`와 같은 꼴). 위 `[#2043]` 각주의 `future_years_outlook`이 이 값으로 계산된다 |
 >
 > 스키마의 정본은 **`TECH_SPEC §5.2.1.2`**다(v1·v2·v3 블록 대조 · 판정 규칙 · `rating_boundary.ship_type`을 싣는 이유) — 이 표는 응답에서 보이는 차이만 요약한다 (#1306).
 
@@ -4969,4 +4979,4 @@ POST /api/v1/chat
 | 2026-09-28 | `#2014` | §15.1 `lookup_regulation` 줄에 등급 경계 행의 **`grade_ranges`** (`#1973` 후속 · `PRD §16.3.1`). 규칙만으로는 모델이 경계 포함 방향을 뒤집어, 옮겨 적을 구간 문장을 도구가 준다. `§4.3`상 줄 보강이라 버전은 올리지 않는다 (#1973) |
 | 2026-09-28 | `#2021` | §2.16 `issues[].severity` 표 `UNAVAILABLE` 행에 **⑶ `FUEL_NO_RECORD`** 추가와 `[#2019]` 각주 — 이 표의 `codes` 열을 코드 집합의 정본으로 두고 서버(`ISSUE_CODES`)·화면(`REASON_TEXT`)을 양쪽에서 대조한다. `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었는데 표에만 없었다 — 대조 검사가 처음 돌며 드러났다. 응답은 바뀌지 않는다. `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2019) |
 | 2026-09-29 | `#2036` | §15.1 `lookup_regulation` 줄 — `grade_ranges` 예시에 **백분율 표기**(「1.0600배(106.0%)」)와 감축률 **`reduction_factor.by_year`**(규제연도 표 전체) (`#1973` 폐기 후속 · `PRD §16.3.1`). 운영 「벌크선 D등급 경계」 답이 도구에 없는 표기·다른 해 값으로 폐기됐다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#1973) |
-| 2026-09-28 | `#___` | §6.1 응답에 **`next_year_outlook`**(다음 해 기준 등급) 예시와 `[#2017]` 각주 — 필드 표 · 세 상태(객체 · `null` · 키 없음) · `parameters_used` v3 (`#2017`). 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 `next_regulation_year` 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2017) |
+| 2026-09-29 | `#___` | §6.1 응답에 **`future_years_outlook[]`**(남은 해 기준 등급) 예시와 `[#2043]` 각주 — 필드 표(`boundaries` 포함) · 두 상태(목록 · 키 없음 — 빈 목록은 「올해 뒤의 규정연도 없음」) · `parameters_used` v3의 `future_regulation_years` (`#2043` · `#2017`에서 분리). 디자인 담당 제안대로 **다음 해 하나가 아니라 남은 규정연도 전부**를 싣는다 — 같은 CII 하나를 여러 해의 기준에 대는 것이라 시뮬레이션을 다시 돌리지 않는다. 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 v3 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2043) |
