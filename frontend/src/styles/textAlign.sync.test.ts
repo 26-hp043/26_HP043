@@ -30,6 +30,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { type Specificity, specificity, stronger } from './specificity'
 
 const SRC = join(__dirname, '..')
 
@@ -43,23 +44,7 @@ function cssFiles(dir: string): string[] {
   return out
 }
 
-type Rule = { selector: string; align: string; specificity: [number, number, number] }
-
-/** `#id` · `.class`/`[attr]`/`:pseudo` · 요소를 센다. `::before`는 요소 쪽이다. */
-function specificity(selector: string): [number, number, number] {
-  const cleaned = selector.replace(/::[a-z-]+/g, ' el ').replace(/:not\(([^)]*)\)/g, ' $1 ')
-  const ids = (cleaned.match(/#[\w-]+/g) ?? []).length
-  const classes = (cleaned.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(\([^)]*\))?/g) ?? []).length
-  const elements = (cleaned.match(/(^|[\s>+~])(el|[a-z][\w-]*)(?![\w-]*[({])/g) ?? []).length
-  return [ids, classes, elements]
-}
-
-function stronger(a: [number, number, number], b: [number, number, number]): boolean {
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] > b[i]
-  }
-  return false
-}
+type Rule = { selector: string; align: string; specificity: Specificity }
 
 /** 마지막 조각 — `.regp__table td.regp__num` → `td.regp__num`. */
 function last(selector: string): string {
