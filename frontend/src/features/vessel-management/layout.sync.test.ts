@@ -29,15 +29,23 @@ const CSS = readFileSync(join(HERE, 'VesselManagement.css'), 'utf-8').replace(
   '',
 )
 
-/** `#1788` 실측 — 1440 · 라이트 · 시연 데이터에서 칸을 좁혀 잰 행의 `scrollWidth`. */
-const MEASURED_MIN = 890
+/**
+ * `#1788` 실측 — 1440 · 라이트 · 시연 데이터에서 칸을 좁혀 잰 행의 `scrollWidth`(`890`).
+ *
+ * `#2018`이 올해 누적 등급 칸(`minmax(104px, 1.2fr)` · 디자인 확정 2026-09-29)을 더해
+ * `910 + 8 × 12 = 1006`이 됐다. 브라우저에서 다시 쟀다(2026-09-29 · 1440 ·
+ * 라이트 · Playwright로 API 응답을 흉내 낸 5척 — 등급 있음 3 · 사유 2 · 받지 못함 상태 따로):
+ * 목록을 `200px`로 좁혀 읽은 각 행의 `scrollWidth`가 두 상태 모두 `1006`이다. 등급 칸은
+ * 최소 `104`로 섰고, 배지와 CII를 쌓아도 행 높이는 쌓지 않은 행과 같은 `42`였다.
+ */
+const MEASURED_MIN = 1006
 
 describe('선박 목록의 넘침은 카드 안에서 받는다 (#1788)', () => {
   it('목록을 감싼 자리가 가로로 스크롤한다 — 페이지가 밀리지 않는다', () => {
     expect(/\.vm__list-wrap\s*\{[^}]*overflow-x:\s*auto/.test(CSS)).toBe(true)
   })
 
-  it('최소 폭을 실측값(890) 아래로 되돌리지 않는다', () => {
+  it('최소 폭을 실측값 아래로 되돌리지 않는다', () => {
     const match = /\.vm__list\s*\{[^}]*min-inline-size:\s*([0-9]+)px/.exec(CSS)
     expect(match, 'VesselManagement.css에서 목록 최소 폭을 찾지 못했다').not.toBeNull()
     expect(Number(match![1])).toBeGreaterThanOrEqual(MEASURED_MIN)
@@ -51,7 +59,7 @@ describe('선박 목록의 넘침은 카드 안에서 받는다 (#1788)', () => 
      * 줄어들 수 있는 하한이다.
      */
     const mins = [...cols![1].matchAll(/(?:minmax\(\s*)?(\d+)px/g)].map((m) => Number(m[1]))
-    expect(mins).toHaveLength(8)
+    expect(mins).toHaveLength(9)
     const gap = 12
     expect(mins.reduce((a, b) => a + b, 0) + (mins.length - 1) * gap).toBe(MEASURED_MIN)
   })

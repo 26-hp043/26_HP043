@@ -363,9 +363,15 @@ describe('기능 사이 요청 계층 import (#1249)', () => {
      * 두 곳이 정의하면 한쪽만 고쳐졌을 때 두 화면이 다른 값을 말한다.
      */
     'features/fleet/VesselPopover.tsx → realtime-cii/apiProvider',
+    /*
+     * 선박 관리 목록의 올해 누적 등급을 대시보드와 **같은 선대 요약 조회**로 받는다 (#2018).
+     * `/vessels`(`API_SPEC §2.1`)에는 등급이 없고, 같은 값을 내는 경로를 하나 더 만들면
+     * 같은 배의 누적 CII가 경로마다 갈린다(`#750` · `#866`). 파싱까지 같은 provider를 쓴다.
+     */
+    'features/vessel-management/VesselManagement.tsx → fleet/apiProvider',
   ].sort()
 
-  it('요청 계층 결합은 사유가 적힌 여섯뿐이다', () => {
+  it('요청 계층 결합은 사유가 적힌 일곱뿐이다', () => {
     expect(crossFeatureProviderImports()).toEqual(COMPOSITION)
   })
 

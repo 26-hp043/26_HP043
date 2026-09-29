@@ -60,22 +60,30 @@ describe('면책이 버린 답과 같은 면을 쓰지 않는다 (§8.5 · #1818
 })
 
 /**
- * 패널이 본문을 덮지 않는 폭이 **선박 관리 목록을 담을 만큼** 남기는지 (#1818 · #1788).
+ * 패널이 본문을 덮지 않는 폭이 **선박 관리 목록을 담을 만큼** 남기는지 (#1818 · #1788 · #2018).
  *
- * 종전 값 `1366`은 본문에 `650px`만 남겼다 — 목록 최소 폭 `890`에 한참 못 미친다.
+ * 종전 값 `1366`은 본문에 `650px`만 남겼다 — 당시 목록 최소 폭 `890`에 한참 못 미친다.
  * 그 파일 주석이 「약 900px 남는다」고 적고 있었는데 **사이드바와 여백을 빼지 않은
- * 계산**이었다.
+ * 계산**이었다. 그래서 `#1818`이 전역 전환점을 `1640`으로 올렸다.
  *
- * ⚠️ 이 검사는 **숫자를 새로 적지 않는다** — `890`은 `#1788`의 가드에서, 패널 폭은
- * CSS 변수에서 읽는다. 한쪽을 바꾸면 여기서 걸린다.
+ * `#2018`(등급 칸)로 목록 최소 폭이 `1006`이 됐다. 전역 값을 따라 올리면 목록과 무관한
+ * 화면까지 1640~1755에서 패널에 덮이므로, **선박 관리 화면에서만** 비키는 시점을 늦춘다.
+ * 그래서 전환점이 둘이고 각각 떨어지는 값이어야 한다.
+ *
+ * ⚠️ 현재 목록 최소 폭은 **숫자를 새로 적지 않는다** — `#1788`의 가드에서 읽고, 패널 폭은
+ * CSS 변수에서 읽는다. 한쪽을 바꾸면 여기서 걸린다. 전역 전환점의 근거인 `890`만은
+ * `#2018` 이전의 실측이라 그 가드에 더는 없어 여기 적는다.
  */
-describe('패널을 비우는 폭이 목록 최소 폭을 남긴다 (#1818 · #1788)', () => {
-  /** `#1788`이 브라우저에서 잰 목록 최소 폭. 그 가드가 소유한다. */
+describe('패널을 비우는 폭이 목록 최소 폭을 남긴다 (#1818 · #1788 · #2018)', () => {
+  /** `#1788`이 브라우저에서 잰 현재 목록 최소 폭. 그 가드가 소유한다. */
   const LIST_MIN = (() => {
     const match = /const MEASURED_MIN = (\d+)/.exec(readFileSync(VM_GUARD, 'utf-8'))
     expect(match, '선박 관리 가드에서 MEASURED_MIN을 읽지 못했습니다').not.toBeNull()
     return Number(match![1])
   })()
+
+  /** `#1818`이 전역 전환점을 정할 때의 목록 최소 폭(`#1788` 실측 · 등급 칸 이전). */
+  const LIST_MIN_1818 = 890
 
   /** 패널 폭. 셸이 비우는 폭과 **같은 변수**여야 한다(`launcherReserve.sync.test.ts`). */
   const PANEL = (() => {
@@ -93,19 +101,40 @@ describe('패널을 비우는 폭이 목록 최소 폭을 남긴다 (#1818 · #1
   const SHELL_GUTTERS = 48 // 셸 padding 24 + 사이드바와 본문 사이 gap 24
   const CARD_PADDING = 34 // 목록 카드 좌우 패딩 16 + 테두리 1, 양쪽
   const RESERVE = 24 * 2 + PANEL // --shell-gutter * 2 + 패널 폭
+  const FIXED = CARD_PADDING + SHELL_GUTTERS + SIDEBAR + RESERVE
 
-  const NEEDED = LIST_MIN + CARD_PADDING + SHELL_GUTTERS + SIDEBAR + RESERVE
+  const NEEDED_GLOBAL = LIST_MIN_1818 + FIXED
+  const NEEDED_VM = LIST_MIN + FIXED
 
-  it('산술이 1640으로 떨어진다 — 고른 값이 아니다', () => {
-    expect(NEEDED).toBe(1640)
+  /** `min-width` 미디어 규칙 안에서 주어진 선택자가 여는 전환점. */
+  function breakpoint(selector: string): number {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const match = new RegExp(`@media\\s*\\(min-width:\\s*(\\d+)px\\)\\s*\\{\\s*${escaped}\\s*\\{`).exec(
+      CSS,
+    )
+    expect(match, `${selector} 미디어 규칙이 없습니다`).not.toBeNull()
+    return Number(match![1])
+  }
+
+  it('전역 산술이 1640으로 떨어진다 — 고른 값이 아니다', () => {
+    expect(NEEDED_GLOBAL).toBe(1640)
   })
 
-  it('전환점이 그 폭 아래로 내려가지 않는다', () => {
-    const match = /@media\s*\(min-width:\s*(\d+)px\)\s*\{\s*\.app-shell--assistant-open/.exec(CSS)
-    expect(match, '.app-shell--assistant-open 미디어 규칙이 없습니다').not.toBeNull()
+  it('선박 관리 산술이 1756으로 떨어진다 — 고른 값이 아니다', () => {
+    expect(NEEDED_VM).toBe(1756)
+  })
+
+  it('전역 전환점은 1640 그대로다 — 목록과 무관한 화면을 덮지 않는다', () => {
     expect(
-      Number(match![1]),
-      `전환점이 ${NEEDED} 밑이면 본문이 선박 관리 목록(${LIST_MIN})을 담지 못해 목록이 가로로 스크롤됩니다.`,
-    ).toBeGreaterThanOrEqual(NEEDED)
+      breakpoint('.app-shell--assistant-open:not(:has(.vessel-management))'),
+      '전역 전환점이 옮겨 가면 다른 화면이 그 폭에서 패널에 덮이거나 목록을 담지 못합니다.',
+    ).toBe(NEEDED_GLOBAL)
+  })
+
+  it('선박 관리에서는 그 폭 아래로 비키지 않는다', () => {
+    expect(
+      breakpoint('.app-shell--assistant-open'),
+      `선박 관리의 전환점이 ${NEEDED_VM} 밑이면 본문이 목록(${LIST_MIN})을 담지 못해 목록이 가로로 스크롤됩니다.`,
+    ).toBeGreaterThanOrEqual(NEEDED_VM)
   })
 })
