@@ -96,7 +96,7 @@ export function NotUnderwayPanel({
       <div className="card__head">
         <h2 className="card__title">정박·묘박 기록</h2>
         <button
-          className="nu__toggle"
+          className="nu__button"
           type="button"
           onClick={() => setFormOpen((open) => !open)}
           data-testid="nu-toggle"
@@ -351,6 +351,7 @@ function PeriodRow({
 
           <button
             type="button"
+            className="nu__button"
             data-testid="nu-fuel-save"
             onClick={() => {
               // 화면이 볼 수 있는 것만 본다 — 중복 판정은 서버가 409로 한다.
@@ -369,7 +370,7 @@ function PeriodRow({
             저장
           </button>
 
-          <button type="button" onClick={() => setFuelDraft(null)}>
+          <button type="button" className="nu__button" onClick={() => setFuelDraft(null)}>
             취소
           </button>
         </div>
@@ -383,7 +384,7 @@ function PeriodRow({
 
       <div className="nu__row-actions">
         {ongoing && !closing ? (
-          <button type="button" onClick={() => setClosing(true)} data-testid="nu-close">
+          <button type="button" className="nu__button" onClick={() => setClosing(true)} data-testid="nu-close">
             종료 시각 확정
           </button>
         ) : null}
@@ -398,6 +399,7 @@ function PeriodRow({
             />
             <button
               type="button"
+              className="nu__button"
               onClick={() =>
                 guard(async () => {
                   await onClose(toIso(endValue))
@@ -406,7 +408,7 @@ function PeriodRow({
             >
               확정
             </button>
-            <button type="button" onClick={() => setClosing(false)}>
+            <button type="button" className="nu__button" onClick={() => setClosing(false)}>
               취소
             </button>
           </span>
@@ -414,7 +416,7 @@ function PeriodRow({
 
         <button
           type="button"
-          className="nu__danger"
+          className="nu__button nu__danger"
           onClick={() => guard(onRemove)}
           data-testid="nu-remove"
         >
@@ -589,6 +591,7 @@ function PeriodForm({
         <h3>연료 소모</h3>
         <button
           type="button"
+          className="nu__button"
           onClick={() =>
             setFuelUses((rows) => [
               ...rows,
@@ -664,7 +667,7 @@ function PeriodForm({
 
           <button
             type="button"
-            className="nu__danger"
+            className="nu__button nu__danger"
             onClick={() => setFuelUses((rows) => rows.filter((_, i) => i !== index))}
           >
             삭제
@@ -675,7 +678,7 @@ function PeriodForm({
       {errors.fuelUses ? <em className="nu__field-error" role="alert">{errors.fuelUses}</em> : null}
 
       <button
-        className="nu__submit"
+        className="nu__button nu__submit"
         type="button"
         onClick={() => void submit()}
         disabled={busy}

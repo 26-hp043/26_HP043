@@ -55,8 +55,6 @@ const SRC = dirOf(import.meta.url, '..')
 const EXEMPT: Readonly<Record<string, string>> = {
   'features/data-quality/DataQuality.css|.dq__tile dd|.dq__hint':
     '같은 파일이 `.dq__tile dd.dq__hint`로 **이미 덧댔다** — 문맥 안에서는 이기고 있다',
-  'features/not-underway/NotUnderwayPanel.css|.nu__row-actions button:hover|.nu__danger:hover':
-    '⚠️ **결함 · 후속 `#2061`** — 행 삭제 버튼의 hover가 기본 hover(파랑)에 져서 위험색이 나오지 않는다. 실측(1440 라이트)에서 취소 버튼과 `color`·`border-color`가 **모두 `rgb(26,54,93)`**로 같다',
   'features/scenario-comparison/ScenarioComparison.css|.scenario-table th|.scenario-table__corner':
     '⚠️ **결함 · 후속 `#2062`** — 표 모서리 칸이 caption(12)을 잃고 **body(15)**로 그려진다(실측). 주석이 적어 둔 「시나리오 이름과 같은 무게로 읽히지 않게」가 정확히 반대로 나온다',
   'features/scenario-comparison/ScenarioComparison.css|.scenario-table th|.scenario-table__scenario':
