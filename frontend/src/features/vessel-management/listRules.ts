@@ -235,11 +235,27 @@ export function blockedReasons(vessel: Vessel): BlockedReason[] {
  * 비었다는 사실 자체가 답이다.
  */
 /**
- * 제원이 미비한 선박인가 (`#1424`).
+ * 입력이 덜 끝난 선박인가 (`#1424` · 문구 `#2037`).
  *
- * **정렬 `gaps`와 같은 판정을 쓴다** — 둘이 갈리면 「제원 미비 먼저」로 정렬해 위에
- * 올라온 배가 「제원 미비」 필터에서는 빠지는 일이 생긴다. 같은 화면의 두 컨트롤이
+ * **정렬 `gaps`와 같은 판정을 쓴다** — 둘이 갈리면 「입력 미완료 먼저」로 정렬해 위에
+ * 올라온 배가 「입력 미완료」 필터에서는 빠지는 일이 생긴다. 같은 화면의 두 컨트롤이
  * 같은 말을 다르게 세는 셈이다.
+ *
+ * ## 왜 「제원 미비」라고 부르지 않는가 (`#2037`)
+ *
+ * 이 판정이 세는 것은 **용량 · 기준속도 · 기준 일일 연료소모량** 셋인데, 서버의
+ * `MISSING_SPEC`(「제원 미입력」)이 세는 것은 **선종 · DWT · GT**다. 겹치는 것은
+ * **용량 하나**뿐이다 — CII는 `M / (W · Dt)`라 기준속도·일일 연료는 등급 계산에
+ * 들어가지 않는다.
+ *
+ * 그래서 **기준속도만 빈 배는 이 칩에 걸리면서 등급은 멀쩡히 나온다.** 두 말을 다
+ * 「제원」으로 부르면 같은 화면에서 같은 말이 **다른 집합**을 가리킨다 — 아래
+ * `SORT_LABELS` 머리말이 경고하는 것과 같은 실패이고, 이번에는 **화면 어휘와 서버
+ * 어휘** 사이에서 일어난다.
+ *
+ * 서버 문구(`fleet/fleetRules.ts` `unavailableText()`)는 대시보드가 함께 쓰므로
+ * **건드리지 않는다** — 같은 배가 두 화면에서 다르게 읽히면 안 된다(`#750` · `#866`).
+ * 바꾼 것은 **이 화면에만 있는 말**이고, 세는 것이 완성도이므로 뜻도 그쪽이 맞다.
  *
  * 축을 모르는 항목은 `specProgress`가 분모에서 이미 뺀다 — 여기서 다시 판단하지
  * 않는다.
@@ -264,8 +280,8 @@ export function specGapCount(vessels: readonly Vessel[]): number {
  */
 export function specGapFilterNotice(shown: number): string {
   return shown === 0
-    ? '제원이 미비한 선박이 없습니다. 칩을 다시 누르면 전체가 나옵니다.'
-    : `제원 미비 ${shown}척만 보입니다.`
+    ? '입력이 덜 끝난 선박이 없습니다. 칩을 다시 누르면 전체가 나옵니다.'
+    : `입력 미완료 ${shown}척만 보입니다.`
 }
 
 export const EMPTY_MESSAGE =
@@ -276,7 +292,7 @@ export const EMPTY_MESSAGE =
  *
  * `GET /vessels`는 커서 페이지네이션이고 `meta`에 전체 수가 없다(`API_SPEC §2.1`).
  * 화면은 **불러온 만큼**만 안다. 그런데 제목이 「선박 20척」이라 35척 선대에서 전체
- * 수처럼 읽혔고, 「제원 미비 먼저」 정렬도 20척 안에서만 성립한다는 사실이 어디에도
+ * 수처럼 읽혔고, 「입력 미완료 먼저」 정렬도 20척 안에서만 성립한다는 사실이 어디에도
  * 없었다. 불러온 20척을 모두 지우면 「등록된 선박이 없습니다」와 「더 보기」가 함께
  * 떠 서로 반대 말을 했다.
  *
@@ -378,7 +394,7 @@ export const SORT_KEYS = ['gaps', 'name', 'type', 'capacity'] as const
 export type VesselSortKey = (typeof SORT_KEYS)[number]
 
 export const SORT_LABEL: Readonly<Record<VesselSortKey, string>> = {
-  gaps: '제원 미비 먼저',
+  gaps: '입력 미완료 먼저',
   name: '이름순',
   type: '선종순',
   capacity: '용량 큰 순',
