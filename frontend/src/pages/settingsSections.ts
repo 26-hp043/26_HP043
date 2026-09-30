@@ -24,6 +24,17 @@ export interface SettingsSection {
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: 'account-info', label: '계정 정보' },
+  /*
+   * 표시 이름은 **자기 절**이다 (#2074).
+   *
+   * 종전에는 「계정 정보」 절 안쪽 맨 아래에 제목 없는 폼으로 들어 있어 **목차로는
+   * 찾을 수 없었다** — 성격이 같은 「비밀번호 변경」·「탈퇴」는 각자 절을 갖는데
+   * 이것만 아니었다. 「계정 정보」는 이제 **바꿀 수 없는 사실**(이메일 · 역할)만 진다.
+   *
+   * 이름은 `UIFLOW 2-6` 구성 표의 표현을 따른다(「프로필 · 계정 관리」 ·
+   * `rlatnals4114` 2026-09-30 확정 · `AGENTS §7.3`).
+   */
+  { id: 'profile', label: '프로필' },
   { id: 'account-role', label: '계정 · 역할', adminOnly: true },
   { id: 'password', label: '비밀번호 변경' },
   { id: 'withdrawal', label: '탈퇴' },
