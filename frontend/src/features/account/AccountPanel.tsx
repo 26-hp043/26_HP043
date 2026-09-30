@@ -97,7 +97,14 @@ export function AccountPanel() {
         <p className="acc__notice">{EMAIL_IMMUTABLE_NOTICE}</p>
         {/* `PRD §6.3` 「역할 설명」 — 정본 문구다. 세 역할 모두 자기 역할이 무엇을 뜻하는지 본다. */}
         <p className="acc__notice">{ROLE_DESCRIPTION}</p>
+      </SettingsSectionCard>
 
+      {/*
+        표시 이름은 자기 절이다 (#2074) — 위 「계정 정보」는 **바꿀 수 없는 사실**만
+        진다. 종전에는 이 폼이 그 절 안쪽 맨 아래에 제목 없이 들어 있어 목차로는
+        찾을 수 없었다.
+      */}
+      <SettingsSectionCard id="profile">
         <DisplayNameForm initial={user.displayName ?? ''} />
       </SettingsSectionCard>
 

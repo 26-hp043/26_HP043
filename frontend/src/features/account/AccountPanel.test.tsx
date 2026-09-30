@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { AccountPanel } from './AccountPanel'
+import { RegulationParametersSection } from '../parameters/RegulationParametersSection'
+import { visibleSections } from '../../pages/settingsSections'
 import { WITHDRAWAL_NOTICE } from '../auth/authRules'
 import * as session from '../../auth/session'
 
@@ -283,3 +285,70 @@ describe('비밀번호 변경 성공 안내 (#1099)', () => {
   })
 })
 
+/**
+ * ⚠️ 목록에 있는 절이 **화면에 실재한다** (#2074 · #1791).
+ *
+ * ## 왜 이 검사가 필요한가
+ *
+ * `settingsSections.ts`는 목차와 절을 **한 목록에서** 만들어 「목차에 없는 절」과
+ * 「없는 자리로 가는 링크」를 막는다. 그런데 그 장치는 **절로 만든 것**만 지킨다 —
+ * 절로 만들지 않은 동작은 목록에 들어갈 기회 자체가 없어 **가드가 원리상 볼 수 없다.**
+ *
+ * `#2074`가 그 사각이었다: 표시 이름 변경이 「계정 정보」 절 안쪽에 제목 없는
+ * 폼으로 들어 있어, 목차 다섯 줄 어디에도 없는데 **모든 검사가 초록**이었다.
+ *
+ * 그래서 방향을 뒤집어 잠근다 — **목록의 모든 `id`가 실제로 그려지는가.** 절을
+ * 지우거나 `id`를 오타 내면 목차에 죽은 링크가 남는데, 그것도 여기서 붉어진다.
+ */
+describe('설정 목차의 모든 절이 화면에 있다 (#2074)', () => {
+  function renderSettings(role: session.UserRole) {
+    stubUser(role)
+    return render(
+      <MemoryRouter>
+        <AccountPanel />
+        <RegulationParametersSection />
+      </MemoryRouter>,
+    )
+  }
+
+  it.each(['ADMIN', 'OFFICE', 'FIELD'] as const)('%s — 목록의 id가 전부 실재한다', (role) => {
+    renderSettings(role)
+    const missing = visibleSections(role === 'ADMIN')
+      .filter((section) => document.getElementById(section.id) === null)
+      .map((section) => `${section.label}(#${section.id})`)
+    expect(
+      missing,
+      '목차에 있는데 화면에 없는 절입니다 — 눌러도 아무 데도 가지 않습니다',
+    ).toEqual([])
+  })
+
+  it('표시 이름이 「계정 정보」가 아니라 **자기 절** 안에 있다', () => {
+    /*
+     * 「계정 정보」는 바꿀 수 없는 사실(이메일 · 역할)만 진다. 폼이 그 절로 다시
+     * 들어가면 목차에서 또 사라지는데, 위 검사는 `#profile`이 비어 있어도 통과한다.
+     */
+    renderSettings('FIELD')
+    const input = screen.getByLabelText('표시 이름')
+    expect(input.closest('#profile'), '표시 이름이 프로필 절 안에 없습니다').not.toBeNull()
+    expect(input.closest('#account-info')).toBeNull()
+  })
+
+  it('목차 이름이 화면의 절 제목과 같다 — 둘이 갈리지 않는다', () => {
+    /*
+     * 이름을 대는 방법은 절마다 다르다 — 계정 쪽은 `aria-label`, 규제 기준값은
+     * `aria-labelledby`로 제목을 가리킨다. **어느 방법인지**가 아니라 **무엇으로
+     * 읽히는지**를 본다. 여기가 갈리면 목차에서 누른 이름과 도착한 절의 제목이
+     * 달라, 사용자는 잘못 온 줄 안다.
+     */
+    renderSettings('FIELD')
+    for (const section of visibleSections(false)) {
+      const node = document.getElementById(section.id)
+      expect(node, `${section.id} 절이 없습니다`).not.toBeNull()
+      const labelledBy = node!.getAttribute('aria-labelledby')
+      const name =
+        node!.getAttribute('aria-label') ??
+        (labelledBy === null ? null : document.getElementById(labelledBy)?.textContent?.trim())
+      expect(name, `${section.id} 절이 이름을 대지 않습니다`).toBe(section.label)
+    }
+  })
+})
