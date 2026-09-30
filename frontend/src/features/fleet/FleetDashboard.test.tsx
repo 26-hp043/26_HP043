@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -1052,5 +1055,54 @@ describe('열린 패널이 지도 아래 문구 줄을 가리지 않는다 (#187
 
     fireEvent.click(screen.getByRole('button', { name: /^선박 \d/ }))
     await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true))
+  })
+})
+
+/**
+ * ⚠️ 지도가 읽는 표시를 패널이 실제로 단다 (#2051).
+ *
+ * ## 왜 따로 잠그나
+ *
+ * 지도 어댑터는 `[data-map-overlay]`를 **읽기만** 한다. 대시보드가 그 표시를
+ * 떼어도 지도 쪽 검사는 전부 초록이다 — 덮는 것이 없다고 읽고 종전 패딩을 내기
+ * 때문이다. 화면에서는 선박이 다시 패널 밑으로 몰리는데 **아무도 붉어지지 않는다.**
+ * `#2015`·`#2038`·`#2046`·`#2047`이 전부 「규칙이 화면에 닿지 않는다」의 사본이었다.
+ *
+ * 이름을 여기 문자열로 적지 않고 **지도 소스에서 읽어** 대조한다. 한쪽만 바꿔도
+ * 갈리지 않게 하려는 것이고, 그 방향은 `reasonCodes.sync.test.ts`가 정본을 읽는 것과 같다.
+ */
+describe('지도 위 패널이 「덮고 있다」를 알린다 (#2051)', () => {
+  const overlayAttribute = (() => {
+    /*
+     * jsdom 환경에서는 `import.meta.url`이 `file:`이 아니라 개발 서버 주소라
+     * `fileURLToPath`가 던진다 — `stickyTop.sync.test.ts`와 같이 작업 폴더에서 잡는다.
+     */
+    const source = readFileSync(join(process.cwd(), 'src/features/map/mapLibreRenderer.ts'), 'utf-8')
+    const found = /const MAP_OVERLAY_ATTRIBUTE = '([^']+)'/.exec(source)
+    if (!found) throw new Error('mapLibreRenderer.ts에서 MAP_OVERLAY_ATTRIBUTE를 찾지 못했습니다')
+    return found[1]
+  })()
+
+  it('표시 이름이 지도 어댑터가 찾는 것과 같다', () => {
+    // 이름이 갈리면 아래 검사가 무엇을 보는지 알 수 없어지므로 먼저 못 박는다.
+    expect(overlayAttribute).toBe('data-map-overlay')
+  })
+
+  it('패널이 그 표시를 단다 — 접혀 있어도 단다', async () => {
+    stubFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const panel = await screen.findByRole('complementary', { name: '선박 목록과 조치' })
+    expect(
+      panel.hasAttribute(overlayAttribute),
+      `패널에 [${overlayAttribute}]가 없습니다 — 지도가 범위를 잡을 때 이 패널을 세지 못합니다.`,
+    ).toBe(true)
+
+    // 접으면 폭만 줄고 여전히 지도를 덮는다 — 표시가 남아야 그만큼만 센다.
+    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
+    expect(panel.hasAttribute(overlayAttribute)).toBe(true)
   })
 })

@@ -635,6 +635,14 @@ export function FleetDashboard() {
           ref={panelRef}
           className={`fleet__panel${panelOpen ? '' : ' fleet__panel--closed'}`}
           aria-label="선박 목록과 조치"
+          /*
+            지도에게 「내가 너를 덮고 있다」를 알린다 (#2051). 이 패널은
+            `position: absolute`라 지도의 레이아웃 폭에 잡히지 않아, 지도가 범위를
+            잡을 때 캔버스 전체를 쓸 수 있다고 믿고 선박을 이 패널 **밑에** 놓았다.
+            표시 이름은 지도 어댑터가 갖는다(`mapLibreRenderer.ts`의
+            `MAP_OVERLAY_ATTRIBUTE`) — 지도가 대시보드를 알지 않게 하기 위해서다.
+          */
+          data-map-overlay=""
         >
           <button
             type="button"
