@@ -114,7 +114,14 @@ describe('MapLibre renderer adapter', () => {
     load()
 
     expect(Math.abs(boundsCoordinates[1][0] - boundsCoordinates[0][0])).toBe(2)
-    expect(map.fitBounds).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ padding: 24 }))
+    /*
+     * `#2051`에서 패딩이 **변마다** 갈렸다. 모바일 값 24는 그대로이고, 덮는
+     * 오버레이가 없으므로 네 변이 모두 같다 — 왼쪽만 오버레이만큼 더 밀린다.
+     */
+    expect(map.fitBounds).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ padding: { top: 24, bottom: 24, right: 24, left: 24 } }),
+    )
     resizeCallbacks[0]()
     expect(map.resize).toHaveBeenCalledTimes(1)
     session.destroy()
@@ -315,6 +322,203 @@ describe('MapLibre renderer adapter', () => {
     toggleOf(map)!.click()
     await flush()
     expect(vesselLayers.created).toBe(0)
+    session.destroy()
+  })
+})
+
+/**
+ * 지도를 덮는 오버레이를 범위 계산이 센다 (#2051).
+ *
+ * ## 왜 사각형을 세워 두고 보나
+ *
+ * jsdom은 배치를 계산하지 않아 `getBoundingClientRect()`가 전부 0이다. 그래서 진짜
+ * 겹침은 브라우저에서 재고(PR 본문의 실측), 여기서는 **규칙이 사각형을 어떻게
+ * 읽는가**를 잠근다 — 세로로 겹치면 세고, 안 겹치면 세지 않고, 절반을 넘기지 않는다.
+ */
+describe('지도를 덮는 오버레이 (#2051)', () => {
+  beforeEach(() => {
+    /*
+     * 위 `describe`의 `beforeEach`는 그 블록 안에서만 돈다. 여기서도 지도 기록을
+     * 비우고, **앞 검사가 붙여 둔 오버레이를 걷는다** — 남으면 「덮는 것이 없으면」
+     * 검사가 앞 검사의 패널을 보고 거짓 초록을 낸다.
+     */
+    maps.length = 0
+    document.body.innerHTML = ''
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resizeCallbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+  })
+
+  function rect(box: { left: number; right: number; top: number; bottom: number }) {
+    return () =>
+      ({
+        ...box,
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+        x: box.left,
+        y: box.top,
+        toJSON: () => box,
+      }) as DOMRect
+  }
+
+  /** 1440 대시보드를 본뜬 자리 — 지도는 가로 1000, 패널은 왼쪽 위에 360이다. */
+  function stage(panel: { left: number; right: number; top: number; bottom: number } | null) {
+    const target = document.createElement('div')
+    Object.defineProperty(target, 'clientWidth', { value: 1000 })
+    target.getBoundingClientRect = rect({ left: 100, right: 1100, top: 50, bottom: 650 })
+    document.body.append(target)
+    if (panel) {
+      const overlay = document.createElement('aside')
+      overlay.setAttribute('data-map-overlay', '')
+      overlay.getBoundingClientRect = rect(panel)
+      document.body.append(overlay)
+    }
+    return target
+  }
+
+  function fitPadding(target: HTMLElement) {
+    const session = mapLibreRenderer.mount(target, model('fleet'), vi.fn())
+    const map = maps[0]
+    const load = map.on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    load()
+    const call = map.fitBounds.mock.calls[0]
+    session.destroy()
+    return call?.[1]?.padding as { top: number; bottom: number; left: number; right: number }
+  }
+
+  it('⚠️ 왼쪽 패딩이 패널을 센다 — 나머지 세 변은 그대로다', () => {
+    /*
+     * 패널 오른쪽 끝(476)에서 지도 왼쪽 끝(100)을 뺀 376이 가려진 띠이고,
+     * 거기에 종전 간격 48을 더한다. 이 값이 없으면 선박이 패널 밑에 깔린다.
+     */
+    const padding = fitPadding(stage({ left: 116, right: 476, top: 66, bottom: 634 }))
+    expect(padding.left).toBe(48 + 376)
+    expect(padding.top).toBe(48)
+    expect(padding.bottom).toBe(48)
+    expect(padding.right).toBe(48)
+  })
+
+  it('덮는 것이 없으면 네 변이 종전 값이다', () => {
+    expect(fitPadding(stage(null))).toEqual({ top: 48, bottom: 48, left: 48, right: 48 })
+  })
+
+  it('⚠️ 패널이 지도 **아래**로 내려가면 세지 않는다 (1100 이하)', () => {
+    /*
+     * 좁은 화면에서 패널은 지도 위가 아니라 아래에 선다. 세로로 겹치지 않는 것을
+     * 보고 가른다 — 전환점 숫자를 여기 적으면 CSS가 바뀔 때 조용히 갈린다.
+     */
+    const padding = fitPadding(stage({ left: 116, right: 476, top: 700, bottom: 1000 }))
+    expect(padding.left).toBe(48)
+  })
+
+  it('접힌 패널은 접힌 만큼만 센다', () => {
+    // 접으면 버튼만 남는다(`.fleet__panel--closed`는 `inline-size: auto`).
+    const padding = fitPadding(stage({ left: 116, right: 236, top: 66, bottom: 106 }))
+    expect(padding.left).toBe(48 + 136)
+  })
+
+  it('⚠️ 가리는 폭이 지도의 절반을 넘지 못한다', () => {
+    /*
+     * 이 값이 잘못 커지면 `fitBounds`가 들어갈 자리를 잃고 지도가 엉뚱한 배율로
+     * 튄다 — 뭉쳐 보이는 것보다 나쁜 고장이라 위쪽을 막아 둔다.
+     */
+    const padding = fitPadding(stage({ left: 116, right: 1090, top: 66, bottom: 634 }))
+    expect(padding.left).toBe(48 + 500)
+  })
+
+  it('표시 이름은 지도가 갖는다 — 화면 클래스를 읽지 않는다', () => {
+    /*
+     * `.fleet__panel`을 여기서 읽으면 지도 어댑터가 대시보드를 아는 셈이 된다.
+     * 덮는 쪽이 지도의 표시를 다는 방향이어야 `architecture.test.ts`와 어긋나지 않는다.
+     */
+    const overlay = document.createElement('aside')
+    overlay.className = 'fleet__panel'
+    overlay.getBoundingClientRect = rect({ left: 116, right: 476, top: 66, bottom: 634 })
+    const target = stage(null)
+    document.body.append(overlay)
+    expect(fitPadding(target).left).toBe(48)
+  })
+})
+
+/**
+ * 데이터가 오기 전에 지도를 움직여도 한 번은 맞춘다 (#2051).
+ *
+ * ⚠️ 종전 조건은 `map.getZoom() === INITIAL_ZOOM`이라 **부동소수 정확 비교**였다.
+ * 사용자가 항로가 오기 전에 지도를 한 번이라도 끌면 조건이 거짓이 되어 범위 맞추기가
+ * 통째로 건너뛰어졌고, 그때는 초기 `center: [127, 30]` `zoom: 2`(인도~일본)에 남았다.
+ */
+describe('범위 맞추기가 도는 조건 (#2051)', () => {
+  beforeEach(() => {
+    /*
+     * 위 `describe`의 `beforeEach`는 그 블록 안에서만 돈다. 여기서도 지도 기록을
+     * 비우고, **앞 검사가 붙여 둔 오버레이를 걷는다** — 남으면 「덮는 것이 없으면」
+     * 검사가 앞 검사의 패널을 보고 거짓 초록을 낸다.
+     */
+    maps.length = 0
+    document.body.innerHTML = ''
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resizeCallbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+  })
+
+  function mount(bounds: readonly (readonly [number, number])[]) {
+    const target = document.createElement('div')
+    Object.defineProperty(target, 'clientWidth', { value: 1000 })
+    const session = mapLibreRenderer.mount(
+      target,
+      { ...model('fleet'), routes: { ...model('fleet').routes, bounds } },
+      vi.fn(),
+    )
+    const map = maps[0]
+    const load = map.on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    return { map, load, session, target }
+  }
+
+  it('⚠️ 줌이 움직여 있어도 한 번은 맞춘다', () => {
+    const { map, load, session } = mount([])
+    // 사용자가 데이터 전에 확대해 둔 상태.
+    map.getZoom.mockReturnValue(4.000000000000001)
+    load()
+    expect(map.fitBounds).not.toHaveBeenCalled()
+
+    // 항로가 이제 도착한다.
+    session.update({ ...model('fleet'), routes: { ...model('fleet').routes, bounds: [[129, 35] as const] } })
+    expect(map.fitBounds).toHaveBeenCalledTimes(1)
+    session.destroy()
+  })
+
+  it('사용자가 지도를 직접 움직였으면 더는 끌어가지 않는다', () => {
+    const { map, load, session } = mount([])
+    load()
+    const moveStart = map.on.mock.calls.find(([name]) => name === 'movestart')?.[1] as (
+      event: { originalEvent?: unknown },
+    ) => void
+    expect(moveStart, 'movestart를 듣지 않습니다').toBeTypeOf('function')
+    moveStart({ originalEvent: new MouseEvent('mousedown') })
+
+    session.update({ ...model('fleet'), routes: { ...model('fleet').routes, bounds: [[129, 35] as const] } })
+    expect(map.fitBounds).not.toHaveBeenCalled()
+    session.destroy()
+  })
+
+  it('프로그램이 옮긴 이동은 사용자 조작으로 세지 않는다', () => {
+    /*
+     * `originalEvent`가 없는 `movestart`는 `easeTo`·`resize` 같은 내부 이동이다.
+     * 그것까지 세면 늦게 온 항로가 영영 맞춰지지 않는다.
+     */
+    const { map, load, session } = mount([])
+    load()
+    const moveStart = map.on.mock.calls.find(([name]) => name === 'movestart')?.[1] as (
+      event: { originalEvent?: unknown },
+    ) => void
+    moveStart({})
+
+    session.update({ ...model('fleet'), routes: { ...model('fleet').routes, bounds: [[129, 35] as const] } })
+    expect(map.fitBounds).toHaveBeenCalledTimes(1)
     session.destroy()
   })
 })
