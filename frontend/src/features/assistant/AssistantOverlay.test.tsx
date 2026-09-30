@@ -283,6 +283,85 @@ describe('안내문과 빈 로그 (#1818)', () => {
   })
 })
 
+/**
+ * 범이 런처와 소개 일러스트 (#2008).
+ *
+ * ## 무엇을 잠그나
+ *
+ * 그림이 예쁜지가 아니다. **이름이 그림으로 바뀌면서 사라지지 않았는가**와
+ * **장식이 접근성 트리에 끼어들지 않는가**를 본다. 둘 다 눈으로는 드러나지 않는다 —
+ * 화면은 똑같이 잘 보이고, 스크린리더에서만 버튼이 이름 없는 버튼이 된다.
+ *
+ * 크기는 여기서 보지 않는다. `§16 항목 16`이 조건부 대기라 값은 CSS가 갖고,
+ * jsdom은 어차피 레이아웃을 계산하지 않는다 — `launcherReserve.sync.test.ts`가
+ * 소스에서 「예약 폭이 런처 지름을 따라가는가」를 본다.
+ */
+describe('범이 런처와 소개 일러스트 (#2008)', () => {
+  function launcher() {
+    return screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
+  }
+
+  it('런처가 범이 얼굴 그림이고, 버튼 이름은 글자로 남는다', () => {
+    /*
+     * 라벨이 `<img>`로 바뀌었으므로 이름은 `aria-label`이 든다. 이것이 빠지면
+     * 버튼이 **이름 없는 버튼**이 되고, 위 검사들이 쓰는 `/AI 어시스턴트 열기/`
+     * 조회가 전부 무너진다 — 그때는 이 검사가 먼저 말한다.
+     */
+    setup()
+    const img = launcher().querySelector('img')
+    expect(img, '런처 안에 그림이 없습니다').not.toBeNull()
+    expect(img!.getAttribute('src')).toMatch(/beomi-3d-default-56/)
+  })
+
+  it('런처 그림은 장식이다 — 이름을 두 번 읽지 않는다', () => {
+    setup()
+    expect(launcher().querySelector('img')!.getAttribute('alt')).toBe('')
+    // 그림이 이름을 거들면 「AI 어시스턴트 열기 (실험) 범이」처럼 두 번 읽힌다.
+    expect(launcher().textContent).toBe('')
+  })
+
+  it('런처 그림이 화면 배율을 따라간다 — `@1x`/`@2x` 둘 다 건다', () => {
+    /*
+     * `srcSet`이 없으면 고배율 화면에서 56px 원본이 늘어나 뭉갠다. 눈으로는
+     * 「좀 흐리네」로만 보여 회귀가 조용하다.
+     */
+    setup()
+    const srcset = launcher().querySelector('img')!.getAttribute('srcset') ?? ''
+    expect(srcset).toMatch(/beomi-3d-default-56@1x\.webp 1x/)
+    expect(srcset).toMatch(/beomi-3d-default-56@2x\.webp 2x/)
+  })
+
+  it('대화가 없으면 소개 일러스트를 그린다', () => {
+    setup()
+    open()
+    const art = document.querySelector('.assistant__intro-art')
+    expect(art, '소개 일러스트가 없습니다').not.toBeNull()
+    expect(art!.getAttribute('src')).toMatch(/beomi-3d-intro-160/)
+  })
+
+  it('첫 메시지를 보내면 소개 일러스트가 걷힌다', async () => {
+    setup()
+    open()
+    await send('올해 연말 예상 등급은?')
+
+    await screen.findByText(ANSWER.answer)
+    expect(document.querySelector('.assistant__intro-art')).toBeNull()
+  })
+
+  it('소개 일러스트는 장식이다 — 안내문이 뜻을 갖는다 (`§14`)', () => {
+    /*
+     * `§14`는 그림 단독으로 뜻을 전하는 것을 금한다. 여기서 뜻을 지는 것은
+     * `.assistant__intro` 문장과 예시 질문이고, 그림은 거들지 않는다.
+     */
+    setup()
+    open()
+    const art = document.querySelector('.assistant__intro-art')!
+    expect(art.getAttribute('alt')).toBe('')
+    expect(art.getAttribute('aria-hidden')).toBe('true')
+    expect(screen.getByText(/규제 판단이나 권고는 하지 않으며/)).toBeTruthy()
+  })
+})
+
 describe('버린 답과 실패 (`PRD §16.2` 격리)', () => {
   it('폐기된 답은 **답과 다르게** 보인다 (`API_SPEC §15.2`)', async () => {
     const ask = vi.fn<AssistantProvider['ask']>(async () => ({

@@ -47,17 +47,40 @@ describe('어시스턴트 런처가 본문 마지막 줄을 가리지 않는다 
     ).toBe(true)
   })
 
-  it('⚠️ 예약 폭을 런처가 쓰는 값들로 조립한다 — 숫자를 새로 적지 않는다', () => {
+  it('⚠️ 예약 폭을 런처가 쓰는 값으로 적는다 — 숫자를 새로 적지 않는다', () => {
     /*
      * `§0.2`상 새 디자인 토큰은 Figma 소관이고, 이 파일 머리주석이 「기존 값만
      * 조합했다」를 규칙으로 적는다. 생짜 높이를 적으면 런처가 바뀔 때 갈린다.
+     *
+     * ⚠️ **`#2008`에서 식의 모양이 바뀌었다.** 종전 런처는 라벨 한 줄짜리 알약이라
+     * 「패딩 + 테두리 + 라벨」을 `calc()`로 더했고, 이 검사도 그 세 토큰을 들었다.
+     * 지금은 원형 이미지 버튼이라 더할 항이 없다 — `box-sizing: border-box`라
+     * 예약 폭이 곧 지름이다. 그래서 **`calc()`가 아니라 「지름 변수만 쓰는가」**를 본다.
      */
-    // `calc()` 안에 `var()`가 중첩되므로 **선언 끝(`;`)까지** 통째로 떼어 낸다.
-    // 괄호를 세는 정규식은 중첩에서 조용히 앞부분만 잡는다 — 실제로 한 번 밟았다.
-    const decl = /--assistant-launcher-reserve:\s*calc\(([\s\S]*?)\);/.exec(code(LAUNCHER_CSS))
-    expect(decl, '예약 폭이 calc()로 조립돼 있지 않습니다').not.toBeNull()
-    for (const token of ['--space-8', '--font-size-label', '--line-height-label']) {
-      expect(decl![1], `${token}가 식에 없습니다`).toContain(token)
+    const decl = /--assistant-launcher-reserve:\s*([^;]*);/.exec(code(LAUNCHER_CSS))
+    expect(decl, '예약 폭 선언이 없습니다').not.toBeNull()
+    expect(decl![1], '예약 폭이 런처 지름 변수를 쓰지 않습니다').toContain(
+      'var(--assistant-launcher-size)',
+    )
+    expect(
+      /\d+\s*px/.test(decl![1]),
+      `예약 폭에 생짜 px가 적혀 있습니다: ${decl![1].trim()}`,
+    ).toBe(false)
+  })
+
+  it('⚠️ 그 지름 변수를 런처가 실제로 쓴다 — 선언만 있고 안 쓰면 값이 갈린다', () => {
+    /*
+     * 위 검사만으로는 **예약 폭이 런처를 따라 움직인다**가 보장되지 않는다.
+     * 런처가 지름을 숫자로 적고 변수는 예약 폭만 쓰면, 둘이 조용히 갈려도
+     * 두 선언 모두 멀쩡해 보인다 — `#1292`·`#1375`가 같은 유형이었다.
+     */
+    const rule = /\.assistant__launcher\s*\{([^}]*)\}/.exec(code(LAUNCHER_CSS))
+    expect(rule, '.assistant__launcher 규칙이 없습니다').not.toBeNull()
+    for (const prop of ['width', 'height']) {
+      expect(
+        new RegExp(`${prop}:\\s*var\\(--assistant-launcher-size\\)`).test(rule![1]),
+        `런처의 ${prop}가 --assistant-launcher-size를 쓰지 않습니다`,
+      ).toBe(true)
     }
   })
 })

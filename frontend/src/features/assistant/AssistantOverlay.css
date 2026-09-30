@@ -36,34 +36,64 @@
  * ## 새 디자인 토큰이 아니다
  *
  * 이 파일 머리주석의 「새 토큰을 만들지 않았다 — 기존 값만 조합했다」를 지킨다.
- * 아래는 **런처가 실제로 쓰는 값들의 합**이라 런처가 바뀌면 따라 움직인다 —
- * 위아래 패딩 · 테두리 2줄 · 라벨 한 줄. `--shell-column`·`--brand-logo-height`와
- * 같은 **레이아웃 변수**이며 `§0.2`가 말하는 Figma 소관 토큰이 아니다.
+ * `--shell-column`·`--brand-logo-height`와 같은 **레이아웃 변수**이며 `§0.2`가
+ * 말하는 Figma 소관 토큰이 아니다.
  *
- * ⚠️ 치수가 확정되면(`§16` 항목 16) 이 식도 함께 간다. 셸은 고치지 않는다.
+ * ⚠️ **`#2008`에서 식이 바뀌었다.** 종전 런처는 라벨 한 줄짜리 알약 버튼이라
+ * 「위아래 패딩 + 테두리 2줄 + 라벨 한 줄」을 더했다. 지금은 범이 얼굴 원형
+ * 버튼이라 그 항들이 **하나도 남지 않는다** — 예약 폭은 곧 런처 지름이다.
+ * `box-sizing: border-box`(`global.css`)라 테두리도 지름 안에 든다.
+ *
+ * ⚠️ 치수가 확정되면(`§16` 항목 16) 이 값도 함께 간다. 셸은 고치지 않는다.
  */
 :root {
   /* 패널 폭 — 셸이 넓은 화면에서 이만큼 비운다(아래 `.app-shell--assistant-open`). */
   --assistant-panel-width: 380px;
-  --assistant-launcher-reserve: calc(
-    var(--space-8) * 2 + 2px + var(--font-size-label) * var(--line-height-label)
-  );
+  /*
+   * 런처 지름과 소개 일러스트 높이 (`#2008`). `§16 항목 16`(어시스턴트 치수)이
+   * **조건부 대기**라 개발이 정하고, `--assistant-panel-width`와 같은 방식으로
+   * 여기 레이아웃 변수로 둔다 — 새 Figma 토큰을 만들지 않는다(`§0.2`).
+   * 48px 이상은 3D, 32px 이하는 2D라는 시안 결정(`beomi-icon-compare.png`)에 따라
+   * 런처는 3D 얼굴을 쓴다.
+   */
+  --assistant-launcher-size: 56px;
+  --assistant-intro-art-height: 160px;
+  /* 런처가 가리는 띠 = 런처 지름. 위 ⚠️ 참조. */
+  --assistant-launcher-reserve: var(--assistant-launcher-size);
 }
 
+/*
+ * 런처 — 범이 3D 얼굴 원형 버튼 (`#2008`).
+ *
+ * 흰 바탕에서 3D 은회색 윤곽이 약하므로 `--shadow-overlay` + 테두리 짝을 **유지한다**
+ * (`DESIGN_SYSTEM §5` · `tokens.sync.test.ts`가 이 짝을 검사한다). 그림만으로는
+ * 면이 떠 있다는 것이 읽히지 않는다.
+ *
+ * `padding: 0` + `overflow: hidden`이라 그림이 원 밖으로 새지 않는다 — 원본 크롭
+ * 아래쪽은 몸통이 직선으로 잘려 있고, 그 모서리를 이 원이 덮는다.
+ */
 .assistant__launcher {
+  display: block;
+  width: var(--assistant-launcher-size);
+  height: var(--assistant-launcher-size);
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-overlay);
   background: var(--color-surface);
-  color: var(--color-text);
-  padding: var(--space-8) var(--space-16);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-label);
   cursor: pointer;
 }
 
 .assistant__launcher:hover {
   background: var(--color-surface-2);
+}
+
+.assistant__launcher-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .assistant {
@@ -130,6 +160,18 @@
 .assistant__close:hover {
   border-color: var(--color-border);
   color: var(--color-text);
+}
+
+/*
+ * 대화가 없을 때의 소개 일러스트 (`#2008`). 장식이므로 `alt=""` + `aria-hidden`이며,
+ * 무엇을 물어볼 수 있는지는 아래 `.assistant__intro` 문장과 예시 질문이 말한다
+ * (`§14` — 그림 단독으로 뜻을 전하지 않는다).
+ */
+.assistant__intro-art {
+  display: block;
+  height: var(--assistant-intro-art-height);
+  width: auto;
+  margin: 0 auto var(--space-8);
 }
 
 .assistant__intro {

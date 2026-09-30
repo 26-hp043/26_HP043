@@ -39,6 +39,20 @@ const PANEL_LABEL = 'AI 어시스턴트'
 /** 열기 버튼 문구. 실험 기능임을 **버튼에서부터** 밝힌다. */
 const OPEN_LABEL = 'AI 어시스턴트 열기 (실험)'
 
+/*
+ * 범이 에셋 (`#2008` · `frontend/public/brand/beomi/`).
+ *
+ * 확장자까지 붙인 온전한 경로를 쓴다 — 템플릿으로 조립하면 어느 파일이 실제로
+ * 필요한지 `grep`으로 찾을 수 없고, 빌드가 없는 자리를 조용히 404로 넘긴다.
+ *
+ * `@2x`는 `srcSet`의 밀도 서술자로만 고른다. 표시 크기는 CSS
+ * (`--assistant-launcher-size` · `--assistant-intro-art-height`)가 갖는다.
+ */
+const LAUNCHER_FACE_1X = '/brand/beomi/beomi-3d-default-56@1x.webp'
+const LAUNCHER_FACE_2X = '/brand/beomi/beomi-3d-default-56@2x.webp'
+const INTRO_ART_1X = '/brand/beomi/beomi-3d-intro-160@1x.webp'
+const INTRO_ART_2X = '/brand/beomi/beomi-3d-intro-160@2x.webp'
+
 const PLACEHOLDER = '계산 결과에 대해 물어보세요'
 
 /**
@@ -275,10 +289,22 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         type="button"
         className="assistant__launcher"
         ref={launcherRef}
+        /*
+         * 이름을 `aria-label`로 옮긴다 — 라벨이 그림으로 바뀌어 글자가 남지 않는다.
+         * 값은 **그대로**여야 한다: `AssistantOverlay.test.tsx`가 `/AI 어시스턴트 열기/`로
+         * 이 버튼을 찾는 자리가 다섯 군데다(초점 복귀 · `aria-controls` 검사 포함).
+         */
+        aria-label={OPEN_LABEL}
         aria-expanded={false}
         onClick={() => setOpen(true)}
       >
-        {OPEN_LABEL}
+        {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
+        <img
+          className="assistant__launcher-img"
+          src={LAUNCHER_FACE_1X}
+          srcSet={`${LAUNCHER_FACE_1X} 1x, ${LAUNCHER_FACE_2X} 2x`}
+          alt=""
+        />
       </button>
     )
   }
@@ -334,6 +360,16 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그 말이 쓰일 때다.
         50px을 돌려받아 대화 로그가 그만큼 넓어진다.
       */}
+      {turns.length === 0 ? (
+        <img
+          className="assistant__intro-art"
+          src={INTRO_ART_1X}
+          srcSet={`${INTRO_ART_1X} 1x, ${INTRO_ART_2X} 2x`}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : null}
+
       {turns.length === 0 ? <p className="assistant__intro">{INTRO}</p> : null}
 
       {statusOff ? (
