@@ -18,6 +18,7 @@ import {
   type ParameterRevisionEvent,
 } from './revisionRules'
 import './ParameterRevision.css'
+import { FilePicker } from '../../components/FilePicker'
 
 /**
  * 규제 기준값 개정 — 적재와 개정 이력 (`#1517` · `#1239` 결정 D·E·F·H).
@@ -180,14 +181,15 @@ function ImportForm({
       </details>
 
       <div className="param-revision__row">
-        <input
-          ref={inputRef}
+        <FilePicker
           id="param-revision-file"
-          type="file"
+          ariaLabel="적재할 CSV 파일"
           accept=".csv,text/csv"
-          aria-label="적재할 CSV 파일"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null)
+          file={file}
+          inputRef={inputRef}
+          buttonClassName="param-revision__file"
+          onPick={(picked) => {
+            setFile(picked)
             invalidate()
           }}
         />
