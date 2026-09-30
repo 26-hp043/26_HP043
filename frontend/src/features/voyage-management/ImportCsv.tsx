@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { VoyageError, type VoyageManagementProvider } from './apiProvider'
 import { ErrorState } from '../../components/ErrorState'
+import { FilePicker } from '../../components/FilePicker'
 import {
   IMPORT_NOTICE,
   INSTANT_EXAMPLE,
@@ -125,12 +126,14 @@ export function ImportCsv({
       </details>
 
       <div className="vy-import__row">
-        <input
-          ref={inputRef}
-          type="file"
+        <FilePicker
+          id="vy-import-file"
+          ariaLabel="가져올 CSV 파일"
           accept=".csv,text/csv"
-          aria-label="가져올 CSV 파일"
-          onChange={(e) => pick(e.target.files?.[0] ?? null)}
+          file={file}
+          inputRef={inputRef}
+          buttonClassName="vy-import__file"
+          onPick={pick}
         />
         <button type="button" onClick={() => run(true)} disabled={file === null || busy !== null}>
           {busy === 'check' ? '검증 중…' : '검증'}
