@@ -9,7 +9,7 @@ import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
@@ -517,6 +517,11 @@ export function AnnualSimulation({
                   setChosenYear(event.target.value)
                 }}
               >
+                {/*
+                  선박을 고르기 전에는 자리표시 한 줄이 선다 (#2048 · `PRD §6.4`).
+                  없으면 빈 상자가 떠서 「고장」과 「내 차례가 아님」이 구분되지 않는다.
+                */}
+                {shell.vesselId ? null : <option value="">{SELECT_VESSEL_FIRST}</option>}
                 {years.map((y) => (
                   <option key={y} value={String(y)}>
                     {y}
