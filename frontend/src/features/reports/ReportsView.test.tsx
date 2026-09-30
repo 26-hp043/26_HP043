@@ -7,6 +7,7 @@ import { useState } from 'react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { ReportsView } from './ReportsView'
+import { SELECT_VESSEL_FIRST } from '../parameters/yearCatalog'
 import type { ReportsProvider, VesselOption, VoyageOption } from './types'
 
 /**
@@ -406,7 +407,17 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
   it('누르기 전에도 빈 면이 아니다 — 무엇을 고르면 무엇이 나오는지가 있다', async () => {
     render(<ReportsView provider={stub()} />)
 
-    expect(await screen.findByText(/선박을 먼저 선택해 주세요/)).toBeTruthy()
+    /*
+     * `#2048`로 **연도 칸에도** 같은 안내가 생겼다(`PRD §6.4`가 그 상태에 등재한
+     * 문장이다). 이 검사가 보는 것은 **결과 기둥이 빈 면이 아니다**이므로 그 자리를
+     * 집어 찾는다 — 문장만으로 찾으면 두 자리 중 어느 것을 본 것인지 알 수 없다.
+     */
+    const lead = await waitFor(() => {
+      const node = document.querySelector('.rp__placeholder-lead')
+      if (node === null) throw new Error('아직 없음')
+      return node
+    })
+    expect(lead.textContent).toMatch(/선박을 먼저 선택해 주세요/)
     expect(screen.getByText(/같은 문서/)).toBeTruthy()
   })
 
@@ -513,5 +524,55 @@ describe('항차 선택지의 항구 이름 (#1812)', () => {
 
     const option = await screen.findByRole('option', { name: /부산 → 싱가포르/ })
     expect(option.textContent).not.toContain('BUSAN')
+  })
+})
+
+/**
+ * 선박을 고르기 전 연도 칸 (#2048 · `PRD §6.4`).
+ *
+ * 훅은 빈 `vesselId`에서 **조회하지 않고 빈 목록**을 돌려준다(`#632` — 옳은 판단이다).
+ * 종전에는 그때 화면이 그리는 것이 없어 **빈 상자**가 떴다. 바로 위 「선박」 칸은
+ * 「선택하세요」라고 말하는데 이 칸만 아무 말이 없으니, 사용자에게는 「고장」과
+ * 「내 차례가 아님」이 구분되지 않는다.
+ */
+describe('선박을 고르기 전 연도 칸 (#2048)', () => {
+  const yearSelect = () => screen.getByTestId('year-select') as HTMLSelectElement
+
+  it('⚠️ 선박이 없으면 연도 칸이 비어 있지 않다', () => {
+    render(<ReportsView provider={stub()} />)
+    const options = yearSelect().querySelectorAll('option')
+    expect(options.length, '연도 칸이 빈 상자입니다').toBeGreaterThan(0)
+    expect(options[0].textContent).toBe(SELECT_VESSEL_FIRST)
+  })
+
+  it('칸을 감추지 않는다 — 폼의 줄 수가 선택 여부로 달라지지 않는다', () => {
+    render(<ReportsView provider={stub()} />)
+    expect(screen.queryByTestId('year-select')).not.toBeNull()
+  })
+
+  it('선박을 고르면 연도 목록으로 바뀐다 — 자리표시는 사라진다', async () => {
+    /*
+     * 이 파일은 연도 조회를 대역으로 두지 않는다(다른 검사들이 연도를 보지 않는다).
+     * 여기서만 `GET /parameters/regulation-years`를 세워 **자리표시 → 목록** 전환을 본다.
+     */
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('regulation-years')
+          ? new Response(JSON.stringify({ data: [{ year: 2025 }, { year: 2026 }] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            })
+          : new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      ),
+    )
+    renderInShell(stub(), { vesselId: 'v-a' })
+
+    await waitFor(() => {
+      const texts = [...yearSelect().querySelectorAll('option')].map((o) => o.textContent)
+      expect(texts).toContain('2026년')
+    })
+    const texts = [...yearSelect().querySelectorAll('option')].map((o) => o.textContent)
+    expect(texts, '선박을 골랐는데 자리표시가 남아 있습니다').not.toContain(SELECT_VESSEL_FIRST)
   })
 })

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
+import { SELECT_VESSEL_FIRST } from '../parameters/yearCatalog'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
@@ -2003,5 +2004,54 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     await runOnce()
 
     expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
+  })
+})
+
+/**
+ * 선박을 고르기 전 연도 칸 (#2048 · `PRD §6.4`).
+ *
+ * 공용 훅은 빈 `vesselId`에서 **조회하지 않고 빈 목록**을 돌려준다(`#632`). 이 화면은
+ * `loading`·`failed`에만 문구를 붙였으므로, **네 번째 상태**(아직 물을 수 없다)에서
+ * 빈 셀렉트가 떴다 — 「고장」과 「내 차례가 아님」이 구분되지 않는다.
+ */
+describe('선박을 고르기 전 연도 칸 (#2048)', () => {
+  function renderWithoutVessel() {
+    const value: ShellContext = { ...EMPTY_SHELL_CONTEXT, vesselsState: 'ready' }
+    return render(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('⚠️ 선박이 없으면 연도 칸이 비어 있지 않다', () => {
+    stubServer()
+    renderWithoutVessel()
+    const select = screen.getByLabelText(/기준연도/) as HTMLSelectElement
+    const options = select.querySelectorAll('option')
+    expect(options.length, '연도 칸이 빈 상자입니다').toBeGreaterThan(0)
+    expect(options[0].textContent).toBe(SELECT_VESSEL_FIRST)
+  })
+
+  it('칸을 감추지 않는다 — 폼의 줄 수가 선택 여부로 달라지지 않는다', () => {
+    stubServer()
+    renderWithoutVessel()
+    expect(screen.queryByLabelText(/기준연도/)).not.toBeNull()
+  })
+
+  it('선박을 고르면 연도 목록으로 바뀐다 — 자리표시는 사라진다', async () => {
+    stubServer()
+    renderScreen()
+    await waitFor(() => {
+      const select = screen.getByLabelText(/기준연도/) as HTMLSelectElement
+      expect(select.querySelectorAll('option').length).toBeGreaterThan(0)
+      expect([...select.querySelectorAll('option')].map((o) => o.textContent)).not.toContain(
+        SELECT_VESSEL_FIRST,
+      )
+    })
   })
 })
