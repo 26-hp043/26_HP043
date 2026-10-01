@@ -366,3 +366,37 @@ def test_lookup_regulation_year_is_left_empty_unless_the_user_named_one() -> Non
     described = schema["input_schema"]["properties"]["regulation_year"]["description"]
     assert "비워" in described and "올해" in described
     assert chat_tools._regulation_year({}) == chat_tools.datetime.now(chat_tools.UTC).year
+
+
+def test_number_check_is_unmoved_by_markdown_symbols() -> None:
+    """`#2064` ⑵ — 서식 기호가 **폐기 판정을 흔들지 않는다**.
+
+    화면에서 기호를 걷기로 했으므로, 가드는 여전히 **모델이 낸 원문**을 본다.
+    ``**1.0600배**``처럼 숫자에 기호가 붙었을 때 숫자가 다른 것으로 읽히면
+    멀쩡한 답이 폐기되거나(거짓 양성) 지어낸 수가 통과한다(거짓 음성).
+
+    둘을 따로 주장하지 않고 **같은 문장의 기호 있는 판과 없는 판이 같은 판정을
+    낸다**로 잠근다 — 기호를 어떻게 걷든 이 관계는 유지되어야 한다.
+    """
+    from cii_platform.services.llm_guard import (
+        NumberFabricationError,
+        extract_numbers,
+        verify_numbers,
+    )
+
+    plain = "D등급: 실적 CII가 기준 CII의 1.0600배(106.0%) 초과 ~ 1.1800배(118.0%) 이하"
+    marked = "D등급: 실적 CII가 기준 CII의 **1.0600배(106.0%)** 초과 ~ `1.1800배(118.0%)` 이하"
+
+    assert extract_numbers(marked) == extract_numbers(plain)
+
+    outputs = ['{"d3": "1.0600", "d4": "1.1800", "pct": ["106.0", "118.0"]}']
+    verify_numbers(plain, outputs)
+    verify_numbers(marked, outputs)
+
+    # 반대 방향 — 기호를 붙여도 지어낸 수는 그대로 걸린다.
+    for text in ("기준 CII의 1.2300배", "기준 CII의 **1.2300배**"):
+        try:
+            verify_numbers(text, outputs)
+        except NumberFabricationError:
+            continue
+        raise AssertionError(f"지어낸 수가 통과했다: {text}")

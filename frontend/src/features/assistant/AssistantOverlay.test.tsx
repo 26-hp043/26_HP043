@@ -821,3 +821,24 @@ describe('머리·말풍선 아바타의 표정 (#2009)', () => {
     expect(screen.getByText(ANSWER.disclaimer)).toBeTruthy()
   })
 })
+
+describe('마크다운 기호 (`#2064`)', () => {
+  it('어시스턴트 답에서는 걷고, 사용자가 친 글자는 그대로 둔다', async () => {
+    /*
+     * 사용자가 별표를 쳤다면 그것은 서식이 아니라 **그가 친 글자**다. 말풍선 하나를
+     * 두 역할이 함께 쓰므로, 걷는 일을 역할로 가르지 않으면 사용자 글자까지 바뀐다.
+     */
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '기준 CII의 **1.0600배** 초과입니다',
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('**이것은 내가 친 별표다**')
+
+    await waitFor(() => {
+      expect(screen.getByText('기준 CII의 1.0600배 초과입니다')).toBeTruthy()
+    })
+    expect(screen.getByText('**이것은 내가 친 별표다**')).toBeTruthy()
+  })
+})
