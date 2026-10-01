@@ -175,6 +175,7 @@ async def record_account_delete(
     user_id: str,
     revoked_sessions: int,
     purged_chat_sessions: int = 0,
+    purged_avatar: bool = False,
     ip_address: str | None = None,
 ) -> None:
     """탈퇴 (#506) — soft delete.
@@ -182,6 +183,12 @@ async def record_account_delete(
     **행을 지우지 않으므로 이 기록이 곧 「언제 탈퇴했는가」의 답**이다.
     `app_user`에 탈퇴 시각 컬럼이 없어(`is_deleted` 불리언뿐) 여기가 유일한 시점
     근거다.
+
+    ``purged_avatar``는 **프로필 이미지를 지웠는지**다 (`#2080`). 대화와 같은 이유로
+    실린다 — 지운 행은 되짚을 수 없으므로 **지웠다는 사실 자체가 유일한 기록**이고,
+    삭제 요청에 응했음을 나중에 증명해야 하는 것이 GDPR 유사 삭제의 성질이다.
+    **새 감사 경로를 만들지 않고** 이 이벤트에 얹는다 — 올리기·지우기는 자기 계정
+    데이터라 감사 대상이 아니다(`TECH_SPEC §13.1`).
 
     ``purged_chat_sessions``는 **지운 대화 수**다 (`#1330`). 지운 행은 되짚을 수
     없으므로 **몇 건을 지웠는지가 유일한 기록**이다 — 삭제 요청에 응했다는 사실을
@@ -194,6 +201,7 @@ async def record_account_delete(
         details={
             "revoked_sessions": revoked_sessions,
             "purged_chat_sessions": purged_chat_sessions,
+            "purged_avatar": purged_avatar,
         },
         ip_address=ip_address,
     )
