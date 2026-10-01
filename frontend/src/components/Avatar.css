@@ -1,0 +1,37 @@
+/*
+ * 프로필 이미지 — `#2080`. 크기는 쓰는 쪽이 정한다(`§0.2` 치수는 Figma 소유).
+ *
+ * 모양을 한곳에 둔다. 계정 메뉴와 설정 두 자리가 각자 원을 그리면 한쪽만 고쳐
+ * 어긋난다 — `BrandLogo`가 같은 이유로 컴포넌트다.
+ */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  inline-size: var(--target-icon-button);
+  block-size: var(--target-icon-button);
+  border-radius: var(--radius-pill);
+  /*
+   * 채움면 토큰을 쓴다 — `--semantic-primary` 면에 카드색 글자는 다크에서 3.76:1로
+   * `§0.2` 제약 1(4.5:1) 미달이다. 근거는 `styles/tokens.css`의 「Primary 채움면」.
+   */
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+  overflow: hidden;
+}
+
+/*
+ * 사진일 때는 면을 지운다 — 투명한 구석이 있는 이미지 뒤로 브랜드색이 비치면
+ * 올린 사진이 아니라 **덜 그려진 것**처럼 보인다.
+ *
+ * `cover`인 이유는 서버가 이미 정사각으로 잘라 보내기 때문이다(`#2080`). 그래도
+ * 적는 것은, 여기서 비율을 가정하지 않으면 다른 자산이 들어왔을 때 눌리기 때문이다.
+ */
+.avatar--image {
+  background: none;
+  object-fit: cover;
+}

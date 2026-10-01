@@ -165,6 +165,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.email",
             "data.email_verified_at",
             "data.id",
+            # `#2080` — **바이트가 아니라 있다/없다다.** 이미지는 `GET /auth/me/avatar`가
+            # ETag로 끝내는 경로로 따로 낸다. 화면은 이 깃발로 「지우기」를 보일지,
+            # 이미지 경로를 부를지 가른다.
+            "data.has_avatar",
             "data.last_login_at",
             # 사무직·현장직 (#672) — 화면이 사이드바·버튼을 이 값으로 가른다
             "data.role",

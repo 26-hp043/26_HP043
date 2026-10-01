@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { Avatar } from '../components/Avatar'
 import { Link, useLocation } from 'react-router'
 import { SCREEN_BY_ID } from '../screens'
 import { isEmailVerified } from '../features/auth/authRules'
@@ -38,11 +39,6 @@ import { LanguageToggle } from '../i18n/LanguageToggle'
  * 두면 **입력 규칙이 두 벌**이 되고, 한쪽만 고쳐 갈린다 — 이 저장소가 카드 규격과
  * 셸 여백에서 이미 겪은 형태다. 여기는 **요약과 진입로**만 맡는다.
  */
-
-/** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
-function initialOf(name: string): string {
-  return (name.trim()[0] ?? '?').toUpperCase()
-}
 
 export function AccountMenu({ user }: { user: CurrentUser }) {
   const { t } = useI18n()
@@ -110,9 +106,12 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         onClick={() => setOpen((was) => !was)}
         data-testid="account-trigger"
       >
-        <span className="account-menu__avatar" aria-hidden="true">
-          {initialOf(label)}
-        </span>
+        {/*
+          `#2080` — 올린 사진이 있으면 사진, 없으면 머리글자. 모양은 `Avatar` 하나가
+          갖는다 — 설정의 「프로필」 절과 이 자리가 각자 원을 그리면 한쪽만 고쳐
+          어긋난다.
+        */}
+        <Avatar className="account-menu__avatar" hasAvatar={user.hasAvatar} name={label} />
         <span className="account-menu__name">{label}</span>
         {/* 여닫힘 표시. 장식이므로 라벨을 주지 않는다 — 이름은 버튼이 이미 맡는다 (§14). */}
         <Icon glyph={ChevronDown} className="account-menu__chevron" size="inline" />

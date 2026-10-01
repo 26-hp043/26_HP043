@@ -256,6 +256,7 @@ describe('A11Y-003 — 확률 차트의 값이 글로도 있다', () => {
       displayName: null,
       role: 'OFFICE',
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
   })
   const PROBABILITIES = { A: '0.0200', B: '0.2800', C: '0.5500', D: '0.1300', E: '0.0200' }

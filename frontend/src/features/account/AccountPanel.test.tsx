@@ -23,13 +23,14 @@ import * as session from '../../auth/session'
  * *「다른 주소를 쓰려면 탈퇴 후 다시 가입해 주세요」*라고 안내하는데 탈퇴할 수가 없었다.
  */
 
-function stubUser(role: session.UserRole = 'FIELD') {
+function stubUser(role: session.UserRole = 'FIELD', hasAvatar = false) {
   vi.spyOn(session, 'useAuthUser').mockReturnValue({
     id: 'u-1',
     email: 'demo@bluelog.local',
     displayName: '테스터',
     role,
     emailVerifiedAt: null,
+    hasAvatar,
   })
 }
 
@@ -212,8 +213,8 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
   it('관리자는 계정 목록을 받아 셀렉트로 역할을 바꾼다 — 선택지는 3종', async () => {
     stubUser('ADMIN')
     const rows: session.CurrentUser[] = [
-      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'ADMIN', emailVerifiedAt: null },
-      { id: 'u-2', email: 'crew@bluelog.local', displayName: null, role: 'FIELD', emailVerifiedAt: null },
+      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'ADMIN', emailVerifiedAt: null, hasAvatar: false },
+      { id: 'u-2', email: 'crew@bluelog.local', displayName: null, role: 'FIELD', emailVerifiedAt: null, hasAvatar: false },
     ]
     vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
     const update = vi
@@ -239,7 +240,7 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
   it('서버가 거절하면(마지막 관리자 409) 문구를 그대로 보이고 셀렉트는 원래 값이다', async () => {
     stubUser('ADMIN')
     const rows: session.CurrentUser[] = [
-      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'ADMIN', emailVerifiedAt: null },
+      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'ADMIN', emailVerifiedAt: null, hasAvatar: false },
     ]
     vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
     const message = '마지막 관리자 계정은 탈퇴하거나 다른 역할로 바꿀 수 없습니다. 다른 계정을 먼저 관리자로 지정해 주세요.'
@@ -350,5 +351,83 @@ describe('설정 목차의 모든 절이 화면에 있다 (#2074)', () => {
         (labelledBy === null ? null : document.getElementById(labelledBy)?.textContent?.trim())
       expect(name, `${section.id} 절이 이름을 대지 않습니다`).toBe(section.label)
     }
+  })
+})
+
+describe('프로필 이미지 — #2080', () => {
+  it('고르기 전에는 「올리기」가 잠겨 있다 — 올릴 것이 없다', () => {
+    /*
+     * 잠근 사유는 곁의 「선택된 파일 없음」이 **글자로** 말한다(`PRD §6.4` 파일 선택
+     * 행 · `§14`). 그래서 따로 사유를 잇지 않는다 — `a11yWiring`에 그렇게 등재돼 있다.
+     */
+    stubUser()
+    renderPanel()
+    expect((screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it('고르면 풀리고, 올리면 그 파일이 서버로 간다', async () => {
+    stubUser()
+    const upload = vi.spyOn(session, 'uploadAvatar').mockResolvedValue({
+      id: 'u-1',
+      email: 'demo@bluelog.local',
+      displayName: '테스터',
+      role: 'FIELD',
+      emailVerifiedAt: null,
+      hasAvatar: true,
+    })
+    renderPanel()
+
+    const file = new File([new Uint8Array([1, 2, 3])], 'me.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [file] } })
+
+    const button = screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+
+    await waitFor(() => expect(upload).toHaveBeenCalledWith(file))
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('프로필 이미지를 올렸습니다'),
+    )
+  })
+
+  it('「지우기」는 **올린 뒤에만** 보인다', () => {
+    /*
+     * 없는 것을 지우는 단추는 무엇을 하는지 알 수 없다. 서버는 멱등이라 눌러도
+     * 성공하지만, 그 성공이 화면에서는 아무 변화가 아니다.
+     */
+    stubUser('FIELD', false)
+    const { unmount } = renderPanel()
+    expect(screen.queryByRole('button', { name: '지우기' })).toBeNull()
+    unmount()
+
+    stubUser('FIELD', true)
+    renderPanel()
+    expect(screen.getByRole('button', { name: '지우기' })).toBeTruthy()
+  })
+
+  it('받는 형식이 서버와 같고 **SVG가 없다**', () => {
+    /*
+     * `accept`는 거름망이 아니라 **안내**다(사용자가 「모든 파일」로 바꿀 수 있다).
+     * 그래도 여기 SVG가 있으면 고를 수 있는 것처럼 보였다가 서버가 422로 막는다.
+     */
+    stubUser()
+    renderPanel()
+    const accept = screen.getByLabelText('프로필 이미지 파일').getAttribute('accept') ?? ''
+    expect(accept.split(',')).toEqual(['image/png', 'image/jpeg', 'image/webp'])
+    expect(accept).not.toContain('svg')
+  })
+
+  it('안내가 **형식과 크기를 함께** 말한다', () => {
+    /*
+     * 크기만 적으면 형식이 틀렸을 때 사용자가 크기를 줄여 보다가 또 막힌다.
+     * 서버가 다시 그린다는 사실도 적는다 — 설명이 없으면 결함으로 읽힌다.
+     */
+    stubUser()
+    renderPanel()
+    const notice = screen.getByText(/PNG/)
+    expect(notice.textContent).toContain('2MB')
+    expect(notice.textContent).toContain('정사각형')
   })
 })

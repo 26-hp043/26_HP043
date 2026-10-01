@@ -166,3 +166,31 @@
   width: auto;
   min-width: 8rem;
 }
+
+/* ── 프로필 이미지 (#2080) ──────────────────────────────────────── */
+
+.acc__avatar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: 0 0 var(--spacing-lg);
+}
+
+/*
+ * 미리보기와 컨트롤을 한 줄에 둔다. `align-items: center`로 맞추는 이유는
+ * 컨트롤 묶음의 높이가 「지우기」의 유무에 따라 바뀌기 때문이다 — 위로 맞추면
+ * 사진이 올라갔다 내려갔다 한다.
+ */
+.acc__avatar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.acc__avatar-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}

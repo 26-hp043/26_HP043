@@ -383,6 +383,7 @@ describe('상단바가 §7.2 배치를 벗어나지 않는다 (#1422)', () => {
       displayName: '테스터',
       role: 'OFFICE',
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
   }
 
@@ -432,6 +433,7 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
       displayName: '갑판장',
       role,
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
   }
 

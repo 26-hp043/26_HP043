@@ -173,6 +173,27 @@ class TestUpload:
         assert resp.status_code in (401, 403), resp.text
 
 
+class TestMePayload:
+    async def test_has_avatar_flips_with_the_image(self, client):
+        """`GET /auth/me`의 `has_avatar` (`#2080`).
+
+        화면은 이 깃발로 「지우기」를 보일지, 이미지 경로를 부를지 가른다. 늘 참이면
+        **올리기 전이 기본 상태인 사용자들**이 화면마다 404를 하나씩 만든다.
+        """
+        email = "avatar-flag@example.com"
+        try:
+            _signup(client, email)
+            assert client.get("/api/v1/auth/me").json()["data"]["has_avatar"] is False
+
+            _upload(client, _png())
+            assert client.get("/api/v1/auth/me").json()["data"]["has_avatar"] is True
+
+            client.delete(_URL, headers={"X-CSRF-Token": client.cookies["csrf"]})
+            assert client.get("/api/v1/auth/me").json()["data"]["has_avatar"] is False
+        finally:
+            await _cleanup([email])
+
+
 class TestFetch:
     async def test_returns_webp_and_an_etag(self, client):
         email = "avatar-get@example.com"

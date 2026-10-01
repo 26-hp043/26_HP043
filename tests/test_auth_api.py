@@ -359,6 +359,8 @@ USER_CONTRACT = frozenset(
         "data.email",
         "data.email_verified_at",
         "data.id",
+        # `#2080` — 바이트가 아니라 **있다/없다**다. 가입·로그인 직후에는 늘 거짓이다.
+        "data.has_avatar",
         "data.last_login_at",
         # 사무직·현장직 (#672)
         "data.role",

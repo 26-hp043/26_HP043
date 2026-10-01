@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   AuthRequestError,
+  avatarSrc,
   changePassword,
+  deleteAvatar,
+  uploadAvatar,
   leaveAfterPasswordChange,
   deleteAccount,
   getCachedUser,
@@ -113,6 +116,7 @@ describe('probeCurrentUser', () => {
       // `role`이 없으면 현장직이다 — 넓게 틀리는 쪽보다 낫다 (#672).
       role: 'FIELD',
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
     expect(getCachedUser()).not.toBeNull()
   })
@@ -714,6 +718,7 @@ describe('isOffice · isAdmin — 역할 3종 (#1301)', () => {
       displayName: null,
       role,
       emailVerifiedAt: null,
+      hasAvatar: false,
     }
   }
 
@@ -737,3 +742,73 @@ describe('isOffice · isAdmin — 역할 3종 (#1301)', () => {
     expect(isAdmin(userOf('ADMIN'))).toBe(true)
   })
 })
+
+describe('프로필 이미지 — #2080', () => {
+  function okResponse(body: unknown, status = 200) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    } as unknown as Response
+  }
+
+  it('올리기는 `Content-Type`을 **적지 않는다** — 경계 문자열이 빠진다', async () => {
+    /*
+     * `FormData`를 주면 브라우저가 `multipart/form-data; boundary=…`까지 넣어
+     * 붙인다. 손으로 적으면 그 경계가 빠져 **서버가 본문을 파싱하지 못한다** —
+     * 그리고 그 실패는 「왜인지 모를 422」로 보인다.
+     */
+    const fetchImpl = vi.fn(async () => okResponse(null, 204))
+    const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+    await uploadAvatar(file, fetchImpl as unknown as typeof globalThis.fetch).catch(() => {})
+
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit] | undefined)?.[1]
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain('content-type')
+    expect(init?.body).toBeInstanceOf(FormData)
+  })
+
+  it('이미지 주소는 바꾼 뒤 **달라진다** — 안 그러면 옛 사진을 계속 본다', async () => {
+    /*
+     * 올린 직후 `<img>`의 주소가 그대로면 React는 바뀐 것이 없다고 보고 다시 그리지
+     * 않는다. 서버의 `must-revalidate`는 **새로 부를 때**를 다루지, 부르지 않는 것을
+     * 다루지 못한다.
+     */
+    const before = avatarSrc()
+    const fetchImpl = vi.fn(async () => okResponse(null, 204))
+    const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+    await uploadAvatar(file, fetchImpl as unknown as typeof globalThis.fetch).catch(() => {})
+
+    expect(avatarSrc()).not.toBe(before)
+  })
+
+  it('지우기는 본문을 보내지 않고 CSRF를 단다', async () => {
+    const fetchImpl = vi.fn(async () => okResponse(null, 204))
+    await deleteAvatar(fetchImpl as unknown as typeof globalThis.fetch).catch(() => {})
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('/auth/me/avatar')
+    expect(init.method).toBe('DELETE')
+    expect(init.body).toBeUndefined()
+  })
+
+  it('서버 문구를 그대로 올린다 — 413과 422가 다른 말을 한다', async () => {
+    /*
+     * 상한 초과와 형식 오류는 **고칠 방법이 다르다**. 화면이 하나로 뭉개면 사용자는
+     * 같은 사진을 줄여 보다가 또 막힌다.
+     */
+    for (const [status, message] of [
+      [413, '이미지가 너무 큽니다. 2MB 이하로 올려 주세요.'],
+      [422, '이미지를 읽을 수 없습니다. PNG · JPEG · WebP 파일을 올려 주세요.'],
+    ] as const) {
+      const fetchImpl = vi.fn(async () =>
+        okResponse({ error: { code: 'X', message } }, status),
+      )
+      const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+      await expect(
+        uploadAvatar(file, fetchImpl as unknown as typeof globalThis.fetch),
+      ).rejects.toThrow(message)
+    }
+  })
+})
+

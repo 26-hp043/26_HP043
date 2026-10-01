@@ -24,6 +24,7 @@ const OFFICE: session.CurrentUser = {
   displayName: null,
   role: 'OFFICE',
   emailVerifiedAt: null,
+  hasAvatar: false,
 }
 
 afterEach(() => {

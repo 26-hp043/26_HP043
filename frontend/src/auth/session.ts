@@ -59,6 +59,15 @@ export interface CurrentUser {
    * 않을 때 사용자가 아무것도 하지 못한다. 대신 셸이 배너를 띄운다.
    */
   emailVerifiedAt: string | null
+  /**
+   * 프로필 이미지를 올렸는가 (`#2080`).
+   *
+   * **바이트가 아니라 있다/없다다.** 이미지는 `GET /auth/me/avatar`가 ETag로 끝내는
+   * 경로로 따로 내보낸다. 이 깃발이 없으면 화면은 올렸는지 모른 채 그 경로를 찔러
+   * 봐야 하고, **올리기 전이 기본 상태**이므로 대부분의 사용자가 화면마다 404를
+   * 하나씩 만든다.
+   */
+  hasAvatar: boolean
 }
 
 /*
@@ -80,6 +89,9 @@ export const VERIFY_EMAIL_PATH = SCREEN_BY_ID.VERIFY_EMAIL.path
 /** API base URL — 개발은 vite 프록시, Cloudflare Pages는 VITE_API_BASE_URL로 주입. */
 const AUTH_API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const ME_URL = `${AUTH_API_BASE}/auth/me`
+//: 이미지 경로. 밖으로 내보내지 않는다 — 쓰는 쪽은 꼬리까지 붙은 `avatarSrc()`를
+//: 써야 하고, 날것을 내보내면 꼬리를 빠뜨린 호출부가 생긴다.
+const AVATAR_URL = `${ME_URL}/avatar`
 const LOGIN_API_URL = `${AUTH_API_BASE}/auth/login`
 const TOUR_LOGIN_API_URL = `${AUTH_API_BASE}/auth/tour-login`
 const LOGOUT_API_URL = `${AUTH_API_BASE}/auth/logout`
@@ -230,6 +242,9 @@ function toCurrentUser(body: unknown): CurrentUser | null {
     role: data.role === 'OFFICE' || data.role === 'ADMIN' ? data.role : 'FIELD',
     emailVerifiedAt:
       typeof data.email_verified_at === 'string' ? data.email_verified_at : null,
+    // 모르면 **없는 쪽**이다 — 없다고 보면 머리글자가 나오고, 있다고 잘못 보면
+    // 깨진 이미지가 나온다.
+    hasAvatar: data.has_avatar === true,
   }
 }
 
@@ -626,6 +641,96 @@ export async function updateDisplayName(
   currentUser = requireUser(body, response.status)
   notify()
   return currentUser
+}
+
+/**
+ * 프로필 이미지를 바꾼 횟수 (`#2080`).
+ *
+ * ## 왜 필요한가
+ *
+ * 올린 직후 화면의 `<img>`는 **주소가 그대로**다. React는 바뀐 것이 없다고 보고
+ * 다시 그리지 않으므로, 사용자는 방금 올린 사진 대신 **옛 사진을 계속 본다.**
+ *
+ * 서버의 `Cache-Control: private, max-age=0, must-revalidate`는 **새로 부를 때**를
+ * 다룬다 — 부르지 않는 것은 다루지 못한다. 그래서 주소 끝에 이 수를 붙여 올리거나
+ * 지울 때마다 **다른 주소**로 만든다.
+ *
+ * 새로고침하면 0으로 돌아간다. 그때는 브라우저가 어차피 재검증하므로(`max-age=0`)
+ * 옛 바이트가 나오지 않는다.
+ */
+let avatarVersion = 0
+
+/** 지금 쓸 이미지 주소. 아직 바꾼 적이 없으면 꼬리를 붙이지 않는다. */
+export function avatarSrc(): string {
+  return avatarVersion === 0 ? AVATAR_URL : `${AVATAR_URL}?v=${avatarVersion}`
+}
+
+async function sendAvatar(
+  request: Promise<Response>,
+  failure: string,
+  uploaded: boolean,
+): Promise<CurrentUser> {
+  let response: Response
+  try {
+    response = await request
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  if (response.status === 401) failExpiredSession()
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw authErrorOf(body, response.status, failure)
+  }
+
+  avatarVersion += 1
+  // `has_avatar`가 바뀌었으므로 **사용자를 다시 읽는다.** 응답이 204라 여기서 받을
+  // 몸이 없고, 상단바의 계정 메뉴가 같은 값을 보고 있어 갱신하지 않으면 화면마다
+  // 다른 상태가 보인다 — `updateDisplayName`이 같은 이유로 캐시를 갱신한다.
+  const next = currentUser
+  if (next === null) throw new AuthRequestError(UNEXPECTED_RESPONSE_MESSAGE, response.status)
+  currentUser = { ...next, hasAvatar: uploaded }
+  notify()
+  return currentUser
+}
+
+/**
+ * 프로필 이미지를 올린다 — `POST /auth/me/avatar` (`#2080` · `API_SPEC §1.2.5a`).
+ *
+ * `Content-Type`을 **적지 않는다.** `FormData`를 주면 브라우저가 경계 문자열까지
+ * 넣어 붙이는데, 손으로 적으면 그 경계가 빠져 서버가 본문을 파싱하지 못한다.
+ */
+export async function uploadAvatar(
+  file: File,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser> {
+  const form = new FormData()
+  form.append('file', file)
+  return await sendAvatar(
+    fetchImpl(AVATAR_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json', ...csrfHeaders() },
+      body: form,
+    }),
+    '프로필 이미지를 올리지 못했습니다.',
+    true,
+  )
+}
+
+/** 프로필 이미지를 지운다 — `DELETE /auth/me/avatar`. 없어도 성공이다(멱등). */
+export async function deleteAvatar(
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser> {
+  return await sendAvatar(
+    fetchImpl(AVATAR_URL, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { Accept: 'application/json', ...csrfHeaders() },
+    }),
+    '프로필 이미지를 지우지 못했습니다.',
+    false,
+  )
 }
 
 /**
