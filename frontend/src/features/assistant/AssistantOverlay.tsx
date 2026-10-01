@@ -7,6 +7,7 @@ import { CITE_LABEL, citeLabels } from './toolLabels'
 import { needsVesselNote } from './vesselNote'
 import type { AssistantProvider, ChatTurn } from './types'
 import { avatarMood, turnMood, type AvatarMood } from './avatarMood'
+import { stripMarkdown } from './plainText'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 
@@ -463,7 +464,12 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
                 */}
                 {turn.discarded ? <strong className="assistant__prefix">{DISCARDED_PREFIX}</strong> : null}
                 {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
-                {turn.text}
+                {/*
+                  #2064 — 모델 답에 샌 마크다운 기호를 **그리기 직전에** 걷는다.
+                  사용자가 친 글자는 그대로 둔다 — 사용자가 별표를 쳤다면 그것은
+                  서식이 아니라 그가 친 글자다. 저장된 원문(감사 기록)도 그대로다.
+                */}
+                {turn.role === 'assistant' ? stripMarkdown(turn.text) : turn.text}
               </p>
           )
           {/*
