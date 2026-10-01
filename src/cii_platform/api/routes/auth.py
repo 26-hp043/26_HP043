@@ -27,7 +27,7 @@ import logging
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -79,6 +79,11 @@ from cii_platform.mail import MailDeliveryError, get_mailer
 from cii_platform.mail.templates import email_verification
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.auth_token import issue_token, revoke_all_sessions
+from cii_platform.services.avatar import (
+    AVATAR_MEDIA_TYPE,
+    AvatarTooLargeError,
+    render_avatar,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -750,6 +755,128 @@ async def update_me(
     return JSONResponse(content={"data": _user_payload(user), "meta": _meta(request)})
 
 
+def _if_none_match(request: Request) -> frozenset[str]:
+    """`If-None-Match`를 따옴표째 토큰 집합으로 읽는다.
+
+    브라우저는 **여러 개**를 보낼 수 있고(`"a", "b"`), 다시 보낼 때 `W/`를 붙이기도
+    한다. 한 값만 비교하면 조건부 요청이 조용히 안 맞아 **매번 본문이 나간다** —
+    304가 안 나는 것은 오류로 보이지 않아서 아무도 눈치채지 못한다.
+    """
+    raw = request.headers.get("if-none-match", "")
+    tokens = (part.strip() for part in raw.split(",") if part.strip())
+    return frozenset(token[2:] if token.startswith("W/") else token for token in tokens)
+
+
+def _clear_avatar(user: AppUser) -> bool:
+    """이미지와 ETag를 **함께** 비우고, 지울 것이 있었는지 돌려준다 (`#2080`).
+
+    두 열은 항상 함께 채워지고 함께 비워진다(`DB_SCHEMA §2.15`). 가르는 곳을
+    한 군데로 두는 이유는, 한쪽만 비우면 `GET`이 ETag는 있는데 본문이 없는 상태로
+    들어가기 때문이다.
+    """
+    had = user.avatar_image is not None or user.avatar_etag is not None
+    user.avatar_image = None
+    user.avatar_etag = None
+    return had
+
+
+#
+# 프로필 이미지 (#2080) — `API_SPEC §1.2.5a`.
+#
+# **경로가 `/me/avatar` 셋뿐인 것이 결정이다.** 남의 이미지를 읽거나 바꾸는 길을
+# 만들지 않는다 — 관리자의 계정 목록(`GET /auth/users`)에도 싣지 않는다
+# (`PRD §5.1 [#2080]` ⑸). 남의 것을 내보내는 경로가 생기면 캐시와 권한이 함께
+# 따라온다.
+#
+
+
+@router.post("/me/avatar", status_code=204)
+async def upload_my_avatar(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+    file: Annotated[UploadFile, File(description="PNG · JPEG · WebP")],
+) -> Response:
+    """프로필 이미지를 올린다 (`API_SPEC §1.2.5a`).
+
+    받은 바이트를 그대로 두지 않고 **다시 그린다**(`services/avatar.py`) — 그 한
+    번이 EXIF 제거 · 압축 폭탄 · 형식 위조 · 저장 크기를 함께 닫는다.
+
+    ## 바이트와 ETag를 **함께** 쓴다
+
+    둘 중 하나만 쓰면 화면이 **옛 이미지를 계속 본다** — 서버는 바뀌었는데 ETag가
+    그대로라 304를 내기 때문이다. `render_avatar`가 둘을 한 번에 내고, 여기서도
+    한 줄 안에서 함께 넣는다.
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    raw = await file.read()
+    try:
+        rendered, etag = render_avatar(raw)
+    except AvatarTooLargeError as exc:
+        # 413은 `§1.4`의 「미등록 status」 경로로 나간다(`HTTP_ERROR`) — 새 오류 코드를
+        # 만들지 않는다. 상한 초과와 형식 오류를 가르는 것은 **고칠 방법이 다르기**
+        # 때문이다: 큰 것은 같은 사진을 줄이면 되고, 형식은 다른 파일을 골라야 한다.
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+
+    user.avatar_image, user.avatar_etag = rendered, etag
+    await session.commit()
+    return Response(status_code=204)
+
+
+@router.get("/me/avatar")
+async def get_my_avatar(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """프로필 이미지를 내보낸다 (`API_SPEC §1.2.5a`).
+
+    ## `ETag`로 끝낸다
+
+    사이드바가 **매 화면**이다. 조건부 요청이 맞으면 **본문을 읽지 않고** 304를
+    낸다 — 그러려고 `avatar_etag`를 따로 둔다(`DB_SCHEMA §2.15`).
+
+    `Cache-Control`은 `private`다. 로그인한 사람의 것이라 공용 캐시에 두지 않는다.
+    **정적 경로를 열지 않는 이유**이기도 하다(`PRD §5.1 [#2080]` ⑵).
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    etag = user.avatar_etag
+    if etag is None or user.avatar_image is None:
+        raise NotFoundError("프로필 이미지가 없습니다.")
+
+    quoted = f'"{etag}"'
+    headers = {"ETag": quoted, "Cache-Control": "private, max-age=0, must-revalidate"}
+    if quoted in _if_none_match(request):
+        return Response(status_code=304, headers=headers)
+
+    return Response(content=user.avatar_image, media_type=AVATAR_MEDIA_TYPE, headers=headers)
+
+
+@router.delete("/me/avatar", status_code=204)
+async def delete_my_avatar(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """프로필 이미지를 지운다 — **없어도 204다** (`API_SPEC §1.2.5a`).
+
+    멱등으로 두는 이유는 화면이 「지우기」를 두 번 눌렀을 때 두 번째가 404로 떨어지면
+    사용자는 **지워지지 않은 것으로 읽기** 때문이다. 결과는 같다 — 이미지가 없다.
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    _clear_avatar(user)
+    await session.commit()
+    return Response(status_code=204)
+
+
 @router.delete("/me")
 async def delete_me(
     request: Request,
@@ -799,6 +926,10 @@ async def delete_me(
         return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     user.is_deleted = True
+    # `#2080` — 프로필 이미지는 **즉시 지운다.** 행은 소프트 삭제로 남지만 사진은
+    # 대화 원문(`#1330`)과 같은 성격이다 — 규제 대응의 근거가 아니고, 플래그만
+    # 세우면 「지웠다」가 거짓이 된다.
+    purged_avatar = _clear_avatar(user)
     revoked = await revoke_all_sessions(session, user_id=user.id)
     # `#1330` — 대화 **원문은 지운다.** `PRD §16.3`의 「GDPR 유사 삭제 요청 지원」이
     # 탈퇴에 걸리는 지점이다. 위 「행을 지우지 않는다」는 계산·감사 기록에 대한
@@ -810,6 +941,7 @@ async def delete_me(
         user_id=str(user.id),
         revoked_sessions=revoked,
         purged_chat_sessions=purged_chats,
+        purged_avatar=purged_avatar,
         ip_address=audit_client_ip(request),
     )
     await session.commit()
