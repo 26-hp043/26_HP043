@@ -290,6 +290,7 @@ class TestAccountDelete:
         자기 계정 데이터라 감사 대상이 아니다(`TECH_SPEC §13.1`).
         """
         from cii_platform.db.session import get_sessionmaker
+        from cii_platform.db.types import JSONText
 
         email = "avatar-audit@example.com"
         try:
@@ -298,18 +299,20 @@ class TestAccountDelete:
             client.delete("/api/v1/auth/me", headers={"X-CSRF-Token": client.cookies["csrf"]})
 
             async with get_sessionmaker()() as s:
-                details = (
-                    (
-                        await s.execute(
-                            text(
-                                "SELECT details_json FROM audit_log "
-                                "WHERE action = 'ACCOUNT_DELETE' ORDER BY created_at DESC"
-                            )
-                        )
-                    )
-                    .scalars()
-                    .first()
+                # `action`·`timestamp`는 CUBRID 예약어라 따옴표가 필요하고, raw SQL에는
+                # 컬럼 타입이 붙지 않아 `JSONText`를 명시해야 **문자열이 아니라 dict**가
+                # 온다 (`#1058` · `tests/test_audit_actions_db.py`와 같은 모양).
+                rows = await s.execute(
+                    text(
+                        "SELECT details_json FROM audit_log "
+                        'WHERE "action" = :a ORDER BY "timestamp" DESC'
+                    ).columns(details_json=JSONText()),
+                    {"a": "ACCOUNT_DELETE"},
                 )
-            assert details is not None and "purged_avatar" in details
+                details = rows.mappings().all()[0]["details_json"]
+            assert details.get("purged_avatar") is True
         finally:
+            async with get_sessionmaker()() as s:
+                await s.execute(text("DELETE FROM audit_log"))
+                await s.commit()
             await _cleanup([email])
