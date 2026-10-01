@@ -1794,9 +1794,7 @@ ROUTE_COVERAGE: dict[str, str] = {
     "POST /auth/me/avatar": (
         "tests/test_avatar_db.py::test_the_stored_bytes_are_ours_not_the_uploaded_ones"
     ),
-    "GET /auth/me/avatar": (
-        "tests/test_avatar_db.py::test_a_matching_etag_ends_without_a_body"
-    ),
+    "GET /auth/me/avatar": ("tests/test_avatar_db.py::test_a_matching_etag_ends_without_a_body"),
     "DELETE /auth/me/avatar": (
         "tests/test_avatar_db.py::test_delete_clears_both_columns_and_is_idempotent"
     ),
