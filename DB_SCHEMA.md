@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.38 |
+| 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
 | 최종 수정일 | 2026-09-29 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -939,9 +939,15 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `display_name` | VARCHAR(100) | NULL | 표시 이름 |
 | `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **트리거 `trg_app_user_role_ins`·`_upd` (`OFFICE`·`FIELD`·`ADMIN`)** | 사무직·현장직·관리자 (`#1301` · `PRD §7.10` · 마이그레이션 044 + 057). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 관리자가 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠고(그전까지 전원이 전 기능을 썼다), 057은 그 값을 다시 채우지 않는다 — **`ADMIN`은 값에만 추가된 것**이라 기존 행은 여전히 `OFFICE`·`FIELD`뿐이다. 값 제약은 CHECK가 아니라 **트리거**다 — CUBRID가 `CHECK`를 구문으로만 받고 검사하지 않아 `#1058`이 옮긴 자리(`§7.4`) |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
+| `avatar_image` | TEXT | NULL | 프로필 이미지 `[#2080]` — 서버가 다시 그린 고정 크기 WebP를 **base64 문자로** 담는다(065). `NULL`이면 올리지 않은 것이고 화면은 머리글자를 그린다 |
+| `avatar_etag` | VARCHAR(64) | NULL | 위 바이트의 SHA-256 16진 `[#2080]` — 조건부 요청에 **본문을 읽지 않고** 304를 내기 위한 것이다. `avatar_image`와 항상 함께 채워지고 함께 비워진다 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
+
+> **[#2080] 바이트를 BLOB이 아니라 TEXT + base64로 담는 이유.** `sqlalchemy-cubrid`가 **자기 테스트 요건 파일에 「CUBRID BLOB roundtrip has driver-level issues」라고 적고 그 검사를 꺼 두었다**(`requirements.py`의 `binary_comparisons`). 드라이버가 스스로 못 한다고 적은 길로 제품의 첫 이진 열을 내지 않는다. 이 저장소에는 **같은 모양의 선례**가 이미 있다 — CUBRID에 JSONB가 없어 `TEXT`에 JSON을 싣는 `JSONText`(`db/types.py` · `#1058`)이고, 프로필 이미지도 같은 자리의 `Base64Bytes`로 담는다. 대가는 바이트가 약 4/3로 커지는 것뿐이며, 서버가 **고정 크기로 다시 그리므로 상한이 열려 있지 않다**(`PRD §5.1 [#2080]`).
+>
+> **탈퇴하면 두 열은 즉시 비워진다.** `app_user`는 소프트 삭제라 행이 남지만 이미지는 남기지 않는다 — `PRD §16.3`의 대화 원문과 같은 성격이고(규제 대응의 근거가 아니다), 플래그만 세우면 「지웠다」가 거짓이 된다. 지운 사실은 기존 `ACCOUNT_DELETE` 감사 이벤트의 `details_json`에 실린다 — **새 감사 경로를 만들지 않는다.**
 
 **인덱스:**
 
@@ -2363,3 +2369,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-26 | `#1920` | **v1.37 — §2.25 `port_call_record` 신설**(마이그레이션 063 · `#1197` B단계). 해양수산부 선박운항정보 오픈API의 기항 한 번을 **원문(`raw`) 그대로** 보관한다(`PRD §15.1` `[#1197]` 「원본 그대로 보관」). 대조가 쓰는 두 시각(가장 이른 입항 · 가장 늦은 출항 — 결정 G-7 ①-2 ⓐ)을 조회용으로 함께 적는다. 다시 받으면 갱신한다 — 바뀌는 것은 공적 기록의 사본이지 사용자 값이 아니다. FK·트리거 없음(수집기만 쓴다) · 보존 의무 없음 · `REGENERABLE`. §1 ER 각주를 「독립 표 넷 · 26개 중 22개」로, §4.3 보존 표에 행 추가, §8.1.0 그래프 끝을 063으로. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1197) |
 | 2026-09-26 | `#1948` | **v1.38 — §2.2 `voyage.actual_departure_source`·`actual_arrival_source` · §2.17 `not_underway_period.started_at_source`·`ended_at_source` 추가**(마이그레이션 064 · #1923 · `#1197` 2단계). 「이 값으로 채우기」(`API_SPEC §3.12`)로 공적 재항 기록의 시각을 옮기면 그 값이 **어디서 왔는지**가 행에 남아야 한다 — 값은 `USER_INPUT`·`PUBLIC_RECORD` 둘이고 **`NULL`은 「모른다」**다(`059` 계획 거리 출처와 같은 모양). 기존 행은 backfill하지 않는다. `PUBLIC_RECORD`는 서버만 적고(결정 A), 시각이 다른 값으로 바뀌면 `NULL`로 돌아간다. 집행은 트리거 8개(`trg_chk_<열>_ins/upd`) · §7.4 합계 168 → **176**(`cii_test` 실측) · §8.1.0 그래프 head `064` · §2.14 `action`에 `VOYAGE_ACTUALS_FILL`(칸 · 이전 값 · 새 값 · 공적 기록 키 · 되돌린 상태)과 각주. downgrade는 컬럼·트리거만 지우며 시각 값은 그대로라 `REGENERABLE`. 컬럼 추가라 #1256(v1.33)과 같은 기준으로 버전을 올린다 (#1923) |
 | 2026-09-29 | `#2036` | §2.14 `audit_log.action`에 **`CHAT_DISCARD`** 추가 + `[#1973]` 각주 — 챗봇 폐기 턴을 감사 로그에 남긴다(종류 · 도구 · 막힌 수치(사용자가 친 수 제외 — 이전 턴 질문의 수·반올림 표기까지, 앱 로그 줄도 같은 목록) · 걸린 시간, 본문·질문 없음). 폐기 사유가 앱 로그에만 있어 컨테이너 교체로 운영 폐기의 막힌 수치를 잃었다. `§4.3`상 값 추가·각주 보강이라 버전은 올리지 않는다 (#1973) |
+| 2026-10-01 | `#2080` | **v1.39 — §2.15 `app_user`에 `avatar_image`(TEXT) · `avatar_etag`(VARCHAR(64)) 두 열과 `[#2080]` 각주 신설** (마이그레이션 065). 이 제품의 첫 「사용자가 올린 바이트」다. **BLOB을 쓰지 않는다** — `sqlalchemy-cubrid`가 자기 테스트 요건에 「CUBRID BLOB roundtrip has driver-level issues」라고 적고 그 검사를 꺼 두었다. `JSONText`(`#1058`)와 같은 모양으로 `TEXT`에 base64를 싣는다. `avatar_etag`는 조건부 요청에 **본문을 읽지 않고** 304를 내기 위한 것이고 두 열은 항상 함께 채워지고 함께 비워진다. 탈퇴 시 즉시 비운다 — 소프트 삭제로 행은 남아도 사진은 남기지 않는다. 열 신설이라 버전을 올린다 (#2081) |
