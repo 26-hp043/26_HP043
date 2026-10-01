@@ -173,6 +173,7 @@ function stubRole(role: session.UserRole) {
     displayName: null,
     role,
     emailVerifiedAt: null,
+    hasAvatar: false,
   })
 }
 

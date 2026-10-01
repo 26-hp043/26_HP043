@@ -42,7 +42,18 @@ _ROOT = Path(__file__).resolve().parents[1]
 PASSWORD = "correct-horse-battery"
 
 #: `_user_payload`의 키 — `/auth/me` 계약(`test_response_contract_db.py`)과 같다.
-USER_KEYS = frozenset({"id", "email", "display_name", "role", "email_verified_at", "last_login_at"})
+USER_KEYS = frozenset(
+    {
+        "id",
+        "email",
+        "display_name",
+        "role",
+        "email_verified_at",
+        "last_login_at",
+        # `#2080` — **있다/없다만**이다. 바이트는 `GET /auth/me/avatar`가 따로 낸다.
+        "has_avatar",
+    }
+)
 
 
 @pytest.fixture

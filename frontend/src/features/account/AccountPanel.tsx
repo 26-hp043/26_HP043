@@ -1,8 +1,11 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { settingsSection } from '../../pages/settingsSections'
+import { Avatar } from '../../components/Avatar'
+import { FilePicker } from '../../components/FilePicker'
 import {
   EMAIL_IMMUTABLE_NOTICE,
   ROLE_DESCRIPTION,
+  AVATAR_NOTICE,
   ROLE_LABEL,
   WITHDRAWAL_NOTICE,
   splitSubmitFailure,
@@ -10,11 +13,13 @@ import {
 import {
   changePassword,
   deleteAccount,
+  deleteAvatar,
   isAdmin,
   leaveAfterPasswordChange,
   listUsers,
   updateDisplayName,
   updateUserRole,
+  uploadAvatar,
   useAuthUser,
   type CurrentUser,
   type UserRole,
@@ -105,6 +110,7 @@ export function AccountPanel() {
         찾을 수 없었다.
       */}
       <SettingsSectionCard id="profile">
+        <AvatarForm user={user} />
         <DisplayNameForm initial={user.displayName ?? ''} />
       </SettingsSectionCard>
 
@@ -218,6 +224,99 @@ function RoleSection({ me }: { me: CurrentUser }) {
         </p>
       ) : null}
     </SettingsSectionCard>
+  )
+}
+
+/** 받는 형식 — 서버와 같아야 한다 (`API_SPEC §1.2.5a`). SVG는 없다. */
+const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp'
+
+/**
+ * 프로필 이미지 (`#2080` · `API_SPEC §1.2.5a`).
+ *
+ * ## 고른 뒤 한 번 더 누른다
+ *
+ * 고르자마자 올리지 않는다. 올리기는 **되돌리기 어려운 쪽**이라(서버가 다시 그려
+ * 저장하므로 원본이 남지 않는다) 사용자가 무엇을 올리는지 보고 누르게 둔다 —
+ * `#2049`가 CSV 가져오기에 둔 「파일 선택 → 검증」과 같은 모양이다.
+ *
+ * ## 지우기는 올린 뒤에만 보인다
+ *
+ * 없는 것을 지우는 단추는 **무엇을 하는지 알 수 없다.** 서버는 멱등이라 눌러도
+ * 성공하지만, 그 성공이 화면에서는 아무 변화가 아니다.
+ */
+function AvatarForm({ user }: { user: CurrentUser }) {
+  const [picked, setPicked] = useState<File | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const run = async (action: () => Promise<unknown>, message: string) => {
+    setBusy(true)
+    setFailure(null)
+    setDone(null)
+    try {
+      await action()
+      setPicked(null)
+      setDone(message)
+    } catch (caught) {
+      setFailure(splitSubmitFailure(caught, '프로필 이미지를 바꾸지 못했습니다.', {}).failure)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="acc__avatar">
+      <div className="acc__avatar-row">
+        {/*
+          지금 상태를 그대로 보인다 — 고른 파일의 미리보기가 아니다. 서버가 **다시
+          그려서** 저장하므로(자르기·크기·형식) 고른 원본을 미리 보여 주면 올린 뒤의
+          결과와 다르다.
+        */}
+        <Avatar hasAvatar={user.hasAvatar} name={user.displayName ?? user.email} size={72} />
+        <div className="acc__avatar-controls">
+          <FilePicker
+            id="acc-avatar"
+            ariaLabel="프로필 이미지 파일"
+            accept={AVATAR_ACCEPT}
+            file={picked}
+            onPick={(file) => {
+              setPicked(file)
+              setDone(null)
+            }}
+          />
+          <button
+            type="button"
+            className="acc__submit"
+            disabled={busy || picked === null}
+            onClick={() => {
+              if (picked !== null) void run(() => uploadAvatar(picked), '프로필 이미지를 올렸습니다.')
+            }}
+          >
+            {busy ? '올리는 중' : '올리기'}
+          </button>
+          {user.hasAvatar ? (
+            <button
+              type="button"
+              className="acc__submit acc__submit--danger"
+              disabled={busy}
+              onClick={() => void run(deleteAvatar, '프로필 이미지를 지웠습니다.')}
+            >
+              지우기
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <p className="acc__notice">{AVATAR_NOTICE}</p>
+
+      {failure ? <ErrorState level="region" size="compact" message={failure} /> : null}
+      {done ? (
+        <p className="acc__ok" role="status">
+          {done}
+        </p>
+      ) : null}
+    </div>
   )
 }
 

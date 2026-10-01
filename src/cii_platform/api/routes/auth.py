@@ -216,6 +216,13 @@ def _user_payload(user: AppUser) -> dict[str, object]:
             user.email_verified_at.isoformat() if user.email_verified_at else None
         ),
         "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        # `#2080` — **바이트가 아니라 있다/없다만** 싣는다. 이미지는 `GET /me/avatar`가
+        # 따로 내보낸다(ETag로 끝나는 경로다 · `API_SPEC §1.2.5a`).
+        #
+        # 이 깃발이 없으면 화면은 **올렸는지 모른 채** 이미지 경로를 찔러 봐야 하고,
+        # 안 올린 사용자(기본 상태다)는 화면을 열 때마다 404를 하나씩 만든다.
+        # 「지우기」를 보일지도 이 값으로 가른다.
+        "has_avatar": user.avatar_etag is not None,
     }
 
 

@@ -47,23 +47,17 @@
   outline-offset: 2px;
 }
 
+/*
+ * 모양은 `components/Avatar.css`가 갖는다 (`#2080`) — 종전 이 자리의 원·채움면·
+ * 글자색 규칙은 그쪽으로 옮겼다. 설정의 「프로필」 절과 같은 그림이어야 하는데
+ * 두 곳이 각자 그리면 한쪽만 고쳐 어긋난다.
+ *
+ * 여기 남는 것은 **이 자리에서만 다른 것**이다 — 상단바 버튼 안이라 글자보다 살짝
+ * 작게 둔다. 규칙 자체를 지우면 `deadCss` 검사가 「마크업이 쓰는데 규칙이 없다」로
+ * 잡는다 — 클래스는 남았는데 아무 말도 하지 않는 상태이기 때문이다.
+ */
 .account-menu__avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  inline-size: var(--target-icon-button);
-  block-size: var(--target-icon-button);
-  border-radius: var(--radius-pill);
-  /*
-   * 채움면 토큰을 쓴다. 종전에는 `--semantic-primary` 면에 `--surface-card` 글자라
-   * **다크에서 3.76:1**이었다 — `§0.2` 제약 1(4.5:1) 미달이다. 자세한 근거는
-   * `styles/tokens.css`의 「Primary 채움면」 주석에 있다.
-   */
-  background: var(--color-primary-solid);
-  color: var(--color-on-primary);
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-caption);
 }
 
 .account-menu__name {

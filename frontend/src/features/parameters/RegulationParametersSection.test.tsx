@@ -218,6 +218,7 @@ describe('조회는 세 역할 모두 (`#1239` 결정 D)', () => {
       displayName: '현장',
       role: 'FIELD',
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
     // 실 provider가 전역 fetch로 네 표를 묻는다 — 연도 표 하나만 채워도 절의 존재는 드러난다.
     vi.stubGlobal(

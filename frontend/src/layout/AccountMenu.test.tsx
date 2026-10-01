@@ -28,6 +28,7 @@ const USER: CurrentUser = {
   displayName: '시연용',
   role: 'OFFICE',
   emailVerifiedAt: null,
+  hasAvatar: false,
 }
 
 function renderMenu(user: CurrentUser = USER, path = '/dashboard') {

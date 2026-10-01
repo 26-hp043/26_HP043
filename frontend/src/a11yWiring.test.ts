@@ -244,6 +244,9 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
 
   /** `사유가 닿는 방법`. 문자열이면 잇는 `id`, `null`이면 곁의 칸이 스스로 말한다. */
   const REGISTERED: Readonly<Record<string, string | null>> = {
+    // #2080 — 파일을 고르기 전에는 올릴 것이 없다. 바로 옆의 「선택된 파일 없음」이
+    // 그 사실을 **글자로** 말하므로 사유를 따로 잇지 않는다(`PRD §6.4` 파일 선택 행).
+    'features/account/AccountPanel.tsx :: busy || picked === null': null,
     "features/annual-simulation/AnnualSimulation.tsx :: state.status === 'running' || !office":
       'annual-sim-office-only',
     // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
