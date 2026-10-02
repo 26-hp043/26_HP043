@@ -14,6 +14,7 @@
   --beomi-light: color-mix(in srgb, var(--color-on-primary) 12%, transparent);
   --beomi-faint: color-mix(in srgb, var(--color-on-primary) 4%, transparent);
   --beomi-dust: color-mix(in srgb, var(--color-on-primary) 16%, transparent);
+  --beomi-reef: var(--color-on-primary);
   --beomi-deep: color-mix(in srgb, var(--brand-gradient-to) 72%, var(--text-primary));
 }
 
@@ -141,6 +142,101 @@
   to { transform: translateY(-115%) translateX(26px); opacity: 0; }
 }
 
+/* ── 수면 ───────────────────────────────────────────────────────── */
+
+/*
+ * 선 몇 줄과 **아래로 사라지는 가리개**뿐이다. 채운 도형으로 그렸다가 판 위쪽에
+ * 회색 띠가 한 줄 생겨, 올려다본 물이 아니라 덧댄 사각형으로 보인 적이 있다 —
+ * 아래쪽 경계를 없애는 `mask-image`가 그 자리를 막는다.
+ */
+.beomi-surface {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 15%;
+  fill: none;
+  stroke: var(--color-on-primary);
+  stroke-linecap: round;
+  mask-image: linear-gradient(to bottom, var(--color-on-primary) 30%, transparent 100%);
+}
+
+.beomi-wave {
+  /*
+   * 미는 거리는 마크업이 표에서 넣는다(`--beomi-wave-step` = 마루 간격).
+   * 여기 적는 기본값은 **0**이다 — 넣어 주지 않으면 아예 멈춰서 바로 보인다.
+   * 그럴듯한 값을 적어 두면 간격과 어긋난 채로 돌고, 그 튐은 눈으로만 잡힌다.
+   */
+  --beomi-wave-step: 0px;
+  animation-name: beomi-wave-run;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.beomi-wave--a { stroke-width: 2.2; opacity: 0.3; }
+.beomi-wave--b { stroke-width: 1.6; opacity: 0.2; animation-direction: reverse; }
+.beomi-wave--c { stroke-width: 2.8; opacity: 0.13; }
+
+@keyframes beomi-wave-run {
+  from { translate: 0 0; }
+  to { translate: var(--beomi-wave-step) 0; }
+}
+
+/* ── 암초 ───────────────────────────────────────────────────────── */
+
+.beomi-reef {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  inline-size: 100%;
+  aspect-ratio: 600 / 180;
+}
+
+.beomi-coral {
+  fill: none;
+  stroke: var(--beomi-reef);
+  /* 끝이 뭉툭해야 산호다 — 각지면 마른 가지로 보인다. */
+  stroke-linecap: round;
+}
+
+.beomi-rock {
+  fill: var(--beomi-reef);
+}
+
+/*
+ * 투명도는 **겹에** 준다. 가지마다 주면 겹친 자리마다 색이 쌓여, 한 덩이가
+ * 그림자 뭉치처럼 얼룩진다.
+ */
+.beomi-reef-near { opacity: 0.14; animation: beomi-reef-sway 11s ease-in-out infinite; }
+.beomi-reef-far { opacity: 0.07; animation: beomi-reef-sway 17s ease-in-out infinite reverse; }
+
+@keyframes beomi-reef-sway {
+  0%, 100% { transform: skewX(0deg); }
+  50% { transform: skewX(1.4deg); }
+}
+
+/* ── 물고기 떼 ──────────────────────────────────────────────────── */
+
+.beomi-school {
+  position: absolute;
+  inline-size: 168px;
+  aspect-ratio: 104 / 32;
+  fill: var(--color-on-primary);
+  opacity: 0.2;
+  animation: beomi-swim linear infinite;
+}
+
+.beomi-school--a { inset-block-start: 52%; animation-duration: 74s; }
+.beomi-school--b { inset-block-start: 71%; animation-duration: 96s; animation-delay: -44s; scale: 0.62; opacity: 0.13; }
+
+/*
+ * 가로지르는 거리는 **판의 폭**이다. `transform`에 `vw`를 쓰면 창을 기준으로 재어,
+ * 판이 좁은 화면에서는 물고기가 한참 바깥에서 논다.
+ */
+@keyframes beomi-swim {
+  from { inset-inline-start: -180px; }
+  to { inset-inline-start: 100%; }
+}
+
 /* ── 범이 ───────────────────────────────────────────────────────── */
 
 .beomi-figure {
@@ -152,7 +248,7 @@
   aspect-ratio: 1159 / 1268;
   animation:
     beomi-rise 3.2s cubic-bezier(0.22, 0.68, 0.3, 1) forwards,
-    beomi-float 6s ease-in-out 3.2s infinite;
+    beomi-float 11s ease-in-out 3.2s infinite;
 }
 
 /*
@@ -188,9 +284,20 @@
   to { transform: none; opacity: 1; filter: none; }
 }
 
+/*
+ * 떠 있는 움직임 (`#2084` — 「좀 더 둥실」).
+ *
+ * 위아래로만 흔들면 **매달린 것**처럼 보인다. 가로로도 흐르고 기울기가 따라 돌아야
+ * 물에 떠 있는 것이 된다.
+ *
+ * ⚠️ `0%`와 `100%`는 **제자리**여야 한다. 떠오르는 동작(`beomi-rise`)이 `transform: none`
+ * 으로 끝나고 여기서 이어받는데, 시작 칸이 제자리가 아니면 그 순간 범이가 한 번 튄다.
+ */
 @keyframes beomi-float {
-  0%, 100% { transform: translateY(0) rotate(-1.2deg); }
-  50% { transform: translateY(-14px) rotate(1.2deg); }
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(-11px, -15px) rotate(-1.8deg); }
+  45% { transform: translate(4px, -29px) rotate(1.5deg); }
+  72% { transform: translate(14px, -12px) rotate(2.2deg); }
 }
 
 @keyframes beomi-wave {
@@ -250,7 +357,11 @@
   .beomi-drift,
   .beomi-dust,
   .beomi-ray,
-  .beomi-ship {
+  .beomi-ship,
+  .beomi-wave,
+  .beomi-school,
+  .beomi-reef-near,
+  .beomi-reef-far {
     animation: none;
   }
 

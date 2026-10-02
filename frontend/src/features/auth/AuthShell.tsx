@@ -94,10 +94,26 @@ export function AuthShell({
 
         {intro ? (
           <div className="auth-intro">
-            <p className="auth-intro-lead">
-              항차 CII 추정, 운항 시나리오 비교, 연간 등급 시뮬레이션을 하나의 화면에서
-              확인합니다.
-            </p>
+            {/*
+              소개 문구는 **화면 문구**라 디자인 소관이다(`AGENTS §4.6`). `UIFLOW §0`은
+              로그인 화면에 「서비스 소개」가 **있을 것**만 요구하고 문장을 정하지 않는다.
+
+              종전 문구는 기능 세 개를 나열했는데, 그 나열은 **바로 아래 계층 목록이
+              이미 하고 있었다**(`#2084`). 같은 말을 두 번 하는 대신 **왜 지금 보는지**를
+              적는다 — 등급은 연말에 확정되지만 그 등급을 가르는 결정은 항차마다 내려진다.
+
+              「예측」·「추정」은 `PRD §0.3` 면책과 같은 말씨다 — 확정값으로 읽히는
+              표현을 쓰지 않는다(`PRD` COR-1).
+            */}
+            <div className="auth-intro-text">
+              <p className="auth-intro-lead">
+                CII 등급은 연말에 확정되지만, 등급을 가르는 결정은 항차마다 내려집니다.
+              </p>
+              <p className="auth-intro-body">
+                BlueLog는 항차가 쌓는 CII를 운항 중에 추정하고, 올해가 어느 등급으로 끝날지
+                예측합니다. 속도와 항로를 고르기 전에 그 결과를 견줘 봅니다.
+              </p>
+            </div>
             <ul className="auth-tiers">
               {TIERS.map(({ tier, detail }) => (
                 <li className="auth-tier" key={tier}>
