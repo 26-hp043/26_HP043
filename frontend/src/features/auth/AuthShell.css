@@ -64,6 +64,39 @@
 }
 
 /*
+ * 바다가 판 안에서만 그려지게 가둔다 (`#2076`).
+ *
+ * 장면은 `position: absolute`로 판을 채우므로 **판이 기준점이어야** 한다. `overflow`는
+ * 수면 위를 지나는 배와 올라가는 거품이 판 밖으로 새지 않게 막는다.
+ *
+ * 글자를 위로 올린다 — 종전에는 `justify-content: center`로 판 한가운데 있었는데,
+ * 가운데에 범이가 서면서 글자와 겹쳤다.
+ */
+.auth-brand-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+/*
+ * 소개가 켜진 화면(로그인)에서만 글자를 위로 붙인다 — 나머지 셋은 종전 그대로 가운데다.
+ *
+ * `:has(.beomi-sea)`로 적지 않는다. 그렇게 쓰면 **판의 모양이 자식의 존재에 묶여**,
+ * 장면 쪽을 건드릴 때 판이 따라 움직인다. 깃발은 이미 `intro` 하나이므로 그것을
+ * 클래스로 내려 준다.
+ */
+.auth-brand-panel--scene {
+  justify-content: flex-start;
+  padding-block-start: clamp(var(--spacing-2xl), 11vh, 132px);
+}
+
+/* 장면 위에 글자가 온다. 겹침 순서를 여기 한 줄로 못 박는다. */
+.auth-brand,
+.auth-intro {
+  position: relative;
+  z-index: 1;
+}
+
+/*
  * 로고는 **어두운 배경용 한 장으로 고정**한다.
  *
  * `BrandLogo`는 테마에 따라 두 장 중 하나를 고르는데, 이 판은 테마와 무관하게

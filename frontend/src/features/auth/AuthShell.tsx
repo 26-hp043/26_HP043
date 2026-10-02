@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
 import { Field } from '../../components/Field'
+import { BeomiScene } from './BeomiScene'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -77,7 +78,14 @@ export function AuthShell({
        * 좌: 브랜드 판. 장식이 아니라 `UIFLOW §0`이 요구하는 「서비스 소개」의 자리다.
        * 1100px 이하에서는 **숨기지 않고 접는다** — 확정 문서 3-3.
        */}
-      <aside className="auth-brand-panel">
+      <aside className={intro ? 'auth-brand-panel auth-brand-panel--scene' : 'auth-brand-panel'}>
+        {/*
+          `#2076` — 로그인 화면에서만 판이 바다가 된다. 소개 블록과 **같은 깃발**로
+          가르는 이유는, 1100px 이하에서 판이 상단 띠로 접힐 때(확정 3-3) 소개와
+          함께 사라져야 하기 때문이다 — 띠에 바다만 남으면 로고 옆에서 거품이 올라간다.
+        */}
+        {intro ? <BeomiScene /> : null}
+
         <p className="auth-brand">
           <BrandLogo />
           {/* 사이드바(`AppShell`)와 같은 문구를 쓴다 — 한쪽만 바뀌면 어긋난다. */}
