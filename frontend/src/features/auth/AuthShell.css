@@ -153,6 +153,16 @@
   gap: var(--spacing-xl);
 }
 
+/*
+ * 소개는 **두 단**이다 — 한 줄 주장과 그 아래 설명(`#2084`). 둘 사이는 `.auth-intro`의
+ * 간격보다 좁아야 한 덩이로 읽힌다.
+ */
+.auth-intro-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
 .auth-intro-lead {
   margin: 0;
   max-inline-size: 34ch;
@@ -162,6 +172,15 @@
   letter-spacing: var(--letterSpacing-snug);
 
   /* 한국어는 어절 안에서 끊으면 읽기 어렵다 — `DESIGN_SYSTEM §3`. */
+  word-break: keep-all;
+}
+
+.auth-intro-body {
+  margin: 0;
+  max-inline-size: 38ch;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
+  color: var(--auth-brand-muted);
   word-break: keep-all;
 }
 

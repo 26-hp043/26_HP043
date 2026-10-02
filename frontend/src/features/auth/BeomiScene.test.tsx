@@ -179,8 +179,76 @@ describe('로그인 화면의 바다 — #2076', () => {
      * 배·부유물·거품은 수가 많다. 좌표를 JSX 안에 흩으면 한 알을 옮길 때마다
      * 마크업을 뒤져야 하고, 그러다 겹치거나 몸통 위로 올라간다.
      */
-    for (const table of ['const SHIPS', 'const DRIFT', 'const FOAM']) {
+    for (const table of ['const SHIPS', 'const DRIFT', 'const FOAM', 'const WAVES', 'const CLUMPS', 'const ROCKS', 'const FISH']) {
       expect(source).toContain(table)
     }
+  })
+
+  it('수면 물결은 **이음매 없이** 돈다 — 미는 거리가 마루 간격이다', () => {
+    /*
+     * 물결은 `period`마다 같은 모양이 되풀이되는 선이다. 가로로 **정확히 그만큼**
+     * 밀어야 되돌아온 자리가 처음과 겹친다. 조금이라도 다르면 한 바퀴마다 물결이
+     * 한 번씩 튀는데, 그 튐은 **멈춘 그림에서는 보이지 않는다**.
+     */
+    const waves = [...scene().querySelectorAll('.beomi-wave')] as SVGPathElement[]
+    expect(waves.length).toBeGreaterThan(1)
+
+    for (const wave of waves) {
+      const step = Number.parseFloat(wave.style.getPropertyValue('--beomi-wave-step'))
+      const d = wave.getAttribute('d') ?? ''
+
+      // `q`가 마루 한쪽(= 간격의 절반)을 그리고 `t`가 그것을 되비추며 이어 간다.
+      const half = Number.parseFloat(d.slice(d.indexOf('t') + 1))
+      expect(half * 2, `미는 거리 ${step}가 마루 간격 ${half * 2}와 다르다`).toBe(step)
+    }
+  })
+
+  it('수면에 **경계가 없다** — 띠로 보였던 자리다', () => {
+    /*
+     * 처음에 수면을 채운 도형으로 그렸더니 판 위쪽에 회색 띠가 한 줄 생겨, 올려다본
+     * 물이 아니라 **덧댄 사각형**으로 보였다. 아래로 사라지는 가리개가 그 자리를 막는다.
+     */
+    const rule = rules.slice(rules.indexOf('.beomi-surface {'))
+    const body = rule.slice(0, rule.indexOf('}'))
+    expect(body).toContain('fill: none')
+    expect(body).toMatch(/mask-image:\s*linear-gradient\(to bottom[^;]*transparent/)
+  })
+
+  it('산호는 **바닥에 붙어 자란다** — 떠 있으면 바위가 된다', () => {
+    /*
+     * 덩이의 밑동(`y`)은 해저 띠 안이어야 한다. 위로 올리면 물 가운데 산호가 떠 있고,
+     * 그래도 화면 검사는 전부 통과한다.
+     */
+    const bases = [...source.matchAll(/\{ x: \d+, y: (\d+), h: \d+, seed/g)].map((m) => Number(m[1]))
+    expect(bases.length).toBeGreaterThan(6)
+    for (const y of bases) {
+      expect(y >= 130 && y <= 175, `산호 밑동 ${y}가 해저 밖이다`).toBe(true)
+    }
+  })
+
+  it('물고기는 **가는 쪽으로** 헤엄친다 — 꼬리가 뒤다', () => {
+    /*
+     * 한 번 거꾸로 그렸다. 머리와 꼬리를 바꿔 달아도 모양은 그럴듯해서, 보고 있지
+     * 않으면 **뒤로 헤엄치는 떼**가 그대로 나간다.
+     */
+    const fish = scene().querySelector('.beomi-school path') as SVGPathElement
+    const tail = /l(-?[\d.]+)/.exec(fish.getAttribute('d') ?? '')
+    expect(tail, '꼬리 획을 찾지 못했다').not.toBeNull()
+    expect(Number(tail?.[1]) < 0, '꼬리가 머리와 같은 쪽에 있다').toBe(true)
+
+    const swim = rules.slice(rules.indexOf('@keyframes beomi-swim'))
+    expect(swim.slice(0, swim.indexOf('}') + 2)).toMatch(/from \{ inset-inline-start: -/)
+  })
+
+  it('떠 있는 움직임은 **제자리에서 시작하고 끝난다** — 아니면 한 번 튄다', () => {
+    /*
+     * 떠오르는 동작이 `transform: none`으로 끝나고 여기서 이어받는다. 시작 칸이
+     * 제자리가 아니면 그 순간 범이가 한 번 튀는데, 3.2초 뒤 한 프레임이라 눈에
+     * 걸리지 않고 지나간다.
+     */
+    const float = rules.slice(rules.indexOf('@keyframes beomi-float'))
+    const first = float.slice(float.indexOf('0%'), float.indexOf(';', float.indexOf('0%')))
+    expect(first).toContain('0%, 100%')
+    expect(first).toMatch(/translate\(0, 0\) rotate\(0deg\)/)
   })
 })
