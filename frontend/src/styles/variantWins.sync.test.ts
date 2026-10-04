@@ -167,19 +167,34 @@ function state(selector: string): string {
   return (tail.match(PSEUDO) ?? []).sort().join('')
 }
 
-/** 이 선택자가 이 요소에 닿는가. `#id`·`::`·`[attr]`은 추적하지 않으므로 뺀다. */
+const NOT = /:not\(([^)]*)\)/g
+
+/** 한 조각이 **요구하는** 클래스와 **배제하는** 클래스. */
+function demands(compound: string): { required: string[]; excluded: string[] } {
+  const excluded = [...compound.matchAll(NOT)].flatMap((m) => m[1].match(/\.[\w-]+/g) ?? [])
+  const required = compound.replace(NOT, '').match(/\.[\w-]+/g) ?? []
+  return { required: required.map((c) => c.slice(1)), excluded: excluded.map((c) => c.slice(1)) }
+}
+
+/**
+ * 이 선택자가 이 요소에 닿는가. `#id`·`::`·`[attr]`은 추적하지 않으므로 뺀다.
+ *
+ * ⚠️ `:not()` 안의 클래스는 **요구가 아니라 배제**다. 가려내지 않으면 `#2148`이 넣은
+ * `.nav-link:not(.nav-link--active):hover`가 활성 항목에도 닿는 것으로 읽혀,
+ * **고친 자리가 고쳐지지 않은 것으로** 보인다.
+ */
 function reaches(selector: string, element: Element): boolean {
   if (/[#[]|::/.test(selector)) return false
   const parts = compounds(selector)
   const tail = parts.at(-1) ?? ''
   const tailTag = /^[a-z][\w-]*/.exec(tail)
   if (tailTag !== null && tailTag[0] !== element.tag) return false
-  for (const cls of tail.match(/\.[\w-]+/g) ?? []) {
-    if (!element.classes.has(cls.slice(1))) return false
-  }
+  const { required, excluded } = demands(tail)
+  if (required.some((cls) => !element.classes.has(cls))) return false
+  if (excluded.some((cls) => element.classes.has(cls))) return false
   for (const part of parts.slice(0, -1)) {
-    for (const cls of part.match(/\.[\w-]+/g) ?? []) {
-      if (!element.ancestors.has(cls.slice(1))) return false
+    for (const cls of demands(part).required) {
+      if (!element.ancestors.has(cls)) return false
     }
   }
   return true
@@ -248,6 +263,77 @@ describe('변종 클래스가 기본 규칙에 특이도로 지지 않는다 (#2
       }
     }
     expect(Object.keys(EXEMPT).filter((key) => !live.has(key))).toEqual([])
+  })
+
+  /**
+   * **상태 규칙이 변종을 덮지 않는가** (`#2148`).
+   *
+   * 위 검사는 **상태가 같은 짝**만 견준다 — `:hover`는 바탕 규칙보다 세야 하니 그것이
+   * 맞다. 그런데 그 세기가 **변종에도 그대로 간다.**
+   *
+   * ```css
+   * .nav-link:hover   { color: var(--text-primary); }  ← 0-2-0
+   * .nav-link--active { color: var(--color-link); }    ← 0-1-0 · 진다
+   * ```
+   *
+   * 마우스를 올린 동안 활성 항목이 **활성으로 보이지 않는다.** 멈춘 화면에서는
+   * 멀쩡하고 스크린숏에도 안 남는다 — 손이 올라가 있을 때만 틀린다.
+   *
+   * 변종이 **상태를 말하는** 것일 때(활성·비활성·선택됨) 이것은 곧 상태의 소실이다.
+   * 고치는 길은 둘이고 **둘 다 통과한다** — 상태 규칙에서 변종을 빼거나(`:not()`),
+   * 변종 자신의 상태 규칙을 적거나.
+   *
+   * ## 여기서는 JSX를 보지 않는다
+   *
+   * 위 두 검사는 요소마다 「이 규칙이 닿는가」를 JSX에서 확인하는데, `className`이
+   * **정적 문자열일 때만** 보인다. 토글의 선택된 칸은 `className={`…${on ? …}`}`로
+   * 붙어 **그 눈에 띄지 않는다** — 실제로 이 결함 셋 중 둘이 그렇게 빠져나갔다.
+   *
+   * 그래서 이 검사는 **스타일시트만** 읽는다. `.블록--이름`이 `.블록`을 함께 단다는
+   * 것은 이 저장소의 BEM 표기가 보장하므로, 같은 파일 안의 두 규칙만으로 충분하다.
+   */
+  it('`:hover`가 변종의 상태 색을 덮지 않는다 (#2148)', () => {
+    const STATE = /:(?:hover|focus|focus-visible|active)\b/
+    const losers = new Map<string, string>()
+
+    for (const variant of rules) {
+      const named = /^\.([\w-]+--[\w-]+)$/.exec(variant.selector)
+      if (named === null) continue
+      const variantClass = named[1]
+
+      for (const base of rules) {
+        if (base.file !== variant.file) continue
+        const tail = compounds(base.selector).at(-1) ?? ''
+        if (!STATE.test(tail)) continue
+
+        const { required, excluded } = demands(tail)
+        // 이미 빼 두었다 — `.블록:not(.블록--이름):hover`.
+        if (excluded.includes(variantClass)) continue
+        // 그 변종이 **특수화하는 바로 그 블록**을 거는 규칙만 본다.
+        if (!required.some((cls) => variantClass.startsWith(`${cls}--`))) continue
+
+        const clash = [...variant.decls.keys()].filter(
+          (k) => base.decls.has(k) && base.decls.get(k) !== variant.decls.get(k),
+        )
+        if (clash.length === 0) continue
+        if (stronger(specificity(variant.selector), specificity(base.selector))) continue
+
+        // 변종 자신의 상태 규칙이 그 값을 되찾고 있으면 소실이 아니다.
+        const restored = rules.some(
+          (r) =>
+            r.file === variant.file &&
+            r.selector !== base.selector &&
+            state(r.selector) === state(base.selector) &&
+            demands(compounds(r.selector).at(-1) ?? '').required.includes(variantClass) &&
+            clash.every((k) => r.decls.has(k)),
+        )
+        if (restored) continue
+
+        losers.set(`${variant.file}|${base.selector}|${variant.selector}`, clash.join(','))
+      }
+    }
+
+    expect([...losers.keys()].sort()).toEqual([])
   })
 
   it('보고서 동작 버튼은 타입 선택자로 걸지 않는다 — #2047이 고친 자리', () => {

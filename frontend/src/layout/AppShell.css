@@ -396,8 +396,26 @@
   transition: background-color 120ms ease, color 120ms ease;
 }
 
-.app-shell__nav-link:hover {
-  background: var(--surface-inset);
+/*
+ * hover는 **활성·비활성 항목에 닿지 않는다** (`#2148`).
+ *
+ * ⚠️ `.app-shell__nav-link:hover`(0-2-0)는 `.app-shell__nav-link--active`(0-1-0)를
+ * 특이도로 **이긴다.** 그래서 마우스를 올리면 지금 보고 있는 화면의 파란 표시가
+ * 사라져 나머지 항목과 같아졌고, 누를 수 없는 「준비 중」 항목은 오히려 밝아졌다.
+ * `#2047`·`#2061`·`#2015`와 같은 부류다 — 규칙은 코드에 있는데 화면에서 진다.
+ *
+ * hover는 **「여기로 갈 수 있다」**는 표시다. 활성 항목은 이미 거기 있고, 비활성
+ * 항목은 갈 수 없다 — 둘 다 그 표시를 받을 자리가 아니다.
+ *
+ * `:not()`을 **하나씩 이어 쓴다** — `:not(.a, .b)`는 괄호 안에 공백이 들어가,
+ * 선택자를 조합자로 끊어 읽는 가드가 두 조각으로 잘못 읽는다.
+ *
+ * ⚠️ 종전에는 이 `:hover` 규칙이 **두 개**였다(여기와 아이콘 규칙 아래). 특이도가
+ * 같아 뒤엣것이 배경을 덮었고, 여기 적혀 있던 `--surface-inset`은 **한 번도
+ * 그려지지 않았다.** 둘을 하나로 합쳤다 — 보이는 값은 그대로다.
+ */
+.app-shell__nav-link:not(.app-shell__nav-link--active):not(.app-shell__nav-link--disabled):hover {
+  background: var(--color-surface-2);
   color: var(--text-primary);
 }
 
@@ -440,10 +458,6 @@
   stroke-width: var(--icon-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.app-shell__nav-link:hover {
-  background: var(--color-surface-2);
 }
 
 .app-shell__nav-link--active {

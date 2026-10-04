@@ -30,8 +30,19 @@
     color 120ms ease;
 }
 
-.theme-toggle__option:hover {
-  color: var(--text-secondary);
+/*
+ * hover는 **고르지 않은 칸에만** 닿는다 (`#2148`).
+ *
+ * ⚠️ 종전 규칙은 `color: var(--text-secondary)` — **바탕 규칙과 같은 값**이라
+ * 고르지 않은 칸에서는 아무 일도 하지 않았고, 선택된 칸(`--on` · 0-1-0)에서만
+ * 특이도로 이겨 `--color-link`를 덮었다. 고른 칸에 마우스를 올리면 파란 글자가
+ * 회색으로 돌아갔다 — **아무 데도 안 보이고 틀린 데서만 보이는** 규칙이었다.
+ *
+ * 선택된 칸은 상태를 말하는 자리라 hover로 바뀌지 않는다. 고르지 않은 칸만
+ * 한 단계 진해져 **누를 수 있다**고 말한다.
+ */
+.theme-toggle__option:not(.theme-toggle__option--on):hover {
+  color: var(--text-primary);
 }
 
 .theme-toggle__option:focus-visible {
