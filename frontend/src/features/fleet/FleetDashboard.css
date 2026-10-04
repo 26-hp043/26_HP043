@@ -500,7 +500,17 @@
   transition: border-color 120ms ease;
 }
 
-.vessel:hover {
+/*
+ * hover는 **위험 카드에 닿지 않는다** (`#2148` — 검사를 넣고 새로 드러난 자리).
+ *
+ * ⚠️ `.vessel:hover`(0-2-0)가 `.vessel--risk`(0-1-0)를 이겨, 위험 선박의 **빨간
+ * 테두리가 손을 올린 동안 회색으로 바뀌었다.** 위험 표시가 사라지는 때가 하필
+ * **사용자가 그 배를 짚은 때**다.
+ *
+ * 위험 카드는 hover로 바뀌지 않는다 — 테두리가 말하는 것이 「누를 수 있다」가 아니라
+ * 「이 배가 위험하다」이기 때문이다. 누를 수 있다는 것은 커서와 초점 테두리가 말한다.
+ */
+.vessel:not(.vessel--risk):hover {
   border-color: var(--border-strong);
 }
 
