@@ -425,8 +425,25 @@ describe('줄여야 하는 양 — §4.2 단위·자릿수 (#1539)', () => {
   })
 
   it('1톤 미만도 소수점을 옮긴다 — 앞자리 0을 채운다', () => {
-    expect(reductionCutText('45765', '0.014').co2).toBe('0.0 tCO₂')
     expect(reductionCutText('450000', '0.14').co2).toBe('0.5 tCO₂')
+    expect(reductionCutText('50000', '0.05').co2).toBe('0.1 tCO₂')
+  })
+
+  it('반올림이 0을 만들어도 원값이 양수면 「0.0」으로 적지 않는다 (#2121)', () => {
+    /*
+     * 이 줄은 원값이 0이 아닐 때만 그려진다. 「줄여야 하는 CO₂ 0.0 tCO₂」는 「줄일 것이
+     * 없다」로 읽히는데 실제로는 50kg 미만이 남아 있다. 값을 0과 구분해 적는 것이 요점이라
+     * 문구가 아니라 **「0으로 읽히지 않는다」**를 본다(`AGENTS §4.6`).
+     */
+    const small = reductionCutText('45765', '0.014')
+    const none = reductionCutText('0', '0')
+    expect(small.co2).not.toBe(none.co2)
+    expect(small.fuel).not.toBe(none.fuel)
+    expect(small.co2).toContain('미만')
+    expect(small.co2).toContain('0.1')
+    // 진짜 0은 그대로 0이다 — 「미만」을 붙이면 남은 것이 있다는 말이 된다.
+    expect(none.co2).toBe('0.0 tCO₂')
+    expect(none.fuel).toBe('0.0 t')
   })
 
   it('반올림 경계는 문자열로 — 부동소수 오차를 타지 않는다', () => {

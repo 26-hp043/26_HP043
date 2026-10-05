@@ -12,6 +12,7 @@ import {
   PICTOGRAM_MAX_VESSELS,
   zeroRatings,
   isAtRisk,
+  plottedCount,
   relativeTime,
   riskReasonText,
   unavailableHint,
@@ -410,5 +411,26 @@ describe('unconfirmedVoyages (#1573)', () => {
 
   it('같은 항차는 한 행이다', () => {
     expect(unconfirmedVoyages([row(), row()])).toHaveLength(1)
+  })
+})
+
+describe('plottedCount — 지도에 그려지는 척수 (#2121)', () => {
+  it('위도·경도가 둘 다 있는 배만 센다', () => {
+    expect(
+      plottedCount([
+        { lat: '35.1', lon: '129.0' },
+        { lat: null, lon: null },
+        { lat: '35.1', lon: null },
+        { lat: null, lon: '129.0' },
+      ]),
+    ).toBe(1)
+  })
+
+  it('숫자로 읽히지 않는 좌표는 그려지지 않으므로 세지 않는다', () => {
+    expect(plottedCount([{ lat: 'abc', lon: '129.0' }])).toBe(0)
+  })
+
+  it('빈 목록은 0이다', () => {
+    expect(plottedCount([])).toBe(0)
   })
 })

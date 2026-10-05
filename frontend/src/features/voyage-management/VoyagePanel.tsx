@@ -10,6 +10,7 @@ import {
   POLICY_LABELS,
   STATUS_LABELS,
   canEnterActuals,
+  fuelTotal,
   primaryAction,
   hasErrors,
   isRevert,
@@ -61,12 +62,15 @@ function quantity(value: number | null, digits: number): string {
   return formatGrouped(value.toFixed(6), digits)
 }
 
-function totalFuel(voyage: ManagedVoyage, kind: 'planned' | 'actual'): number | null {
-  const values = voyage.fuelUses
-    .map((use) => (kind === 'planned' ? use.plannedFuelTon : use.actualFuelTon))
-    .filter((value): value is number => value !== null)
-  if (values.length === 0) return null
-  return values.reduce((sum, value) => sum + value, 0)
+/**
+ * 연료 합계 칸의 글자 (`#2121`). 일부 연료에만 값이 있으면 합을 적지 않는다 —
+ * 근거는 `voyageRules.fuelTotal`에 있다.
+ */
+function fuelTotalText(voyage: ManagedVoyage, kind: 'planned' | 'actual'): string {
+  const total = fuelTotal(voyage, kind)
+  if (total.kind === 'none') return NO_VALUE
+  if (total.kind === 'partial') return `${total.of}종 중 ${total.filled}종 입력`
+  return quantity(total.value, DISPLAY_DIGITS.fuelTon)
 }
 
 /**
@@ -521,8 +525,8 @@ function VoyageRow({
         </td>
         <td className="num">
           <PairCell
-            planned={quantity(totalFuel(voyage, 'planned'), DISPLAY_DIGITS.fuelTon)}
-            actual={quantity(totalFuel(voyage, 'actual'), DISPLAY_DIGITS.fuelTon)}
+            planned={fuelTotalText(voyage, 'planned')}
+            actual={fuelTotalText(voyage, 'actual')}
           />
         </td>
         {/*

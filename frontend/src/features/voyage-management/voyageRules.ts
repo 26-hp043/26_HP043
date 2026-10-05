@@ -521,3 +521,31 @@ export const ACTUALS_PARAM = 'actuals'
 export function voyageActualsPath(vesselId: string, voyageId: string): string {
   return `/vessels/${vesselId}?${ACTUALS_PARAM}=${encodeURIComponent(voyageId)}`
 }
+
+/**
+ * 항차 한 건의 연료 합계 — **전부 있을 때만 합이다** (`#2121`).
+ *
+ * 종전에는 `null`이 아닌 값만 더했다. 연료 두 종 중 한 종만 실적이 있으면 「계획 331.0 →
+ * 실적 300.0」처럼 **서로 다른 집합의 합**이 한 칸에 나란히 서고, 읽는 사람은 31t을 덜 쓴
+ * 항차로 본다. 일부만 있는 합은 합이 아니므로 숫자로 적지 않고 몇 종이 들어왔는지를 적는다.
+ *
+ * - `none` — 그 종류의 값이 하나도 없다
+ * - `partial` — 일부 연료에만 값이 있다
+ * - `total` — 모든 연료에 값이 있다
+ */
+type FuelTotal =
+  | { kind: 'none' }
+  | { kind: 'partial'; filled: number; of: number }
+  | { kind: 'total'; value: number }
+
+export function fuelTotal(voyage: ManagedVoyage, kind: 'planned' | 'actual'): FuelTotal {
+  const values = voyage.fuelUses.map((use) =>
+    kind === 'planned' ? use.plannedFuelTon : use.actualFuelTon,
+  )
+  const present = values.filter((value): value is number => value !== null)
+  if (present.length === 0) return { kind: 'none' }
+  if (present.length < values.length) {
+    return { kind: 'partial', filled: present.length, of: values.length }
+  }
+  return { kind: 'total', value: present.reduce((sum, value) => sum + value, 0) }
+}

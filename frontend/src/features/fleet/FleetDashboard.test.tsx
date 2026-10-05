@@ -1106,3 +1106,73 @@ describe('지도 위 패널이 「덮고 있다」를 알린다 (#2051)', () => 
     expect(panel.hasAttribute(overlayAttribute)).toBe(true)
   })
 })
+
+/**
+ * 숫자가 **무엇을 센 값인지** (#2121).
+ *
+ * 세 자리 모두 값은 맞았고 뜻이 어긋나 있었다. 지도 칩은 불러온 선박 수를 「그려진 척수」
+ * 자리에 적었고, 접힌 패널은 불러온 페이지 수를 선대 전체 수 옆에 적었고, 「n분 전」은
+ * 화면을 연 순간에 멈춰 있었다.
+ */
+describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
+  function stubPositions() {
+    const located = { ...vessel('v1', '가선'), current_lat: '35.1000', current_lon: '129.0400' }
+    const adrift = vessel('v2', '나선') // 좌표 없음 — 마커가 없다
+    const body = page([located, adrift], { next_cursor: 'c2', has_more: true })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+  }
+
+  it('지도 칩은 **그려진** 척수를 적는다 — 위치 없는 배를 세지 않는다', async () => {
+    stubPositions()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    const chip = document.querySelector('.fleet__chip') as HTMLElement
+    // 불러온 배는 둘, 좌표가 있는 배는 하나다.
+    expect(chip.textContent).toContain('1척')
+    expect(chip.textContent).not.toContain('2척')
+  })
+
+  it('접힌 패널의 「선박 N」은 선대 전체 수다 — 불러온 페이지 수가 아니다', async () => {
+    stubPositions() // 요약의 total은 3, 불러온 배는 2다.
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
+    expect(screen.getByRole('button', { name: /^선박 3/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^선박 2/ })).toBeNull()
+  })
+
+  it('「n분 전」이 화면을 열어 둔 동안에도 흐른다', async () => {
+    stubPositions()
+    // 요약의 기준 시각(`as_of`)은 12:00이다 — 그 30초 뒤에 화면을 연다.
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date('2026-08-16T12:00:30Z') })
+    try {
+      render(
+        <MemoryRouter>
+          <FleetDashboard />
+        </MemoryRouter>,
+      )
+      await screen.findByText('가선')
+      const relative = () => (document.querySelector('.fleet__asof-rel') as HTMLElement).textContent
+      const opened = relative()
+
+      await act(async () => {
+        vi.advanceTimersByTime(5 * 60_000)
+      })
+      // 문구가 아니라 **바뀌었다**를 본다 — 5분이 지났는데 같은 글자면 멈춘 것이다.
+      expect(relative()).not.toBe(opened)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

@@ -364,9 +364,30 @@ export function reproducibilityLine(mc: MonteCarloBlock): string {
  */
 export function reductionCutText(gco2: string, fuelTon: string): { co2: string; fuel: string } {
   return {
-    co2: `${formatGrouped(gramsToTonnes(gco2), DISPLAY_DIGITS.co2Ton)} ${DISPLAY_UNITS.co2}`,
-    fuel: `${formatGrouped(fuelTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`,
+    co2: amountOrBelowStep(gramsToTonnes(gco2), DISPLAY_DIGITS.co2Ton, DISPLAY_UNITS.co2),
+    fuel: amountOrBelowStep(fuelTon, DISPLAY_DIGITS.fuelTon, DISPLAY_UNITS.fuel),
   }
+}
+
+/**
+ * 표시 자릿수로 적되, **반올림이 0을 만들었는데 원값은 양수**면 「0.1 tCO₂ 미만」으로 적는다
+ * (`#2121`).
+ *
+ * 이 줄은 「줄여야 하는 양」이다. `0.0 tCO₂`는 「줄일 것이 없다」로 읽히는데, 화면이 이 줄을
+ * 그리는 조건은 **원값이 0이 아닐 때**다 — 50kg 미만이 남은 배가 「0.0」을 보게 된다. 항차
+ * CII의 여유율이 같은 상황을 「0.1% 미만」으로 적는 것과 같은 규칙이다
+ * (`voyage-cii/resultRules.marginDisplay`).
+ */
+function amountOrBelowStep(value: string, digits: number, unit: string): string {
+  const rounded = formatGrouped(value, digits)
+  const trimmed = value.trim()
+  const positive = !trimmed.startsWith('-') && /[1-9]/.test(trimmed)
+  if (positive && !/[1-9]/.test(rounded)) {
+    // 표시할 수 있는 가장 작은 값 — 1자리면 0.1, 0자리면 1이다.
+    const step = digits > 0 ? `0.${'0'.repeat(digits - 1)}1` : '1'
+    return `${step} ${unit} 미만`
+  }
+  return `${rounded} ${unit}`
 }
 
 /** 십진 문자열의 소수점을 왼쪽으로 여섯 자리 옮긴다 (g → t). */

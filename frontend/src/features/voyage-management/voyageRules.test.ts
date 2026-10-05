@@ -5,6 +5,7 @@ import {
   primaryAction,
   actualsPayload,
   canEnterActuals,
+  fuelTotal,
   hasErrors,
   nextStatuses,
   policyForTransition,
@@ -506,5 +507,29 @@ describe('속력 상한 60kn — VAL-009 (#1269)', () => {
   it('실제 평균 속력도 같은 상한이다', () => {
     expect(validateActuals(actuals({ actualAvgSpeedKn: '60' })).actualAvgSpeedKn).toBeUndefined()
     expect(validateActuals(actuals({ actualAvgSpeedKn: '120' })).actualAvgSpeedKn).toBeDefined()
+  })
+})
+
+describe('fuelTotal — 전부 있을 때만 합이다 (#2121)', () => {
+  const twoFuels = (hfoActual: number | null, mgoActual: number | null) =>
+    voyage({
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 300, actualFuelTon: hfoActual },
+        { fuelType: 'MGO', plannedFuelTon: 31, actualFuelTon: mgoActual },
+      ],
+    })
+
+  it('모든 연료에 값이 있으면 합이다', () => {
+    expect(fuelTotal(twoFuels(300, 30), 'planned')).toEqual({ kind: 'total', value: 331 })
+    expect(fuelTotal(twoFuels(300, 30), 'actual')).toEqual({ kind: 'total', value: 330 })
+  })
+
+  it('일부만 있으면 합을 내지 않는다 — 계획 합 옆에 서면 덜 쓴 항차로 읽힌다', () => {
+    // 종전에는 여기서 300을 냈다 — 「계획 331.0 → 실적 300.0」.
+    expect(fuelTotal(twoFuels(300, null), 'actual')).toEqual({ kind: 'partial', filled: 1, of: 2 })
+  })
+
+  it('하나도 없으면 「없음」이다 — 0이 아니다', () => {
+    expect(fuelTotal(twoFuels(null, null), 'actual')).toEqual({ kind: 'none' })
   })
 })
