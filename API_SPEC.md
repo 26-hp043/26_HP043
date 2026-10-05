@@ -122,16 +122,16 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 |---|---|---|---|
 | `POST` | `/auth/signup` | 불필요 | 이메일·비밀번호(+ 선택 `invite_code`) 가입 → **가입 제한 확인**(위 표) → 인증 메일 발송 → 세션 발급 |
 | `POST` | `/auth/login` | 불필요 | 이메일·비밀번호 검증 → 세션 발급 |
-| `POST` | `/auth/tour-login` | 불필요 | **둘러보기** (`#1486`) — 본문 `{"code": "<링크에 실린 코드>"}`를 설정 `TOUR_ACCESS_CODE`와 상수 시간 비교(`hmac.compare_digest` · 초대 코드와 같은 패턴). **`TOUR_PUBLIC=true`면 빈 코드로도 통과한다** — 코드는 선택 필드이며 길이 하한이 없다(`#1507`). 통과하면 고정 스텁 계정(**관리자 `ADMIN`** · 고정 UUID·고정 이메일 · Argon2 형식이 아닌 해시라 `POST /auth/login`으로는 열리지 않는다)으로 세션 발급 — **그 세션은 읽기 전용**이다(위 「둘러보기」 행). **성공 응답은 `POST /auth/login`과 같은 형태**(200 · `data` 사용자 객체 · `sid`·`csrf` 쿠키). 거절은 **`422 VALIDATION_ERROR` 한 가지** — 코드 미설정(fail-closed)과 불일치를 **가르지 않는다**, 문구는 `PRD §6.3` 「둘러보기 — 거절」. 요청 한도는 인증 API 버킷(`§13.2` 분당 10회) |
+| `POST` | `/auth/tour-login` | 불필요 | **둘러보기** (`#1486`) — 본문 `{"code": "<링크에 실린 코드>"}`를 설정 `TOUR_ACCESS_CODE`와 상수 시간 비교(`hmac.compare_digest` · 초대 코드와 같은 패턴). **`TOUR_PUBLIC=true`면 빈 코드로도 통과한다** — 코드는 선택 필드이며 길이 하한이 없다(`#1507`). 통과하면 고정 스텁 계정(**관리자 `ADMIN`** · 고정 UUID·고정 이메일 · Argon2 형식이 아닌 해시라 `POST /auth/login`으로는 열리지 않는다)으로 세션 발급 — **그 세션은 읽기 전용**이다(위 「둘러보기」 행). **성공 응답은 `POST /auth/login`과 같은 형태**(200 · `data` 사용자 객체 · `sid`·`csrf` 쿠키). 거절은 **`422 VALIDATION_ERROR` 한 가지** — 코드 미설정(fail-closed)과 불일치를 **가르지 않는다**, 문구는 `PRD §6.3` 「둘러보기 — 거절」. **코드는 맞는데 스텁 계정을 만들 수 없으면 `409 CONFLICT`** `[#2109]` — 고정 이메일을 다른 계정이 이미 쓰고 있는 경우다(가입이 예약 주소를 거부하기 전에 만들어진 계정 · `§1.2.1`). 요청 본문이 아니라 서버의 데이터가 충돌한 것이라 422가 아니며, 응답 문구에 이메일·PK를 싣지 않는다(사유는 서버 로그). 요청 한도는 인증 API 버킷(`§13.2` 분당 10회) |
 | `POST` | `/auth/logout` | **필요** | 세션 즉시 무효화 + 쿠키 만료 → 204. **세션이 없으면 401**이다 (`#634`) |
 | `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · **`role`** · `email_verified_at` · `last_login_at` · **`has_avatar`** `[#2080]`) |
 | `POST` | `/auth/verify-email/request` | 불필요 | 인증 메일 재발송 |
-| `POST` | `/auth/verify-email/confirm` | 불필요 | 토큰 검증 → `email_verified_at` 기록 |
+| `POST` | `/auth/verify-email/confirm` | 불필요 | 토큰 검증 → `email_verified_at` 기록. **활성 계정만** — 탈퇴한 계정의 토큰은 없는 토큰과 같은 `422`·같은 문구다 `[#2109]` |
 | `POST` | `/auth/password-reset/request` | 불필요 | 재설정 메일 발송 |
-| `POST` | `/auth/password-reset/confirm` | 불필요 | 토큰 검증 → 비밀번호 교체 + **해당 사용자의 기존 세션 전량 무효화** |
+| `POST` | `/auth/password-reset/confirm` | 불필요 | 토큰 검증 → 비밀번호 교체 + **해당 사용자의 기존 세션 전량 무효화**. **활성 계정만** — 탈퇴한 계정의 토큰은 없는 토큰과 같은 `422`·같은 문구이고 비밀번호는 바뀌지 않는다 `[#2109]` |
 | `POST` | `/auth/password-change` | **필요** | 현재 비밀번호 검증 → 교체 + **기존 세션 전량 무효화** (로그인 상태에서의 변경) |
 | `PATCH` | `/auth/me` | **필요** | 표시 이름(`display_name`) 변경. **`email`은 받지 않는다** |
-| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존.** 마지막 관리자면 `409 CONFLICT` (`#1301` — 종전 마지막 사무직 `#672`) |
+| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화 + **미사용 인증·재설정 토큰 전량 무효화** `[#2109]`. **계산·감사 기록은 보존.** 마지막 관리자면 `409 CONFLICT` (`#1301` — 종전 마지막 사무직 `#672`) |
 | `POST` | `/auth/me/avatar` | **필요** | 프로필 이미지 올리기 `[#2080]` — `multipart/form-data`. 서버가 다시 그려 저장한다. 본인 것만 |
 | `GET` | `/auth/me/avatar` | **필요** | 프로필 이미지 내보내기 `[#2080]` — `image/webp` 본문. `ETag` + `Cache-Control: private`. 없으면 `404` |
 | `DELETE` | `/auth/me/avatar` | **필요** | 프로필 이미지 지우기 `[#2080]` — 없어도 `204`(멱등) |
@@ -184,8 +184,10 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 |---|---|---|---|---|
 | `email` | string | Y | 이메일 형식 · 320자 이하 | 로그인 ID. 가입 제한(허용 도메인 또는 초대 코드)은 `PRD §6.3` |
 | `password` | string | Y | 1자 이상 | 길이·문자 종류 정책은 서버가 본다 |
-| `display_name` | string \| null | N | 100자 이하 | 화면에 보일 이름. 비우면 이메일이 대신 쓰인다 |
+| `display_name` | string \| null | N | 100자 이하 | 화면에 보일 이름. 비우면 이메일이 대신 쓰인다. **앞뒤 공백을 떼고, 남는 것이 없으면 `null`로 저장한다** — `PATCH /auth/me`(`§1.2.5`)와 같은 정규화다 `[#2109]`. 100자는 떼기 전의 값으로 센다 |
 | `invite_code` | string \| null | N | 200자 이하 | 회사 메일이 아닌 사람이 쓴다(`#808`). 허용 도메인으로 가입하면 비운다 |
+
+> **[#2109] 예약 주소로는 가입할 수 없다.** 둘러보기 스텁(`tour@bluelog.local`)과 개발 스텁(`dev@localhost`)의 이메일은 코드가 고정 PK로 쓰는 주소다. 그 주소로 누가 먼저 가입하면 활성 이메일의 유니크 인덱스가 스텁 계정의 생성을 막아 `POST /auth/tour-login`·`dev-login`이 그 배포에서 열리지 않는다. 가입은 이메일을 정규화(앞뒤 공백 제거·소문자)한 뒤 이 목록과 비교해 **가입 제한 거절과 같은 `422 VALIDATION_ERROR`·같은 문구**(`PRD §6.3` 「회원가입 — 가입 제한」)로 끝낸다 — 스텁 행이 이미 있든 없든 답이 같다. 목록의 단일 출처는 `auth/reserved_emails.py`이며 최초 관리자 이메일은 들지 않는다.
 
 #### 1.2.2 `POST /auth/login` — 로그인
 
