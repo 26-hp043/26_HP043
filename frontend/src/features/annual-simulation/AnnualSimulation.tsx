@@ -9,7 +9,7 @@ import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
-import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
@@ -399,7 +399,12 @@ export function AnnualSimulation({
       // 주소의 `?year=`도 여기서 막힌다 — 목록과 대조되지 않은 값은 `year`가 아니다.
       setState({
         status: 'blocked',
-        message: yearsFailed ? ANNUAL_COPY.yearsUnavailable : ANNUAL_COPY.yearsPending,
+        // 목록이 비어 있는 것(실패도 로딩도 아님)을 「불러오는 중」으로 말하지 않는다 (#2120).
+        message: yearsFailed
+          ? ANNUAL_COPY.yearsUnavailable
+          : yearsLoading
+            ? ANNUAL_COPY.yearsPending
+            : YEAR_STATE_COPY.empty,
       })
       return
     }
@@ -447,7 +452,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
-  }, [provider, shell.vesselId, targetVessel, year, yearsFailed, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
+  }, [provider, shell.vesselId, targetVessel, year, yearsFailed, yearsLoading, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -503,9 +508,11 @@ export function AnnualSimulation({
         >
           {(control) =>
             yearsLoading ? (
-              <span className="annual-sim__hint">규제연도 목록을 불러오는 중…</span>
+              <span className="annual-sim__hint">{YEAR_STATE_COPY.loading}</span>
             ) : yearsFailed ? (
-              <span className="annual-sim__hint">규제연도 목록을 불러오지 못했습니다</span>
+              <span className="annual-sim__hint">{YEAR_STATE_COPY.failed}</span>
+            ) : shell.vesselId && years.length === 0 ? (
+              <span className="annual-sim__hint">{YEAR_STATE_COPY.empty}</span>
             ) : (
               <select
                 {...control}

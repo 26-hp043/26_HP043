@@ -2056,3 +2056,25 @@ describe('선박을 고르기 전 연도 칸 (#2048)', () => {
     })
   })
 })
+
+describe('연도 목록이 빈 배열이면 「불러오는 중」이 아니라 빈 목록이다 (#2120)', () => {
+  it('실행을 눌러도 요청이 없고, 안내는 로딩 문구와 다르다', async () => {
+    const fetchImpl = vi.fn(async (input: unknown) =>
+      String(input).includes('/parameters/regulation-years')
+        ? jsonResponse({ data: [] })
+        : jsonResponse({ data: {} }),
+    )
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
+    // 연도 칸 자리에 상태 문구가 선다 — 문구 없는 빈 상자가 아니다.
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: /기준연도/ })).toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    const status = await screen.findByRole('status')
+    expect(status.textContent).not.toBe(ANNUAL_COPY.yearsPending)
+    expect(status.textContent).not.toBe(ANNUAL_COPY.yearsUnavailable)
+    expect(submittedBody(fetchImpl as never)).toBeNull()
+  })
+})

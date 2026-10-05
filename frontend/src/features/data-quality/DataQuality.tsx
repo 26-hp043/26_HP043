@@ -4,7 +4,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { GradeBadge } from '../../components/GradeBadge'
 import { formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
 import { pickDefaultYear } from '../voyage-cii/formRules'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { useYearOptions, yearStateText } from '../parameters/yearCatalog'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
 import { createApiDataQualityProvider } from './apiProvider'
 import {
@@ -63,7 +63,10 @@ type FillHandler = (
 
 export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
-  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
+  const yearOptions = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
+  const { years, loading: yearsLoading } = yearOptions
+  /** 목록이 없으면 연도 칸 자리에 보일 상태 문구 — 로딩·실패·빈 목록이 서로 다르다 (#2120). */
+  const yearText = yearStateText(yearOptions)
   /** 사용자가 고른 해. 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
   const [chosenYear, setChosenYear] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'loading' })
@@ -139,20 +142,19 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   return (
     <section className="dq">
       <div className="dq__controls">
-        <label className="dq__field" htmlFor="dq-year">
+        <label className="dq__field" htmlFor={yearText === null ? 'dq-year' : undefined}>
           <span className="dq__label">{COPY.yearLabel}</span>
-          <select
-            id="dq-year"
-            value={year}
-            disabled={years.length === 0}
-            onChange={(event) => setChosenYear(event.target.value)}
-          >
-            {years.map((y) => (
-              <option key={y} value={String(y)}>
-                {y}
-              </option>
-            ))}
-          </select>
+          {yearText !== null ? (
+            <span className="dq__note">{yearText}</span>
+          ) : (
+            <select id="dq-year" value={year} onChange={(event) => setChosenYear(event.target.value)}>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
         <p className="dq__note">{COPY.readOnlyNote}</p>
       </div>
