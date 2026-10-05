@@ -55,12 +55,13 @@ bit-exact 재현이 안 된다.**
 from __future__ import annotations
 
 import platform
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cii_platform.calc.fuel_estimator import MIN_SPEED_KN as _MIN_SPEED_KN_DECIMAL
 from cii_platform.calc.precision import layer1_context, validate_layer1_result
 from cii_platform.calc.rating_engine import (
     NEXT_WORSE_BOUNDARY_KEY,
@@ -119,7 +120,8 @@ PROBABILITY_DIGITS = 4
 
 #: ``PRD §12.4.1`` [ORACLE 삼각분포 가드] — 속도 하한. 계획 1.5kn이면 min이 0.5kn이
 #: 되므로 floor를 적용한다.
-MIN_SPEED_KN = 1.0
+#: 정의처는 ``fuel_estimator.MIN_SPEED_KN``(Decimal)이다 — float 경로는 거기서 파생한다 (#2098).
+MIN_SPEED_KN = float(_MIN_SPEED_KN_DECIMAL)
 
 #: 톤 → 그램. ``PRD §3.3.1``의 ``M`` 단위.
 GRAMS_PER_TON = 1_000_000
@@ -470,13 +472,9 @@ def apply_feedback(remaining: Sequence[RemainingVoyage], factor: Decimal) -> lis
     새 목록을 돌려준다 — 원본을 고치면 같은 실행 안에서 보정 전 값을 다시 볼 수 없다.
     """
     return [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
+        replace(
+            v,
             fuel_ton=float(Decimal(str(v.fuel_ton)) * factor),
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -821,13 +819,9 @@ def rng_metadata(seed: int) -> dict[str, object]:
 
 def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: float):
     return [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
+        replace(
+            v,
             fuel_ton=v.fuel_ton * factor,
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -853,13 +847,9 @@ def fuel_cf_alternative_projection(
     연말 규모로 답하는 것이 이 지렛대의 목적이다.
     """
     shifted = [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
-            fuel_ton=v.fuel_ton,
+        replace(
+            v,
             cf=float(alternative_cf),
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -918,13 +908,10 @@ def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
     벌어지면 이 행도 함께 움직인다.
     """
     return [
-        RemainingVoyage(
+        replace(
+            v,
             distance_nm=v.distance_nm * factor,
             fuel_ton=v.fuel_ton * factor,
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -964,13 +951,10 @@ def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
         new_speed = max(v.speed_kn + delta_kn, MIN_SPEED_KN)
         ratio = (new_speed / v.speed_kn) ** 2
         shifted.append(
-            RemainingVoyage(
-                distance_nm=v.distance_nm,
+            replace(
+                v,
                 fuel_ton=v.fuel_ton * ratio,
-                cf=v.cf,
                 speed_kn=new_speed,
-                reference_speed_kn=v.reference_speed_kn,
-                base_daily_foc_ton=v.base_daily_foc_ton,
             )
         )
     return shifted

@@ -32,7 +32,7 @@ from cii_platform.calc.capacity import (
 )
 from cii_platform.calc.cii_engine import FuelUse
 from cii_platform.calc.distance import great_circle_distance_nm, initial_bearing_deg
-from cii_platform.calc.fuel_estimator import estimate_fuel_ton
+from cii_platform.calc.fuel_estimator import MIN_SPEED_KN, estimate_fuel_ton
 from cii_platform.calc.hash import (
     compute_parameter_hash,
     compute_scenario_input_hash,
@@ -75,8 +75,7 @@ DETOUR_DISTANCE_RATIO = Decimal("1.05")
 #: PRD §11.2 — SLOW_STEAMING 기본 감속량(1 knot).
 SLOW_STEAMING_SPEED_DELTA = Decimal("1.0")
 
-#: PRD §9.1 VAL-009 — 최소 속도.
-MIN_SPEED_KN = Decimal("1.0")
+#: PRD §9.1 VAL-009 — 최소 속도(``MIN_SPEED_KN``)는 ``calc.fuel_estimator``에서 가져온다.
 
 #: API_SPEC §1.6 — 감속 시나리오가 속도 floor(1.0kn)에 도달했을 때.
 WARNING_SLOW_SPEED_FLOOR = "SLOW_SPEED_FLOOR"

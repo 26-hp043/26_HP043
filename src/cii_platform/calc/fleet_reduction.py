@@ -22,7 +22,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 
 from cii_platform.calc.annual_simulation import RemainingVoyage
@@ -119,13 +119,10 @@ def apply_slowdown(
         new_speed = max(speed * factor, MIN_SPEED_KN)
         ratio = (new_speed / speed) ** 2
         shifted.append(
-            RemainingVoyage(
-                distance_nm=voyage.distance_nm,
+            replace(
+                voyage,
                 fuel_ton=float(Decimal(str(voyage.fuel_ton)) * ratio),
-                cf=voyage.cf,
                 speed_kn=float(new_speed),
-                reference_speed_kn=voyage.reference_speed_kn,
-                base_daily_foc_ton=voyage.base_daily_foc_ton,
             )
         )
         extra_days += leg.distance_nm / (new_speed * _HOURS_PER_DAY) - leg.distance_nm / (
