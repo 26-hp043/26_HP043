@@ -182,6 +182,13 @@ async def fill_from_public_record(
     period_dict: dict[str, object] | None = None
     if field in _VOYAGE_FIELDS:
         before = getattr(voyage, value_key)
+        # #2090 — 채운 뒤의 실적 쌍이 순서를 지키는지 실적 입력(`§3.6`)과 같은 함수로 본다.
+        is_departure = field == FIELD_DEPARTURE
+        voyage_svc.require_time_order(
+            "actual",
+            current_recorded_at if is_departure else voyage.actual_departure_at,
+            voyage.actual_arrival_at if is_departure else current_recorded_at,
+        )
         setattr(voyage, value_key, current_recorded_at)
         setattr(voyage, source_key, SOURCE_PUBLIC_RECORD)
         await session.flush()

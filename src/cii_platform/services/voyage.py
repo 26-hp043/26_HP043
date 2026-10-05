@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -143,6 +144,54 @@ async def _require_regulation_year(session: AsyncSession, year: int | None) -> N
         raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다: {year}")
 
 
+#: 시각 쌍의 순서 검사가 가리키는 칸·문구 (#2090). 계획 쌍과 실적 쌍이 각각 하나씩이다.
+#: 문구는 화면 폼(`voyageRules.ts`)의 검사와 같다 — 어느 쌍인지는 `field`가 가리킨다.
+_TIME_ORDER_RULES: dict[str, tuple[str, str, str]] = {
+    "planned": (
+        "planned_arrival_at",
+        "계획 도착 시각",
+        "도착 시각은 출항 시각보다 뒤여야 합니다.",
+    ),
+    "actual": (
+        "actual_arrival_at",
+        "실제 도착 시각",
+        "도착 시각은 출항 시각보다 뒤여야 합니다.",
+    ),
+}
+
+
+def time_order_violation(
+    kind: str, departure_at: datetime | None, arrival_at: datetime | None
+) -> tuple[str, str, str] | None:
+    """출항·도착 시각 쌍의 순서를 본다 — 어긋나면 ``(field, label, message)``, 아니면 ``None``.
+
+    생성·수정·실적 입력·CSV 가져오기·공적 기록 채우기가 **모두 이 함수 하나**를 지난다(#2090).
+    ``kind``는 ``"planned"``(계획 쌍)·``"actual"``(실적 쌍)이다.
+
+    * 한쪽이나 둘 다 비어 있으면 통과다 — 모르는 것을 틀렸다고 하지 않는다.
+    * **같은 시각도 거부한다.** 정박 구간(``not_underway``)의 「종료는 시작보다 뒤」와 같은
+      쪽이고, 진행분 계산(``simulation_clock``)도 창이 비면 0으로 돌려준다.
+    * 시간대 없는 값은 UTC로 본다(저장소가 돌려주는 값과 요청 값을 한 잣대로 비교하려는 것).
+    """
+    if departure_at is None or arrival_at is None:
+        return None
+    dep = departure_at if departure_at.tzinfo else departure_at.replace(tzinfo=UTC)
+    arr = arrival_at if arrival_at.tzinfo else arrival_at.replace(tzinfo=UTC)
+    if arr <= dep:
+        return _TIME_ORDER_RULES[kind]
+    return None
+
+
+def require_time_order(
+    kind: str, departure_at: datetime | None, arrival_at: datetime | None
+) -> None:
+    """:func:`time_order_violation`이 어긋남을 찾으면 ``ValidationError``(422)로 올린다."""
+    found = time_order_violation(kind, departure_at, arrival_at)
+    if found is not None:
+        field, label, message = found
+        raise ValidationError(message, field=field, field_label=label)
+
+
 async def create_voyage(
     session: AsyncSession,
     vessel_id: UUID,
@@ -186,6 +235,7 @@ async def create_voyage(
     """
     await require_vessel(session, vessel_id)
     await _require_regulation_year(session, regulation_year)
+    require_time_order("planned", planned_departure_at, planned_arrival_at)
 
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -456,6 +506,16 @@ async def update_voyage(
     # (`None`)과 같은 규칙이라, 거리와 출처를 함께 보낸 요청만 출처를 갖는다.
     if "planned_distance_nm" in fields and "planned_distance_source" not in fields:
         fields["planned_distance_source"] = None
+
+    # #2090 — 요청 값과 저장된 값을 **합친 결과**로 본다. 한쪽만 고쳐 순서를 뒤집는 요청
+    # (예: 도착만 앞당김)도 잡으려는 것이고, 정박 구간 수정(`update_period`)과 같은 방식이다.
+    # 시각을 건드리지 않는 요청은 보지 않는다 — 이미 뒤집혀 저장된 행의 메모 수정까지 막지 않는다.
+    if "planned_departure_at" in fields or "planned_arrival_at" in fields:
+        require_time_order(
+            "planned",
+            fields.get("planned_departure_at", voyage.planned_departure_at),
+            fields.get("planned_arrival_at", voyage.planned_arrival_at),
+        )
 
     for key, value in fields.items():
         setattr(voyage, key, value)
@@ -739,6 +799,13 @@ async def set_actuals(
         )
 
     # #1923 — 시각을 고치면서 출처를 말하지 않으면 「모른다」로 돌린다(#1256과 같은 규칙).
+    # #2090 — 합친 결과로 순서를 본다(한쪽만 보낸 요청이 저장된 쪽과 뒤집히는 경우).
+    if "actual_departure_at" in fields or "actual_arrival_at" in fields:
+        require_time_order(
+            "actual",
+            fields.get("actual_departure_at", voyage.actual_departure_at),
+            fields.get("actual_arrival_at", voyage.actual_arrival_at),
+        )
     reset_stale_sources(fields, ACTUAL_TIME_SOURCE_FIELDS, voyage)
     for key, value in fields.items():
         setattr(voyage, key, value)
