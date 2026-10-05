@@ -25,8 +25,10 @@ import {
   type UserRole,
 } from '../../auth/session'
 import {
+  AVATAR_ACCEPT,
   MAX_DISPLAY_NAME_LENGTH,
   PASSWORD_CHANGE_NOTICE,
+  avatarFileProblem,
   displayNamePayload,
   hasAccountErrors,
   validateDisplayName,
@@ -227,9 +229,6 @@ function RoleSection({ me }: { me: CurrentUser }) {
   )
 }
 
-/** 받는 형식 — 서버와 같아야 한다 (`API_SPEC §1.2.5a`). SVG는 없다. */
-const AVATAR_ACCEPT = 'image/png,image/jpeg,image/webp'
-
 /**
  * 프로필 이미지 (`#2080` · `API_SPEC §1.2.5a`).
  *
@@ -283,12 +282,14 @@ function AvatarForm({ user }: { user: CurrentUser }) {
             onPick={(file) => {
               setPicked(file)
               setDone(null)
+              // 고른 자리에서 말한다 (`#2107`) — 올려 본 뒤에야 알게 두지 않는다.
+              setFailure(file === null ? null : avatarFileProblem(file))
             }}
           />
           <button
             type="button"
             className="acc__submit"
-            disabled={busy || picked === null}
+            disabled={busy || picked === null || avatarFileProblem(picked) !== null}
             onClick={() => {
               if (picked !== null) void run(() => uploadAvatar(picked), '프로필 이미지를 올렸습니다.')
             }}

@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy.orm import deferred
 
 from cii_platform.db.models.base import Base
 from cii_platform.db.types import Base64Bytes, UuidText
@@ -71,7 +72,13 @@ class AppUser(Base):
     #:
     #: `NULL`이면 올리지 않은 것이고 화면은 표시 이름의 머리글자를 그린다 —
     #: **올리기 전이 기본 상태**라 그쪽이 실제로 더 자주 보인다.
-    avatar_image = sa.Column(Base64Bytes, nullable=True)
+    #:
+    #: **지연 로드다** (#2107). 세션 검증(`auth/dependencies`)이 비공개 요청마다
+    #: `select(AppUser)`를 하는데, 이 열이 그 조회에 실리면 요청마다 수십 KB를 DB에서
+    #: 꺼낸다. 「있다/없다」는 아래 `avatar_etag`로 묻고(`API_SPEC §1.2.5a`), 바이트가
+    #: 필요한 자리(`GET /auth/me/avatar`)만 이 열을 **이름으로 골라** 읽는다. 비동기
+    #: 세션에서는 속성 접근으로 뒤늦게 읽을 수 없으므로 `user.avatar_image`를 읽지 않는다.
+    avatar_image = deferred(sa.Column(Base64Bytes, nullable=True))
 
     #: 위 바이트의 SHA-256 16진 (`#2080`).
     #:

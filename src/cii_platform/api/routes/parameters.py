@@ -29,6 +29,7 @@ from cii_platform.services.parameters import (
     list_reference_lines,
     list_regulation_years,
 )
+from cii_platform.services.voyage_import import MAX_FILE_BYTES
 
 router = APIRouter(tags=["parameters"])
 
@@ -158,7 +159,8 @@ async def import_parameters_route(
     data = await import_parameters(
         session,
         kind=type,
-        content=await file.read(),
+        # 상한 한 바이트 뒤까지만 읽는다 (#2107) — 넘는 파일은 서비스가 거절한다.
+        content=await file.read(MAX_FILE_BYTES + 1),
         content_type=file.content_type,
         dry_run=dry_run,
         user_id=str(user.id) if user is not None else None,

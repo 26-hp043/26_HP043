@@ -114,3 +114,28 @@ export const PASSWORD_CHANGE_NOTICE =
   '비밀번호를 바꾸면 이 기기를 포함해 로그인된 모든 기기에서 로그아웃됩니다. 새 비밀번호로 다시 로그인해 주세요.'
 
 export { MIN_PASSWORD_LENGTH }
+
+/*
+ * 프로필 이미지의 사전 검사 (`#2107` · `API_SPEC §1.2.5a`).
+ *
+ * 서버와 **같은 상한·같은 형식**이다(`services/avatar.py`의 `MAX_UPLOAD_BYTES` ·
+ * `ACCEPTED_FORMATS`). 종전에는 고른 파일을 보지 않고 그대로 올려, 20MB 사진도 끝까지
+ * 보낸 뒤에야 「너무 큽니다」를 받았다. 올려 보기 전에 알 수 있는 것만 본다 — 통과해도
+ * 서버가 최종 판정한다(가로·세로 화소 상한은 파일을 열어야 알 수 있다).
+ */
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const AVATAR_TYPES: readonly string[] = ['image/png', 'image/jpeg', 'image/webp']
+/** `<input accept>`에 넣는 값 — 위 목록에서 만든다. 두 곳에 적으면 갈린다. */
+export const AVATAR_ACCEPT = AVATAR_TYPES.join(',')
+
+/** 고른 파일을 올릴 수 없는 이유. 올릴 수 있으면 `null`이다. */
+export function avatarFileProblem(file: Pick<File, 'size' | 'type'>): string | null {
+  // 브라우저가 형식을 모르면 `type`이 빈 문자열이다 — 그때는 막지 않고 서버에 맡긴다.
+  if (file.type !== '' && !AVATAR_TYPES.includes(file.type)) {
+    return 'PNG · JPEG · WebP 파일만 올릴 수 있습니다.'
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    return `이미지가 너무 큽니다. ${AVATAR_MAX_BYTES / (1024 * 1024)}MB 이하로 올려 주세요.`
+  }
+  return null
+}

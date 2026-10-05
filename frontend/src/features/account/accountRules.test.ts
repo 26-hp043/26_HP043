@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  AVATAR_ACCEPT,
+  AVATAR_MAX_BYTES,
   MAX_DISPLAY_NAME_LENGTH,
+  avatarFileProblem,
   displayNamePayload,
   hasAccountErrors,
   validateDisplayName,
@@ -66,5 +69,32 @@ describe('validatePasswordChange', () => {
   it('현재와 같은 비밀번호를 막는다', () => {
     const same = draft({ newPassword: 'old-password-1', confirmPassword: 'old-password-1' })
     expect(validatePasswordChange(same).newPassword).toBeDefined()
+  })
+})
+
+describe('avatarFileProblem (#2107)', () => {
+  it('상한과 같은 크기는 받고, 한 바이트 넘으면 막는다 — 서버와 같은 경계다', () => {
+    expect(avatarFileProblem({ size: AVATAR_MAX_BYTES, type: 'image/png' })).toBeNull()
+    expect(avatarFileProblem({ size: AVATAR_MAX_BYTES + 1, type: 'image/png' })).toContain('2MB')
+  })
+
+  it('받는 형식 셋은 통과하고 그 밖은 막는다', () => {
+    for (const type of ['image/png', 'image/jpeg', 'image/webp']) {
+      expect(avatarFileProblem({ size: 10, type })).toBeNull()
+    }
+    expect(avatarFileProblem({ size: 10, type: 'image/svg+xml' })).not.toBeNull()
+    expect(avatarFileProblem({ size: 10, type: 'application/pdf' })).not.toBeNull()
+  })
+
+  it('브라우저가 형식을 모르면 막지 않는다 — 서버가 판정한다', () => {
+    expect(avatarFileProblem({ size: 10, type: '' })).toBeNull()
+  })
+
+  it('형식과 크기가 다 틀리면 형식을 먼저 말한다 — 줄여 봐도 또 막히기 때문이다', () => {
+    expect(avatarFileProblem({ size: AVATAR_MAX_BYTES + 1, type: 'image/svg+xml' })).toContain('PNG')
+  })
+
+  it('accept 값은 받는 형식 목록에서 만든다', () => {
+    expect(AVATAR_ACCEPT).toBe('image/png,image/jpeg,image/webp')
   })
 })

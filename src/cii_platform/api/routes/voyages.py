@@ -36,7 +36,7 @@ from cii_platform.services.voyage import (
     transition_voyage,
     update_voyage,
 )
-from cii_platform.services.voyage_import import import_voyages
+from cii_platform.services.voyage_import import MAX_FILE_BYTES, import_voyages
 
 router = APIRouter(tags=["voyages"])
 
@@ -337,7 +337,9 @@ async def import_voyages_route(
             field_label="자료 종류",
         )
 
-    content = await file.read()
+    # 상한 **한 바이트 뒤까지만** 읽는다 (#2107). 넘는 파일은 서비스가 「파일이 너무 큽니다」로
+    # 거절하므로(`voyage_import._check_limits`) 끝까지 메모리에 올릴 이유가 없다.
+    content = await file.read(MAX_FILE_BYTES + 1)
     data = await _IMPORTERS[type](
         session,
         vessel_id,
