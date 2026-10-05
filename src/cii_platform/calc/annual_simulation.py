@@ -55,12 +55,13 @@ bit-exact 재현이 안 된다.**
 from __future__ import annotations
 
 import platform
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from cii_platform.calc.fuel_estimator import MIN_SPEED_KN as _MIN_SPEED_KN_DECIMAL
 from cii_platform.calc.precision import layer1_context, validate_layer1_result
 from cii_platform.calc.rating_engine import (
     NEXT_WORSE_BOUNDARY_KEY,
@@ -119,7 +120,8 @@ PROBABILITY_DIGITS = 4
 
 #: ``PRD §12.4.1`` [ORACLE 삼각분포 가드] — 속도 하한. 계획 1.5kn이면 min이 0.5kn이
 #: 되므로 floor를 적용한다.
-MIN_SPEED_KN = 1.0
+#: 정의처는 ``fuel_estimator.MIN_SPEED_KN``(Decimal)이다 — float 경로는 거기서 파생한다 (#2098).
+MIN_SPEED_KN = float(_MIN_SPEED_KN_DECIMAL)
 
 #: 톤 → 그램. ``PRD §3.3.1``의 ``M`` 단위.
 GRAMS_PER_TON = 1_000_000
@@ -147,7 +149,8 @@ class TriangularBand:
         하나가 파라미터 오타로 통째로 실패하는 것보다 낫다.
         """
         mode = plan * self.mode_factor
-        left = min(plan * self.min_factor, mode)
+        # `TECH_SPEC §2.3.1` 물리적 가드 — 거리·연료는 음수일 수 없다. 클램프가 먼저다.
+        left = min(max(plan * self.min_factor, 0.0), mode)
         right = max(plan * self.max_factor, mode)
         return left, mode, right
 
@@ -353,10 +356,7 @@ def project_deterministic(
     **난수를 쓰지 않는다.** 같은 입력이면 언제나 같은 값이므로 Monte Carlo와 달리
     ``Decimal``로 계산해 표시·저장값으로 그대로 쓴다.
     """
-    if transport_capacity <= 0:
-        raise ValueError(f"transport_capacity must be > 0: got {transport_capacity}")
-    if required_cii <= 0:
-        raise ValueError(f"required_cii must be > 0: got {required_cii}")
+    _reject_non_positive_capacity_or_required(transport_capacity, required_cii)
     _reject_non_positive_plans(remaining)
 
     completed_co2 = Decimal(str(completed.co2_g))
@@ -472,13 +472,9 @@ def apply_feedback(remaining: Sequence[RemainingVoyage], factor: Decimal) -> lis
     새 목록을 돌려준다 — 원본을 고치면 같은 실행 안에서 보정 전 값을 다시 볼 수 없다.
     """
     return [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
+        replace(
+            v,
             fuel_ton=float(Decimal(str(v.fuel_ton)) * factor),
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -560,6 +556,21 @@ def backsolve_required_cut(
         #: 확정 실적만으로 이미 넘겼다는 뜻이라, 「n톤 줄이세요」가 거짓이 된다.
         achievable=allowed >= 0,
     )
+
+
+def _reject_non_positive_capacity_or_required(
+    transport_capacity: Decimal, required_cii: Decimal
+) -> None:
+    """``transport_capacity``·``required_cii``가 0 이하이면 ``ValueError`` (#2098).
+
+    결정론 진입점(:func:`project_deterministic`)과 Monte Carlo 진입점
+    (:func:`simulate_annual`)이 **같은 함수**를 지난다 — 가드가 한쪽에만 있으면 같은 입력에
+    결정론은 거부하고 Monte Carlo는 음수·``inf`` 분포를 조용히 낸다. 난수를 뽑기 전에 돈다.
+    """
+    if transport_capacity <= 0:
+        raise ValueError(f"transport_capacity must be > 0: got {transport_capacity}")
+    if required_cii <= 0:
+        raise ValueError(f"required_cii must be > 0: got {required_cii}")
 
 
 def _reject_non_positive_plans(remaining: Sequence[RemainingVoyage]) -> None:
@@ -664,6 +675,7 @@ def simulate_annual(
     :param seed: ``PRD §12.4.3`` — 동일 seed·동일 입력이면 동일 결과여야 한다.
     :raises ValueError: 목표 등급이 E이거나(``§12.8``) 잔여 항차가 상한을 넘을 때.
     """
+    _reject_non_positive_capacity_or_required(transport_capacity, required_cii)
     warnings: list[str] = []
 
     if target_rating == TARGET_RATING_REJECTED:
@@ -761,7 +773,9 @@ def _sample_band(
     만들면 근거 없는 변동이 결과에 섞인다.
     """
     mode = plan * band.mode_factor
-    left = np.minimum(plan * band.min_factor, mode)
+    # `TECH_SPEC §2.3.1` 물리적 가드 — 하한을 0 아래로 내리지 않는다(`PRD §12.4.1` min > 0).
+    # 음수 하한은 음수 연료·거리 표본을 만든다. 난수를 뽑기 전에 정해지는 값이다.
+    left = np.minimum(np.maximum(plan * band.min_factor, 0.0), mode)
     right = np.maximum(plan * band.max_factor, mode)
 
     degenerate = right <= left
@@ -805,13 +819,9 @@ def rng_metadata(seed: int) -> dict[str, object]:
 
 def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: float):
     return [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
+        replace(
+            v,
             fuel_ton=v.fuel_ton * factor,
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -837,13 +847,9 @@ def fuel_cf_alternative_projection(
     연말 규모로 답하는 것이 이 지렛대의 목적이다.
     """
     shifted = [
-        RemainingVoyage(
-            distance_nm=v.distance_nm,
-            fuel_ton=v.fuel_ton,
+        replace(
+            v,
             cf=float(alternative_cf),
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -902,13 +908,10 @@ def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
     벌어지면 이 행도 함께 움직인다.
     """
     return [
-        RemainingVoyage(
+        replace(
+            v,
             distance_nm=v.distance_nm * factor,
             fuel_ton=v.fuel_ton * factor,
-            cf=v.cf,
-            speed_kn=v.speed_kn,
-            reference_speed_kn=v.reference_speed_kn,
-            base_daily_foc_ton=v.base_daily_foc_ton,
         )
         for v in remaining
     ]
@@ -948,13 +951,10 @@ def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
         new_speed = max(v.speed_kn + delta_kn, MIN_SPEED_KN)
         ratio = (new_speed / v.speed_kn) ** 2
         shifted.append(
-            RemainingVoyage(
-                distance_nm=v.distance_nm,
+            replace(
+                v,
                 fuel_ton=v.fuel_ton * ratio,
-                cf=v.cf,
                 speed_kn=new_speed,
-                reference_speed_kn=v.reference_speed_kn,
-                base_daily_foc_ton=v.base_daily_foc_ton,
             )
         )
     return shifted
