@@ -13,6 +13,7 @@ import { POLL_INTERVAL_MS } from './realtimeRules'
 import type { RealtimeCii, RealtimeCiiProvider } from './types'
 import { regulationParametersPath } from '../parameters/referenceRules'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
+import { STATUS_LABELS } from '../voyage-management/voyageRules'
 
 /**
  * 폴링 실패가 화면을 비우지 않는다 (`#755`).
@@ -1106,6 +1107,21 @@ describe('주소의 항차가 진행 중 항차가 아니다 (#2129)', () => {
     const notice = await screen.findByTestId('rt-other-voyage')
     return notice.querySelector('[role="status"]')?.textContent ?? ''
   }
+
+  it('항해 중인데 서버가 고른 항차가 아니면 — 「진행 중이 아니다」라고 말하지 않는다', async () => {
+    const underway = await noticeText(
+      'vy-other',
+      lookupOf({ found: true, status: 'IN_PROGRESS', vesselId: 'v-1' }),
+    )
+    const done = await noticeText(
+      'vy-done',
+      lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-1' }),
+    )
+    // 상태 이름표(「항해 중」)를 「진행 중이 아닙니다」 뒤에 붙이면 한 문장이 스스로 어긋난다.
+    expect(underway).not.toBe('')
+    expect(underway).not.toBe(done)
+    expect(underway).not.toContain(STATUS_LABELS.IN_PROGRESS)
+  })
 
   it('완료 항차 주소 — 진행 중 항차의 값이 그려지지 않는다', async () => {
     renderAt('vy-done', lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-1' }))

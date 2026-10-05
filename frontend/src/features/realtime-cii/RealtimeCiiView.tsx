@@ -985,6 +985,9 @@ function OtherVoyageNotice({
     message = "항차를 확인하지 못했습니다.";
   } else if (missing) {
     message = "등록된 항차가 없습니다.";
+  } else if (lookup.found && lookup.status === "IN_PROGRESS") {
+    // 항해 중인 항차가 둘 이상이면 서버가 그중 하나를 고른다. 「진행 중이 아닙니다 (항해 중)」은 모순이다.
+    message = "이 항차는 이 화면이 보여 주는 진행 중 항차가 아닙니다.";
   } else {
     message = `이 항차는 진행 중이 아닙니다${label ? ` (${label})` : ""}.`;
   }

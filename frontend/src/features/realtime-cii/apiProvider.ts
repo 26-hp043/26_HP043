@@ -364,7 +364,8 @@ export function createApiRealtimeCiiProvider(
         redirectToLogin()
         throw new RealtimeCiiError(SESSION_EXPIRED_MESSAGE)
       }
-      if (response.status === 404) return { found: false }
+      // 422는 주소의 항차 조각이 id 꼴이 아닐 때다 — 그런 항차는 없다.
+      if (response.status === 404 || response.status === 422) return { found: false }
       if (!response.ok) {
         throw new RealtimeCiiError(`불러오지 못했습니다 (HTTP ${response.status}).`)
       }

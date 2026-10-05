@@ -308,6 +308,11 @@ describe('loadVoyage — 주소의 항차 조회 (#2129)', () => {
     })
   })
 
+  it('id 꼴이 아닌 주소(422)도 없는 항차다', async () => {
+    const provider = createApiRealtimeCiiProvider(respond(422, { error: {} }), 'http://x')
+    expect(await provider.loadVoyage!('not-a-uuid')).toEqual({ found: false })
+  })
+
   it('500은 「없다」가 아니라 실패다', async () => {
     const provider = createApiRealtimeCiiProvider(respond(500, { error: {} }), 'http://x')
     await expect(provider.loadVoyage!('vy-1')).rejects.toThrow()
