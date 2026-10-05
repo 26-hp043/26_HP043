@@ -494,6 +494,15 @@ describe('우회 경유지 (#1300)', () => {
   })
 })
 
+describe('기준 일일 연료 범위 (#2091)', () => {
+  it('서버와 같이 선박 기준 일일 연료의 저장 범위(NUMERIC(8,2))를 넘으면 막는다', () => {
+    const key = FIELD.baseDailyFocTon
+    expect(validateForm(state({ baseDailyFocTon: '999999.99' }))).not.toHaveProperty(key)
+    expect(validateForm(state({ baseDailyFocTon: '1000000' }))).toHaveProperty(key)
+    expect(validateForm(state({ baseDailyFocTon: '0.001' }))).toHaveProperty(key)
+  })
+})
+
 describe('속력 범위 — VAL-009 (#1269)', () => {
   it('현재 속력은 1 이상 60 이하다 — 종전에는 화면이 `> 0`만 봐서 0.5가 서버 422로 돌아왔다', () => {
     expect(validateForm(state({ baseSpeedKn: '60' }))).not.toHaveProperty(FIELD.baseSpeedKn)

@@ -13,7 +13,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import DISTANCE, REGULATION_YEAR, SPEED, VOYAGE_FUEL
+from cii_platform.api.schemas.bounds import (
+    DISTANCE,
+    PORT_NAME_MAX_LENGTH,
+    REGULATION_YEAR,
+    SPEED,
+    VOYAGE_FUEL,
+)
 from cii_platform.api.schemas.instants import Instant
 
 #: 계획 거리의 출처 (#1256 · `DB_SCHEMA §2.2` `planned_distance_source`).
@@ -79,10 +85,10 @@ class VoyageCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     voyage_no: Annotated[str | None, Field(max_length=100)] = None
-    departure_port_name: Annotated[str, Field(min_length=1, max_length=200)]
+    departure_port_name: Annotated[str, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)]
     departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    arrival_port_name: Annotated[str, Field(min_length=1, max_length=200)]
+    arrival_port_name: Annotated[str, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)]
     arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     # VAL-002 / VAL-009. 상·하한은 DB 저장 범위에서 온다 (#1086 · `schemas/bounds.py`) —
@@ -113,10 +119,14 @@ class VoyageUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     voyage_no: Annotated[str | None, Field(max_length=100)] = None
-    departure_port_name: Annotated[str | None, Field(min_length=1, max_length=200)] = None
+    departure_port_name: Annotated[
+        str | None, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)
+    ] = None
     departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    arrival_port_name: Annotated[str | None, Field(min_length=1, max_length=200)] = None
+    arrival_port_name: Annotated[
+        str | None, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)
+    ] = None
     arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     planned_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None

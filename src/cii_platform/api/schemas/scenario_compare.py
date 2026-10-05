@@ -21,7 +21,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import DISTANCE, SPEED
+from cii_platform.api.schemas.bounds import DAILY_FOC, DISTANCE, PORT_NAME_MAX_LENGTH, SPEED
 from cii_platform.api.schemas.instants import Instant
 from cii_platform.api.schemas.voyage_cii import WeatherModel
 
@@ -47,7 +47,8 @@ class ScenarioCompareRequest(BaseModel):
     # VAL-006 코드 존재·active 여부는 서비스가 확인한다.
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # VAL-002: > 0. 선박 기준값(vessel.reference_daily_foc_ton)이 있으면 생략 가능.
-    base_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
+    # 범위는 그 기준값과 같은 양이라 같다 — ``NUMERIC(8,2)`` (#2091 · `schemas/bounds.py`).
+    base_daily_foc_ton: Annotated[Decimal | None, Field(**DAILY_FOC)] = None
     direct_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
     # 미지정 시 서버가 direct × 1.05 (API_SPEC §5.1). 우회 경유지가 있으면 그 구간 합이다.
     detour_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
@@ -79,6 +80,6 @@ class ScenarioAdoptRequest(BaseModel):
 
     target_voyage_id: UUID
     adopt_mode: Literal["UPDATE_EXISTING_PLAN", "CREATE_NEW_VOYAGE"] = "UPDATE_EXISTING_PLAN"
-    departure_port_name: Annotated[str | None, Field(max_length=100)] = None
-    arrival_port_name: Annotated[str | None, Field(max_length=100)] = None
+    departure_port_name: Annotated[str | None, Field(max_length=PORT_NAME_MAX_LENGTH)] = None
+    arrival_port_name: Annotated[str | None, Field(max_length=PORT_NAME_MAX_LENGTH)] = None
     planned_departure_at: Instant | None = None

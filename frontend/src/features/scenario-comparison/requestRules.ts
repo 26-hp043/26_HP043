@@ -1,6 +1,6 @@
 import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import { MAX_SPEED_KN } from '../vessel-registration/formRules'
+import { MAX_SPEED_KN, STORABLE } from '../vessel-registration/formRules'
 import type { WeatherModel } from '../voyage-cii/types'
 import type { VesselSpecDefaults } from '../voyage-cii/vesselCatalog'
 import type { ScenarioComparisonRequest } from './types'
@@ -417,6 +417,16 @@ export function validateForm(
     '기준 일일 연료소모량',
     errors,
   )
+  // 서버(`base_daily_foc_ton`)는 선박 기준 일일 연료와 같은 `NUMERIC(8,2)` 범위로 422를 낸다
+  // (#2091) — 보내 놓고 되돌려 받지 않는다.
+  if (errors[FIELD.baseDailyFocTon] === undefined) {
+    const foc = toNumber(state.baseDailyFocTon.trim())
+    if (foc !== null && (foc < STORABLE.dailyFoc.min || foc > STORABLE.dailyFoc.max)) {
+      errors[FIELD.baseDailyFocTon] =
+        `기준 일일 연료소모량은 ${STORABLE.dailyFoc.min} 이상 ` +
+        `${STORABLE.dailyFoc.max.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 이하로 입력해 주세요.`
+    }
+  }
 
   if (state.fuelType.trim() === '') {
     errors[FIELD.fuelType] = '연료 종류를 선택해 주세요.'
