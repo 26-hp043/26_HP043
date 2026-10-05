@@ -267,6 +267,9 @@ def test_range_and_hyphenated_decimals_pass_the_guard():
 
 def test_guard_still_catches_numbers_next_to_ranges_and_dates():
     """`#2099` — 경계가 가드를 느슨하게 하지 않는다. 도구 응답에 없는 수는 계속 잡힌다."""
+    # 문장 끝 마침표 바로 뒤의 음수는 부호를 지킨다 — 도구는 0.5를 줬는데 -0.5라고 쓴 답이다.
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("4.98.-0.5", ['{"a": "4.98", "b": "0.5"}'])
     with pytest.raises(NumberFabricationError):
         verify_numbers("5.0451-4.9824 입니다.", ['{"a": "5.0451"}'])
     with pytest.raises(NumberFabricationError):
