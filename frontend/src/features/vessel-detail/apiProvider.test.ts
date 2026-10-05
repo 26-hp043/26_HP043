@@ -185,6 +185,33 @@ describe('실패 경로', () => {
     await expect(promise).rejects.toMatchObject({ notFound: true })
   })
 
+  it('422(주소가 id 꼴이 아님)는 404와 같이 「다시 불러도 같다」로 구분한다 — 상태 코드 문구를 쓰지 않는다 (#2126)', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(jsonResponse({}, 422)))
+    const failure = await createApiVesselDetailProvider(fetchImpl as never)
+      .load('not-a-uuid')
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(VesselDetailError)
+    expect(failure).toMatchObject({ notFound: true })
+    expect((failure as Error).message).not.toMatch(/422|HTTP/)
+    // 5xx는 구분된다 — 다시 불러 볼 수 있는 실패다.
+    const server = await createApiVesselDetailProvider(
+      vi.fn(() => Promise.resolve(jsonResponse({}, 500))) as never,
+    )
+      .load('v1')
+      .catch((error: unknown) => error)
+    expect(server).toMatchObject({ notFound: false })
+    expect((server as Error).message).not.toBe((failure as Error).message)
+  })
+
+  it('200과 함께 JSON이 아닌 본문이 와도 파서 문구를 올리지 않는다 (#2126)', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response('<html>proxy</html>', { status: 200 })))
+    const failure = await createApiVesselDetailProvider(fetchImpl as never)
+      .load('v1')
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(VesselDetailError)
+    expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
+  })
+
   it('네트워크 실패를 삼키지 않는다', async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')))
     await expect(

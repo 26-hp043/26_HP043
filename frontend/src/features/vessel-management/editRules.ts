@@ -60,6 +60,11 @@ export const EDIT_FIELD = {
   form: '__form__',
 } as const
 
+/** 수정 폼에 입력창이 있는 서버 필드 경로. 여기 없는 경로의 오류는 폼 상단으로 보낸다 (#2126). */
+export const EDIT_FIELD_PATHS: ReadonlySet<string> = new Set(
+  Object.values(EDIT_FIELD).filter((path) => path !== EDIT_FIELD.form),
+)
+
 export type EditErrors = Record<string, string>
 
 /** 이름 길이 상한 (VAL-001, `API_SPEC §2.3`). */

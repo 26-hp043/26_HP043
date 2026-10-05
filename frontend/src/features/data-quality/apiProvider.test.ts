@@ -103,6 +103,15 @@ describe('createApiDataQualityProvider', () => {
     ).rejects.toBeInstanceOf(DataQualityUnavailableError)
   })
 
+  it('200과 함께 JSON이 아닌 본문이 와도 파서 문구를 올리지 않는다 (#2126)', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown) => new Response('<html>proxy</html>', { status: 200 }))
+    const failure = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1')
+      .load(2026)
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DataQualityUnavailableError)
+    expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
+  })
+
   it('서버 오류는 상태 코드와 함께 알린다', async () => {
     const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse({}, 409))
 
@@ -310,5 +319,20 @@ describe('createApiDataQualityProvider — 이 값으로 채우기', () => {
         revertConfirmed: false,
       }),
     ).rejects.toThrow(message)
+  })
+
+  it('채우기 응답이 JSON이 아니어도 파서 문구를 올리지 않는다 (#2126)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('<html>proxy</html>', { status: 200 }))
+    const failure = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1')
+      .fill!('voy-9', {
+        field: 'ARRIVAL',
+        periodId: null,
+        record: { source: 'MOF_VESSEL_OPS', portAuthorityCode: '020', callYear: 2026, callSeq: '029' },
+        recordedAt: '2026-08-13T09:45:00+00:00',
+        revertConfirmed: false,
+      })
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(DataQualityUnavailableError)
+    expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
   })
 })

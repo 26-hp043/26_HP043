@@ -4,6 +4,7 @@ import {
   FuelCatalogError,
   createApiFuelCatalog,
   createFuelCatalog,
+  fuelOptionsWithCurrent,
   isKnownFuel,
 } from './fuelCatalog'
 
@@ -128,5 +129,18 @@ describe('isKnownFuel — 검증이 목록을 인자로 받는 이유', () => {
 
   it('목록이 비면 무엇도 통과하지 않는다 — 로딩 중 제출을 막는 성질이다', () => {
     expect(isKnownFuel('HFO', [])).toBe(false)
+  })
+})
+
+describe('fuelOptionsWithCurrent (#2126)', () => {
+  const HFO = [{ code: 'HFO', displayName: '고유황유' }]
+
+  it('목록이 비어도(조회 실패) 현재 값을 선택지로 둔다 — 값은 그대로다', () => {
+    expect(fuelOptionsWithCurrent([], 'HFO').map((f) => f.code)).toEqual(['HFO'])
+  })
+
+  it('목록에 있는 값·빈 값은 덧붙이지 않는다', () => {
+    expect(fuelOptionsWithCurrent(HFO, 'HFO')).toBe(HFO)
+    expect(fuelOptionsWithCurrent(HFO, '')).toBe(HFO)
   })
 })

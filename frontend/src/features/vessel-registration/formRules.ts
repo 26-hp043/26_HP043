@@ -1,3 +1,4 @@
+import { knownServerField } from '../../api/serverField'
 import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { VesselRegistrationError } from './provider'
@@ -462,10 +463,8 @@ export function toFormErrors(error: unknown): FormErrors {
     if (error.code === 'CONFLICT') {
       return { [FIELD.imoNumber]: error.message }
     }
-    if (error.field && FIELD_PATHS.has(error.field)) {
-      return { [error.field]: error.message }
-    }
-    return { [FIELD.form]: error.message }
+    const field = knownServerField(error.field, FIELD_PATHS)
+    return { [field ?? FIELD.form]: error.message }
   }
   return {
     [FIELD.form]:

@@ -202,7 +202,8 @@ export function createApiDataQualityProvider(
           `데이터 점검 결과를 불러오지 못했습니다 (HTTP ${response.status}).`,
         )
       }
-      const data = ((await response.json()) as ServerBody).data
+      // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구가 화면에 나가지 않게 한다 (#2126).
+      const data = ((await response.json().catch(() => null)) as ServerBody | null)?.data
       if (!data) {
         throw new DataQualityUnavailableError('데이터 점검 응답 형식이 올바르지 않습니다.')
       }
@@ -276,9 +277,9 @@ export function createApiDataQualityProvider(
           (await errorMessage(response)) ?? `공적 기록으로 채우지 못했습니다 (HTTP ${response.status}).`,
         )
       }
-      const data = ((await response.json()) as {
+      const data = ((await response.json().catch(() => null)) as {
         data?: { field: string; reverted_from_status: string | null }
-      }).data
+      } | null)?.data
       if (!data) throw new DataQualityUnavailableError('채우기 응답 형식이 올바르지 않습니다.')
       return {
         field: data.field as PublicRecordField,

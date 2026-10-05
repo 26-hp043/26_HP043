@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import './VesselRegistration.css'
 import { DISPLAY_UNITS, DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
-import { useFuelOptions } from '../parameters/fuelCatalog'
+import { FUEL_LIST_FAILED_HINT, fuelOptionsWithCurrent, useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { SCREEN_BY_ID } from '../../screens'
 import { useShellContext } from '../../layout/shellContext'
@@ -483,6 +483,7 @@ export function VesselRegistration() {
               id="default-fuel"
               label="기본 연료"
               labelEn="Default Fuel"
+              hint={fuelsFailed ? FUEL_LIST_FAILED_HINT : undefined}
               error={errors[FIELD.defaultFuelType]}
             >
               {(control) => (
@@ -499,7 +500,7 @@ export function VesselRegistration() {
                         ? '연료 목록을 불러오지 못했습니다'
                         : '선택하지 않음'}
                   </option>
-                  {fuels.map((fuel) => (
+                  {fuelOptionsWithCurrent(fuels, state.defaultFuelType).map((fuel) => (
                     <option key={fuel.code} value={fuel.code}>
                       {fuelTypeText(fuel.code)}
                     </option>

@@ -118,6 +118,8 @@ export function VesselDetail({
   const [failure, setFailure] = useState<{ message: string; notFound: boolean } | null>(
     null,
   )
+  /** 첫 조회 실패의 「다시 시도」 — 올리면 조회 effect가 다시 돈다 (#2126). */
+  const [retryKey, setRetryKey] = useState(0)
   /**
    * 진행 중 항차 (`#588`). `'loading'`을 값으로 둔다 — **「아직 모른다」와 「없다」를
    * 같게 그리면 확인 전에 없다고 단정**하게 되고, 그것이 이 이슈가 고치는 거짓
@@ -225,7 +227,7 @@ export function VesselDetail({
     return () => {
       alive = false
     }
-  }, [vesselId, provider, changeCount])
+  }, [vesselId, provider, changeCount, retryKey])
 
   /*
    * 진행 중 항차도 `changeCount`에 반응한다 (#1811). 항차 상태 전환은 이 조회의 답을 바꾸는데
@@ -265,7 +267,16 @@ export function VesselDetail({
         <ErrorState
           level="page"
           message={failure.message}
-          onRetry={failure.notFound ? undefined : () => window.location.reload()}
+          onRetry={
+            failure.notFound
+              ? undefined
+              : () => {
+                  // 새로고침이 아니라 이 화면 안에서 다시 부른다(`#1871` 대시보드와 같다).
+                  // 실패를 비우면 「불러오는 중」이 보이고, 다시 실패하면 이 화면으로 돌아온다.
+                  setFailure(null)
+                  setRetryKey((k) => k + 1)
+                }
+          }
           alternative={
             failure.notFound ? (
               <Link className="error-state__retry" to="/dashboard">

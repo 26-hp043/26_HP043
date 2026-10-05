@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { classifyMapFailure, type MapFailure } from './mapFailure'
 import { MapRendererHost, type MapRendererEvent } from './renderer'
 import type { HarborRendererModel } from './harborRenderer'
 import { harborSceneFor } from './harborScenes'
@@ -26,7 +27,7 @@ interface HarborTransitionShellProps {
 export function HarborTransitionShell({ renderGlobe, onGlobeEvent, onEnterHarbor, onExitHarbor }: HarborTransitionShellProps) {
   const [port, setPort] = useState<HarborPort | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [failure, setFailure] = useState<MapFailure | null>(null)
   const [attempt, setAttempt] = useState(0)
   const returnFocus = useRef<HTMLElement | null>(null)
   const backButton = useRef<HTMLButtonElement | null>(null)
@@ -36,7 +37,7 @@ export function HarborTransitionShell({ renderGlobe, onGlobeEvent, onEnterHarbor
   const close = useCallback(() => {
     setPort(null)
     setStatus('loading')
-    setErrorMessage(null)
+    setFailure(null)
     onExitHarbor?.()
   }, [onExitHarbor])
 
@@ -81,7 +82,7 @@ export function HarborTransitionShell({ renderGlobe, onGlobeEvent, onEnterHarbor
   }, [onEnterHarbor, onGlobeEvent])
   const harborEvent = useCallback((event: MapRendererEvent) => {
     if (event.type === 'ready') setStatus('ready')
-    if (event.type === 'error') { setStatus('error'); setErrorMessage(event.error.message) }
+    if (event.type === 'error') { setStatus('error'); setFailure(classifyMapFailure(event.error)) }
   }, [])
 
   const requestClose = () => {
@@ -98,9 +99,9 @@ export function HarborTransitionShell({ renderGlobe, onGlobeEvent, onEnterHarbor
     {port === null ? null : <section className="harbor-transition__scene" aria-label={port === 'busan' ? '부산 북항 상세 장면' : '싱가포르 항만 상세 장면'}>
       <div className="harbor-transition__toolbar">
         <button ref={backButton} type="button" onClick={requestClose}>전체 항로로 돌아가기</button>
-        <p role="status" aria-live="polite">{status === 'ready' ? '항만 장면이 준비되었습니다.' : status === 'error' ? `항만 장면을 표시하지 못했습니다. ${errorMessage ?? ''}` : '항만 장면을 불러오는 중입니다.'}</p>
+        <p role="status" aria-live="polite">{status === 'ready' ? '항만 장면이 준비되었습니다.' : status === 'error' ? failure === null ? '항만 장면을 표시하지 못했습니다.' : `${failure.message} ${failure.action}` : '항만 장면을 불러오는 중입니다.'}</p>
       </div>
-      {status === 'error' ? <button type="button" onClick={() => { setStatus('loading'); setErrorMessage(null); setAttempt((value) => value + 1) }}>다시 시도</button> : null}
+      {status === 'error' ? <button type="button" onClick={() => { setStatus('loading'); setFailure(null); setAttempt((value) => value + 1) }}>다시 시도</button> : null}
       <MapRendererHost key={`${port}:${attempt}`} className="harbor-transition__canvas"
         ariaLabel={`${port === 'busan' ? '부산 북항' : '싱가포르 항만'} 3D 장면`}
         model={{ mode: 'playback', port }} loadRenderer={loadHarbor}
