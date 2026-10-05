@@ -290,14 +290,19 @@ function showsInlineLabel(percent: number): boolean {
 
 /** 민감도 표의 행 순서·이름. 서버 키를 화면 순서로 고정한다. */
 // 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+/*
+ * 음수 부호는 **ASCII 하이픈**이다 (#2122). 같은 표의 값 칸(`-29.8%`)이 공용 포매터
+ * (`formatPercent`)를 지나 하이픈으로 나오고, `DESIGN_SYSTEM §4.3`의 예시(`-0.183`)도
+ * 하이픈이다. 종전 라벨은 U+2212(`−`)라 한 표 안에서 두 부호가 섞여 있었다.
+ */
 const SENSITIVITY_ROWS: ReadonlyArray<{ key: keyof SensitivityAnalysis; label: string }> = [
-  { key: 'speed_minus_1kn', label: '속력 −1kn' },
+  { key: 'speed_minus_1kn', label: '속력 -1kn' },
   { key: 'speed_plus_1kn', label: '속력 +1kn' },
-  { key: 'fuel_minus_10pct', label: '연료 −10%' },
+  { key: 'fuel_minus_10pct', label: '연료 -10%' },
   { key: 'fuel_plus_10pct', label: '연료 +10%' },
-  { key: 'distance_minus_5pct', label: '거리 −5%' },
+  { key: 'distance_minus_5pct', label: '거리 -5%' },
   { key: 'distance_plus_5pct', label: '거리 +5%' },
-  { key: 'voyage_minus_1', label: '잔여 항차 −1' },
+  { key: 'voyage_minus_1', label: '잔여 항차 -1' },
   { key: 'voyage_plus_1', label: '잔여 항차 +1' },
   { key: 'fuel_cf_alternative', label: '대체 연료' },
 ] as const

@@ -1130,7 +1130,7 @@ def test_no_implicit_float_in_layer1():
 | AT-VC-003 | input_hash 형식 | `sha256:` + 64 hex chars |
 | AT-VC-004 | DISCLAIMER warning | warnings 배열에 "REFERENCE_ONLY" 포함 |
 | AT-VC-005 | transport/reference_capacity 포함 | 응답 data에 두 필드 모두 존재 |
-| AT-VC-006 | Distance 누락 | 422, field_label "운항 거리" |
+| AT-VC-006 | Distance 누락 | 422, field_label "항해거리" |
 | AT-VC-007 | Speed < 1.0 | 422, VAL-009 |
 | AT-VC-008 | 존재하지 않는 선박 | 404 |
 
@@ -1177,7 +1177,7 @@ def test_no_implicit_float_in_layer1():
 | TC ID | 테스트 | 기대 결과 |
 |---|---|---|
 | AT-ERR-001 | field_label 포함 | error.details[].field_label 존재 (한글 라벨) |
-| AT-ERR-002 | 한국어 조사 자연스러움 | "운항 거리는 0보다 커야 합니다." (`{field}은/는` 형태 아님) |
+| AT-ERR-002 | 한국어 조사 자연스러움 | "항해거리는 0보다 커야 합니다." (`{field}은/는` 형태 아님) |
 | AT-ERR-003 | 422 ValidationError | code, message, details 구조 |
 | AT-ERR-004 | 409 ParameterError | 해당 연도 파라미터 없음 |
 
@@ -1896,7 +1896,7 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
 | `test_error_handlers_116.py` | 18 | §4 API · 공통·운영 |
 | `test_field_labels.py` | 7 | §4 API · 공통·운영 |
-| `test_validation_messages.py` | 14 | **§4 API · 공통·운영 · 422 한국어화** (`API_SPEC §1.3.2` 언어 규정 · `#900`) — Pydantic 오류 `type`에서 만든 문장이 §11 VAL-001·002 틀과 같고 정본 예시 「운항 거리는 0보다 커야 합니다.」를 **글자 그대로** 재현하는지 · 조사가 받침을 따르는지(괄호 설명은 건너뛴다) · 영문 `ValueError`·모르는 `type`이 **영문으로 새지 않는지** · 본문이 JSON이 아니면 글자 위치가 아니라 「요청 본문」을 말하는지 · **OpenAPI의 모든 요청 필드가 한글 라벨을 가지는지**(종전 17항목 표가 84개를 빠뜨렸다) |
+| `test_validation_messages.py` | 14 | **§4 API · 공통·운영 · 422 한국어화** (`API_SPEC §1.3.2` 언어 규정 · `#900`) — Pydantic 오류 `type`에서 만든 문장이 §11 VAL-001·002 틀과 같고 정본 예시 「항해거리는 0보다 커야 합니다.」를 **글자 그대로** 재현하는지 · 조사가 받침을 따르는지(괄호 설명은 건너뛴다) · 영문 `ValueError`·모르는 `type`이 **영문으로 새지 않는지** · 본문이 JSON이 아니면 글자 위치가 아니라 「요청 본문」을 말하는지 · **OpenAPI의 모든 요청 필드가 한글 라벨을 가지는지**(종전 17항목 표가 84개를 빠뜨렸다) |
 | `test_error_message_language.py` | 3 | **§4 API · 공통·운영 · 서비스 오류 문구의 언어** (`API_SPEC §1.3.2` · `#999`) — 서비스·스키마의 `raise` 문을 **AST로** 읽어, 사용자에게 나가는 문구에 `snake_case` 필드명 원문이 섞이거나 **예외 객체를 끼워 넣는** 곳이 없는지(2026-09-12 스캔 31곳 → 0) · 스캐너 자체가 두 모양을 잡는지(한글 조사가 바로 붙은 `direct_distance_nm을` 포함 — 파이썬 `\b`는 한글을 단어 문자로 본다) · **소문자 영단어까지 본다**(`#1329`) — `snake_case`만 찾던 동안 `from`·`to`·`sort`·`got`·`cursor`·`limit`·`seed`가 **밑줄이 없다는 이유로** 전부 빠져나갔다(「`from`은 2019 이상이어야 합니다: got 2000」이 그렇게 살아 있었다). 허용 집합은 **정본 라벨에서 유도한다** — `난수 시드(seed)`처럼 영문을 병기하기로 한 것은 정본의 결정이고, 손으로 적은 예외 목록을 두면 **두 곳이 갈린다** |
 | `test_validation_message_canon_sync.py` | 6 | **§5 인프라 · 문서 정합** — VAL 문구 정본 틀 ↔ 실제 422 응답 (`#1329`). `API_SPEC §11`(= `PRD §9.1`)이 **문구의 정본**인데 실제와 갈려도 아무 데서도 드러나지 않았다 — **일곱 규칙이 어긋나** 있었고 차이는 전부 `#860`·`#999` 같은 **앞선 결정**이었으며 표만 뒤처져 있었다. **표가 낡으면 「문구 대조」 검사 자체가 성립하지 않는다**(무엇과 맞출지가 거짓이다). 표는 문장이 아니라 **틀**(`{field_label}`·`{하한}`)이므로 글자 비교가 아니라 **틀이 만드는 모양**을 본다. ⚠️ **두 입구(JSON·CSV)가 같은 말을 하는지**도 본다 — 한 규칙에 두 문장이 있으면 사용자에게는 두 규칙이다. ⚠️ **정본이 없는 문구를 들고 있지 않은지**까지 본다(`PRD §17.3`이 그랬다 — 다섯 중 넷이 `src/` grep 0건) |
 | `test_user_facing_josa_guard.py` | 4 | **§5 인프라 · 문구 가드**(`#2123`) — `src/`의 문자열 상수(f-string 고정 조각 포함)에 조사 괄호 병기(`은(는)`·`을(를)`·`이(가)`·`와(과)`·`(으)로`)가 없는가. 주석은 AST에 없고 docstring은 제외한다 — 둘 다 사용자에게 나가지 않는다. 가드가 문자열은 잡고 주석·docstring은 넘기는지, 정박 CSV의 오류 문구에 괄호가 없고 조사가 라벨의 받침을 따르는지도 본다 |

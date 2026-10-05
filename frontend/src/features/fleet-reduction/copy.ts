@@ -33,7 +33,8 @@ export const FLEET_REDUCTION_COPY = {
   colCharter: '일일 용선료 (USD)',
   meets: '목표 달성',
   misses: '목표 미달',
-  cutHint: (ton: string) => `목표까지 연료 ${ton}t 더`,
+  /* `amount`는 자릿수·구분자·단위까지 적힌 값이다 — 단위를 여기 박지 않는다(`DESIGN_SYSTEM §4.2` · #2122). */
+  cutHint: (amount: string) => `목표까지 연료 ${amount} 더`,
   unreachable: '감속만으로 닿지 않음',
   skippedHint: (n: number) => `제원이 없어 감속을 적용하지 못한 항차 ${n}건`,
 

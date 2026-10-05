@@ -29,6 +29,7 @@ from __future__ import annotations
 from datetime import UTC
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from cii_platform.db.repositories import not_underway as nu_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -65,6 +66,9 @@ CONSUMER_TYPES: tuple[str, ...] = (
 )
 
 
+#: 오류 문구에 시각을 적을 때의 시간대. 화면(`DESIGN_SYSTEM §4.4`)·리포트와 같은 KST다.
+_MESSAGE_TIMEZONE = ZoneInfo("Asia/Seoul")
+
 #: 오류 메시지의 한국어 항목명. ``api.field_labels``를 쓰지 않는 이유는 ``services``가
 #: ``api``를 import 할 수 없기 때문이다(TECH_SPEC §16 계층 방향, ``errors`` 주석 참조).
 _FIELD_LABELS = {
@@ -87,6 +91,15 @@ def _number(value: Decimal | None) -> float | None:
 
 def _iso(value) -> str | None:
     return None if value is None else value.isoformat()
+
+
+def _kst_text(value: datetime) -> str:
+    """오류 문구에 넣는 시각 — KST로 옮기고 시간대를 함께 적는다 (`#2122`).
+
+    시간대 없는 값은 UTC로 읽는다(저장 기준 · ``_utc_year``와 같다).
+    """
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return aware.astimezone(_MESSAGE_TIMEZONE).strftime("%Y-%m-%d %H:%M KST")
 
 
 def _fuel_use_to_dict(fuel_use) -> dict[str, object]:
@@ -234,11 +247,21 @@ async def _assert_no_overlap(
     if clash is None:
         return
 
-    tail = "진행 중" if clash.ended_at is None else clash.ended_at.isoformat()
+    # 시각은 **값으로** 싣고(`details[]`) 화면이 표시 형식으로 그린다 (`#2122`). 종전에는
+    # 문구에 UTC ISO 원문(``2026-08-10T14:00:00+00:00``)을 넣어, KST로 보이는 목록과
+    # 9시간 어긋난 시각을 읽게 했다. 문구의 시각은 `details`를 읽지 못하는 자리
+    # (CSV 가져오기의 행 오류)를 위한 것이라 시간대를 밝혀 적는다.
+    tail = "진행 중" if clash.ended_at is None else _kst_text(clash.ended_at)
     raise ConflictError(
         "같은 선박에 이미 겹치는 구간이 있습니다 "
-        f"({clash.started_at.isoformat()} ~ {tail}). "
-        "기존 구간의 종료 시각을 먼저 확정해 주세요."
+        f"({_kst_text(clash.started_at)} ~ {tail}). "
+        "기존 구간의 종료 시각을 먼저 확정해 주세요.",
+        details=[
+            {
+                "overlap_started_at": _iso(clash.started_at),
+                "overlap_ended_at": _iso(clash.ended_at),
+            }
+        ],
     )
 
 

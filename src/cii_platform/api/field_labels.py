@@ -1,6 +1,6 @@
 """필드명 → 한글 라벨 매핑 (API_SPEC §1.3.2 ``details[].field_label``, §11).
 
-오류 응답에서 ``distance_nm`` 같은 필드명을 사용자용 한글 라벨("운항 거리")로
+오류 응답에서 ``distance_nm`` 같은 필드명을 사용자용 한글 라벨("항해거리")로
 바꾼다.
 
 #49가 **조회 실패 계약**을 확정했다 — 미등록 필드는 ``KeyError``가 아니라 필드명
@@ -29,7 +29,7 @@ _FIELD_LABELS: dict[str, str] = {
     "message": "질문",
     "session_id": "대화",
     "regulation_year": "규제연도",
-    "distance_nm": "운항 거리",  # API_SPEC §1.3.2 예시, §11 VAL-002
+    "distance_nm": "항해거리",  # API_SPEC §1.3.2 예시, §11 VAL-002
     "speed_kn": "속력",  # API_SPEC §11 VAL-009
     "fuel_uses": "연료 사용량",
     "fuel_uses[].fuel_type": "연료 종류",  # VAL-006

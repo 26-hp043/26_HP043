@@ -5,6 +5,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { FleetVessel } from './types'
+import { formatLat, formatLon } from './coordinateText'
 
 const { NO_SAMPLE_PORTS, useSamplePorts } = vi.hoisted(() => {
   const empty: readonly never[] = []
@@ -130,6 +131,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+/** 진행 중 항차가 있는 배 — 지도가 항로선을 묻는다. */
+function sailing(id: string): FleetVessel {
+  return {
+    ...vessel(id, '35.1', '129.0'),
+    route: { departureLat: '35.1', departureLon: '129.0333', arrivalLat: '1.2833', arrivalLon: '103.85' },
+  } as FleetVessel
+}
+
 function vessel(id: string, lat: string | null, lon: string | null): FleetVessel {
   return {
     id,
@@ -227,7 +236,8 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
   })
 
   it('기본 캡션은 점선이 항해 계획이 아니라는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421 · #1300)', () => {
-    const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+    // 항로선이 있는 배다 — 선이 없는 지도는 선 이야기를 하지 않는다(#2122 · 아래 검사).
+    const { container } = render(<FleetMap vessels={[sailing('1')]} />)
 
     const hint = container.querySelector('.fleetmap__hint')?.textContent ?? ''
     // 정본 문구 (DESIGN_SYSTEM §9.5 「항로선은 공개 해상 경로망 위의 바닷길이다」 · ⚠️ 개발
@@ -248,6 +258,26 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(lines[1]).toMatch(/테두리/)
     const map = screen.getByRole('img')
     expect(map.getAttribute('aria-describedby')).toBe(container.querySelector('.fleetmap__hint')?.id)
+  })
+
+  it('항로선이 없으면 캡션이 항로선을 말하지 않는다 — 출처 줄과 같은 조건이다 (#2122)', () => {
+    const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+
+    const lines = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-line')].map((l) => l.textContent ?? '')
+    // 그려지지 않은 선을 「표시합니다」라고 적지 않는다.
+    expect(lines.some((line) => /항로/.test(line))).toBe(false)
+    // 마커 이야기는 선과 무관하므로 남는다.
+    expect(lines.some((line) => /테두리/.test(line))).toBe(true)
+  })
+
+  it('대체 텍스트의 좌표는 개략도와 같은 표기다 — 현재 위치도 항로 양 끝도 (#2122)', () => {
+    const { container } = render(<FleetMap vessels={[sailing('1')]} />)
+
+    const item = container.querySelector('.map-alternative li')?.textContent ?? ''
+    expect(item).toContain(`${formatLat(35.1)}, ${formatLon(129)}`)
+    expect(item).toContain(`${formatLat(1.2833)}, ${formatLon(103.85)}`)
+    // 서버 문자열(`129.0333`)이 그대로 나가지 않는다.
+    expect(item).not.toContain('129.0333')
   })
 
   it('전부 좌표가 있으면 아무 말도 하지 않는다 — 없는 문제를 만들지 않는다', () => {

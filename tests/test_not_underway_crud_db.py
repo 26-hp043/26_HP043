@@ -153,6 +153,27 @@ async def test_overlapping_period_is_rejected(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_overlap_error_carries_clash_times_as_values(session, vessel_id):
+    """겹친 상대 구간의 시각을 **값으로** 싣는다 (`API_SPEC §2.10` · `#2122`).
+
+    종전에는 문구에 UTC ISO 원문을 넣었다 — 화면 목록은 KST라 같은 구간이 9시간
+    어긋난 시각으로 읽혔다. 값은 `details[]`로 넘기고 화면이 표시 형식으로 그린다.
+    문구에 남는 시각은 `details`를 읽지 못하는 자리(CSV 행 오류)용이라 KST로 적는다.
+    """
+    await _create(session, vessel_id, start=_at(8, 10), end=None)
+    with pytest.raises(ConflictError) as caught:
+        await _create(session, vessel_id, start=_at(8, 11), end=_at(8, 13))
+
+    detail = caught.value.details[0]
+    assert datetime.fromisoformat(detail["overlap_started_at"]) == _at(8, 10)
+    assert detail["overlap_ended_at"] is None
+    # 문구에 UTC ISO 원문이 되살아나지 않는다.
+    assert "+00:00" not in caught.value.message
+    # 8/10 00:00 UTC는 KST로 09:00이다 — 목록에 보이는 시각과 같아야 한다.
+    assert "-08-10 09:00 KST ~ 진행 중" in caught.value.message
+
+
+@pytest.mark.asyncio
 async def test_touching_periods_are_allowed(session, vessel_id):
     """앞 구간의 종료 == 뒤 구간의 시작은 겹침이 아니다.
 

@@ -22,7 +22,7 @@ import { useShowsLabelEn } from '../i18n/core'
  * 그래서 컨트롤을 받지 않고 **배선을 넘겨준다.** 호출부는 그것을 펼치기만 하면 된다.
  *
  * ```tsx
- * <Field id="distance" label="운항 거리" labelEn="distance_nm" unit="nm" error={err}>
+ * <Field id="distance" label="항해거리" labelEn="distance_nm" unit="nm" error={err}>
  *   {(control) => <input {...control} value={v} onChange={onChange} />}
  * </Field>
  * ```

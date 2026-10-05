@@ -273,6 +273,25 @@ describe('sensitivityRows의 「달성 확률 변화」 (#822)', () => {
     expect(rows[0].probabilityChange).toBe('-8.0%')
   })
 
+  it('한 표 안에서 음수 부호가 한 글자다 — 라벨과 값 칸이 다른 부호를 쓰지 않는다 (#2122)', () => {
+    const entry = { projected_cii: '4.85', rating_change: 'C→B', target_probability_change: '-0.08' }
+    const rows = sensitivityRows({
+      interaction_note: 'n',
+      speed_minus_1kn: entry,
+      fuel_minus_10pct: entry,
+      distance_minus_5pct: entry,
+      voyage_minus_1: entry,
+    })
+    expect(rows).toHaveLength(4)
+
+    const valueSign = rows[0].probabilityChange[0]
+    for (const row of rows) {
+      // 줄이는 쪽 라벨에는 값 칸과 **같은** 부호가 있고, 다른 빼기 글자는 없다.
+      expect(row.label, row.key).toContain(valueSign)
+      expect(row.label.replace(valueSign, ''), row.key).not.toMatch(/[-\u2212]/)
+    }
+  })
+
   it('확률을 함께 내지 않는 지렛대는 「—」다', () => {
     // `API_SPEC §6.1` — 확률 변화는 일부 지렛대만 낸다. 나머지는 등급 변화만 보인다.
     const rows = sensitivityRows({

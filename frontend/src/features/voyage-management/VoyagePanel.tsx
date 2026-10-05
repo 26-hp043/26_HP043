@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped, formatTimestamp } from '../../display/format'
 import { withRo } from '../../display/josa'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { VoyageError, createApiVoyageManagementProvider } from './apiProvider'
@@ -1165,7 +1165,8 @@ function ActualsForm({
         hint={
           voyage.plannedDepartureAt === null
             ? '계획 출항 시각이 없습니다. 이 칸을 채우면 진행 중 누적이 계산됩니다.'
-            : `계획 ${toLocalInput(voyage.plannedDepartureAt)}`
+            : // 입력칸용 값(`2026-06-01T09:00`)이 아니라 표시 형식으로 (`DESIGN_SYSTEM §4.4` · #2122).
+              `계획 ${formatTimestamp(voyage.plannedDepartureAt)}`
         }
       />
       <VoyageField
@@ -1178,7 +1179,7 @@ function ActualsForm({
         hint={
           voyage.plannedArrivalAt === null
             ? undefined
-            : `계획 ${toLocalInput(voyage.plannedArrivalAt)}`
+            : `계획 ${formatTimestamp(voyage.plannedArrivalAt)}`
         }
       />
 

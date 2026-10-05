@@ -3,7 +3,7 @@
 세 가지를 본다.
 
 1. **문장** — ``type``·``ctx``에서 만든 문장이 ``API_SPEC §11``의 틀과 같고, 조사가 받침을
-   따른다. 정본 예시(「운항 거리는 0보다 커야 합니다.」)를 **글자 그대로** 재현한다
+   따른다. 정본 예시(「항해거리는 0보다 커야 합니다.」)를 **글자 그대로** 재현한다
 2. **새지 않는다** — 모르는 ``type``도, 영문 ``ValueError``도 영문 원문을 내보내지 않는다
 3. **라벨이 빠지지 않는다** — **모든 엔드포인트의 요청 필드**가 한글 라벨을 가진다. OpenAPI를
    읽어 전수 대조한다(``app.routes``는 이 FastAPI 판에서 하위 경로를 감싸 보이지 않는다 —
@@ -53,9 +53,9 @@ def test_object_particle_follows_the_final_consonant(word, expected):
 
 
 def test_reproduces_the_api_spec_example_verbatim():
-    """``API_SPEC §1.3.2`` 예시 · §11 VAL-002 — 「운항 거리는 0보다 커야 합니다.」"""
+    """``API_SPEC §1.3.2`` 예시 · §11 VAL-002 — 「항해거리는 0보다 커야 합니다.」"""
     error = {"type": "greater_than", "ctx": {"gt": Decimal("0")}, "msg": "Input should be > 0"}
-    assert korean_message(error, field_label("distance_nm")) == "운항 거리는 0보다 커야 합니다."
+    assert korean_message(error, field_label("distance_nm")) == "항해거리는 0보다 커야 합니다."
 
 
 def test_missing_follows_val_001():
@@ -178,7 +178,7 @@ def test_handler_emits_no_english_sentence(echo: TestClient):
     assert resp.status_code == 422
     body = resp.json()
     messages = [d["message"] for d in body["error"]["details"]]
-    assert "운항 거리는 0보다 커야 합니다." in messages
+    assert "항해거리는 0보다 커야 합니다." in messages
     assert "표시 이름은 5자 이하여야 합니다." in messages
     assert "속력 값이 올바르지 않습니다." in messages  # 영문 ValueError는 폴백
     assert all(is_korean(t) for t in _all_text(body)), _all_text(body)

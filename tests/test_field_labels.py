@@ -12,7 +12,7 @@ from cii_platform.api.field_labels import field_label
 
 def test_registered_field_returns_korean_label() -> None:
     # API_SPEC §1.3.2 예시 / §11 VAL-002.
-    assert field_label("distance_nm") == "운항 거리"
+    assert field_label("distance_nm") == "항해거리"
 
 
 def test_unregistered_field_returns_verbatim_without_error() -> None:
@@ -35,7 +35,7 @@ class TestRequestFieldLabels:
         [
             ("vessel_id", "선박"),
             ("regulation_year", "규제연도"),
-            ("distance_nm", "운항 거리"),
+            ("distance_nm", "항해거리"),
             ("speed_kn", "속력"),
             ("fuel_uses", "연료 사용량"),
             ("weather_model", "기상 모델"),

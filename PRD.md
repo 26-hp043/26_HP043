@@ -1199,7 +1199,7 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 |---|---|---|---|---|---|
 | 대상 선박 | Y | UUID | 선택 선박 | 존재 확인 | `vessel_id` |
 | 기준연도 | Y | int | 현재 연도 | 파라미터 존재 (VAL-005) | `regulation_year` |
-| 항차 거리 | Y | decimal | 자동/수동 | `> 0` (VAL-002) | `distance_nm` |
+| 항해거리 | Y | decimal | 자동/수동 | `> 0` (VAL-002) | `distance_nm` |
 | 평균 예정 속도 | Y | decimal | 선박 기준속도 | `≥ 1.0` (VAL-009) | `speed_kn` |
 | 연료 종류 | Y | enum | 선박 기본 연료 | active (VAL-006) | `fuel_uses[].fuel_type` |
 | 예상 연료 사용량 | Y | decimal | 사용자 입력 | `> 0` (VAL-002) | `fuel_uses[].fuel_ton` |
@@ -1222,7 +1222,7 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 
 | 화면 입력 | 필수 | 저장 API 필드 | 비고 |
 |---|---|---|---|
-| 항차 거리 | Y | `planned_distance_nm` | ⑴과 같은 값 |
+| 항해거리 | Y | `planned_distance_nm` | ⑴과 같은 값 |
 | 평균 예정 속도 | Y | `planned_speed_kn` | ⑴과 같은 값 |
 | 연료 종류 | Y | `fuel_uses[].fuel_type` | ⑴과 동일 |
 | 예상 연료 사용량 | Y | `fuel_uses[].planned_fuel_ton` | ⑴과 같은 값 |
@@ -1836,7 +1836,7 @@ rating = C
 
 | 출력 | 기대값 |
 |---|---:|
-| CO₂ | 249.12 tCO₂ |
+| CO₂ | 249.1 tCO₂ |
 | Attained CII | 4.982 gCO₂/(DWT·nm) |
 | Required CII | 5.045 gCO₂/(DWT·nm) |
 | 기준 대비 | 98.8% |

@@ -4,6 +4,7 @@ import '../../test/renderSetup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
+import { formatTimestamp } from '../../display/format'
 
 /**
  * 행의 「자세히」를 눌러 펼침 줄을 연다 (#1729).
@@ -207,6 +208,17 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
       'datetime-local',
     )
     expect(screen.getByLabelText('실제 도착 시각').getAttribute('type')).toBe('datetime-local')
+  })
+
+  it('계획 시각 힌트는 입력칸용 값이 아니라 표시 형식이다 (`DESIGN_SYSTEM §4.4` · #2122)', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+
+    const field = await screen.findByLabelText('실제 출항 시각')
+    const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+    expect(hint).toContain(formatTimestamp(IN_PROGRESS.plannedDepartureAt!))
+    // `2026-06-01T09:00` 같은 `datetime-local` 원문이 문장에 나가지 않는다.
+    expect(hint).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
   })
 
   it('입력한 시각이 provider까지 도달한다', async () => {
