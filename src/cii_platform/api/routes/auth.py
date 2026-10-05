@@ -81,8 +81,9 @@ from cii_platform.services import audit as audit_svc
 from cii_platform.services.auth_token import issue_token, revoke_all_sessions
 from cii_platform.services.avatar import (
     AVATAR_MEDIA_TYPE,
+    MAX_UPLOAD_BYTES,
     AvatarTooLargeError,
-    render_avatar,
+    render_avatar_async,
 )
 
 _log = logging.getLogger(__name__)
@@ -781,7 +782,9 @@ def _clear_avatar(user: AppUser) -> bool:
     한 군데로 두는 이유는, 한쪽만 비우면 `GET`이 ETag는 있는데 본문이 없는 상태로
     들어가기 때문이다.
     """
-    had = user.avatar_image is not None or user.avatar_etag is not None
+    # ETag로만 묻는다 (#2107). 두 열은 항상 함께 채워지고 함께 비워지며, 이미지 열은
+    # 지연 로드라(`AppUser.avatar_image`) 여기서 읽으면 지우려는 바이트를 DB에서 꺼내 온다.
+    had = user.avatar_etag is not None
     user.avatar_image = None
     user.avatar_etag = None
     return had
@@ -819,9 +822,11 @@ async def upload_my_avatar(
     if user is None:
         raise AuthenticationError()
 
-    raw = await file.read()
+    # 상한 **한 바이트 뒤까지만** 읽는다 (#2107) — 넘는 파일은 어차피 받지 않으므로 끝까지
+    # 메모리에 올릴 이유가 없다. 한 바이트를 더 읽는 것은 「같다」와 「넘는다」를 가르기 위해서다.
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
     try:
-        rendered, etag = render_avatar(raw)
+        rendered, etag = await render_avatar_async(raw)
     except AvatarTooLargeError as exc:
         # 413은 `§1.4`의 「미등록 status」 경로로 나간다(`HTTP_ERROR`) — 새 오류 코드를
         # 만들지 않는다. 상한 초과와 형식 오류를 가르는 것은 **고칠 방법이 다르기**
@@ -853,7 +858,7 @@ async def get_my_avatar(
         raise AuthenticationError()
 
     etag = user.avatar_etag
-    if etag is None or user.avatar_image is None:
+    if etag is None:
         raise NotFoundError("프로필 이미지가 없습니다.")
 
     quoted = f'"{etag}"'
@@ -861,7 +866,12 @@ async def get_my_avatar(
     if quoted in _if_none_match(request):
         return Response(status_code=304, headers=headers)
 
-    return Response(content=user.avatar_image, media_type=AVATAR_MEDIA_TYPE, headers=headers)
+    # 본문은 **내보낼 때만** 읽는다 (#2107). 이미지 열은 지연 로드라 위의 사용자 조회에
+    # 실려 오지 않고, 304로 끝나는 요청은 여기까지 오지 않는다.
+    image = await session.scalar(select(AppUser.avatar_image).where(AppUser.id == user.id))
+    if image is None:
+        raise NotFoundError("프로필 이미지가 없습니다.")
+    return Response(content=image, media_type=AVATAR_MEDIA_TYPE, headers=headers)
 
 
 @router.delete("/me/avatar", status_code=204)

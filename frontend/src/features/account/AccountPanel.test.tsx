@@ -392,6 +392,41 @@ describe('프로필 이미지 — #2080', () => {
     )
   })
 
+  it('2MB를 넘는 파일은 **고른 자리에서** 막는다 — 서버로 보내지 않는다 (#2107)', () => {
+    /*
+     * 종전에는 고른 파일을 보지 않고 그대로 올려, 큰 사진도 끝까지 보낸 뒤에야
+     * 「너무 큽니다」를 받았다. 버튼만 잠그면 왜 잠겼는지 알 수 없으므로 사유도 함께 낸다.
+     */
+    stubUser()
+    const upload = vi.spyOn(session, 'uploadAvatar')
+    renderPanel()
+
+    const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [big] } })
+
+    const button = screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('2MB')
+    fireEvent.click(button)
+    expect(upload).not.toHaveBeenCalled()
+
+    // 올릴 수 있는 파일로 다시 고르면 사유가 걷히고 버튼이 풀린다.
+    const ok = new File([new Uint8Array([1, 2, 3])], 'me.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [ok] } })
+    expect(button.disabled).toBe(false)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('받지 않는 형식도 고른 자리에서 막는다 (#2107)', () => {
+    stubUser()
+    renderPanel()
+    const svg = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [svg] } })
+
+    expect((screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('alert').textContent).toContain('PNG')
+  })
+
   it('「지우기」는 **올린 뒤에만** 보인다', () => {
     /*
      * 없는 것을 지우는 단추는 무엇을 하는지 알 수 없다. 서버는 멱등이라 눌러도

@@ -9,6 +9,8 @@ EXIF가 남은 것도, 폭탄이 통과한 것도, 형식을 속인 파일이 �
 from __future__ import annotations
 
 import io
+import threading
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -20,8 +22,11 @@ from cii_platform.services.avatar import (
     AVATAR_SIZE,
     MAX_PIXELS,
     MAX_UPLOAD_BYTES,
+    TOO_LARGE_MESSAGE,
+    TOO_MANY_PIXELS_MESSAGE,
     AvatarTooLargeError,
     render_avatar,
+    render_avatar_async,
 )
 
 
@@ -78,8 +83,11 @@ class TestWhatReEncodingCloses:
         raw = _png((side, side), color="black")
         assert len(raw) < MAX_UPLOAD_BYTES, "표본이 바이트 상한에 먼저 걸린다 — 폭탄을 못 잰다"
 
-        with pytest.raises(AvatarTooLargeError):
+        with pytest.raises(AvatarTooLargeError) as raised:
             render_avatar(raw)
+        # 이 파일은 **이미 2MB 아래다** (#2107) — 「2MB 이하로」를 말하면 할 수 있는 일이 없다.
+        assert str(raised.value) == TOO_MANY_PIXELS_MESSAGE
+        assert "2MB" not in str(raised.value)
 
     def test_the_bytes_decide_the_format_not_the_name(self):
         """확장자도 `Content-Type`도 보지 않는다 (`#2080` ⑶).
@@ -121,7 +129,8 @@ class TestWhatIsRefused:
         지금은 Pillow가 SVG를 열지 못해 위 검사가 통과하지만, 그것은 **우연**이다.
         Pillow가 언젠가 SVG를 열게 되어도 이 집합이 막는다.
         """
-        assert frozenset({"PNG", "JPEG", "WEBP"}) == ACCEPTED_FORMATS
+        # `MPO`는 프레임이 둘 이상인 JPEG다(#2107) — 아래 `TestMultiFrameJpeg`.
+        assert frozenset({"PNG", "JPEG", "WEBP", "MPO"}) == ACCEPTED_FORMATS
         assert "SVG" not in ACCEPTED_FORMATS
 
     def test_a_gif_is_refused_even_though_pillow_reads_it(self):
@@ -140,8 +149,9 @@ class TestWhatIsRefused:
 
         거대한 파일을 디코더에 넘긴 뒤 판정하면, 판정하기 전에 메모리를 먼저 쓴다.
         """
-        with pytest.raises(AvatarTooLargeError):
+        with pytest.raises(AvatarTooLargeError) as raised:
             render_avatar(b"\x00" * (MAX_UPLOAD_BYTES + 1))
+        assert str(raised.value) == TOO_LARGE_MESSAGE
 
 
 class TestEtag:
@@ -197,6 +207,94 @@ class TestOrientation:
         upright, _ = render_avatar(rotated.getvalue())
         as_is, _ = render_avatar(plain.getvalue())
         assert upright != as_is, "회전 정보가 그림에 반영되지 않았다"
+
+
+class TestMultiFrameJpeg:
+    def test_a_jpeg_with_two_frames_is_accepted_as_its_first_frame(self):
+        """프레임이 둘인 JPEG(MPF)는 Pillow가 ``MPO``로 읽는다 — 그래도 사진 한 장이다 (#2107).
+
+        휴대폰·카메라가 깊이 지도나 미리보기를 한 파일에 함께 담는다. 사용자가 고른 것은
+        `.jpg` 한 장이고 첫 프레임이 그 사진이다. 종전에는 「이미지를 읽을 수 없습니다」였다.
+        """
+        out = io.BytesIO()
+        Image.new("RGB", (300, 200), "red").save(
+            out, format="MPO", save_all=True, append_images=[Image.new("RGB", (300, 200), "blue")]
+        )
+        raw = out.getvalue()
+        with Image.open(io.BytesIO(raw)) as probe:
+            assert probe.format == "MPO", (
+                "표본이 MPO로 읽히지 않는다 — 이 검사가 아무것도 재지 않는다"
+            )
+
+        rendered, _etag = render_avatar(raw)
+        with Image.open(io.BytesIO(rendered)) as stored:
+            assert stored.format == "WEBP"
+            assert stored.size == (AVATAR_SIZE, AVATAR_SIZE)
+            # 첫 프레임(빨강)이다 — 둘째 프레임(파랑)이 아니다.
+            red, _green, blue = stored.convert("RGB").getpixel((AVATAR_SIZE // 2, AVATAR_SIZE // 2))
+            assert red > 200 and blue < 60
+
+
+class TestOffTheEventLoop:
+    async def test_rendering_runs_in_a_worker_thread(self, monkeypatch):
+        """다시 그리기는 **이벤트 루프 밖에서** 돈다 (#2107).
+
+        상한 안의 이미지 한 장이 1초를 넘긴다(6300×6300 PNG · 115KB · 1.53초). 루프에서
+        그리면 그동안 다른 요청이 전부 기다린다 — 헬스 체크도 그렇다.
+        """
+        from cii_platform.services import avatar
+
+        seen: list[int] = []
+
+        def fake(raw: bytes) -> tuple[bytes, str]:
+            seen.append(threading.get_ident())
+            return b"x", "etag"
+
+        monkeypatch.setattr(avatar, "render_avatar", fake)
+        assert await render_avatar_async(b"small") == (b"x", "etag")
+        assert seen and seen[0] != threading.get_ident()
+
+    async def test_oversize_never_reaches_a_thread(self, monkeypatch):
+        """크기만으로 거를 입력에 스레드를 쓰지 않는다."""
+        from cii_platform.services import avatar
+
+        def must_not_run(raw: bytes) -> tuple[bytes, str]:
+            raise AssertionError("상한을 넘는 바이트가 스레드까지 갔다")
+
+        monkeypatch.setattr(avatar, "render_avatar", must_not_run)
+        with pytest.raises(AvatarTooLargeError):
+            await render_avatar_async(b"\x00" * (MAX_UPLOAD_BYTES + 1))
+
+
+class TestWhatTheSessionCheckLoads:
+    def test_the_user_query_does_not_carry_the_image_column(self):
+        """세션 검증의 `select(AppUser)`에 이미지 열이 없다 (#2107).
+
+        그 조회는 **비공개 요청마다** 돈다. 이미지 열이 실리면 요청마다 수십 KB를 DB에서
+        꺼낸다 — 「있다/없다」는 `avatar_etag`로 묻는다(`API_SPEC §1.2.5a`).
+        """
+        from sqlalchemy import select
+
+        from cii_platform.db.models.app_user import AppUser
+
+        sql = str(select(AppUser))
+        assert "avatar_etag" in sql
+        assert "avatar_image" not in sql
+
+    def test_no_route_reads_an_upload_without_a_limit(self):
+        """업로드 본문을 **상한 없이** 읽는 라우트가 없다 (#2107).
+
+        `file.read()`는 본문 전체를 메모리에 올린 뒤에야 서비스가 크기를 본다. 상한 한
+        바이트 뒤까지만 읽어도 서비스의 「너무 큽니다」 판정은 그대로 난다.
+        """
+        routes = Path(__file__).resolve().parents[1] / "src" / "cii_platform" / "api" / "routes"
+        offenders = [
+            f"{path.name}:{number}"
+            for path in sorted(routes.glob("*.py"))
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+            if "file.read()" in line and not line.lstrip().startswith("#")
+        ]
+        assert offenders == []
 
 
 def test_media_type_is_the_one_format_we_store():

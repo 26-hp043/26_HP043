@@ -29,6 +29,8 @@ from __future__ import annotations
 import hashlib
 import io
 
+import anyio
+import anyio.to_thread
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from cii_platform.errors import ValidationError
@@ -43,7 +45,11 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 AVATAR_SIZE = 256
 
 #: 디코드를 허용하는 형식. **닫힌 집합이다** — 여기 없는 것은 열려도 받지 않는다.
-ACCEPTED_FORMATS: frozenset[str] = frozenset({"PNG", "JPEG", "WEBP"})
+#:
+#: ``MPO``는 **JPEG다** (#2107). 휴대폰·카메라가 한 파일에 프레임을 둘 이상 담으면
+#: (MPF — 깊이 지도·미리보기 등) Pillow가 형식을 ``MPO``로 읽는다. 사용자가 고른 것은
+#: `.jpg` 사진 한 장이고, 첫 프레임이 그 사진이다 — 아래에서 다시 그릴 때 첫 프레임만 쓴다.
+ACCEPTED_FORMATS: frozenset[str] = frozenset({"PNG", "JPEG", "WEBP", "MPO"})
 
 #: 펴진 그림의 픽셀 상한 (압축 폭탄).
 #:
@@ -55,6 +61,21 @@ MAX_PIXELS = 40_000_000
 AVATAR_MEDIA_TYPE = "image/webp"
 
 TOO_LARGE_MESSAGE = "이미지가 너무 큽니다. 2MB 이하로 올려 주세요."
+#: 픽셀 상한 초과 전용 (#2107). 이 파일은 **이미 2MB 아래다** — 「2MB 이하로」를 말하면
+#: 사용자는 할 수 있는 일이 없다. 줄여야 하는 것은 용량이 아니라 가로·세로다.
+TOO_MANY_PIXELS_MESSAGE = (
+    "이미지의 가로·세로가 너무 큽니다. 가로×세로 4,000만 화소 이하로 줄여 올려 주세요."
+)
+
+#: 동시에 다시 그리는 수의 상한 (#2107).
+#:
+#: 다시 그리기는 CPU 작업이다 — 상한 안의 이미지 한 장이 1초를 넘긴다(6300×6300 PNG ·
+#: 115KB · 실측 1.53초). 스레드로 내보내 이벤트 루프를 비워 두되, 그 스레드가 기본 풀을
+#: 다 차지하지 않게 따로 센다. 비밀번호 해시(``auth/password``)·PDF(``reports/pdf``)와
+#: 같은 방식이다.
+MAX_CONCURRENT_RENDERS = 2
+
+_render_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_RENDERS)
 UNREADABLE_MESSAGE = "이미지를 읽을 수 없습니다. PNG · JPEG · WebP 파일을 올려 주세요."
 
 
@@ -65,8 +86,8 @@ class AvatarTooLargeError(Exception):
     틀린 것은 다른 파일을 골라야 하지만, 큰 것은 같은 사진을 줄여도 된다.
     """
 
-    def __init__(self) -> None:
-        super().__init__(TOO_LARGE_MESSAGE)
+    def __init__(self, message: str = TOO_LARGE_MESSAGE) -> None:
+        super().__init__(message)
 
 
 def render_avatar(raw: bytes) -> tuple[bytes, str]:
@@ -90,7 +111,7 @@ def render_avatar(raw: bytes) -> tuple[bytes, str]:
 
             width, height = source.size
             if width * height > MAX_PIXELS:
-                raise AvatarTooLargeError()
+                raise AvatarTooLargeError(TOO_MANY_PIXELS_MESSAGE)
 
             # 회전 정보를 **그림에 적용한 뒤** 버린다. 그냥 버리면 세로로 찍은
             # 사진이 눕는다.
@@ -116,3 +137,17 @@ def render_avatar(raw: bytes) -> tuple[bytes, str]:
     square.save(out, format="WEBP", quality=82, method=6)
     rendered = out.getvalue()
     return rendered, hashlib.sha256(rendered).hexdigest()
+
+
+async def render_avatar_async(raw: bytes) -> tuple[bytes, str]:
+    """:func:`render_avatar`를 스레드에서 실행한다 (#2107).
+
+    라우트는 이것을 부른다. 동기 함수를 ``async`` 라우트에서 그대로 부르면 그리는 동안
+    **이벤트 루프가 멈춰** 다른 요청(헬스 체크 포함)이 전부 기다린다.
+
+    바이트 상한은 **여기서 먼저** 본다 — 크기만으로 거를 입력에 스레드 확보 비용까지
+    치를 이유가 없다(``hash_password_async``의 정책 검사와 같은 판단).
+    """
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise AvatarTooLargeError()
+    return await anyio.to_thread.run_sync(render_avatar, raw, limiter=_render_limiter)
