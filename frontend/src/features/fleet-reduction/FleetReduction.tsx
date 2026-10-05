@@ -755,7 +755,9 @@ function TargetLine({ vessel }: { vessel: VesselResult }) {
     vessel.achievable === false
       ? COPY.unreachable
       : vessel.requiredCutFuelTon
-        ? COPY.cutHint(formatGrouped(vessel.requiredCutFuelTon, 1))
+        ? COPY.cutHint(
+            `${formatGrouped(vessel.requiredCutFuelTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`,
+          )
         : null
   return (
     <span className="fr__hint">

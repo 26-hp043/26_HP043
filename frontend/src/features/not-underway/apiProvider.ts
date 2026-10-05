@@ -1,6 +1,7 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { createApiParametersProvider } from '../../api/parameters'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { overlapText } from './periodRules'
 import type {
   FuelUse,
   FuelUseDraft,
@@ -90,7 +91,13 @@ function toPeriod(raw: ServerPeriod): Period {
 interface ServerError {
   error?: {
     message?: string
-    details?: Array<{ field?: string; message?: string }>
+    details?: Array<{
+      field?: string
+      message?: string
+      /** 겹침(409) — 상대 구간의 시각 (`API_SPEC §2.10` · #2122). 진행 중이면 끝이 `null`. */
+      overlap_started_at?: string
+      overlap_ended_at?: string | null
+    }>
   }
 }
 
@@ -134,8 +141,14 @@ export function createApiNotUnderwayProvider(
     if (!response.ok) {
       const detail = body?.error?.details?.[0]
       throw new NotUnderwayError(
-        // 서버 문구가 원인을 가장 정확히 안다 — 겹침이면 상대 구간의 시각까지 담긴다.
-        body?.error?.message ?? `요청에 실패했습니다 (HTTP ${response.status}).`,
+        // 겹침은 서버가 준 **시각 값**으로 문구를 만든다 — 서버 문구의 시각은 화면 표시
+        // 형식이 아니다(#2122). 그 밖에는 서버 문구가 원인을 가장 정확히 안다.
+        typeof detail?.overlap_started_at === 'string'
+          ? overlapText({
+              startedAt: detail.overlap_started_at,
+              endedAt: detail.overlap_ended_at ?? null,
+            })
+          : (body?.error?.message ?? `요청에 실패했습니다 (HTTP ${response.status}).`),
         { field: detail?.field },
       )
     }

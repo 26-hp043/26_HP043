@@ -354,8 +354,8 @@ async def build_voyage_report(
             KeyValueSection(
                 title="CII 기여도",
                 rows=[
-                    ("항차 CO₂ 배출량 (t)", _display(voyage_co2_t, "co2_ton")),
-                    ("연간 누적 CO₂ (t)", _display(ytd.total_co2_t, "co2_ton")),
+                    ("항차 CO₂ 배출량 (tCO₂)", _display(voyage_co2_t, "co2_ton")),
+                    ("연간 누적 CO₂ (tCO₂)", _display(ytd.total_co2_t, "co2_ton")),
                     ("연간 누적에서 차지한 비중", share),
                     ("연간 누적 CII", _display(ytd.attained_cii, "cii")),
                     ("연간 기준 CII", _display(ytd.required_cii, "cii")),
@@ -752,7 +752,7 @@ async def build_annual_report(
                 ("위험도", risk_label(ytd["risk_level"])),
                 ("누적 거리 (nm)", _display(year_row["total_distance_nm"], "distance_nm")),
                 ("누적 연료 (t)", _display(year_row["total_fuel_ton"], "fuel_ton")),
-                ("누적 CO₂ (t)", _display(ytd["total_co2_ton"], "co2_ton")),
+                ("누적 CO₂ (tCO₂)", _display(ytd["total_co2_ton"], "co2_ton")),
                 # ⚠️ 거리·연료에는 진행 중 항차가 들어가는데 이 칸은 **확정 항차만** 센다
                 # (`API_SPEC §2.7`). 라벨이 「항차 수」면 두 항차의 거리를 1항차로 읽는다 —
                 # 검산하면 항차당 거리가 실제의 1.4배로 나왔다 (`#800`). 둘을 갈라 적는다.
@@ -842,12 +842,15 @@ async def build_annual_report(
                         "잔여 계획 거리 (nm)",
                         _display(assumptions["planned_distance_nm"], "distance_nm"),
                     ),
-                    ("잔여 계획 CO₂ (t)", _display(assumptions["planned_co2_ton"], "fuel_ton")),
+                    ("잔여 계획 CO₂ (tCO₂)", _display(assumptions["planned_co2_ton"], "co2_ton")),
                     (
                         "확정 실적 거리 (nm)",
                         _display(assumptions["completed_distance_nm"], "distance_nm"),
                     ),
-                    ("확정 실적 CO₂ (t)", _display(assumptions["completed_co2_ton"], "fuel_ton")),
+                    (
+                        "확정 실적 CO₂ (tCO₂)",
+                        _display(assumptions["completed_co2_ton"], "co2_ton"),
+                    ),
                 ],
                 note="가정이 바뀌면 값이 바뀝니다. 확정값이 아닙니다.",
             )

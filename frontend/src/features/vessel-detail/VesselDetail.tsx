@@ -9,7 +9,7 @@ import { VoyagePanel } from '../voyage-management/VoyagePanel'
 import { ACTUALS_PARAM } from '../voyage-management/voyageRules'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import { detailStatusText } from '../fleet/fleetRules'
+import { detailStatusText, underwayStateText } from '../fleet/fleetRules'
 import { PositionChart } from '../fleet/PositionChart'
 import { formatLat, formatLon } from '../fleet/coordinateText'
 import { BASEMAP_MISSING_NOTICE, hasBasemap } from '../fleet/basemap'
@@ -373,7 +373,11 @@ export function VesselDetail({
               <h3 className="card__title">현재 상태</h3>
             </div>
             <dl className="spec">
-              <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
+              {/*
+                미기록은 「—」가 아니라 대시보드·선박 관리와 같은 말이다 (#2122). 「—」는 이 표에서
+                「값 없음」(기본 연료 미설정 등)이라, 같은 기호로 그리면 둘이 구분되지 않는다.
+              */}
+              <Spec label="운항 상태" value={underwayStateText(vessel)} />
               {/* `UIFLOW 2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
               <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
               {/*
@@ -769,13 +773,6 @@ function Spec({
       <dd className={value ? 'num' : 'num muted'}>{value ? `${value}${suffix}` : '—'}</dd>
     </div>
   )
-}
-
-/** 상태 미기록을 「정박」으로 적지 않는다 — 없는 사실이 된다. */
-function stateText(state: 'UNDER_WAY' | 'NOT_UNDER_WAY' | null): string | null {
-  if (state === 'UNDER_WAY') return '운항 중'
-  if (state === 'NOT_UNDER_WAY') return '정박 중'
-  return null
 }
 
 /** 데이터가 없는 이유를 사유별로 구분해 말한다. */

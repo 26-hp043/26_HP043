@@ -65,12 +65,24 @@ export function toLocalInput(iso: string): string {
   return toKstInput(iso)
 }
 
-export function formatRange(period: Period): string {
+export function formatRange(period: Pick<Period, 'startedAt' | 'endedAt'>): string {
   // 형식은 `formatTimestamp`가 갖는다 (#1420).
   const start = formatTimestamp(period.startedAt)
   // 「진행 중」과 「모름」은 다르다. 빈칸이나 「—」로 두면 종료 시각을 잊은 것으로 읽힌다.
   if (period.endedAt === null) return `${start} ~ 진행 중`
   return `${start} ~ ${formatTimestamp(period.endedAt)}`
+}
+
+/**
+ * 겹침(409) 문구 — 상대 구간의 시각을 **목록과 같은 형식**으로 적는다 (#2122).
+ *
+ * 서버는 시각을 값으로 준다(`API_SPEC §2.10` `details[0].overlap_started_at` ·
+ * `overlap_ended_at`). 종전에는 서버 문구의 UTC ISO 원문(`2026-08-10T14:00:00+00:00`)을
+ * 그대로 보여, 바로 위 목록의 KST 시각과 9시간 어긋났다 — 사용자는 그 시각의 구간을
+ * 목록에서 찾지 못한다. `formatRange`를 지나면 목록의 그 행과 **글자까지 같다.**
+ */
+export function overlapText(clash: Pick<Period, 'startedAt' | 'endedAt'>): string {
+  return `같은 선박에 이미 겹치는 구간이 있습니다 (${formatRange(clash)}). 기존 구간의 종료 시각을 먼저 확정해 주세요.`
 }
 
 /** 구간의 연료 합계 (표시용). 소수 둘째 자리는 `fuel_ton`의 DB 정밀도다. */

@@ -589,11 +589,11 @@ async def _project_year_end(
             "remaining_voyage_count": inputs.plan_voyage_count,
             "planned_distance_nm": _publish(deterministic.planned_distance_nm, "distance_nm"),
             "planned_co2_ton": _publish(
-                deterministic.planned_co2_g / Decimal(1_000_000), "fuel_ton"
+                deterministic.planned_co2_g / Decimal(1_000_000), "co2_ton"
             ),
             "completed_distance_nm": _publish(deterministic.completed_distance_nm, "distance_nm"),
             "completed_co2_ton": _publish(
-                deterministic.completed_co2_g / Decimal(1_000_000), "fuel_ton"
+                deterministic.completed_co2_g / Decimal(1_000_000), "co2_ton"
             ),
         },
         # 무엇이 올리는가 (`#1673`). 합은 정확히 ``attained_cii − ytd.attained_cii``다.

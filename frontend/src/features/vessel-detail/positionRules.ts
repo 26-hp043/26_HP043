@@ -89,8 +89,15 @@ export function detailStatusFor(state: string, current: string): string {
   return ''
 }
 
+/**
+ * 좌표 한 칸을 수로 읽는다.
+ *
+ * **빼기 기호(U+2212 `−`)를 하이픈과 같게 받는다** (#2122). 이 폼의 힌트(「−90 ~ 90」)와
+ * 범위 오류 문구가 그 글자로 적혀 있어, 보고 따라 치거나 붙여 넣으면 「숫자로 입력해
+ * 주세요」에 걸렸다 — 안내에 적힌 글자를 입력이 거부하면 안내가 틀린 것이 된다.
+ */
 function parseCoordinate(raw: string): number | null {
-  const text = raw.trim()
+  const text = raw.trim().replace(/^\u2212/, '-')
   if (text === '') return null
   if (!/^[+-]?\d+(\.\d+)?$/.test(text)) return null
   const value = Number(text)
@@ -166,8 +173,13 @@ export function positionPayload(draft: PositionDraft, base: PositionDraft): Posi
   const latText = draft.lat.trim()
   const lonText = draft.lon.trim()
   if (latText !== '' && (latText !== base.lat || lonText !== base.lon)) {
-    payload.current_lat = Number(latText)
-    payload.current_lon = Number(lonText)
+    // `Number('−35')`는 NaN이다 — 검증과 **같은 읽기**를 지난다 (#2122).
+    const lat = parseCoordinate(latText)
+    const lon = parseCoordinate(lonText)
+    if (lat !== null && lon !== null) {
+      payload.current_lat = lat
+      payload.current_lon = lon
+    }
   }
 
   return payload

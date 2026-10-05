@@ -1148,7 +1148,8 @@ function Result({
                       <tr key={key}>
                         <th scope="row">
                           {label}
-                          {entry.alternative_fuel ? ` (${entry.alternative_fuel})` : ''}
+                          {/* 코드 원문(`LNG`)이 아니라 다른 자리와 같은 표기로 (`DESIGN_SYSTEM §3` · #2122). */}
+                          {entry.alternative_fuel ? ` — ${fuelTypeText(entry.alternative_fuel)}` : ''}
                         </th>
                         <td>{formatDecimalString(entry.projected_cii, DISPLAY_DIGITS.cii)}</td>
                         <td>{entry.rating_change}</td>

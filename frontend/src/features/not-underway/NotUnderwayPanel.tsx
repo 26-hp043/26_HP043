@@ -208,7 +208,7 @@ function PeriodRow({
       setRowError(null)
       await action()
     } catch (error) {
-      // 서버 문구를 그대로 쓴다 — 겹침이면 상대 구간의 시각까지 담겨 온다.
+      // 제공자가 만든 문구를 그대로 쓴다 — 겹침이면 상대 구간의 시각이 목록과 같은 형식으로 담긴다.
       setRowError(
         error instanceof NotUnderwayError
           ? error.message

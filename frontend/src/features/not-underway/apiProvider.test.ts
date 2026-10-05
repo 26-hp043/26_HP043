@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApiNotUnderwayProvider, NotUnderwayError } from './apiProvider'
+import { formatRange } from './periodRules'
 import type { PeriodDraft } from './types'
 
 /**
@@ -322,10 +323,35 @@ describe('연료 기록 추가·삭제 (#638)', () => {
 })
 
 describe('실패 경로', () => {
-  it('겹침(409)의 서버 문구를 그대로 쓴다 — 상대 구간의 시각이 담겨 있다', async () => {
-    const message =
-      '같은 선박에 이미 겹치는 구간이 있습니다 (2026-08-10T14:00:00+00:00 ~ 진행 중). ' +
-      '기존 구간의 종료 시각을 먼저 확정해 주세요.'
+  it('겹침(409)은 서버가 준 시각 값을 목록과 같은 형식으로 적는다 — 서버 문구의 시각을 옮기지 않는다 (#2122)', async () => {
+    const startedAt = '2026-08-10T14:00:00+00:00'
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: 'CONFLICT',
+            message: '같은 선박에 이미 겹치는 구간이 있습니다 (2026-08-10 23:00 KST ~ 진행 중).',
+            details: [{ overlap_started_at: startedAt, overlap_ended_at: null }],
+          },
+        },
+        409,
+      ),
+    )
+
+    const error = (await createApiNotUnderwayProvider(fetchImpl)
+      .create(VESSEL, DRAFT)
+      .catch((e: unknown) => e)) as NotUnderwayError
+
+    // 목록의 그 행과 글자까지 같아야 사용자가 상대 구간을 찾는다.
+    expect(error.message).toContain(formatRange({ startedAt, endedAt: null }))
+    // ISO 원문(UTC)이 화면에 나가지 않는다.
+    expect(error.message).not.toContain(startedAt)
+    // 한 입력칸의 오류가 아니다 — 입력창 아래로 옮겨 붙지 않는다.
+    expect(error.field).toBeUndefined()
+  })
+
+  it('겹침(409)에 시각 값이 없으면 서버 문구를 쓴다 — 아는 것을 버리지 않는다', async () => {
+    const message = '같은 선박에 이미 겹치는 구간이 있습니다.'
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(jsonResponse({ error: { code: 'CONFLICT', message } }, 409))

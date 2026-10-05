@@ -95,6 +95,17 @@ describe('위경도', () => {
     expect(hasPositionErrors(validatePosition(draft({ lat: '-90', lon: '-180' })))).toBe(false)
   })
 
+  it('힌트에 적힌 빼기 기호(U+2212)를 받는다 — 안내의 글자를 입력이 거부하지 않는다 (#2122)', () => {
+    const typed = draft({ lat: '\u221235.5', lon: '\u2212120' })
+    expect(hasPositionErrors(validatePosition(typed))).toBe(false)
+    // 하이픈으로 넣은 것과 **같은 수**가 실린다 — NaN이 요청에 나가지 않는다.
+    expect(positionPayload(typed, AT_SEA)).toEqual(
+      positionPayload(draft({ lat: '-35.5', lon: '-120' }), AT_SEA),
+    )
+    // 범위 판정도 같다.
+    expect(validatePosition(draft({ lat: '\u221291', lon: '0' })).lat).toBeDefined()
+  })
+
   it('숫자가 아니면 막는다 — 지수 표기도 받지 않는다', () => {
     expect(validatePosition(draft({ lat: '북위 35도', lon: '0' })).lat).toBeDefined()
     expect(validatePosition(draft({ lat: '3.5e1', lon: '0' })).lat).toBeDefined()

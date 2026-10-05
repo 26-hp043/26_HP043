@@ -149,6 +149,29 @@ describe('함대 감축 계획 화면 (#513)', () => {
     expect((screen.getByLabelText('MV Empty 감속률') as HTMLInputElement).disabled).toBe(true)
   })
 
+  it('미달 힌트의 연료량은 같은 표의 「연료 절감」 칸과 같은 자릿수·단위다 (#2122)', async () => {
+    const base = result().vessels[0]
+    renderWith(
+      result({
+        vessels: [
+          { ...base, meetsTarget: false, achievable: true, fuelSavedTon: '1305.52', requiredCutFuelTon: '1305.52' },
+        ],
+      }),
+    )
+    await screen.findByText('MV One')
+
+    // 같은 값을 넣었으므로 두 자리의 표기가 **글자까지 같아야** 한다 — 종전에는 힌트만
+    // 단위를 붙여 쓰고(`305.5t`) 자릿수도 따로 박았다.
+    const cell = [...document.querySelectorAll('td')]
+      .map((td) => td.textContent ?? '')
+      .find((text) => text.endsWith(` ${DISPLAY_UNITS.fuel}`))
+    expect(cell).toBeTruthy()
+    const hint = [...document.querySelectorAll('.fr__hint')]
+      .map((el) => el.textContent ?? '')
+      .find((text) => text.includes(FLEET_REDUCTION_COPY.misses))
+    expect(hint).toContain(cell!.trim())
+  })
+
   it('상태 분기 — 감속 전 미달은 「움직이면 계산된다」, 달성은 「달성」', async () => {
     renderWith()
     expect(await screen.findByText(new RegExp(FLEET_REDUCTION_COPY.statusIdle))).toBeTruthy()

@@ -327,6 +327,22 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(within(section).queryByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeNull()
   })
 
+  it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {
+    stubWith(
+      withSensitivity({
+        fuel_cf_alternative: { projected_cii: '7.500000', rating_change: 'E→D', alternative_fuel: 'LNG' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const section = screen.getByRole('heading', { name: ANNUAL_COPY.sensitivityTitle }).closest('section')!
+    const head = within(section).getAllByRole('rowheader').map((th) => th.textContent ?? '')
+    expect(head.some((text) => text.includes(fuelTypeText('LNG')))).toBe(true)
+    // 코드만 괄호에 넣은 종전 표기(`(LNG)`로 끝나되 한국어 이름이 없다)가 되살아나지 않는다.
+    expect(fuelTypeText('LNG')).not.toBe('LNG')
+  })
+
   it('거리 행이 있으면 거의 변하지 않는 이유를 말한다 — 「효과 없음」으로 읽히지 않게', async () => {
     stubWith(
       withSensitivity({

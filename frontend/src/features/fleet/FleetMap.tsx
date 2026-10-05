@@ -1,6 +1,7 @@
 import { useCallback, useId, useMemo, useState, type ReactNode } from 'react'
 import './FleetMap.css'
 import type { MapVessel } from './types'
+import { formatLat, formatLon } from './coordinateText'
 import {
   seaRouteKey,
   useSeaRoutes,
@@ -24,6 +25,22 @@ import {
   missingPositionText,
   NO_POSITION_RECORDED_TEXT,
 } from './fleetRules'
+
+/**
+ * 대체 텍스트의 한 줄 — 좌표는 개략도와 **같은 표기**(`37.4°N`)로 적는다 (#2122).
+ *
+ * 종전에는 현재 위치를 숫자(`위도 35.1, 경도 129`)로, 항로 양 끝을 서버 문자열 그대로
+ * 적었다. 같은 화면이 지도와 개략도를 갈아 끼우는데(`coordinateText` 머리주석) 좌표
+ * 표기가 갈리면 바뀐 것이 위치인지 표기인지 알 수 없다.
+ */
+function alternativeItem(vessel: MapVessel, lat: number, lon: number): string {
+  const at = (latValue: number | string, lonValue: number | string) =>
+    `${formatLat(Number(latValue))}, ${formatLon(Number(lonValue))}`
+  const route = vessel.route
+    ? ` · 출발 ${at(vessel.route.departureLat, vessel.route.departureLon)} · 도착 ${at(vessel.route.arrivalLat, vessel.route.arrivalLon)}`
+    : ''
+  return `${vessel.name}: ${at(lat, lon)}${route}`
+}
 
 /**
  * 선대 지도 (`#763`).
@@ -447,7 +464,14 @@ export function FleetMap({
         */}
         {caption ?? (
           <>
-            <span className="fleetmap__hint-line">{disclosure.visibleText}</span>
+            {/*
+              항로선이 **있을 때만** 선 이야기를 한다 (#2122). 종전에는 선이 한 줄도 없는
+              지도에도 「진행 중 항차의 항로선을 표시합니다」가 적혔다 — 바로 아래 출처 줄
+              (`RouteSourceNotice`)은 같은 조건으로 이미 숨는다.
+            */}
+            {asks.length > 0 ? (
+              <span className="fleetmap__hint-line">{disclosure.visibleText}</span>
+            ) : null}
             <span className="fleetmap__hint-line">
               <b>테두리가 굵은 배</b>는 주의 대상입니다.
             </span>
@@ -458,7 +482,7 @@ export function FleetMap({
       {/* 지도 출처는 늘 · 경로망 출처는 항로선을 묻는 지도만 (#1853 ③). */}
       <RouteSourceNotice source={asks.length > 0 ? ROUTE_SOURCE : null} />
       <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
-        items={adapted.positions.map(({ vessel, lat, lon }) => `${vessel.name}: 위도 ${lat}, 경도 ${lon}${vessel.route ? ` · 출발 ${vessel.route.departureLat}, ${vessel.route.departureLon} · 도착 ${vessel.route.arrivalLat}, ${vessel.route.arrivalLon}` : ''}`)} />
+        items={adapted.positions.map(({ vessel, lat, lon }) => alternativeItem(vessel, lat, lon))} />
     </div>
   )
 }

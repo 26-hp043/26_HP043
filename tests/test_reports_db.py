@@ -481,9 +481,9 @@ async def test_projection_carries_assumptions_when_available(session, vessel_id)
         "잔여 일수",
         "잔여 계획 항차",
         "잔여 계획 거리 (nm)",
-        "잔여 계획 CO₂ (t)",
+        "잔여 계획 CO₂ (tCO₂)",
         "확정 실적 거리 (nm)",
-        "확정 실적 CO₂ (t)",
+        "확정 실적 CO₂ (tCO₂)",
     ):
         assert label in rows, label
 

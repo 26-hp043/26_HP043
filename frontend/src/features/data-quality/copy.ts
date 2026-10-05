@@ -1,3 +1,4 @@
+import { fuelTypeText } from '../parameters/fuelTypes'
 import type { PublicRecordField, Severity } from './types'
 
 /**
@@ -154,7 +155,9 @@ const REASON_TEXT: Record<string, string> = {
 }
 
 /**
- * 사유 코드 → 문구. `FUEL:HFO`처럼 유종이 붙으면 뒤에 괄호로 적는다.
+ * 사유 코드 → 문구. `FUEL:HFO`처럼 유종이 붙으면 뒤에 **다른 자리와 같은 표기**로 적는다
+ * (`fuelTypeText` — 「중유 (HFO)」 · `DESIGN_SYSTEM §3` · #2122). 종전에는 코드 원문을 괄호에
+ * 넣어 같은 화면의 연료 칸과 이름이 갈렸다. 표기 자체가 괄호를 가지므로 가운뎃점으로 잇는다.
  *
  * **전체 코드가 그대로 키에 있으면 그것을 먼저 쓴다** — `PUBLIC_RECORD:ARRIVAL`처럼 뒤쪽이
  * 필드 코드라 원문 그대로 괄호로 붙이면 한국어 화면에 영문이 남는다(위 `REASON_TEXT` 주석).
@@ -165,7 +168,7 @@ export function reasonText(code: string): string {
   if (code in REASON_TEXT) return REASON_TEXT[code]
   const [head, detail] = code.split(':', 2)
   const text = REASON_TEXT[head] ?? code
-  return detail ? `${text} (${detail})` : text
+  return detail ? `${text} · ${fuelTypeText(detail)}` : text
 }
 
 /**

@@ -365,7 +365,7 @@ class TestValidationErrors:
         """``field_label``이 한글 라벨로 채워진다 (API_SPEC §1.3.2 · §11)."""
         resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "distance_nm": 0})
         detail = next(d for d in resp.json()["error"]["details"] if d["field"] == "distance_nm")
-        assert detail["field_label"] == "운항 거리"
+        assert detail["field_label"] == "항해거리"
 
 
 # --- 도메인 오류 ---------------------------------------------------------------------

@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
+import { underwayStateText } from '../fleet/fleetRules'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
 import { VESSEL_TABS } from './vesselTabs'
 
@@ -310,6 +311,30 @@ describe('제원 표시 자릿수·단위 (#822)', () => {
     // 종전에는 `1234.5 t`였다 — 구분자가 없어 자리 수를 세야 읽혔다.
     // 단위는 `§4.2`가 소유한다 — 리터럴로 적지 않는다 (#164 · #858).
     expect(await screen.findByText(`1,234.5 ${DISPLAY_UNIT_DAILY_FUEL}`)).toBeTruthy()
+  })
+
+  it('운항 상태 미기록은 「값 없음」과 다른 말로 적는다 — 대시보드와 같은 문구다 (#2122)', async () => {
+    renderAt(
+      stub({
+        load: vi.fn().mockResolvedValue({
+          ...DETAIL,
+          vessel: { ...DETAIL.vessel, underwayState: null, detailStatus: null, defaultFuelType: null },
+        }),
+      }),
+    )
+
+    const row = (label: string) =>
+      [...document.querySelectorAll('dl.spec > div')].find(
+        (div) => div.querySelector('dt')?.textContent === label,
+      )
+    await screen.findByText('현재 상태')
+    const state = row('운항 상태')?.querySelector('dd')?.textContent
+    // 같은 표의 「값 없음」(기본 연료 미설정)과 같은 기호가 아니다.
+    expect(state).not.toBe(row('기본 연료')?.querySelector('dd')?.textContent)
+    // 대시보드·선박 관리가 쓰는 말과 같다.
+    expect(state).toBe(underwayStateText({ underwayState: null }))
+    // 미기록을 정박으로 적지 않는다 (`AGENTS §4.6`의 예시 성질).
+    expect(state).not.toBe(underwayStateText({ underwayState: 'NOT_UNDER_WAY' }))
   })
 
   it('값이 없으면 「—」다 — 포매터가 빈 문자열을 만들지 않는다', async () => {

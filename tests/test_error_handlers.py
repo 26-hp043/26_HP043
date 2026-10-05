@@ -40,13 +40,13 @@ def test_to_error_response_matches_api_spec_1_3_2() -> None:
     # API_SPEC §1.3.2: {"error": {"code","message","details"?}, "meta": {...}}
     body = to_error_response(
         "VALIDATION_ERROR",
-        "운항 거리는 0보다 커야 합니다.",
+        "항해거리는 0보다 커야 합니다.",
         details=[{"field": "distance_nm", "rule": "VAL-002"}],
         request_id="req-1",
         timestamp="2026-07-18T00:00:00Z",
     )
     assert body["error"]["code"] == "VALIDATION_ERROR"
-    assert body["error"]["message"] == "운항 거리는 0보다 커야 합니다."
+    assert body["error"]["message"] == "항해거리는 0보다 커야 합니다."
     assert body["error"]["details"] == [{"field": "distance_nm", "rule": "VAL-002"}]
     assert body["meta"] == {"request_id": "req-1", "timestamp": "2026-07-18T00:00:00Z"}
 
@@ -232,13 +232,13 @@ def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
     """
     body = to_error_response(
         "VALIDATION_ERROR",
-        "운항 거리는 0보다 커야 합니다.",
+        "항해거리는 0보다 커야 합니다.",
         details=[
             {
                 "field": "distance_nm",
-                "field_label": "운항 거리",
+                "field_label": "항해거리",
                 "rule": "VAL-002",
-                "message": "운항 거리는 0보다 커야 합니다.",
+                "message": "항해거리는 0보다 커야 합니다.",
             }
         ],
         request_id="req-4k",
@@ -246,8 +246,8 @@ def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
     )
     entry = body["error"]["details"][0]
     assert set(entry) == {"field", "field_label", "rule", "message"}
-    assert entry["field_label"] == "운항 거리"
-    assert entry["message"] == "운항 거리는 0보다 커야 합니다."
+    assert entry["field_label"] == "항해거리"
+    assert entry["message"] == "항해거리는 0보다 커야 합니다."
 
 
 def test_four_key_details_survive_end_to_end() -> None:
@@ -259,13 +259,13 @@ def test_four_key_details_survive_end_to_end() -> None:
     async def boom_details() -> dict[str, str]:
         raise AppError(
             "VALIDATION_ERROR",
-            "운항 거리는 0보다 커야 합니다.",
+            "항해거리는 0보다 커야 합니다.",
             details=[
                 {
                     "field": "distance_nm",
-                    "field_label": "운항 거리",
+                    "field_label": "항해거리",
                     "rule": "VAL-002",
-                    "message": "운항 거리는 0보다 커야 합니다.",
+                    "message": "항해거리는 0보다 커야 합니다.",
                 }
             ],
         )
@@ -274,9 +274,9 @@ def test_four_key_details_survive_end_to_end() -> None:
     assert payload["error"]["details"] == [
         {
             "field": "distance_nm",
-            "field_label": "운항 거리",
+            "field_label": "항해거리",
             "rule": "VAL-002",
-            "message": "운항 거리는 0보다 커야 합니다.",
+            "message": "항해거리는 0보다 커야 합니다.",
         }
     ]
 
@@ -290,11 +290,11 @@ def test_validation_error_auto_details_keys() -> None:
     from cii_platform.errors import ValidationError
 
     exc = ValidationError(
-        "운항 거리는 0보다 커야 합니다.", field="distance_nm", field_label="운항 거리"
+        "항해거리는 0보다 커야 합니다.", field="distance_nm", field_label="항해거리"
     )
     assert exc.details is not None
     assert set(exc.details[0]) == {"field", "field_label", "message"}
-    assert exc.details[0]["field_label"] == "운항 거리"
+    assert exc.details[0]["field_label"] == "항해거리"
 
 
 def test_custom_app_error_subclass_is_caught_by_base_handler() -> None:

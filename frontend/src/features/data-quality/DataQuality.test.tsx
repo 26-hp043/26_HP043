@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router'
 import { DataQuality } from './DataQuality'
 import { DATA_QUALITY_COPY, SEVERITY_TITLE } from './copy'
 import { formatTimestamp } from '../../display/format'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import type { DataQualityProvider, DataQualitySnapshot } from './types'
 
 /**
@@ -152,10 +153,15 @@ describe('데이터 점검 화면 (#513)', () => {
     expect(await screen.findByText(DATA_QUALITY_COPY.noActualVoyages)).toBeTruthy()
   })
 
-  it('사유 코드는 사람이 읽는 문구로 — 유종은 괄호로 붙인다', async () => {
+  it('사유 코드는 사람이 읽는 문구로 — 유종은 다른 자리와 같은 표기로 붙인다 (#2122)', async () => {
     renderWith(SNAPSHOT)
 
-    expect(await screen.findByText('실적 연료 없음 — 계획 연료로 계산 (HFO)')).toBeTruthy()
+    // 코드 원문 `(HFO)`가 아니라 연료 칸과 같은 표기다 — 같은 연료가 한 화면에서 두 이름이 되지 않는다.
+    const item = await screen.findByText(
+      (text, node) => node?.tagName === 'LI' && text.endsWith(fuelTypeText('HFO')),
+    )
+    // 사유 문구가 앞에 있다 — 연료 이름만 남지 않는다.
+    expect(item.textContent).not.toBe(fuelTypeText('HFO'))
   })
 })
 
