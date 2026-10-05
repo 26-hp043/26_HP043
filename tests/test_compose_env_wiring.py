@@ -89,6 +89,45 @@ def _db_service(path: Path, name: str) -> dict:
     return _compose(path)["services"][name]
 
 
+#: CUBRID가 실제로 데이터를 두는 자리 — 이미지의 ``$CUBRID_DATABASES``.
+_CUBRID_DATA_PATH = "/home/cubrid/CUBRID/databases"
+
+
+def test_every_db_mounts_the_named_volume_on_the_data_path():
+    """세 compose 모두 ``cubrid-data``를 **CUBRID의 데이터 경로**에 붙인다 (#2115 · #1867).
+
+    ``docker-compose.prod.yml``만 ``/var/lib/cubrid``에 붙어 있었다. CUBRID가 쓰지 않는
+    자리라 이름 있는 볼륨은 비어 있고, 실제 데이터는 이미지가 선언한 익명 볼륨에 있었다 —
+    ``docker compose down``은 ``-v`` 없이도 다음 ``up``에서 그 익명 볼륨을 다시 쓰지 않아
+    **내렸다 올리면 빈 DB였다.** 한 파일만 어긋나도 화면은 멀쩡히 뜨므로 여기서 잠근다.
+    """
+    for path, name in _DB_SERVICES:
+        mounts = [str(volume) for volume in _db_service(path, name).get("volumes", [])]
+        assert f"cubrid-data:{_CUBRID_DATA_PATH}" in mounts, (
+            f"{path.name}의 {name}가 cubrid-data를 데이터 경로에 붙이지 않는다: {mounts}"
+        )
+        assert "cubrid-data" in _compose(path).get("volumes", {}), path.name
+
+
+def test_nginx_body_limit_covers_the_largest_upload_the_backend_accepts():
+    """nginx의 본문 상한이 백엔드가 받는 가장 큰 업로드보다 크다 (#2115).
+
+    ``location /api/``에 ``client_max_body_size``가 없어 nginx 기본값 1MB가 걸려 있었다.
+    백엔드는 CSV 5MB · 프로필 이미지 2MB를 받는다고 적는데, 그 요청들이 **백엔드에 닿기
+    전에** 413으로 잘렸다. 상한과 같은 값으로는 모자라다 — multipart 경계와 폼 필드가 붙는다.
+    """
+    from cii_platform.services.avatar import MAX_UPLOAD_BYTES
+    from cii_platform.services.voyage_import import MAX_FILE_BYTES
+
+    conf = (_ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+    api_block = conf[conf.index("location /api/") :]
+    api_block = api_block[: api_block.index("\n    }")]
+    match = re.search(r"^\s*client_max_body_size\s+(\d+)m;", api_block, re.M)
+    assert match, "location /api/ 에 client_max_body_size가 없다 — nginx 기본값 1MB가 걸린다"
+    limit = int(match.group(1)) * 1024 * 1024
+    assert limit > max(MAX_FILE_BYTES, MAX_UPLOAD_BYTES)
+
+
 def test_every_db_healthcheck_passes_the_password():
     """🔴 healthcheck가 ``CUBRID_PASSWORD``를 넘긴다 (`#1058` 결정요청 §0-4).
 
