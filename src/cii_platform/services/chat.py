@@ -416,6 +416,7 @@ async def _answer_turn(
                 session_id=chat_session_id,
                 tool_name=call.name,
                 arguments_digest=_digest(call.arguments),
+                calculation_run_id=outcome.calculation_run_id,
                 ip_address=ip_address,
             )
         messages.append({"role": "user", "content": results})

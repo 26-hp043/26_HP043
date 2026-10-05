@@ -1334,7 +1334,7 @@ CREATE INDEX idx_chat_session_expires ON chat_session (expires_at);
 CREATE INDEX idx_chat_session_user    ON chat_session (user_id, created_at DESC);
 ```
 
-> **계산 경로와 격리된다.** `PRD §7.8`이 *"계산·보고 경로와 완전히 격리된 별도 저장소"*를 요구하므로 이 두 표는 `calculation_run`·`voyage`를 **참조하지 않는다.** 챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`, §2.14)가 `calculation_run.id`로 가리킨다 — 재현의 원본은 그쪽이고 챗봇 로그는 가리키기만 한다.
+> **계산 경로와 격리된다.** `PRD §7.8`이 *"계산·보고 경로와 완전히 격리된 별도 저장소"*를 요구하므로 이 두 표는 `calculation_run`·`voyage`를 **참조하지 않는다.** 챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`, §2.14)가 `calculation_run.id`로 가리킨다 — 재현의 원본은 그쪽이고 챗봇 로그는 가리키기만 한다. **`details.calculation_run_id`를 싣는 도구는 저장된 실행을 읽는 `explain_screen_result` 하나이고, 읽어서 결과를 모델에게 준 경우에만 싣는다**(실행을 찾지 못했거나 선박이 달라 오류 봉투를 낸 호출은 비운다 · `#2099`). 계산을 저장하지 않는 도구(`calculate_voyage_cii` 등 · `#1334`)와 조회 도구는 인용할 실행이 없어 키 자체를 싣지 않는다.
 
 > **지우는 표다.** ⚠️ 지우지 않는 `audit_log`와 성격이 정반대라 같은 내용을 두 곳에 넣으면 삭제 요청을 만족시킬 수 없다. 본문(인용값 포함)은 여기에만 있고 감사 로그에는 해시만 남는다. 만료 행은 `scripts/purge_expired.py`가 지운다 — 유예 없이 `expires_at` 그대로(`TEST_PLAN §3.21`). downgrade 분류는 스키마 전체 `IRREVERSIBLE`(`1c444a5c4819`, §8.1.2)에 포함돼 있으나 데이터 성격은 EPHEMERAL이다.
 
