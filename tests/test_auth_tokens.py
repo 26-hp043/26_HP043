@@ -709,11 +709,12 @@ class TestPasswordResetEdges:
 
         ⚠️ **어느 갈래로 거부되는지는 이 검사가 규정하지 않는다.** `user_token`의 FK가
         `ON DELETE CASCADE`(`fk_user_token_user`)라 사용자를 지우면 토큰 행도 함께
-        사라지고, 그래서 `consume_token`이 먼저 `TokenError`를 낸다 — 라우트의
-        「토큰은 유효한데 사용자가 없다」 분기(`auth_tokens.py:168-169`·`232-233`)는
-        **API로 도달할 수 없는 방어 코드**다. 그 4문장이 커버리지에 남는 이유이며,
-        도달시키려면 `session.get`을 갈아 끼워야 하는데 그것은 **구현을 검사하는 것이지
-        동작을 검사하는 것이 아니다.** 여기서 지키는 것은 **밖에서 보이는 계약**이다.
+        사라지고, 그래서 `consume_token`이 먼저 `TokenError`를 낸다. 여기서 지키는 것은
+        **밖에서 보이는 계약**이다.
+
+        라우트의 「토큰은 유효한데 사용자가 없다」 분기는 **행을 지운 경우에는** 닿지 않지만,
+        **탈퇴(소프트 삭제)한 계정의 살아 있는 토큰**으로는 닿는다 — 확정 경로가 활성 계정만
+        보게 된 뒤부터다(`#2109`). 그 경로는 `test_auth_path_consistency_db.py`가 본다.
         """
         from cii_platform.db.session import get_sessionmaker
         from cii_platform.services.auth_token import issue_token as issue

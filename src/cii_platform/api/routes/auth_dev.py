@@ -14,9 +14,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.error_handlers import to_error_response
 from cii_platform.api.rate_limit import audit_client_ip
+from cii_platform.auth.reserved_emails import DEV_STUB_EMAIL as _STUB_EMAIL
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
     SESSION_COOKIE_NAME,
@@ -35,7 +38,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 #: ``idx_app_user_email`` UNIQUE 위반 → 500이 난다. 018_seed_demo_vessel이
 #: UUID를 명시적으로 박는 것과 같은 선례다 (UUID v4 형식: version 4 · variant 8).
 _STUB_USER_ID = UUID("00000000-0000-4000-8000-000000000deb")
-_STUB_EMAIL = "dev@localhost"
+#: 이메일은 :data:`~cii_platform.auth.reserved_emails.DEV_STUB_EMAIL`이다 — 가입이
+#: 거부하는 예약 주소 목록과 **같은 상수**를 본다 (#2109).
+
+#: 예약 주소가 다른 계정에 선점돼 스텁 계정을 만들 수 없을 때 (#2109).
+STUB_UNAVAILABLE_MESSAGE = (
+    "개발용 계정을 만들 수 없습니다. 같은 이메일을 쓰는 계정을 정리해 주세요."
+)
 
 #: 스텁 계정의 비밀번호 해시 자리.
 #:
@@ -78,7 +87,20 @@ async def dev_login(
             role=ROLE_OFFICE,
         )
         session.add(user)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            # 되돌리고 고정 PK로 다시 읽는다 — 동시 첫 호출이면 남이 넣은 행이 있다.
+            await session.rollback()
+            user = await session.get(AppUser, _STUB_USER_ID)
+            if user is None:
+                # 충돌했는데 고정 PK의 행이 없다 — **다른 계정이 예약 주소를 쓰고 있다**
+                # (#2109). 종전에는 여기서 500이었다. 둘러보기(`auth.tour_login`)와 같은
+                # `409 CONFLICT`로 끝낸다(`API_SPEC §1.4` — 리소스 중복).
+                return JSONResponse(
+                    status_code=409,
+                    content=to_error_response("CONFLICT", STUB_UNAVAILABLE_MESSAGE),
+                )
     elif user.role not in OFFICE_OR_ABOVE:
         # 044 이전에 만들어진 스텁 행은 044가 사무직으로 채웠지만, 이후 화면에서 현장직으로
         # 강등됐을 수 있다. 개발 계정은 **사무직 이상**으로 되돌린다 — dev-login은 프로덕션에 없다.

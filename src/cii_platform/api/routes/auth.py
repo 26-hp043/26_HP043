@@ -54,6 +54,8 @@ from cii_platform.auth.password import (
     verify_dummy_async,
     verify_password_async,
 )
+from cii_platform.auth.reserved_emails import TOUR_EMAIL as _TOUR_EMAIL
+from cii_platform.auth.reserved_emails import is_reserved_email
 from cii_platform.auth.role_bootstrap import is_initial_admin
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
@@ -78,7 +80,7 @@ from cii_platform.errors import NotFoundError
 from cii_platform.mail import MailDeliveryError, get_mailer
 from cii_platform.mail.templates import email_verification
 from cii_platform.services import audit as audit_svc
-from cii_platform.services.auth_token import issue_token, revoke_all_sessions
+from cii_platform.services.auth_token import issue_token, revoke_all_sessions, revoke_all_tokens
 from cii_platform.services.avatar import (
     AVATAR_MEDIA_TYPE,
     MAX_UPLOAD_BYTES,
@@ -130,7 +132,16 @@ EMAIL_TAKEN_INDEX = "uq_app_user_email_active"
 #: 정책(`auth/tour_policy.py`)이 같은 값을 보며, 두 곳에 각자 적으면 한쪽만 바뀌는 날
 #: 정책이 조용히 풀린다. 이름은 이 모듈이 쓰던 것을 유지한다.
 
-_TOUR_EMAIL = "tour@bluelog.local"
+#: 둘러보기 계정의 이메일은 :data:`~cii_platform.auth.reserved_emails.TOUR_EMAIL`이다 —
+#: 가입이 거부하는 예약 주소 목록과 **같은 상수**를 본다 (#2109).
+
+#: 예약 주소가 다른 계정에 선점돼 둘러보기 계정을 만들 수 없을 때 (#2109).
+#:
+#: **내부 값(이메일·PK)을 싣지 않는다.** 원인은 서버 로그에 남기고, 화면에는 이 문은
+#: 지금 열리지 않는다는 것만 알린다 — 거절 문구(`TOUR_REJECTED_MESSAGE`)를 쓰지 않는
+#: 것은 그 문구가 「받으신 링크를 다시 확인해 주세요」라 **코드가 맞은 사람에게 틀린
+#: 조치를 시키기** 때문이다.
+TOUR_UNAVAILABLE_MESSAGE = "둘러보기를 지금 열 수 없습니다. 관리자에게 문의해 주세요."
 
 _TOUR_DISPLAY_NAME = "둘러보기"
 
@@ -202,6 +213,20 @@ def _normalize_email(email: str) -> str:
     로컬부도 실무상 구분하지 않는 제공자가 대부분이다.
     """
     return email.strip().lower()
+
+
+def _normalize_display_name(raw: str | None) -> str | None:
+    """표시 이름의 앞뒤 공백을 떼고, 남는 것이 없으면 ``None``으로 접는다.
+
+    **가입과 ``PATCH /auth/me``가 함께 부른다** (#2109). 종전에는 PATCH만 이렇게 했고
+    가입은 받은 값을 그대로 저장해, 같은 열에 `"  "`와 ``None``이 함께 들어갈 수 있었다 —
+    공백뿐인 표시 이름은 화면에서 이름이 없는 것과 구분되지 않는다.
+
+    길이 상한(100자)은 스키마가 **떼기 전의 값**으로 본다 — 두 경로가 같다.
+    """
+    if raw is None:
+        return None
+    return raw.strip() or None
 
 
 def _user_payload(user: AppUser) -> dict[str, object]:
@@ -315,6 +340,14 @@ async def signup(
     """
     email = _normalize_email(payload.email)
 
+    # 예약 주소 (#2109) — 둘러보기·개발 스텁이 고정 PK로 쓰는 이메일이다. 누가 먼저
+    # 가입하면 그 경로의 INSERT가 유니크 인덱스에 막혀 **그 배포에서 열리지 않는다.**
+    # 게이트 거절과 **같은 422·같은 문구**로 끝낸다 — 가입이 허용되지 않는 주소라는
+    # 뜻이 같고, 스텁 행이 이미 있든 없든 답이 같아진다(종전에는 행이 있으면 409,
+    # 없으면 201이었다). 해싱보다 먼저 보는 이유도 게이트와 같다.
+    if is_reserved_email(email):
+        return _error_response(request, 422, "VALIDATION_ERROR", SIGNUP_REJECTED_MESSAGE)
+
     # 가입 게이트 (#808) — 해싱보다 **먼저** 본다. 거절될 요청에 Argon2 한 번(약 60 ms ·
     # 64 MiB)을 쓰면 게이트가 비용 증폭기가 된다. 거절 문구는 어느 조건에서 떨어졌는지
     # 말하지 않는다(허용 도메인을 하나씩 캐낼 수 없게).
@@ -342,7 +375,7 @@ async def signup(
         id=uuid4(),
         email=email,
         password_hash=password_hash,
-        display_name=payload.display_name,
+        display_name=_normalize_display_name(payload.display_name),
         # 새 계정은 현장직이다. 최초 관리자 목록(`INITIAL_ADMIN_EMAILS`)에 든 이메일만
         # 관리자로 시작한다 — 새 DB에서 관리자 0명이 되지 않게 (#672 · #1301).
         #
@@ -552,8 +585,19 @@ async def tour_login(
             # 아래에서 남긴다) 롤백으로 잃는 것이 없다.
             await session.rollback()
             user = await session.get(AppUser, _TOUR_USER_ID)
-            if user is None:  # pragma: no cover - 충돌했는데 행이 없을 수는 없다
-                raise
+            if user is None:
+                # 충돌했는데 고정 PK의 행이 없다 — **다른 계정이 예약 주소를 쓰고 있다**
+                # (#2109). 가입이 예약 주소를 거부하기 전에 만들어진 계정이거나 DB에 직접
+                # 넣은 행이다. 종전에는 여기서 예외를 다시 올려 500이었다.
+                #
+                # 요청 본문이 틀린 것이 아니라 **서버의 데이터가 충돌**한 것이라 422가
+                # 아니라 `409 CONFLICT`다(`API_SPEC §1.4` — 리소스 중복). 사유는 로그에만
+                # 남기고 응답에는 이메일·PK를 싣지 않는다.
+                _log.error(
+                    "둘러보기 계정을 만들 수 없다 — 예약 주소를 다른 계정이 쓰고 있다. "
+                    "그 계정을 탈퇴 처리해야 둘러보기가 열린다."
+                )
+                return _error_response(request, 409, "CONFLICT", TOUR_UNAVAILABLE_MESSAGE)
 
     #
     # 여기부터는 행이 **있다** — 방금 넣었든, 경합으로 남이 넣은 것을 읽었든.
@@ -752,11 +796,8 @@ async def update_me(
         raise AuthenticationError()
 
     if "display_name" in payload.model_fields_set:
-        raw = payload.display_name
-        trimmed = raw.strip() if raw is not None else None
-        # 공백만 보낸 것은 지우려는 뜻으로 본다 — 공백뿐인 표시 이름은 화면에서
-        # 이름이 없는 것과 구분되지 않는다.
-        user.display_name = trimmed or None
+        # 공백만 보낸 것은 지우려는 뜻으로 본다 — 가입과 같은 정규화다 (#2109).
+        user.display_name = _normalize_display_name(payload.display_name)
 
     await session.commit()
     await session.refresh(user)
@@ -948,6 +989,10 @@ async def delete_me(
     # 세우면 「지웠다」가 거짓이 된다.
     purged_avatar = _clear_avatar(user)
     revoked = await revoke_all_sessions(session, user_id=user.id)
+    # `#2109` — **미사용 토큰도 무효화한다.** 탈퇴 전에 받은 재설정·인증 메일의 링크가
+    # 살아 있으면 그 링크로 탈퇴한 계정의 비밀번호가 바뀐다. 확정 경로가 활성 계정만
+    # 보는 것(`auth_tokens._find_active_user`)과 겹치는 방어다 — 한쪽이 풀려도 남는다.
+    await revoke_all_tokens(session, user_id=user.id)
     # `#1330` — 대화 **원문은 지운다.** `PRD §16.3`의 「GDPR 유사 삭제 요청 지원」이
     # 탈퇴에 걸리는 지점이다. 위 「행을 지우지 않는다」는 계산·감사 기록에 대한
     # 것이고, 대화 원문은 그 근거가 아니다 — 남겨 둘 이유가 보존 정책 90일뿐인데

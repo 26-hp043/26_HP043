@@ -198,3 +198,31 @@ async def revoke_all_sessions(
         .values(revoked_at=resolved)
     )
     return result.rowcount or 0
+
+
+async def revoke_all_tokens(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    now: datetime | None = None,
+) -> int:
+    """해당 사용자의 **미사용 토큰을 용도와 무관하게 전부** 사용 처리한다 (#2109).
+
+    **탈퇴 시 호출한다.** 탈퇴 전에 받은 재설정·인증 메일의 링크가 탈퇴 뒤에도 살아
+    있으면, 그 링크 하나로 탈퇴한 계정의 비밀번호가 바뀐다. 확정 경로가 활성 계정만
+    보는 것과 별개로 **토큰 자체를 죽여 둔다** — 같은 이메일로 다시 가입해도 옛 링크가
+    무엇에도 닿지 않는다.
+
+    행을 지우지 않고 ``used_at``을 채운다 — :func:`issue_token`이 재발급 때 이전 토큰을
+    무효화하는 것과 같은 표시이고, :func:`consume_token`의 ``used_at IS NULL`` 조건이
+    그대로 거른다.
+
+    :returns: 무효화한 토큰 수.
+    """
+    resolved = now or datetime.now(UTC)
+    result = await session.execute(
+        update(UserToken)
+        .where(UserToken.user_id == user_id, UserToken.used_at.is_(None))
+        .values(used_at=resolved)
+    )
+    return result.rowcount or 0

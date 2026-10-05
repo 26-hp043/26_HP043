@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -129,13 +130,28 @@ def _ok(request: Request, message: str) -> JSONResponse:
     return JSONResponse(content={"data": {"message": message}, "meta": _meta(request)})
 
 
-async def _find_active_user(session: AsyncSession, email: str) -> AppUser | None:
-    result = await session.execute(
-        select(AppUser).where(
-            func.lower(AppUser.email) == email.strip().lower(),
-            AppUser.is_deleted == 0,
-        )
+async def _find_active_user(
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    user_id: UUID | None = None,
+) -> AppUser | None:
+    """**활성(탈퇴하지 않은) 계정**을 이메일 또는 PK로 찾는다.
+
+    발급 경로(이메일)와 확정 경로(토큰의 소유자 PK)가 **이 한 함수**를 지난다 (#2109).
+    종전 확정 경로는 ``session.get(AppUser, user_id)``로 읽어 ``is_deleted``를 보지
+    않았고, 그래서 재설정 메일을 받은 뒤 탈퇴한 계정의 링크가 200으로 확정됐다 —
+    **탈퇴한 계정의 비밀번호가 바뀌었다.** 판정(``is_deleted == 0``)은 세션 검증
+    (`auth/dependencies.py`)이 쓰는 것과 같다.
+    """
+    # 둘 중 하나만 준다 — 이메일이 있으면 이메일로, 없으면 PK로 찾는다.
+    key = (
+        func.lower(AppUser.email) == email.strip().lower()
+        if email is not None
+        else AppUser.id == user_id
     )
+    # `.is_(False)`는 `IS 0`을 내는데 CUBRID가 거부한다 — `== 0`으로 쓴다(#1316).
+    result = await session.execute(select(AppUser).where(key, AppUser.is_deleted == 0))
     return result.scalar_one_or_none()
 
 
@@ -162,7 +178,7 @@ async def request_email_verification(
     가입 직후 자동 발송된 메일이 오지 않았을 때 쓴다. **계정이 없어도 같은 응답**을
     낸다 — 존재 확인 수단이 되면 안 된다.
     """
-    user = await _find_active_user(session, payload.email)
+    user = await _find_active_user(session, email=payload.email)
 
     if user is None or user.email_verified_at is not None:
         # 이미 인증됐거나 없는 계정 — 아무것도 하지 않되 응답은 같다.
@@ -202,7 +218,10 @@ async def confirm_email_verification(
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
-    user = await session.get(AppUser, user_id)
+    # 활성 계정만 본다 (#2109) — 탈퇴한 계정의 토큰은 **없는 토큰과 같은 응답**이다.
+    # 다른 답을 내면 토큰 하나로 「그 계정은 탈퇴했다」가 확인된다. 토큰은 위에서
+    # 소진됐으므로 롤백해 되돌린다(아래 재설정 확정과 같은 처리).
+    user = await _find_active_user(session, user_id=user_id)
     if user is None:
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
@@ -226,7 +245,7 @@ async def request_password_reset(
     **가입 여부와 무관하게 같은 응답**을 낸다. 「가입되지 않은 이메일입니다」를 내면
     가입자 목록을 캐낼 수 있다.
     """
-    user = await _find_active_user(session, payload.email)
+    user = await _find_active_user(session, email=payload.email)
 
     if user is None or password_login_disabled(user.password_hash):
         # 메일을 보내지 않을 뿐 응답은 같다.
@@ -290,11 +309,13 @@ async def confirm_password_reset(
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
-    user = await session.get(AppUser, user_id)
+    # 활성 계정만 본다 (#2109) — 종전 `session.get`은 탈퇴 여부를 보지 않아, 탈퇴한
+    # 계정의 링크가 그 계정의 비밀번호를 바꿨다.
+    user = await _find_active_user(session, user_id=user_id)
     if user is None or password_login_disabled(user.password_hash):
         # **확정 쪽에도 같은 검사를 둔다** (#1495). 요청 경로를 막기 **전에** 이미 발급된
         # 토큰이 남아 있을 수 있고, 그것 하나면 우회로가 그대로 열린다. 토큰은 위에서
-        # 소진됐으므로 롤백해 되돌린다 — 없는 계정일 때와 **같은 응답**이다.
+        # 소진됐으므로 롤백해 되돌린다 — 없는 계정·탈퇴한 계정일 때와 **같은 응답**이다.
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
