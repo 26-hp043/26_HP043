@@ -139,7 +139,7 @@ class TestValidationHandler:
     def test_rule_is_not_invented(self, client):
         """``rule``(VAL 번호)을 임의로 붙이지 않는다.
 
-        §1.3.2 예시에는 있으나 **Pydantic 오류에서 VAL 번호를 유도할 수 없다.**
+        §1.3.2 예시에서도 뺐다(#2100) — **Pydantic 오류에서 VAL 번호를 유도할 수 없다.**
         근거 없는 규칙 번호가 응답에 실리면 그것이 사실로 읽힌다.
         """
         body = client.post("/echo", json={"items": []}).json()

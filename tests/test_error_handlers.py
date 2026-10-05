@@ -41,13 +41,13 @@ def test_to_error_response_matches_api_spec_1_3_2() -> None:
     body = to_error_response(
         "VALIDATION_ERROR",
         "항해거리는 0보다 커야 합니다.",
-        details=[{"field": "distance_nm", "rule": "VAL-002"}],
+        details=[{"field": "distance_nm", "field_label": "항해거리"}],
         request_id="req-1",
         timestamp="2026-07-18T00:00:00Z",
     )
     assert body["error"]["code"] == "VALIDATION_ERROR"
     assert body["error"]["message"] == "항해거리는 0보다 커야 합니다."
-    assert body["error"]["details"] == [{"field": "distance_nm", "rule": "VAL-002"}]
+    assert body["error"]["details"] == [{"field": "distance_nm", "field_label": "항해거리"}]
     assert body["meta"] == {"request_id": "req-1", "timestamp": "2026-07-18T00:00:00Z"}
 
 
@@ -99,6 +99,10 @@ def _http_exception_app() -> FastAPI:
     async def boom_422() -> dict[str, str]:
         raise HTTPException(status_code=422, detail="bad")
 
+    @router.get("/boom-409")
+    async def boom_409() -> dict[str, str]:
+        raise HTTPException(status_code=409, detail="충돌")
+
     @router.get("/boom-405")
     async def boom_405() -> dict[str, str]:
         raise HTTPException(status_code=405, detail="no")
@@ -149,6 +153,20 @@ def test_framework_405_preserves_allow_header() -> None:
     payload = resp.json()
     assert payload["error"]["code"] == "METHOD_NOT_ALLOWED"
     assert payload["error"]["message"] == "허용되지 않은 HTTP 메서드입니다."
+
+
+def test_explicit_409_http_exception_falls_back_to_http_error() -> None:
+    """HTTPException(409)는 표에 없어 HTTP_ERROR로 나간다 — status 보존 (#2100).
+
+    409는 코드가 셋(PARAMETER_ERROR·MODEL_VERSION_MISMATCH·CONFLICT)이라 status만으로
+    고를 수 없다. 셋은 `AppError`로만 나간다.
+    """
+    client = TestClient(_http_exception_app())
+    resp = client.get("/boom-409")
+    assert resp.status_code == 409
+    payload = resp.json()
+    assert payload["error"]["code"] == "HTTP_ERROR"
+    assert payload["error"]["message"] == "충돌"
 
 
 def test_explicit_422_uses_http_error_code_and_preserves_detail() -> None:
@@ -221,13 +239,14 @@ def test_non_string_detail_falls_back_to_generic_message() -> None:
     assert "email" not in payload["error"]["message"]
 
 
-# --- #117: 갭 보강 — details 4키 구조 · AppError 서브클래스 캐치 -----------------------
+# --- #117: 갭 보강 — details 3키 구조 · AppError 서브클래스 캐치 -----------------------
 
 
-def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
-    """⑽ §1.3.2 details의 4키(field·field_label·rule·message) 전체 구조 (#117 갭 1).
+def test_details_covers_full_api_spec_1_3_2_three_key_schema() -> None:
+    """⑽ §1.3.2 details의 3키(field·field_label·message) 전체 구조 (#117 갭 1 · #2100).
 
-    기존 테스트는 field·rule 2키만 확인했다 — field_label·message 누락은
+    `rule`은 예시에서 뺐다 — 구현이 싣지 않는다(#2100).
+    기존 테스트는 field 1키만 확인했다 — field_label·message 누락은
     실제 응답과의 불일치를 못 잡는다.
     """
     body = to_error_response(
@@ -237,7 +256,6 @@ def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
             {
                 "field": "distance_nm",
                 "field_label": "항해거리",
-                "rule": "VAL-002",
                 "message": "항해거리는 0보다 커야 합니다.",
             }
         ],
@@ -245,13 +263,13 @@ def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
         timestamp="2026-07-18T00:00:00Z",
     )
     entry = body["error"]["details"][0]
-    assert set(entry) == {"field", "field_label", "rule", "message"}
+    assert set(entry) == {"field", "field_label", "message"}
     assert entry["field_label"] == "항해거리"
     assert entry["message"] == "항해거리는 0보다 커야 합니다."
 
 
-def test_four_key_details_survive_end_to_end() -> None:
-    """⑾ 4키 details가 핸들러를 거쳐 응답 본문에 그대로 나간다 (#117 갭 1)."""
+def test_three_key_details_survive_end_to_end() -> None:
+    """⑾ 3키 details가 핸들러를 거쳐 응답 본문에 그대로 나간다 (#117 갭 1)."""
     app = FastAPI()
     register_exception_handlers(app)
 
@@ -264,7 +282,6 @@ def test_four_key_details_survive_end_to_end() -> None:
                 {
                     "field": "distance_nm",
                     "field_label": "항해거리",
-                    "rule": "VAL-002",
                     "message": "항해거리는 0보다 커야 합니다.",
                 }
             ],
@@ -275,7 +292,6 @@ def test_four_key_details_survive_end_to_end() -> None:
         {
             "field": "distance_nm",
             "field_label": "항해거리",
-            "rule": "VAL-002",
             "message": "항해거리는 0보다 커야 합니다.",
         }
     ]
@@ -284,8 +300,8 @@ def test_four_key_details_survive_end_to_end() -> None:
 def test_validation_error_auto_details_keys() -> None:
     """⑿ ValidationError 자동 details — field·field_label·message 키 (#117 갭 1).
 
-    ``rule``은 호출부가 VAL 코드를 알 때만 의미가 있어 선택 키다 — 자동 구성에는
-    들어가지 않고, AppError details로 전달 시 그대로 통과한다(⑩ 참조).
+    ``rule``은 키가 아니다 — §1.3.2 예시에서 뺐다(#2100). AppError details로 넘긴 키는
+    그대로 통과한다(⑩ 참조).
     """
     from cii_platform.errors import ValidationError
 

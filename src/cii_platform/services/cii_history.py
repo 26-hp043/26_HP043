@@ -41,7 +41,12 @@ from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
-from cii_platform.services.cii_current import InProgressState, resolve_in_progress_state
+from cii_platform.services.cii_current import (
+    MAX_REGULATION_YEAR,
+    MIN_REGULATION_YEAR,
+    InProgressState,
+    resolve_in_progress_state,
+)
 from cii_platform.services.request_cache import cached
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import compute_ytd_cii
@@ -54,9 +59,6 @@ _log = logging.getLogger(__name__)
 #: 이력 창 상한. 연도별 집계가 이미 계산된 값을 재쓰는 조회라도 무한 창을
 #: 허용하면 요청 하나가 열 개의 연도 집계를 강제한다 — 방어 상한이다.
 MAX_YEAR_SPAN = 10
-
-#: ``voyage.regulation_year``의 CHECK 하한(DB_SCHEMA §2.2)과 같은 값.
-MIN_REGULATION_YEAR = 2019
 
 #: 기본 창 크기 — 지정이 없으면 최근 3년(``to - 2`` ~ ``to``).
 DEFAULT_WINDOW_YEARS = 3
@@ -104,6 +106,19 @@ def _validate_window(start: int, end: int) -> None:
             f"시작 연도는 {MIN_REGULATION_YEAR} 이상이어야 합니다: {start}",
             field="from",
             field_label="시작 연도",
+        )
+    # 규제연도 범위의 값은 `cii_current`와 같은 상수다 — 숫자를 두 곳에 적지 않는다 (#2100).
+    if start > MAX_REGULATION_YEAR:
+        raise ValidationError(
+            f"시작 연도는 {MAX_REGULATION_YEAR} 이하여야 합니다: {start}",
+            field="from",
+            field_label="시작 연도",
+        )
+    if end < MIN_REGULATION_YEAR or end > MAX_REGULATION_YEAR:
+        raise ValidationError(
+            f"종료 연도는 {MIN_REGULATION_YEAR}~{MAX_REGULATION_YEAR} 범위여야 합니다: {end}",
+            field="to",
+            field_label="종료 연도",
         )
     if start > end:
         raise ValidationError(
@@ -303,7 +318,13 @@ async def list_cii_history(
     resolved = resolve_as_of(as_of)
     current_year = resolved.year
     end = to_year if to_year is not None else current_year
-    start = from_year if from_year is not None else end - (DEFAULT_WINDOW_YEARS - 1)
+    # 기본 창의 시작은 하한 아래로 내려가지 않는다 — `to=2020`만 준 요청이 `from=2018`로
+    # 계산돼 422가 되던 자리다(`#2100`). 리포트의 같은 계산(`report.py`)과 같은 처리다.
+    start = (
+        from_year
+        if from_year is not None
+        else max(MIN_REGULATION_YEAR, end - (DEFAULT_WINDOW_YEARS - 1))
+    )
     _validate_window(start, end)
 
     vessel = await cached(
