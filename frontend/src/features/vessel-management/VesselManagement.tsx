@@ -82,6 +82,7 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import './VesselManagement.css'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
+import { useShellContext } from '../../layout/shellContext'
 
 /**
  * 선박 관리 화면 — 목록 · 수정 · 삭제 (#510).
@@ -120,6 +121,12 @@ import { Field } from '../../components/Field'
  */
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
+  /*
+   * 상단 선박 선택기의 목록은 셸이 소유한다 (`#1643`). 이 화면이 선명을 바꾸거나 선박을
+   * 지우면 셸에 알려 다시 부르게 한다 (`#2119`) — 알리지 않으면 선택기에 옛 이름과
+   * 지운 배가 새로고침할 때까지 남는다.
+   */
+  const shell = useShellContext()
   /*
    * 제원 수정·삭제는 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직에게는 버튼을 두지
    * 않고 짧은 안내만 남긴다 — 눌러서 403을 받게 하는 것은 「되는 것처럼 보이는」 것이다.
@@ -375,6 +382,7 @@ export function VesselManagement() {
       const updated = await provider.update(target.id, patch)
       setVessels((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
       setActionNotice(`${updated.name}의 정보를 저장했습니다.`)
+      shell.refreshVessels()
       // 제원이 바뀌면 등급이 바뀔 수 있다 — 「제원 미입력」이 풀리는 것이 이 화면의 일이다.
       // 저장 한 번마다 **선대 전체 요약**(`/fleet/summary`)을 다시 받는다 — 선박 하나만 묻는 경로가 없다.
       void loadGrades()
@@ -401,6 +409,12 @@ export function VesselManagement() {
     try {
       await provider.remove(vessel.id)
       setVessels((prev) => prev.filter((v) => v.id !== vessel.id))
+      /*
+       * 지운 배가 상단에서 선택돼 있었으면 선택도 푼다 (`#2119`). 목록만 다시 부르면
+       * 셸이 **없는 선박의 id를 그대로 기억해** 다른 화면이 그 id로 조회한다.
+       */
+      if (shell.vesselId === vessel.id) shell.selectVesselId(null)
+      shell.refreshVessels()
       setEdit((current) => (current !== null && current.id === vessel.id ? null : current))
       setActionNotice(`${vessel.name}을(를) 목록에서 제거했습니다.`)
     } catch (error) {

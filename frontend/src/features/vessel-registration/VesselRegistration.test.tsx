@@ -3,8 +3,9 @@ import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VesselRegistration } from './VesselRegistration'
+import { EMPTY_SHELL_CONTEXT } from '../../layout/shellContext'
 
 /**
  * 등록 결과 카드 (#1102 ⑷).
@@ -382,5 +383,52 @@ describe('제원은 접어 두고, 스스로 펼치는 자리가 둘이다 (#178
      * 그래서 오류는 사용자의 선택보다 먼저다.
      */
     await waitFor(() => expect(specs().open).toBe(true))
+  })
+})
+
+/**
+ * 등록에 성공하면 셸에 알린다 (#2119).
+ *
+ * 상단 선박 선택기의 목록은 셸이 mount할 때 한 번 부른다(`#1643`). 등록 화면이 알리지
+ * 않아 방금 등록한 배가 새로고침할 때까지 선택기에 없었다.
+ */
+describe('등록에 성공하면 상단 선택기를 다시 부르게 한다 (#2119)', () => {
+  function renderInShell(refreshVessels: () => void) {
+    render(
+      <MemoryRouter>
+        <Routes>
+          <Route element={<Outlet context={{ ...EMPTY_SHELL_CONTEXT, refreshVessels }} />}>
+            <Route path="/" element={<VesselRegistration />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('등록 성공 뒤 한 번 부른다', async () => {
+    const refreshVessels = vi.fn()
+    stubFetch([jsonResponse({ data: REGISTERED }, 201)])
+    renderInShell(refreshVessels)
+    fillRequired('9000001', '알파호')
+    fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
+
+    await screen.findByText('등록 완료')
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+  })
+
+  it('등록이 실패하면 부르지 않는다', async () => {
+    const refreshVessels = vi.fn()
+    stubFetch([
+      jsonResponse({ error: { code: 'CONFLICT', message: '이미 등록된 IMO 번호입니다.' } }, 409),
+    ])
+    renderInShell(refreshVessels)
+    fillRequired('9000001', '알파호')
+    fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '등록하기' }) as HTMLButtonElement).disabled).toBe(false),
+    )
+    await screen.findAllByRole('alert')
+    expect(refreshVessels).not.toHaveBeenCalled()
   })
 })
