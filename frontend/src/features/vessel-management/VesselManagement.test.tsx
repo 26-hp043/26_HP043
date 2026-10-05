@@ -3,8 +3,9 @@ import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VesselManagement } from './VesselManagement'
+import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
@@ -1316,5 +1317,100 @@ describe('올해 누적 등급 열 (#2018)', () => {
     stubServer()
     await renderScreen()
     expect(screen.getByRole('note')).toBeTruthy()
+  })
+})
+
+/**
+ * 목록을 바꾸면 셸에 알린다 (#2119).
+ *
+ * 상단 선박 선택기의 목록은 셸이 mount할 때 한 번 부른다(`#1643`). 이 화면이 선명을
+ * 바꾸거나 선박을 지우고도 알리지 않아, 선택기에 **옛 이름과 지운 배**가 새로고침할
+ * 때까지 남았다. 셸 대역을 넣어 호출 자체를 본다 — 화면 안의 목록은 이미 맞게 바뀌므로
+ * 화면만 봐서는 드러나지 않는다.
+ */
+describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119)', () => {
+  function renderInShell(shell: ShellContext) {
+    render(
+      <MemoryRouter>
+        <Routes>
+          <Route element={<Outlet context={shell} />}>
+            <Route path="/" element={<VesselManagement />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  function shellWith(vesselId: string | null) {
+    const refreshVessels = vi.fn()
+    const selectVesselId = vi.fn()
+    return { shell: { ...EMPTY_SHELL_CONTEXT, vesselId, refreshVessels, selectVesselId }, refreshVessels, selectVesselId }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('confirm', () => true)
+  })
+
+  it('저장에 성공하면 부른다 — 실패하면 부르지 않는다', async () => {
+    const { shell, refreshVessels } = shellWith(null)
+    stubFetch({
+      [`PATCH /vessels/${A.id}`]: jsonResponse({ data: { ...A, name: '알파호 개명' } }),
+      [`PATCH /vessels/${B.id}`]: jsonResponse(
+        { error: { code: 'VALIDATION_ERROR', message: '선명이 너무 깁니다.', details: [{ field: 'name' }] } },
+        422,
+      ),
+    })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('브라보호')).getByLabelText('선명'), { target: { value: '브라보호 개명' } })
+    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '저장' }))
+    await within(rowOf('브라보호')).findByRole('alert')
+    expect(refreshVessels).not.toHaveBeenCalled()
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), { target: { value: '알파호 개명' } })
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+    await screen.findByText('알파호 개명')
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+  })
+
+  it('삭제에 성공하면 부른다 — 선택돼 있지 않던 배라면 선택은 건드리지 않는다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(B.id)
+    stubFetch({ [`DELETE /vessels/${A.id}`]: jsonResponse(null, 204) })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+    expect(selectVesselId).not.toHaveBeenCalled()
+  })
+
+  it('지운 배가 상단에서 선택돼 있었으면 선택을 푼다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(A.id)
+    stubFetch({ [`DELETE /vessels/${A.id}`]: jsonResponse(null, 204) })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
+    expect(selectVesselId).toHaveBeenCalledWith(null)
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+  })
+
+  it('삭제에 실패하면 부르지 않는다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(A.id)
+    stubFetch({
+      [`DELETE /vessels/${A.id}`]: jsonResponse({ error: { code: 'CONFLICT', message: '지울 수 없습니다.' } }, 409),
+    })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await screen.findByText('지울 수 없습니다.')
+    expect(refreshVessels).not.toHaveBeenCalled()
+    expect(selectVesselId).not.toHaveBeenCalled()
   })
 })

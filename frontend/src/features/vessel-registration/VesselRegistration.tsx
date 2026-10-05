@@ -5,6 +5,7 @@ import { DISPLAY_UNITS, DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { SCREEN_BY_ID } from '../../screens'
+import { useShellContext } from '../../layout/shellContext'
 import {
   FIELD,
   NAME_MAX_LENGTH,
@@ -72,6 +73,8 @@ export function VesselRegistration() {
   const { language } = useI18n()
   const textLang = useTextLang()
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
+  /** 등록에 성공하면 상단 선박 선택기의 목록을 다시 부르게 한다 (`#1643` · `#2119`). */
+  const shell = useShellContext()
   // 연료 선택지는 서버가 준다 (#542). 종전에는 고정표(`referenceTable.ts`)를 읽어,
   // 등록 화면이 보여 주는 연료와 서버가 받는 연료가 갈릴 수 있었다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
@@ -174,6 +177,8 @@ export function VesselRegistration() {
     try {
       const vessel = await provider.register(toRequest(state))
       setRegistered(vessel)
+      // 새 배가 상단 선택기에 새로고침 없이 나타나야 한다 (`#2119`).
+      shell.refreshVessels()
       // 폼을 비운다 — 같은 값이 남아 있으면 두 번째 제출이 409를 맞는다.
       setState(initialFormState())
       setSampleId('')
