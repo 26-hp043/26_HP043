@@ -389,7 +389,7 @@ export function dailyFuelCell(vessel: Vessel): string | null {
  * 뒤 페이지를 받으면 그때 다시 정렬된다 — 전체를 정렬한 것처럼 보이지 않도록
  * 화면이 「불러온 n척 기준」임을 밝힌다.
  */
-export const SORT_KEYS = ['gaps', 'name', 'type', 'capacity'] as const
+export const SORT_KEYS = ['gaps', 'name', 'type', 'capacity', 'grade'] as const
 
 export type VesselSortKey = (typeof SORT_KEYS)[number]
 
@@ -398,6 +398,7 @@ export const SORT_LABEL: Readonly<Record<VesselSortKey, string>> = {
   name: '이름순',
   type: '선종순',
   capacity: '용량 큰 순',
+  grade: '등급 나쁜 순',
 }
 
 /** 그 선박의 축에 해당하는 수치. 축을 모르거나 값이 없으면 `null`. */
@@ -414,11 +415,32 @@ function capacityValue(vessel: Vessel): number | null {
  * 모든 키가 마지막에 이름으로 떨어진다. 동점을 남기면 같은 목록이 **다시 그릴 때마다
  * 순서가 달라 보이고**, 그 흔들림은 「내가 방금 뭘 눌렀나」로 읽힌다.
  */
-export function sortVessels(vessels: readonly Vessel[], key: VesselSortKey): Vessel[] {
+export function sortVessels(
+  vessels: readonly Vessel[],
+  key: VesselSortKey,
+  /**
+   * 등급순의 값 (#2018) — 나쁜 등급이 작은 수, 등급이 없으면 `null`. 등급은 `/vessels`가
+   * 아니라 선대 요약에서 오므로(`gradeLookup.ts`) 화면이 넘긴다. 없으면 모두 `null`이다.
+   */
+  gradeRankOf: (vessel: Vessel) => number | null = () => null,
+): Vessel[] {
   const byName = (a: Vessel, b: Vessel) => a.name.localeCompare(b.name, 'ko-KR')
 
   return [...vessels].sort((a, b) => {
     if (key === 'name') return byName(a, b)
+
+    if (key === 'grade') {
+      const left = gradeRankOf(a)
+      const right = gradeRankOf(b)
+      /*
+       * 등급이 없는 배는 끝으로 — 받지 못함·계산 못 함·받는 중을 나쁜 등급으로 섞지
+       * 않는다(`API_SPEC §2.8` `sort=grade`와 같은 규칙). 용량순의 「값 없음」과 같은 처리다.
+       */
+      if (left === null && right === null) return byName(a, b)
+      if (left === null) return 1
+      if (right === null) return -1
+      return left - right !== 0 ? left - right : byName(a, b)
+    }
 
     if (key === 'type') {
       const compared = shipTypeLabel(a.ship_type).localeCompare(

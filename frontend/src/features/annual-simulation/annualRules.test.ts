@@ -2,6 +2,8 @@ import { formatPercent, formatTimestamp } from '../../display/format'
 import { describe, expect, it } from 'vitest'
 import {
   estimateNoticeText,
+  futureYearsLineShown,
+  futureYearsUnavailableText,
   resultConditionsText,
   targetVesselText,
   probabilityOfDorE,
@@ -423,8 +425,25 @@ describe('줄여야 하는 양 — §4.2 단위·자릿수 (#1539)', () => {
   })
 
   it('1톤 미만도 소수점을 옮긴다 — 앞자리 0을 채운다', () => {
-    expect(reductionCutText('45765', '0.014').co2).toBe('0.0 tCO₂')
     expect(reductionCutText('450000', '0.14').co2).toBe('0.5 tCO₂')
+    expect(reductionCutText('50000', '0.05').co2).toBe('0.1 tCO₂')
+  })
+
+  it('반올림이 0을 만들어도 원값이 양수면 「0.0」으로 적지 않는다 (#2121)', () => {
+    /*
+     * 이 줄은 원값이 0이 아닐 때만 그려진다. 「줄여야 하는 CO₂ 0.0 tCO₂」는 「줄일 것이
+     * 없다」로 읽히는데 실제로는 50kg 미만이 남아 있다. 값을 0과 구분해 적는 것이 요점이라
+     * 문구가 아니라 **「0으로 읽히지 않는다」**를 본다(`AGENTS §4.6`).
+     */
+    const small = reductionCutText('45765', '0.014')
+    const none = reductionCutText('0', '0')
+    expect(small.co2).not.toBe(none.co2)
+    expect(small.fuel).not.toBe(none.fuel)
+    expect(small.co2).toContain('미만')
+    expect(small.co2).toContain('0.1')
+    // 진짜 0은 그대로 0이다 — 「미만」을 붙이면 남은 것이 있다는 말이 된다.
+    expect(none.co2).toBe('0.0 tCO₂')
+    expect(none.fuel).toBe('0.0 t')
   })
 
   it('반올림 경계는 문자열로 — 부동소수 오차를 타지 않는다', () => {
@@ -487,5 +506,72 @@ describe('결과 위 추정 고지 — 추정 성격과 기준 시각 (#1578 · 
     const text = estimateNoticeText(AS_OF)
     expect(text).not.toMatch(/예측값/)
     expect(text).not.toMatch(/실측이 아닙니다/)
+  })
+})
+
+/**
+ * 「이대로면 …」 남은 해 기준 한 줄의 표시 조건 — 실행한 규제연도 == 올해 (`#2056` 디자인 확정 C⑤).
+ *
+ * 「올해」는 **기준 시각의 해이자 지금의 해**다. 기준 시각만 보면 지난해 결과를 올해 복원했을 때
+ * (`#1701`) 지나간 해 위에 줄이 실리고, 지금만 보면 기준 시각이 지난해인 실행을 올해로 읽는다.
+ * 해는 `DESIGN_SYSTEM §4.4` 🔒대로 KST 달력이다(`kstYear`). 지금은 인자로 받는다 — 해가
+ * 바뀌어도 이 검사는 그대로 초록이다.
+ */
+describe('남은 해 기준 한 줄의 표시 조건 (#2056 C⑤)', () => {
+  const AS_OF_2026 = '2026-09-21T05:24:00Z'
+  const NOW_2026 = new Date('2026-09-21T06:00:00Z')
+
+  it('실행한 규제연도가 기준 시각의 해이자 지금의 해면 싣는다', () => {
+    expect(futureYearsLineShown('2026', AS_OF_2026, NOW_2026)).toBe(true)
+  })
+
+  it('지나간 해의 실행에는 싣지 않는다 — 2024의 연말 예상을 2025~2030 기준에 대는 것은 「이대로면」이 아니다', () => {
+    expect(futureYearsLineShown('2024', AS_OF_2026, NOW_2026)).toBe(false)
+    expect(futureYearsLineShown('2025', AS_OF_2026, NOW_2026)).toBe(false)
+  })
+
+  it('지난해에 실행한 지난해 결과를 올해 복원하면 싣지 않는다 — 아래 결과가 지나간 해다', () => {
+    // 2025-12에 실행한 2025 결과 · 지금은 2026-01. 기준 시각만 보면 「올해」라 실린다.
+    expect(futureYearsLineShown('2025', '2025-12-15T03:00:00Z', new Date('2026-01-15T03:00:00Z'))).toBe(false)
+    // 같은 실행을 2025년 안에 열면 실린다 — 조건이 결과가 아니라 여는 시점을 본다는 것이 요점이다.
+    expect(futureYearsLineShown('2025', '2025-12-15T03:00:00Z', new Date('2025-12-20T03:00:00Z'))).toBe(true)
+  })
+
+  it('기준 시각이 지난해인 실행은 지금이 올해여도 싣지 않는다', () => {
+    expect(futureYearsLineShown('2026', '2025-06-01T00:00:00Z', NOW_2026)).toBe(false)
+  })
+
+  it('기준 시각이 없거나 읽을 수 없으면 싣지 않는다 — 지금으로 메우지 않는다', () => {
+    expect(futureYearsLineShown('2026', undefined, NOW_2026)).toBe(false)
+    expect(futureYearsLineShown('2026', '어제', NOW_2026)).toBe(false)
+    // 오프셋 없는 기준 시각도 읽지 않는다(`kstYear` 닫힌 실패).
+    expect(futureYearsLineShown('2026', '2026-09-21T14:24:00', NOW_2026)).toBe(false)
+  })
+
+  it('해의 경계는 KST다 — UTC로는 아직 지난해인 새해 첫 아홉 시간의 실행도 올해다 (§4.4 🔒)', () => {
+    // UTC 2025-12-31 15:00 = KST 2026-01-01 00:00 — 기준 시각과 지금 양쪽 다.
+    const newYearKst = '2025-12-31T15:00:00Z'
+    expect(futureYearsLineShown('2026', newYearKst, new Date(newYearKst))).toBe(true)
+    expect(futureYearsLineShown('2025', newYearKst, new Date(newYearKst))).toBe(false)
+    // 그 1분 전은 KST로도 2025년이다.
+    const lastMinute = '2025-12-31T14:59:00Z'
+    expect(futureYearsLineShown('2025', lastMinute, new Date(lastMinute))).toBe(true)
+    expect(futureYearsLineShown('2026', lastMinute, new Date(lastMinute))).toBe(false)
+    // 지금만 해가 넘어간 경우 — 기준 시각 2025 · 지금 KST 2026 → 2025 결과는 지나간 해다.
+    expect(futureYearsLineShown('2025', lastMinute, new Date(newYearKst))).toBe(false)
+  })
+})
+
+describe('남은 해가 없을 때의 문구 (#2056 C⑤)', () => {
+  it('실행한 규제연도가 문장에 들어간다 — 표의 마지막 해를 박아 두지 않는다', () => {
+    // 표시 문구라 리터럴이 아니라 성질을 본다(`AGENTS §4.6`) — 해가 문장에 있고, 자리표시자가 남지 않는다.
+    expect(futureYearsUnavailableText('2030')).toContain('2030년')
+    expect(futureYearsUnavailableText('2031')).toContain('2031년')
+    expect(futureYearsUnavailableText('2031')).not.toContain('2030')
+    expect(futureYearsUnavailableText('2030')).not.toContain('{year}')
+  })
+
+  it('등급 문자를 내지 않는다 — 「이후 해는 괜찮다」로 읽히면 안 된다', () => {
+    expect(futureYearsUnavailableText('2030')).not.toMatch(/\b[A-E]\b/)
   })
 })

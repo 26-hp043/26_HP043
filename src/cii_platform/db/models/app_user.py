@@ -7,9 +7,10 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy.orm import deferred
 
 from cii_platform.db.models.base import Base
-from cii_platform.db.types import UuidText
+from cii_platform.db.types import Base64Bytes, UuidText
 
 #: 역할 3종 (#672 · #1301 · `PRD §20 O-14` · `API_SPEC §1.2`). 앞의 둘은 **직군 이름**이다 —
 #: 이 제품의 실제 사용자 구분(선사 사무실 ↔ 선박 승무원)과 맞고, 「관리자/일반」보다 무엇을
@@ -66,6 +67,26 @@ class AppUser(Base):
     #: 더하려면 마이그레이션이 그 트리거를 다시 만들어야 한다.
     role = sa.Column(sa.String(length=10), server_default=ROLE_FIELD, nullable=False)
     last_login_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+
+    #: 프로필 이미지 — 서버가 다시 그린 고정 크기 WebP (`#2080` · `DB_SCHEMA §2.15`).
+    #:
+    #: `NULL`이면 올리지 않은 것이고 화면은 표시 이름의 머리글자를 그린다 —
+    #: **올리기 전이 기본 상태**라 그쪽이 실제로 더 자주 보인다.
+    #:
+    #: **지연 로드다** (#2107). 세션 검증(`auth/dependencies`)이 비공개 요청마다
+    #: `select(AppUser)`를 하는데, 이 열이 그 조회에 실리면 요청마다 수십 KB를 DB에서
+    #: 꺼낸다. 「있다/없다」는 아래 `avatar_etag`로 묻고(`API_SPEC §1.2.5a`), 바이트가
+    #: 필요한 자리(`GET /auth/me/avatar`)만 이 열을 **이름으로 골라** 읽는다. 비동기
+    #: 세션에서는 속성 접근으로 뒤늦게 읽을 수 없으므로 `user.avatar_image`를 읽지 않는다.
+    avatar_image = deferred(sa.Column(Base64Bytes, nullable=True))
+
+    #: 위 바이트의 SHA-256 16진 (`#2080`).
+    #:
+    #: 조건부 요청에 **본문을 읽지 않고** 304를 내기 위한 것이다. 사이드바가 매
+    #: 화면이라, 없으면 화면 전환마다 수십 KB를 DB에서 꺼내게 된다.
+    #: `avatar_image`와 **항상 함께** 채워지고 함께 비워진다 — 둘을 가르는 곳은
+    #: `services/avatar.py` 하나뿐이고 `tests/test_avatar.py`가 그 관계를 잠근다.
+    avatar_etag = sa.Column(sa.String(length=64), nullable=True)
     is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     #: 활성 키 (#1631 · 061). 활성 행이면 `email`의 사본, 탈퇴(소프트 삭제)한 행이면 NULL —
     #: 그 위의 유니크 인덱스 `uq_app_user_email_active`가 「활성 행 안에서만 유일」을 DB에서

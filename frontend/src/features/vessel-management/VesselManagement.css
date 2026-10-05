@@ -93,6 +93,7 @@
 }
 
 .vessel-management__button {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-16);
   border: 1px solid var(--color-border-control);
@@ -126,6 +127,7 @@
 }
 
 .vessel-management__submit {
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-24);
   border: none;
@@ -200,6 +202,9 @@
  * 클래스로 바뀌면 조용히 안 걸리므로 입력칸에 이름을 준다.
  */
 .vessel-management__control {
+  /* `§3`이 적은 값이 화면에 나오려면 이 줄이 있어야 한다 — 컨트롤은 글자 크기를
+     상속하지 않는다 (`#2046`의 세 복사본 중 하나). */
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
@@ -238,8 +243,10 @@
  * 않는 이유가 여기 있다 — 머리줄은 비어 있고 행에는 버튼이 있어 `auto`면 둘의 폭이
  * 달라진다.
  *
- * 최소폭 합은 `32+170+84+96+84+84+124+132 = 806`, 거터 `7×12 = 84`. 1280에서 콘텐츠가
- * 936(카드 패딩 제외)이라 46px이 남는다 — 붙긴 하되 여유가 얇다.
+ * 최소폭 합은 `32+170+104+84+96+84+84+124+132 = 910`, 거터 `8×12 = 96`(`#2018`이 등급
+ * 칸 `104`를 더했다 · 2026-09-29 `rlatnals4114` 확정). 종전 `806 + 84 = 890`일 때 1280의
+ * 콘텐츠 936(카드 패딩 제외)에 46px이 남았는데, 지금은 `1006`이라 **1280에서도 카드 안에서
+ * 가로로 스크롤한다**(`#1788` 처리 — 페이지는 밀리지 않는다).
  *
  * ## 넓은 창에서는 표를 늘리지 않는다
  *
@@ -254,7 +261,7 @@
 /*
  * 넘침을 받는 자리 (#1788).
  *
- * 목록이 `890px` 밑으로 줄지 않는데 받아 주는 곳이 없어, 그 넘침이 바깥 상자들을
+ * 목록이 최소 폭(아래 `.vm__list`) 밑으로 줄지 않는데 받아 주는 곳이 없어, 그 넘침이 바깥 상자들을
  * 타고 `app-shell__content`까지 전해졌다 — 1100 · 720에서 **페이지가 통째로** 가로로
  * 밀렸다. 표 하나가 아니라 사이드바와 페이지 제목까지 함께 빠져나가 되돌아올 기준점이
  * 사라지는 것이 결함의 본체다.
@@ -269,13 +276,20 @@
   /*
    * 브라우저에서 잰 내용 최소 폭이다 (`#1689` 「선언값이 아니라 브라우저에서 잰 값」).
    * 1440 · 라이트 · 시연 데이터에서 칸을 좁혀 `scrollWidth`를 읽으면 `890`이고,
-   * 아래 열 최소폭 합(`806`)과 거터(`7 × 12 = 84`)와도 맞는다.
+   * 아래 열 최소폭 합(`806`)과 거터(`7 × 12 = 84`)와도 맞았다.
+   *
+   * `#2018`이 올해 누적 등급 칸(`minmax(104px, 1.2fr)` · 디자인 확정 2026-09-29)을 더해
+   * 산술로 `910 + 8 × 12 = 1006`이다. 브라우저에서 다시 쟀다(2026-09-29 · 1440 ·
+   * 라이트 · Playwright로 API 응답을 흉내 낸 5척 — 등급 있음 3 · 사유 2 · 받지 못함 상태 따로):
+   * 목록을 `200px`로 좁혀 읽은 각 행의 `scrollWidth`가 두 상태 모두 `1006`이다. 등급 칸은
+   * 최소 `104`로 섰고, 배지와 CII를 쌓아도 행 높이는 쌓지 않은 행과 같은 `42`였다.
    */
-  min-inline-size: 890px;
+  min-inline-size: 1006px;
 
   --vm-cols:
     32px
     minmax(170px, 2.2fr)
+    minmax(104px, 1.2fr)
     minmax(84px, 1fr)
     minmax(96px, 1.1fr)
     minmax(84px, 1fr)
@@ -438,6 +452,47 @@
   font-size: var(--font-size-label);
 }
 
+/*
+ * 등급을 받지 못했다는 한 줄 + 「다시 시도」 (#2018 ⑶). 좁으면 버튼이 다음 줄로 내려간다.
+ */
+.vm__grade-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+/*
+ * 「다시 시도」 — `DESIGN_SYSTEM §8` **텍스트 버튼**. 투명 배경 · `--text-primary` · hover
+ * `--surface-inset` · radius는 컨트롤 값 · 포커스 링은 `§5`. 같은 줄에 다른 컨트롤이 없어
+ * 높이는 `--target-icon-button`(32px)이다(`§8` 〔확정〕 「혼자면 32px」 · `#1297`).
+ * 상단바 `.app-shell__logout`과 같은 모양이다.
+ */
+.vm__retry {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  block-size: var(--target-icon-button);
+  padding: 0 var(--space-12);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.vm__retry:hover {
+  background: var(--surface-inset);
+}
+
+.vm__retry:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
 .vm__imo {
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -452,6 +507,46 @@
 
 .vm__cell--num {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 숫자 칸의 정렬 — **머리글과 값이 같은 클래스를 받는다** (`DESIGN_SYSTEM §8` 「테이블 —
+ * 숫자 우측 정렬」 · `#2015`). 세 화면이 한쪽에만 걸어 머리글과 값이 반대로 붙었던 것이
+ * `#2015`였다. 머리글(`.vm__head > span`)에는 정렬을 덮는 규칙이 없어 이 한 클래스가 이긴다.
+ */
+.vm__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 올해 누적 등급 칸 (#2018 · 디자인 확정 2026-09-29 `rlatnals4114`).
+ *
+ * 등급 배지 **위**, 올해 누적 CII를 **그 아래 작은 글씨**로 쌓는다. `vm__ident`(선박명 +
+ * IMO·배지)가 이미 쓰는 적층이라 행 높이가 늘지 않는다 — 두 칸으로 벌리면 최소 폭이
+ * 184 늘어난다. 오른쪽에 붙인다(`.vm__num`).
+ */
+.vm__grade {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+/*
+ * 계산하지 못한 배의 사유(`unavailableText()`) · 받지 못함(`—`) — 배지 자리에 문자를
+ * `caption` 크기로 둔다. 색은 `.vm__cell--empty`(`--text-secondary` — 정본의 `text-muted`)다.
+ * 생성 토큰 `--text-muted`는 정본의 `text-faint`라 문자에 쓸 수 없다(`tokens.css` `#747`).
+ */
+.vm__grade--empty {
+  font-size: var(--font-size-caption);
+}
+
+.vm__grade-cii {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
 }
 
 /*

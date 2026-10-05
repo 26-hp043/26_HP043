@@ -6,6 +6,8 @@ import { currentScreenResult } from './screenResult'
 import { CITE_LABEL, citeLabels } from './toolLabels'
 import { needsVesselNote } from './vesselNote'
 import type { AssistantProvider, ChatTurn } from './types'
+import { avatarMood, turnMood, type AvatarMood } from './avatarMood'
+import { stripMarkdown } from './plainText'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 
@@ -38,6 +40,39 @@ const PANEL_LABEL = 'AI 어시스턴트'
 
 /** 열기 버튼 문구. 실험 기능임을 **버튼에서부터** 밝힌다. */
 const OPEN_LABEL = 'AI 어시스턴트 열기 (실험)'
+
+/*
+ * 범이 에셋 (`#2008` · `frontend/public/brand/beomi/`).
+ *
+ * 확장자까지 붙인 온전한 경로를 쓴다 — 템플릿으로 조립하면 어느 파일이 실제로
+ * 필요한지 `grep`으로 찾을 수 없고, 빌드가 없는 자리를 조용히 404로 넘긴다.
+ *
+ * `@2x`는 `srcSet`의 밀도 서술자로만 고른다. 표시 크기는 CSS
+ * (`--assistant-launcher-size` · `--assistant-intro-art-height`)가 갖는다.
+ */
+const LAUNCHER_FACE_1X = '/brand/beomi/beomi-3d-default-56@1x.webp'
+const LAUNCHER_FACE_2X = '/brand/beomi/beomi-3d-default-56@2x.webp'
+const INTRO_ART_1X = '/brand/beomi/beomi-3d-intro-160@1x.webp'
+const INTRO_ART_2X = '/brand/beomi/beomi-3d-intro-160@2x.webp'
+
+/*
+ * 표정별 아바타 (`#2009`). 머리는 3D 얼굴 40, 말풍선 옆은 2D 얼굴 28 —
+ * **32px 이하에서 3D는 표정이 뭉개진다**는 시안 결정(`beomi-icon-compare.png`)이다.
+ *
+ * 경로를 표로 적는다. 템플릿으로 조립하면 어느 파일이 실제로 필요한지 `grep`으로
+ * 찾을 수 없고, 빌드가 없는 자리를 조용히 404로 넘긴다 — 얼굴은 장식이라
+ * 화면이 깨지지도 않는다.
+ */
+const HEAD_FACE: Readonly<Record<AvatarMood, readonly [string, string]>> = {
+  default: ['/brand/beomi/beomi-3d-default-40@1x.webp', '/brand/beomi/beomi-3d-default-40@2x.webp'],
+  guide: ['/brand/beomi/beomi-3d-guide-40@1x.webp', '/brand/beomi/beomi-3d-guide-40@2x.webp'],
+  warning: ['/brand/beomi/beomi-3d-warning-40@1x.webp', '/brand/beomi/beomi-3d-warning-40@2x.webp'],
+}
+const TURN_FACE: Readonly<Record<AvatarMood, string>> = {
+  default: '/brand/beomi/beomi-2d-default.svg',
+  guide: '/brand/beomi/beomi-2d-guide.svg',
+  warning: '/brand/beomi/beomi-2d-warning.svg',
+}
 
 const PLACEHOLDER = '계산 결과에 대해 물어보세요'
 
@@ -153,6 +188,11 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const [stopped, setStopped] = useState(false)
   /** #1535 — 패널을 열 때 받은 상태가 「쓸 수 없음」이었다. 질문 뒤 503과 구분해 안내를 그린다. */
   const [statusOff, setStatusOff] = useState(false)
+  /*
+   * 머리 표정 (`#2009`). `pending`을 보지 않는다 — 「작성 중」에 아바타는 바뀌지
+   * 않는 것이 규정이다(`avatarMood.ts` 머리주석).
+   */
+  const headMood: AvatarMood = avatarMood(turns, { stopped })
   const sessionRef = useRef<string | undefined>(undefined)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
@@ -275,10 +315,22 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         type="button"
         className="assistant__launcher"
         ref={launcherRef}
+        /*
+         * 이름을 `aria-label`로 옮긴다 — 라벨이 그림으로 바뀌어 글자가 남지 않는다.
+         * 값은 **그대로**여야 한다: `AssistantOverlay.test.tsx`가 `/AI 어시스턴트 열기/`로
+         * 이 버튼을 찾는 자리가 다섯 군데다(초점 복귀 · `aria-controls` 검사 포함).
+         */
+        aria-label={OPEN_LABEL}
         aria-expanded={false}
         onClick={() => setOpen(true)}
       >
-        {OPEN_LABEL}
+        {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
+        <img
+          className="assistant__launcher-img"
+          src={LAUNCHER_FACE_1X}
+          srcSet={`${LAUNCHER_FACE_1X} 1x, ${LAUNCHER_FACE_2X} 2x`}
+          alt=""
+        />
       </button>
     )
   }
@@ -303,6 +355,17 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       tabIndex={-1}
     >
       <header className="assistant__head">
+        {/*
+          장식이다 (`§14`) — 상태의 뜻은 기존 채널이 전한다. 아래 `PENDING_TEXT` ·
+          접두 문구 · 줄무늬 · 「쓸 수 없음」 안내가 그것이고, 이 얼굴은 거들지 않는다.
+        */}
+        <img
+          className="assistant__head-avatar"
+          src={HEAD_FACE[headMood][0]}
+          srcSet={`${HEAD_FACE[headMood][0]} 1x, ${HEAD_FACE[headMood][1]} 2x`}
+          alt=""
+          aria-hidden="true"
+        />
         <h2 className="assistant__title">
           {PANEL_LABEL}
           <span className="assistant__tag">실험</span>
@@ -330,10 +393,26 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       </p>
 
       {/*
+        #2158 — 머리줄과 입력 줄 **사이**를 한 스크롤 영역으로 묶는다. 화면이 낮아
+        내용물이 패널에 다 들어가지 않아도 넘친 만큼은 이 안에서 스크롤되고, 입력 줄은
+        제자리에 남는다. 대화가 시작되면 로그가 이 높이를 다 받아 종전처럼 로그가 스크롤된다.
+      */}
+      <div className="assistant__body">
+      {/*
         #1818 — 안내문도 예시 질문처럼 **대화를 시작하면 걷는다.** 「무엇을 물어볼 수
         있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그 말이 쓰일 때다.
         50px을 돌려받아 대화 로그가 그만큼 넓어진다.
       */}
+      {turns.length === 0 ? (
+        <img
+          className="assistant__intro-art"
+          src={INTRO_ART_1X}
+          srcSet={`${INTRO_ART_1X} 1x, ${INTRO_ART_2X} 2x`}
+          alt=""
+          aria-hidden="true"
+        />
+      ) : null}
+
       {turns.length === 0 ? <p className="assistant__intro">{INTRO}</p> : null}
 
       {statusOff ? (
@@ -373,8 +452,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         ) : null}
         {turns.map((turn) => {
           const cites = citeLabels(turn.toolCalls)
-          return (
-            <Fragment key={turn.id}>
+          const bubble = (
               <p
                 className={[
                   'assistant__turn',
@@ -392,24 +470,59 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
                 */}
                 {turn.discarded ? <strong className="assistant__prefix">{DISCARDED_PREFIX}</strong> : null}
                 {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
-                {turn.text}
+                {/*
+                  #2064 — 모델 답에 샌 마크다운 기호를 **그리기 직전에** 걷는다.
+                  사용자가 친 글자는 그대로 둔다 — 사용자가 별표를 쳤다면 그것은
+                  서식이 아니라 그가 친 글자다. 저장된 원문(감사 기록)도 그대로다.
+                */}
+                {turn.role === 'assistant' ? stripMarkdown(turn.text) : turn.text}
               </p>
-              {/*
-                #1818 — 이 답의 값을 낸 도구를 적는다. 서버가 `tool_calls`로 보내 주고
-                provider가 파싱해 두었는데 화면이 읽지 않고 있었다(`#1783`의 `search`와
-                같은 자리). 버린 답·실패에는 붙지 않는다 — 위 `send()`에서 싣지 않는다.
-              */}
-              {cites.length > 0 ? (
-                <p className="assistant__cite">
-                  <span className="assistant__cite-label">{CITE_LABEL}</span> {cites.join(' · ')}
-                </p>
-              ) : null}
-            </Fragment>
+          )
+          {/*
+            #1818 — 이 답의 값을 낸 도구를 적는다. 서버가 `tool_calls`로 보내 주고
+            provider가 파싱해 두었는데 화면이 읽지 않고 있었다(`#1783`의 `search`와
+            같은 자리). 버린 답·실패에는 붙지 않는다 — 위 `send()`에서 싣지 않는다.
+          */}
+          const cite =
+            cites.length > 0 ? (
+              <p className="assistant__cite">
+                <span className="assistant__cite-label">{CITE_LABEL}</span> {cites.join(' · ')}
+              </p>
+            ) : null
+
+          /*
+            사용자 턴에는 아바타를 붙이지 않는다 (`#2009`) — 말하는 쪽이 누구인지는
+            좌우 정렬과 면 색이 이미 말하고, 양쪽에 얼굴을 두면 누구의 얼굴인지가
+            오히려 흐려진다.
+          */
+          if (turn.role !== 'assistant') {
+            return (
+              <Fragment key={turn.id}>
+                {bubble}
+                {cite}
+              </Fragment>
+            )
+          }
+
+          return (
+            <div className="assistant__turn-row" key={turn.id}>
+              <img
+                className="assistant__avatar"
+                src={TURN_FACE[turnMood(turn)]}
+                alt=""
+                aria-hidden="true"
+              />
+              <div className="assistant__turn-body">
+                {bubble}
+                {cite}
+              </div>
+            </div>
           )
         })}
         {pending ? (
           <p className="assistant__turn assistant__turn--pending">{PENDING_TEXT}</p>
         ) : null}
+      </div>
       </div>
 
       {/*

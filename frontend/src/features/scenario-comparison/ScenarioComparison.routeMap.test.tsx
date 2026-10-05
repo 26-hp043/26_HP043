@@ -122,6 +122,7 @@ beforeEach(() => {
     displayName: null,
     role: 'OFFICE',
     emailVerifiedAt: null,
+    hasAvatar: false,
   })
 })
 

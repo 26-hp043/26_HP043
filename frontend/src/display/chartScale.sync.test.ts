@@ -40,6 +40,8 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'features/fleet/UnderwayChip.tsx': '글리프 — 상태 칩 안의 표식',
   'features/vessel-management/VesselManagement.tsx': '글리프 — 목록 행의 선박 실루엣',
   'features/scenario-comparison/ScenarioRouteGlyph.tsx': '글리프 — 표 머리의 항로 모양',
+  'features/auth/BeomiScene.tsx':
+    '배경 장면 — 로그인 판의 바다(`#2076`). 축도 계열도 값도 없는 장식이고 `aria-hidden`이다. §9가 지키는 것은 **값을 읽는 그림**이라 여기 해당이 없다',
   'layout/NavIcons.tsx': '아이콘 — §12 소관',
   'theme/ThemeToggle.tsx': '아이콘 — §12 소관',
 }

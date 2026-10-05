@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PageHeader } from '../../components/PageHeader'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   coerceYear,
@@ -332,7 +332,8 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    *
    * 연간 실적은 선박만 고르면 완전해지므로, 이 자리에 남는 것은 항차뿐이다.
    */
-  const blocking = vesselId ? '항차를 먼저 선택해 주세요' : '선박을 먼저 선택해 주세요'
+  // 같은 상태의 같은 문장이다 (`PRD §6.4`) — 연도 칸과 한 곳에서 낸다 (#2048).
+  const blocking = vesselId ? '항차를 먼저 선택해 주세요' : SELECT_VESSEL_FIRST
 
   /*
    * 한 번 만든 뒤에는 조건을 따라간다 (#1768).
@@ -469,6 +470,13 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   disabled={!vesselId || years.length === 0}
                   data-testid="year-select"
                 >
+                  {/*
+                    선박을 고르기 전에는 **자리표시 한 줄**이 선다 (#2048). 없으면 빈
+                    상자가 떠, 바로 위 「선박」 칸이 「선택하세요」라고 말하는 옆에서
+                    이 칸만 아무 말이 없다 — 사용자는 그것을 고장으로도 읽는다.
+                    칸을 감추지 않는 것은 폼의 줄 수가 선택 여부로 달라지면 화면이 튀기 때문이다.
+                  */}
+                  {vesselId ? null : <option value="">{SELECT_VESSEL_FIRST}</option>}
                   {years.map((option) => (
                     <option key={option} value={option}>
                       {option}년
@@ -557,6 +565,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
           <div className="rp__actions">
             <button
               type="button"
+              className="rp__action"
               onClick={() => void run('preview')}
               disabled={busy !== null}
               data-testid="preview-button"
@@ -565,7 +574,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             </button>
             <button
               type="button"
-              className="rp__primary"
+              className="rp__action rp__primary"
               onClick={() => void run('pdf')}
               disabled={busy !== null}
               data-testid="pdf-button"
@@ -574,6 +583,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             </button>
             <button
               type="button"
+              className="rp__action"
               onClick={() => void run('csv')}
               disabled={busy !== null}
               data-testid="csv-button"

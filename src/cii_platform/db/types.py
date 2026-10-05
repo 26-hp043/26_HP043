@@ -6,6 +6,7 @@ UUID 대체 — CUBRID에 네이티브 UUID가 없어 ``CHAR(32)``에 담되 ``s
 
 from __future__ import annotations
 
+import base64
 import json
 import uuid
 from typing import Any
@@ -31,6 +32,43 @@ class JSONText(sa.TypeDecorator[Any]):
         if value is not None:
             return json.loads(value)
         return value
+
+
+class Base64Bytes(sa.TypeDecorator[bytes]):
+    """``TEXT`` 컬럼에 바이트를 base64로 투명하게 담는다 (`#2080`).
+
+    ## 왜 BLOB이 아닌가
+
+    ``sqlalchemy-cubrid``가 **자기 테스트 요건 파일에** 이렇게 적고 그 검사를 꺼 뒀다::
+
+        @property
+        def binary_comparisons(self) -> compound:
+            \"\"\"CUBRID BLOB roundtrip has driver-level issues.\"\"\"
+            return _CLOSED
+
+    드라이버가 스스로 못 한다고 적은 길로 제품의 **첫 이진 열**을 내지 않는다.
+    :class:`JSONText`가 CUBRID에 JSONB가 없어 택한 길과 같은 모양이다 — 없는 타입을
+    흉내 내는 대신, **있는 타입 위에 변환을 얹는다**.
+
+    ## 대가
+
+    바이트가 약 4/3로 커진다. 쓰는 쪽이 **고정 크기로 다시 그린 뒤** 넣으므로
+    (``services/avatar.py``) 그 4/3이 열린 값이 아니다 — 이 타입을 다른 데 쓸 때는
+    **크기 상한이 어디에 있는지 먼저 확인한다.**
+    """
+
+    impl = sa.Text
+    cache_ok = True
+
+    def process_bind_param(self, value: bytes | None, dialect: sa.Dialect) -> str | None:
+        if value is None:
+            return None
+        return base64.b64encode(value).decode("ascii")
+
+    def process_result_value(self, value: str | None, dialect: sa.Dialect) -> bytes | None:
+        if value is None:
+            return None
+        return base64.b64decode(value)
 
 
 class UuidText(sa.TypeDecorator[Any]):

@@ -22,7 +22,17 @@ services:
       #
       # 빈 값도 `-p ""`로 통과하므로(실측) 비밀번호를 걸기 전과 뒤가 같은 명령으로 돈다.
       CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
-    volumes: [cubrid-data:/var/lib/cubrid]
+    # 🔴 데이터 경로는 `$CUBRID_DATABASES` = `/home/cubrid/CUBRID/databases`다 (#2115).
+    #
+    # 종전 값 `/var/lib/cubrid`는 CUBRID가 쓰지 않는 자리라 이름 있는 볼륨이 **비어 있었고**,
+    # 실제 데이터는 이미지가 선언한 익명 볼륨에 있었다. `docker compose down`은 `-v` 없이도
+    # 다음 `up`에서 그 익명 볼륨을 다시 쓰지 않으므로 **내렸다 올리면 빈 DB였다**(#1867 ·
+    # `docs/OPERATIONS.md §9.2`). 다른 두 compose(`docker-compose.yml` ·
+    # `docker-compose.prod.db.yml`)와 같은 경로이며 `tests/test_compose_env_wiring.py`가 잠근다.
+    #
+    # ⚠️ 종전 값으로 이미 띄운 호스트는 데이터가 익명 볼륨에 있다 — 그대로 올리면 빈 DB로
+    # 뜬다. 옮기는 절차는 `docs/OPERATIONS.md §9.2.1`과 같다.
+    volumes: [cubrid-data:/home/cubrid/CUBRID/databases]
     healthcheck:
       # `CMD`(exec 형식)는 셸을 거치지 않아 `$CUBRID_PASSWORD`가 펼쳐지지 않는다 —
       # `sh -c`로 감싼다. DB 이름도 `cii`로 박혀 있던 것을 `$CUBRID_DB`로 바꾼다

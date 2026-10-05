@@ -11,7 +11,7 @@
 
 케이스 (`TEST_PLAN §14.5`):
     IT-SNAP-001 · IT-SNAP-002 · IT-SNAP-003 · IT-SNAP-004
-    AT-AS-001 · AT-AS-003 · AT-AS-004 · AT-AS-005
+    AT-AS-001 · AT-AS-003 · AT-AS-004 · AT-AS-005 · AT-AS-006
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -29,12 +29,18 @@ from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.calc.precision import SERIALIZATION_ROUNDING
+from cii_platform.calc.rating_engine import determine_rating
+from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import CalculationError, ValidationError
+from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     NO_BASIS_MESSAGE,
     _inputs_from_snapshot,
     _project_or_domain_error,  # noqa: F401  — 배선 검사가 이름으로 본다
+    load_projection_context,
+    reproduce_annual_simulation,
     run_annual_simulation,
 )
 from cii_platform.services.voyage_cii import DISCLAIMER
@@ -184,6 +190,99 @@ async def test_response_carries_the_four_blocks(session, vessel_id):
     for key in ("deterministic", "monte_carlo", "sensitivity_analysis", "snapshot"):
         assert key in result["data"], key
     assert result["data"]["risk_level"] in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+@pytest.mark.asyncio
+async def test_future_years_outlook_rates_this_year_against_every_remaining_year(
+    session, vessel_id
+):
+    """AT-AS-006 · #2043 · `API_SPEC §6.1` — 남은 해 기준 등급은 **그 해 컨텍스트와 같은 값**이다.
+
+    대조 기준을 **다른 경로**에서 만든다: 실시간 CII와 공유하는 ``load_projection_context``
+    를 남은 해마다 불러 required CII · 경계를 얻는다. 한 해의 값이 이것과 다르면 같은
+    선박 · 같은 해의 기준이 화면마다 갈린 것이다(`#750` · `#866`). 목록은 규정연도 표에서
+    올해 뒤의 활성 해 **전부**를 오름차순으로 담는다 — 어느 해도 빠지지 않는다.
+    """
+    await ensure_regulation_year(session, YEAR + 1)
+    await ensure_regulation_year(session, YEAR + 2, z_factor=14.0)
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED")
+
+    result = await _run(session, vessel_id)
+    outlook = result["data"]["future_years_outlook"]
+    det = result["data"]["deterministic"]
+
+    expected_years = sorted(
+        int(row.year)
+        for row in await param_repo.list_regulation_years(session)
+        if int(row.year) > YEAR
+    )
+    assert expected_years[:2] == [YEAR + 1, YEAR + 2]
+    assert [row["regulation_year"] for row in outlook] == expected_years
+
+    attained = Decimal(det["projected_attained_cii"])
+    for row in outlook:
+        nxt = await load_projection_context(
+            session, vessel_id=vessel_id, regulation_year=row["regulation_year"]
+        )
+        assert row["required_cii"] == str(
+            nxt.required_cii.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING)
+        )
+        # 경계 4종은 그 해 컨텍스트의 required × d — 절사 뒤 문자 단위로 같다.
+        assert row["boundaries"] == {
+            key: str(value.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING))
+            for key, value in determine_rating(
+                attained_cii=attained, required_cii=nxt.required_cii, d_vector=nxt.d_vector
+            ).boundaries.items()
+        }
+        # 등급은 **응답이 실은 경계 문자열**과 포함 방향(`PRD §3.3.6` — 경계 이하)으로
+        # 대조한다. 6자리 절사값으로 등급을 다시 판정하면 경계에 붙은 값에서 갈릴 수 있어,
+        # 「등급이 그 경계 구간 안에 있다」만 단언한다 — 절사는 단조라 부등식은 보존된다.
+        b = row["boundaries"]
+        upper_of = {
+            "A": b["superior_boundary"],
+            "B": b["lower_boundary"],
+            "C": b["upper_boundary"],
+            "D": b["inferior_boundary"],
+        }
+        lower_of = {"B": upper_of["A"], "C": upper_of["B"], "D": upper_of["C"], "E": upper_of["D"]}
+        rating = row["projected_rating"]
+        if rating in upper_of:
+            assert attained <= Decimal(upper_of[rating]), (rating, row)
+        if rating in lower_of:
+            assert attained >= Decimal(lower_of[rating]), (rating, row)
+        # 기준이 조여지므로 같은 CII의 등급은 같거나 나빠진다.
+        assert rating >= det["projected_rating"]
+
+    assert [row["year"] for row in result["parameters_used"]["future_regulation_years"]] == [
+        str(year) for year in expected_years
+    ]
+
+
+@pytest.mark.asyncio
+async def test_future_years_outlook_is_empty_when_no_later_year_is_loaded(
+    session, vessel_id, monkeypatch
+):
+    """#2043 — 올해 뒤의 규정연도가 없으면(2030년) 블록은 **빈 목록**이고 실행은 그대로 간다.
+
+    올해 행이 없으면 409인 것과 다르다 — 보조 한 줄 때문에 실행을 막지 않는다.
+    빈 목록은 해시 재료에도 남고, 재현은 저장된 해 집합(없음)으로 같은 빈 목록을 낸다.
+    """
+
+    async def _none(_session, _year):
+        return []
+
+    monkeypatch.setattr(annual_simulation_service, "_load_future_regulation_years", _none)
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+
+    result = await _run(session, vessel_id)
+    assert "future_years_outlook" in result["data"]
+    assert result["data"]["future_years_outlook"] == []
+    assert result["parameters_used"]["future_regulation_years"] == []
+
+    again = await reproduce_annual_simulation(session, UUID(result["data"]["simulation_id"]))
+    assert again["data"]["future_years_outlook"] == []
+    assert again["parameter_hash"] == result["parameter_hash"]
 
 
 @pytest.mark.asyncio

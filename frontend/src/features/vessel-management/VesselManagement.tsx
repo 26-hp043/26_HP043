@@ -8,7 +8,25 @@ import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
 // 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
 import { UnderwayChip } from '../fleet/UnderwayChip'
-import { toUnderwayState } from '../fleet/fleetRules'
+import { toUnderwayState, unavailableText, ytdCiiText } from '../fleet/fleetRules'
+// 등급은 대시보드와 **같은 경로·같은 파싱**에서 받는다 (#2018) — `gradeLookup.ts`.
+import { createApiFleetProvider } from '../fleet/apiProvider'
+import { GradeBadge } from '../../components/GradeBadge'
+import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import {
+  GRADE_ABSENT_HINT,
+  GRADE_FAILED_LINE,
+  GRADE_LOADING_TEXT,
+  GRADE_REFRESH_FAILED_TEXT,
+  GRADE_RETRY_TEXT,
+  GRADE_SORT_DISABLED_REASON,
+  GRADE_SORT_DISABLED_SUFFIX,
+  gradeCellOf,
+  gradeRank,
+  loadGradeTable,
+  type GradeCell,
+  type GradeTable,
+} from './gradeLookup'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
@@ -64,6 +82,7 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import './VesselManagement.css'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
+import { useShellContext } from '../../layout/shellContext'
 
 /**
  * 선박 관리 화면 — 목록 · 수정 · 삭제 (#510).
@@ -102,6 +121,12 @@ import { Field } from '../../components/Field'
  */
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
+  /*
+   * 상단 선박 선택기의 목록은 셸이 소유한다 (`#1643`). 이 화면이 선명을 바꾸거나 선박을
+   * 지우면 셸에 알려 다시 부르게 한다 (`#2119`) — 알리지 않으면 선택기에 옛 이름과
+   * 지운 배가 새로고침할 때까지 남는다.
+   */
+  const shell = useShellContext()
   /*
    * 제원 수정·삭제는 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직에게는 버튼을 두지
    * 않고 짧은 안내만 남긴다 — 눌러서 403을 받게 하는 것은 「되는 것처럼 보이는」 것이다.
@@ -144,7 +169,65 @@ export function VesselManagement() {
    * 행이 정렬 때문에 사라지거나 다른 배의 폼으로 바뀐다.
    */
   const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
-  const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
+
+  /*
+   * 올해 누적 등급 조회표 (#2018). 목록과 **따로** 받는다 — 요약이 실패해도 목록은
+   * 떠야 하고(제원을 고치는 것이 이 화면의 일이다), 목록 조건(검색·선종·더 보기)이
+   * 바뀌어도 선대 전체 요약은 다시 받을 까닭이 없다.
+   */
+  const fleetProvider = useMemo(() => createApiFleetProvider(), [])
+  const [gradeTable, setGradeTable] = useState<GradeTable>({ status: 'loading' })
+  const gradeGeneration = useRef(0)
+  /*
+   * **다시 받기는 표를 비우지 않는다.** 제원 저장 뒤 다시 받을 때 `loading`으로 되돌리면
+   * 값이 있던 배가 전부 「불러오는 중」이 되고, 「등급 나쁜 순」 목록은 등급 없음(끝)으로
+   * 흩어졌다가 응답 뒤 다시 모여 **두 번 재배열된다.** 그래서 `loading`은 표가 아직 없을
+   * 때(첫 로드 · 직전 실패)만 세우고, 표가 있으면 그대로 둔 채 받아 성공할 때 바꾼다.
+   *
+   * 다시 받기가 실패하면 **직전 표를 유지**하고 `refreshFailed`만 세운다 — 방금까지 보이던
+   * 등급을 「받지 못함」으로 지우지 않는다. 화면은 목록 위 한 줄 + 「다시 시도」로 알린다
+   * (디자인 확인 ⑶ · 2026-09-29). 다시 시도를 누르면 그 줄을 걷고 받는다 — 실패하면 다시 선다.
+   */
+  const loadGrades = useCallback(async () => {
+    gradeGeneration.current += 1
+    const ticket = gradeGeneration.current
+    setGradeTable((prev) =>
+      prev.status === 'ready' ? { ...prev, refreshFailed: false } : { status: 'loading' },
+    )
+    try {
+      const table = await loadGradeTable(fleetProvider)
+      if (ticket === gradeGeneration.current) setGradeTable({ status: 'ready', ...table })
+    } catch {
+      // 사유 문구는 싣지 않는다 — 받지 못한 사실은 목록 위 한 줄이 한 번만 말한다(`GRADE_FAILED_LINE`).
+      if (ticket === gradeGeneration.current) {
+        setGradeTable((prev) =>
+          prev.status === 'ready' ? { ...prev, refreshFailed: true } : { status: 'failed' },
+        )
+      }
+    }
+  }, [fleetProvider])
+  useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 화면을 열 때 한 번 받는 조회 — `loadGrades`가 시작 시점의 로딩 상태를 세운다
+    void loadGrades()
+    // 떠난 뒤 온 응답은 버린다 — 세대를 올려 진행 중인 요청의 티켓을 낡게 만든다.
+    return () => {
+      gradeGeneration.current += 1
+    }
+  }, [loadGrades])
+
+  /*
+   * 표가 없는 채로 받기가 실패하면 등급순 선택지가 잠긴다. 받는 동안 등급순을 골라 두었으면
+   * 잠긴 선택지가 선택된 채로 남아 정렬 근거 없이 목록이 서므로 기본 정렬로 되돌린다 —
+   * 렌더 중에 고치는 것은 React가 권하는 「이전 값에 맞춰 상태 조정」 형태다(효과를 거치면
+   * 한 프레임 잠긴 선택지가 보인다). 직전 표가 남는 다시 받기 실패(`refreshFailed`)는
+   * 잠그지 않으므로 그대로 둔다.
+   */
+  if (gradeTable.status === 'failed' && sortKey === 'grade') setSortKey('gaps')
+
+  const sorted = useMemo(
+    () => sortVessels(vessels, sortKey, (v) => gradeRank(gradeCellOf(gradeTable, v.id))),
+    [vessels, sortKey, gradeTable],
+  )
   /*
    * 「입력 미완료만」 필터 (#1424 · 문구 #2037). 종전에는 그 선박만 보려면 **정렬밖에**
    * 없었다 — 「입력 미완료 먼저」는 위로 올릴 뿐이라, 20척을 불러온 화면에서 어디까지인지
@@ -299,6 +382,10 @@ export function VesselManagement() {
       const updated = await provider.update(target.id, patch)
       setVessels((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
       setActionNotice(`${updated.name}의 정보를 저장했습니다.`)
+      shell.refreshVessels()
+      // 제원이 바뀌면 등급이 바뀔 수 있다 — 「제원 미입력」이 풀리는 것이 이 화면의 일이다.
+      // 저장 한 번마다 **선대 전체 요약**(`/fleet/summary`)을 다시 받는다 — 선박 하나만 묻는 경로가 없다.
+      void loadGrades()
       // 이 선박의 폼일 때만 닫는다. 그 사이 열린 다른 선박의 폼은 그대로 둔다.
       setEdit((current) => (current !== null && current.id === target.id ? null : current))
     } catch (error) {
@@ -322,6 +409,12 @@ export function VesselManagement() {
     try {
       await provider.remove(vessel.id)
       setVessels((prev) => prev.filter((v) => v.id !== vessel.id))
+      /*
+       * 지운 배가 상단에서 선택돼 있었으면 선택도 푼다 (`#2119`). 목록만 다시 부르면
+       * 셸이 **없는 선박의 id를 그대로 기억해** 다른 화면이 그 id로 조회한다.
+       */
+      if (shell.vesselId === vessel.id) shell.selectVesselId(null)
+      shell.refreshVessels()
       setEdit((current) => (current !== null && current.id === vessel.id ? null : current))
       setActionNotice(`${vessel.name}을(를) 목록에서 제거했습니다.`)
     } catch (error) {
@@ -549,19 +642,58 @@ export function VesselManagement() {
               <select
                 value={sortKey}
                 onChange={(event) => setSortKey(event.target.value as VesselSortKey)}
+                aria-describedby={gradeTable.status === 'failed' ? GRADE_FAILED_LINE_ID : undefined}
                 data-testid="vessel-sort"
               >
-                {SORT_KEYS.map((key) => (
-                  <option key={key} value={key}>
-                    {SORT_LABEL[key]}
-                  </option>
-                ))}
+                {/*
+                  등급을 받지 못했으면 등급순을 잠그고 **사유를 함께 낸다**(`DESIGN_SYSTEM §14`
+                  「비활성 컨트롤은 왜를 함께 낸다」 · 디자인 확인 ⑶). 선택지에는 짧은 꼬리만,
+                  문장은 목록 위 한 줄에 둔다 — 근거는 `GRADE_SORT_DISABLED_SUFFIX` 주석.
+                */}
+                {SORT_KEYS.map((key) => {
+                  const locked = key === 'grade' && gradeTable.status === 'failed'
+                  return (
+                    <option key={key} value={key} disabled={locked}>
+                      {locked ? `${SORT_LABEL[key]} ${GRADE_SORT_DISABLED_SUFFIX}` : SORT_LABEL[key]}
+                    </option>
+                  )
+                })}
               </select>
             </label>
             </div>
           </div>
 
           {hasMore && <p className="vm__partial">{LOADED_PARTIAL_HINT}</p>}
+
+          {/*
+            등급을 받지 못함 — **행에 반복하지 않고 목록 위 한 줄로** 한 번만 말한다
+            (디자인 확인 ⑶ · 2026-09-29 `rlatnals4114`). 호출이 실패하면 모든 행이 같은
+            상태라 행마다 적으면 같은 말이 스무 번 뜬다. 화면 단위 오류로 올리지 않는다 —
+            목록은 떠야 한다(`PRD §16.2` 장애 격리). 처음 받기 실패와 다시 받기 실패는
+            문장이 다르다 — 앞은 칸이 비었고, 뒤는 직전 값이 남아 있다.
+          */}
+          {(gradeTable.status === 'failed' ||
+            (gradeTable.status === 'ready' && gradeTable.refreshFailed === true)) && (
+            <p className="vm__partial vm__grade-failed" data-testid="grade-failed-line">
+              {/*
+                정렬 칸의 `aria-describedby`는 **문장만** 가리킨다 — 줄 전체를 가리키면 버튼
+                이름(「다시 시도」)까지 사유로 읽힌다. 다시 받기 실패는 값이 보이던 중에 생기므로
+                `role="status"`로 낭독에 알린다. 처음 받기 실패는 칸이 `—`로 보이는 상태라
+                알리지 않는다(화면을 열 때 한꺼번에 읽히는 목록과 같다).
+              */}
+              <span
+                id={GRADE_FAILED_LINE_ID}
+                role={gradeTable.status === 'ready' ? 'status' : undefined}
+              >
+                {gradeTable.status === 'failed'
+                  ? `${GRADE_FAILED_LINE} ${GRADE_SORT_DISABLED_REASON}`
+                  : GRADE_REFRESH_FAILED_TEXT}
+              </span>
+              <button type="button" className="vm__retry" onClick={() => void loadGrades()}>
+                {GRADE_RETRY_TEXT}
+              </button>
+            </p>
+          )}
 
           {/*
             걸러 놓은 채로 두면 제목(「선박 20척」)과 행 수가 어긋나 보인다. 제목은
@@ -577,7 +709,7 @@ export function VesselManagement() {
           {/*
             ── 넘침은 **카드 안에서** 받는다 (#1788) ────────────────────
 
-            목록이 `890px`(열 최소폭 합 `806` + 거터 `84`) 밑으로 줄지 않는데, 받아 주는
+            목록이 최소 폭(`VesselManagement.css` `.vm__list` · `#2018`에서 등급 열만큼 늘렸다) 밑으로 줄지 않는데, 받아 주는
             자리가 없어 그 넘침이 `vessel-management` → `app-shell__content`까지 그대로
             전해졌다 — **1100 · 720에서 페이지가 통째로 가로로 밀렸고** 사이드바와 페이지
             제목이 함께 빠져나갔다. 되돌아올 기준점이 사라지는 것이 핵심이다.
@@ -597,6 +729,8 @@ export function VesselManagement() {
             <li className="vm__head" aria-hidden="true">
               <span />
               <span>선박</span>
+              {/* 값과 **같은 정렬 클래스**를 머리글에도 건다 — 한쪽에만 걸면 `#2015`가 된다. */}
+              <span className="vm__num">올해 누적 등급</span>
               <span>선종</span>
               <span>용량</span>
               <span>기준속도</span>
@@ -632,6 +766,8 @@ export function VesselManagement() {
                         />
                       </span>
                     </div>
+
+                    <GradeCellView cell={gradeCellOf(gradeTable, vessel.id)} />
 
                     <div className="vm__cell">
                       <span className="sr-only">선종 </span>
@@ -728,6 +864,13 @@ export function VesselManagement() {
         </section>
       )}
 
+      {/*
+        올해 누적 등급은 공식 등급이 아니다 (`PRD §3.3.7` 각주) — 대시보드와 같은 배너·같은
+        문구(`PRD §6.3`)로 알린다(`DESIGN_SYSTEM §13`). 위치·모양은 디자인 답이 없어(#2018 ⑷)
+        대시보드와 같은 방식(목록 아래 `DisclaimerBanner estimate`)을 유지한다.
+      */}
+      {vessels.length > 0 && <DisclaimerBanner estimate />}
+
       {hasMore && nextCursor !== null && (
         <button
           type="button"
@@ -739,6 +882,53 @@ export function VesselManagement() {
         </button>
       )}
     </section>
+  )
+}
+
+/** 목록 위 「받지 못함」 한 줄의 문장 — 잠긴 등급순 정렬 칸이 사유로 가리킨다(`aria-describedby`). */
+const GRADE_FAILED_LINE_ID = 'vm-grade-failed-line'
+
+/**
+ * 올해 누적 등급 칸 (#2018 · 디자인 확인 2026-09-29 `rlatnals4114`).
+ *
+ * - ⑴ 등급 배지 **위**, 올해 누적 CII를 **그 아래 작은 글씨**로 쌓는다(`vm__ident`와 같은
+ *   적층 — 행 높이가 늘지 않는다). 기준 CII는 넣지 않는다. 우측 정렬 · `tabular-nums`.
+ * - ⑵ 계산하지 못한 배는 배지 대신 `unavailableText()`를 `caption` 크기로 — 대시보드와
+ *   같은 문구다. **`unavailableHint()`(할 일 문장)는 행에 넣지 않는다** — 목록은 훑는 자리다.
+ * - ⑶ 받지 못함은 칸에 `—`만 둔다. 사실은 목록 위 한 줄이 한 번 말한다.
+ */
+function GradeCellView({ cell }: { cell: GradeCell }) {
+  if (cell.kind === 'rated') {
+    return (
+      <div className="vm__cell vm__num vm__grade" data-grade-state="rated">
+        {/* 접두어는 배지 이름이 이미 말한다 — sr-only를 더하면 「올해 누적 등급」이 두 번 읽힌다. */}
+        <GradeBadge rating={cell.rating} size="xs" label={`올해 누적 등급 ${cell.rating}`} />
+        <span className="vm__grade-cii">
+          <span className="sr-only"> 올해 누적 CII </span>
+          {ytdCiiText(cell.attainedCii)}
+        </span>
+      </div>
+    )
+  }
+  const { text, hint } =
+    cell.kind === 'loading'
+      ? { text: GRADE_LOADING_TEXT, hint: undefined }
+      : cell.kind === 'failed'
+        ? { text: MISSING, hint: undefined }
+        : cell.kind === 'absent'
+          ? { text: MISSING, hint: GRADE_ABSENT_HINT }
+          : { text: unavailableText(cell.reason), hint: undefined }
+  return (
+    <div
+      className="vm__cell vm__cell--empty vm__num vm__grade vm__grade--empty"
+      data-grade-state={cell.kind}
+      title={hint}
+      aria-busy={cell.kind === 'loading' ? true : undefined}
+    >
+      <span className="sr-only">올해 누적 등급 </span>
+      {text}
+      {hint === undefined ? null : <span className="sr-only"> — {hint}</span>}
+    </div>
   )
 }
 

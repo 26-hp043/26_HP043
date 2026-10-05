@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
 import { Field } from '../../components/Field'
+import { BeomiScene } from './BeomiScene'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -77,7 +78,14 @@ export function AuthShell({
        * 좌: 브랜드 판. 장식이 아니라 `UIFLOW §0`이 요구하는 「서비스 소개」의 자리다.
        * 1100px 이하에서는 **숨기지 않고 접는다** — 확정 문서 3-3.
        */}
-      <aside className="auth-brand-panel">
+      <aside className={intro ? 'auth-brand-panel auth-brand-panel--scene' : 'auth-brand-panel'}>
+        {/*
+          `#2076` — 로그인 화면에서만 판이 바다가 된다. 소개 블록과 **같은 깃발**로
+          가르는 이유는, 1100px 이하에서 판이 상단 띠로 접힐 때(확정 3-3) 소개와
+          함께 사라져야 하기 때문이다 — 띠에 바다만 남으면 로고 옆에서 거품이 올라간다.
+        */}
+        {intro ? <BeomiScene /> : null}
+
         <p className="auth-brand">
           <BrandLogo />
           {/* 사이드바(`AppShell`)와 같은 문구를 쓴다 — 한쪽만 바뀌면 어긋난다. */}
@@ -86,10 +94,26 @@ export function AuthShell({
 
         {intro ? (
           <div className="auth-intro">
-            <p className="auth-intro-lead">
-              항차 CII 추정, 운항 시나리오 비교, 연간 등급 시뮬레이션을 하나의 화면에서
-              확인합니다.
-            </p>
+            {/*
+              소개 문구는 **화면 문구**라 디자인 소관이다(`AGENTS §4.6`). `UIFLOW §0`은
+              로그인 화면에 「서비스 소개」가 **있을 것**만 요구하고 문장을 정하지 않는다.
+
+              종전 문구는 기능 세 개를 나열했는데, 그 나열은 **바로 아래 계층 목록이
+              이미 하고 있었다**(`#2084`). 같은 말을 두 번 하는 대신 **왜 지금 보는지**를
+              적는다 — 등급은 연말에 확정되지만 그 등급을 가르는 결정은 항차마다 내려진다.
+
+              「예측」·「추정」은 `PRD §0.3` 면책과 같은 말씨다 — 확정값으로 읽히는
+              표현을 쓰지 않는다(`PRD` COR-1).
+            */}
+            <div className="auth-intro-text">
+              <p className="auth-intro-lead">
+                CII 등급은 연말에 확정되지만, 등급을 가르는 결정은 항차마다 내려집니다.
+              </p>
+              <p className="auth-intro-body">
+                BlueLog는 항차가 쌓는 CII를 운항 중에 추정하고, 올해가 어느 등급으로 끝날지
+                예측합니다. 속도와 항로를 고르기 전에 그 결과를 견줘 봅니다.
+              </p>
+            </div>
             <ul className="auth-tiers">
               {TIERS.map(({ tier, detail }) => (
                 <li className="auth-tier" key={tier}>

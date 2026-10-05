@@ -36,6 +36,7 @@ from cii_platform.calc.annual_simulation import (
     WARNING_TARGET_RATING_D,
     CompletedPair,
     CompletedTotals,
+    DeterministicProjection,
     DistributionProfile,
     RemainingVoyage,
     TriangularBand,
@@ -46,13 +47,19 @@ from cii_platform.calc.annual_simulation import (
     feedback_factor,
     fuel_cf_alternative_projection,
     project_deterministic,
+    rate_against_future_year,
     rng_metadata,
     simulate_annual,
 )
 from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.calc.rating_engine import DVector
+from cii_platform.errors import ReproducibilityError
 from cii_platform.services.annual_simulation import (
     PARAMETERS_SCHEMA_V1,
+    PARAMETERS_SCHEMA_V2,
+    PARAMETERS_SCHEMA_V3,
+    _assert_same_outcome,
+    _future_years_outlook,
     build_parameters_used,
     parameters_schema_version,
 )
@@ -1214,3 +1221,228 @@ def test_every_publish_call_names_its_kind():
     assert len(calls) >= 12, calls
     for call in calls:
         assert re.search(r'"(cii|quantity|probability)"\s*\)$', call), call
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 남은 해 기준 등급 (#2043)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _projection(attained: Decimal) -> DeterministicProjection:
+    """``_future_years_outlook``이 투영에서 읽는 것은 ``attained_cii``뿐이다."""
+    return DeterministicProjection(
+        attained_cii=attained,
+        rating="C",
+        boundaries={},
+        completed_co2_g=Decimal(0),
+        completed_distance_nm=Decimal(0),
+        planned_co2_g=Decimal(0),
+        planned_distance_nm=Decimal(0),
+    )
+
+
+def test_future_year_rating_keeps_the_boundary_direction():
+    """#2043 · `PRD §3.3.6` — 경계와 **같으면 더 우수한 등급**, 조금이라도 넘으면 아래.
+
+    이후 해 판정이 올해 판정과 포함 방향이 갈리면(`#1973`이 챗봇에서 겪은 것) 같은
+    CII가 두 줄에서 다른 뜻이 된다. 경계값 ``required × d3``에 **정확히 정착**하는
+    입력으로 본다. 경계 4종도 함께 돌려준다 — 화면이 다시 계산하지 않는다(`#2002`).
+    """
+    future_required = Decimal("4.8")
+    on_boundary = future_required * D_VECTOR.d3
+    rated = rate_against_future_year(
+        attained_cii=on_boundary, future_required_cii=future_required, d_vector=D_VECTOR
+    )
+    assert rated.rating == "C"
+    assert rated.boundaries["upper_boundary"] == on_boundary
+    just_above = on_boundary + Decimal("1E-20")
+    assert (
+        rate_against_future_year(
+            attained_cii=just_above,
+            future_required_cii=future_required,
+            d_vector=D_VECTOR,
+        ).rating
+        == "D"
+    )
+
+
+@pytest.mark.parametrize(
+    "attained", ["3.9", "4.3", "4.7", "5.0", "5.3", "5.6", "5.9", "6.2", "7.0"]
+)
+def test_a_stricter_future_year_never_improves_the_rating(attained):
+    """#2043 — 기준이 조여지면(required가 작아지면) 같은 CII의 등급은 **같거나 나빠진다.**
+
+    이 한 줄이 답하려는 질문이 「해가 갈수록 등급이 내려가는가」이므로, 거꾸로
+    좋아지는 결과가 나오면 그것은 계산이 아니라 조립(연도 뒤바뀜)의 결함이다.
+    """
+    this_year = rate_against_future_year(
+        attained_cii=Decimal(attained), future_required_cii=REQUIRED, d_vector=D_VECTOR
+    ).rating
+    future_year = rate_against_future_year(
+        attained_cii=Decimal(attained),
+        future_required_cii=REQUIRED * Decimal("0.97"),
+        d_vector=D_VECTOR,
+    ).rating
+    assert future_year >= this_year  # 문자 순서 A < B < … < E
+
+
+_REFERENCE_LINE = SimpleNamespace(
+    ship_type="BULK_CARRIER",
+    capacity_rule="DWT",
+    a_decimal=Decimal("4745.000000"),
+    c=Decimal("0.622000"),
+    source_ref="MEPC.353(78)",
+)
+
+
+def _v3_kwargs(future_regulations) -> dict:
+    return {
+        "regulation": SimpleNamespace(
+            year=2026, z_factor_percent=Decimal("11.0000"), source_ref="MEPC.400(83)"
+        ),
+        "reference_line": _REFERENCE_LINE,
+        "rating_boundary": SimpleNamespace(
+            ship_type="BULK_CARRIER",
+            d1=Decimal("0.8600"),
+            d2=Decimal("0.9400"),
+            d3=Decimal("1.0600"),
+            d4=Decimal("1.1800"),
+            source_ref="MEPC.354(78)",
+        ),
+        "profile_name": "DEFAULT",
+        "profile_rows": [],
+        "live_cf": {"HFO": Decimal("3.114")},
+        "fuel_type_sources": {"HFO": "MEPC.364(79)"},
+        "future_regulations": future_regulations,
+    }
+
+
+def _future(year: int, z: str) -> SimpleNamespace:
+    return SimpleNamespace(year=year, z_factor_percent=Decimal(z), source_ref="MEPC.400(83)")
+
+
+def test_v3_adds_the_future_years_block_on_top_of_an_untouched_v2():
+    """#2043 · `TECH_SPEC §5.2.1.2` — v3는 v2를 **고치지 않고** 남은 해 블록만 더한다.
+
+    v2 블록이 한 글자라도 달라지면 v2 행의 재현이 409가 된다. 그래서 v3에서 더한 것을
+    빼면 v2와 **같다**는 것을 본다. 남은 해는 **목록 전부**가 해시 재료다 — 어느 한 해의
+    감축률이 개정돼도 해시가 달라진다.
+    """
+    futures = [_future(2027, "13.6250"), _future(2028, "16.2500")]
+    kwargs = _v3_kwargs(futures)
+    v2 = build_parameters_used(PARAMETERS_SCHEMA_V2, **kwargs)
+    v3 = build_parameters_used(PARAMETERS_SCHEMA_V3, **kwargs)
+
+    assert v3["future_regulation_years"] == [
+        {"year": "2027", "z_factor_percent": "13.6250"},
+        {"year": "2028", "z_factor_percent": "16.2500"},
+    ]
+    assert v3["parameter_sources"]["future_regulation_years"] == [
+        {"year": "2027", "source_ref": "MEPC.400(83)"},
+        {"year": "2028", "source_ref": "MEPC.400(83)"},
+    ]
+    assert v3["parameter_schema_version"] == PARAMETERS_SCHEMA_V3
+
+    stripped = {k: v for k, v in v3.items() if k != "future_regulation_years"}
+    stripped["parameter_sources"] = {
+        k: v for k, v in v3["parameter_sources"].items() if k != "future_regulation_years"
+    }
+    stripped["parameter_schema_version"] = PARAMETERS_SCHEMA_V2
+    assert stripped == v2
+
+    # 목록의 **뒷해** Z가 개정돼도 해시가 달라진다 — 다음 해 하나만 재료가 아니다.
+    revised = _v3_kwargs([futures[0], _future(2028, "17.0000")])
+    assert compute_parameter_hash(v3) != compute_parameter_hash(
+        build_parameters_used(PARAMETERS_SCHEMA_V3, **revised)
+    )
+
+
+def test_v3_records_no_remaining_years_as_an_empty_list():
+    """#2043 — 2030년처럼 뒤에 해가 없으면 블록이 **빈 목록**이다(빠지지 않는다).
+
+    키를 빼면 v3 행이 v2와 같은 모양이 되어, 재현이 「대 본 해가 없었다」를 읽을 자리가
+    없다 — 재현은 저장된 해 집합으로 다시 만들므로(`TECH_SPEC §5.2.1.2`) 빈 집합도 값이다.
+    응답 블록도 빈 목록이다.
+    """
+    v3 = build_parameters_used(PARAMETERS_SCHEMA_V3, **_v3_kwargs([]))
+    assert v3["future_regulation_years"] == []
+    assert v3["parameter_sources"]["future_regulation_years"] == []
+    assert (
+        _future_years_outlook(
+            future_regulations=[],
+            reference_line=_REFERENCE_LINE,
+            reference_capacity=CAPACITY,
+            d_vector=D_VECTOR,
+            deterministic=_projection(REQUIRED),
+        )
+        == []
+    )
+
+
+def test_future_years_outlook_rates_one_cii_against_every_remaining_year():
+    """#2043 — 같은 연말 예상 CII 하나를 남은 해마다의 기준에 댄다. 해가 갈수록 조여진다.
+
+    조립이 해를 뒤바꾸거나 한 해를 빠뜨리면 여기서 드러난다 — 연도는 입력 순서 그대로,
+    required CII는 Z가 클수록 작고, 등급은 단조롭게 같거나 나빠진다. 경계 4종은 그 해의
+    required에서 나온 값이어야 한다(`#2002` — 화면이 다시 계산하지 않는다).
+    """
+    futures = [_future(2027, "13.6250"), _future(2028, "16.2500"), _future(2029, "18.8750")]
+    outlook = _future_years_outlook(
+        future_regulations=futures,
+        reference_line=_REFERENCE_LINE,
+        reference_capacity=CAPACITY,
+        d_vector=D_VECTOR,
+        deterministic=_projection(Decimal("5.0")),
+    )
+    assert [row["regulation_year"] for row in outlook] == [2027, 2028, 2029]
+    required = [Decimal(row["required_cii"]) for row in outlook]
+    assert required == sorted(required, reverse=True) and len(set(required)) == 3
+    ratings = [row["projected_rating"] for row in outlook]
+    assert ratings == sorted(ratings)  # 문자 순서 A < … < E — 같거나 나빠진다
+    for row in outlook:
+        assert set(row["boundaries"]) == {
+            "superior_boundary",
+            "lower_boundary",
+            "upper_boundary",
+            "inferior_boundary",
+        }
+        # 경계는 그 해 required × d — 6자리 절사 뒤에도 순서가 남는다.
+        b = row["boundaries"]
+        assert (
+            Decimal(b["superior_boundary"])
+            < Decimal(b["lower_boundary"])
+            < Decimal(b["upper_boundary"])
+            < Decimal(b["inferior_boundary"])
+        )
+        assert (
+            Decimal(b["lower_boundary"])
+            < Decimal(row["required_cii"])
+            < Decimal(b["upper_boundary"])
+        )
+
+
+def test_reproduce_compares_the_future_years_block_only_when_the_original_has_it():
+    """#2043 — 재현 대조는 원본에 블록이 있을 때만 그 블록을 본다.
+
+    v1 · v2 원본에는 블록이 없다 — 그 행을 재현하며 블록을 요구하면 옛 실행 전부가
+    재현 실패가 된다. 반대로 v3 원본의 블록이 재현과 다르면 실패여야 한다.
+    """
+    base = {
+        "monte_carlo": {
+            "rating_probabilities": {"C": "1.0000"},
+            "target_success_probability": "1.0000",
+            "p50": "5.0000",
+        },
+        "deterministic": {"projected_rating": "C"},
+    }
+    outlook = [{"regulation_year": 2027, "required_cii": "4.8", "projected_rating": "D"}]
+
+    _assert_same_outcome(base, {**base, "future_years_outlook": outlook})  # 원본에 없음 → 보지 않음
+    _assert_same_outcome(
+        {**base, "future_years_outlook": outlook}, {**base, "future_years_outlook": outlook}
+    )
+    with pytest.raises(ReproducibilityError, match="남은 해 기준"):
+        _assert_same_outcome(
+            {**base, "future_years_outlook": outlook},
+            {**base, "future_years_outlook": [{**outlook[0], "projected_rating": "C"}]},
+        )

@@ -1,0 +1,375 @@
+/*
+ * 로그인 화면의 바다 (`#2076`). 색은 **판이 이미 가진 토큰에서 뽑는다**(`§15`).
+ *
+ * 판은 테마에 따라 밝기가 달라진다(`--brand-gradient-*`). 장면만 고정색이면
+ * 다크에서 뜬다 — `color-mix`로 판의 색에 묶어 두면 판이 가라앉을 때 바다도 같이
+ * 가라앉는다.
+ */
+.beomi-sea {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+
+  --beomi-light: color-mix(in srgb, var(--color-on-primary) 12%, transparent);
+  --beomi-faint: color-mix(in srgb, var(--color-on-primary) 4%, transparent);
+  --beomi-dust: color-mix(in srgb, var(--color-on-primary) 16%, transparent);
+  --beomi-reef: var(--color-on-primary);
+  --beomi-deep: color-mix(in srgb, var(--brand-gradient-to) 72%, var(--text-primary));
+}
+
+/* 깊이 — 아래로 갈수록 어둡다. 범이가 **떠올라 온 방향**이 읽히게 하는 바닥이다. */
+.beomi-deep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 42%, var(--beomi-deep) 100%);
+  opacity: 0.55;
+}
+
+/*
+ * 수면빛 — 위에서 들어오는 빛. **딱딱한 경계가 없어야 한다.** 처음에 수면을 도형으로
+ * 그렸더니 판 위쪽에 회색 띠가 한 줄 생겨, 올려다본 물이 아니라 덧댄 사각형으로 보였다.
+ */
+.beomi-glow {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 30%;
+  background: linear-gradient(to bottom, var(--beomi-faint), transparent);
+}
+
+/* ── 수면 위를 지나는 선대 ──────────────────────────────────────── */
+
+.beomi-fleet {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 1%;
+  block-size: 10%;
+  fill: var(--beomi-faint);
+}
+
+/*
+ * 가로 흐름은 `translate`로 준다 — 마크업의 `transform="translate(0 y)"`가 각 배의
+ * 세로 자리를 이미 쓰고 있어, 여기서 `transform`을 쓰면 그 값을 덮어 배들이 한 줄에
+ * 포개진다.
+ */
+.beomi-ship {
+  animation: beomi-sail 54s linear infinite;
+}
+
+.beomi-ship--a { animation-duration: 58s; animation-delay: -6s; }
+.beomi-ship--b { animation-duration: 86s; animation-delay: -52s; opacity: 0.55; }
+.beomi-ship--c { animation-duration: 70s; animation-delay: -31s; opacity: 0.8; }
+
+@keyframes beomi-sail {
+  from { translate: -220px 0; }
+  to { translate: 640px 0; }
+}
+
+/* ── 물빛 줄기 ──────────────────────────────────────────────────── */
+
+.beomi-ray {
+  position: absolute;
+  inset-block-start: -20%;
+  block-size: 130%;
+  inline-size: 190px;
+  background: linear-gradient(to bottom, var(--beomi-light), transparent);
+  filter: blur(46px);
+  transform: rotate(11deg);
+}
+
+.beomi-ray--a { inset-inline-start: -8%; inline-size: 150px; }
+.beomi-ray--b { inset-inline-start: 28%; inline-size: 120px; animation: beomi-sway 13s ease-in-out infinite; }
+.beomi-ray--c { inset-inline-start: 58%; inline-size: 170px; opacity: 0.7; }
+.beomi-ray--d { inset-inline-start: 86%; inline-size: 110px; opacity: 0.5; animation: beomi-sway 19s ease-in-out infinite reverse; }
+
+@keyframes beomi-sway {
+  0%, 100% { transform: rotate(11deg) translateX(0); }
+  50% { transform: rotate(11deg) translateX(26px); }
+}
+
+/* ── 해저 ───────────────────────────────────────────────────────── */
+
+.beomi-bed {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: 26%;
+}
+
+.beomi-bed-far { fill: var(--beomi-deep); opacity: 0.6; }
+.beomi-bed-near { fill: var(--beomi-deep); opacity: 0.95; }
+
+/*
+ * 부유물 — 물속의 미세한 알갱이. 하나하나는 거의 안 보이지만 **이것이 있어야 물이
+ * 비어 보이지 않는다.** 그림자 하나로 스무 점을 찍는다 — 요소를 스무 개 두면 그만큼
+ * 레이아웃이 는다.
+ */
+.beomi-dust {
+  position: absolute;
+  inset-block-end: -10px;
+  inset-inline-start: 0;
+  inline-size: 2px;
+  block-size: 2px;
+  border-radius: 50%;
+  background: var(--beomi-dust);
+  opacity: 0.5;
+  box-shadow:
+     40px -60px, 120px -200px, 210px -90px, 300px -320px, 380px -140px,
+     470px -260px, 540px -40px,  90px -420px, 250px -500px, 410px -460px,
+    130px -640px, 330px -700px, 500px -600px,  60px -760px, 220px -840px,
+    430px -800px, 560px -900px, 180px -980px, 350px -1040px, 520px -1120px;
+  animation: beomi-dust 34s linear infinite;
+}
+
+@keyframes beomi-dust {
+  from { transform: translateY(0); }
+  to { transform: translateY(-120px); }
+}
+
+/* 판 전체에 흩뿌리는 거품 — 물의 배경이다. 범이의 거품(`.beomi-foam`)과 다른 것이다. */
+.beomi-drift {
+  position: absolute;
+  inset-block-end: -40px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-on-primary) 42%, transparent);
+  animation: beomi-drift linear infinite;
+}
+
+@keyframes beomi-drift {
+  from { transform: translateY(0) translateX(0); opacity: 0; }
+  10% { opacity: 0.6; }
+  to { transform: translateY(-115%) translateX(26px); opacity: 0; }
+}
+
+/* ── 수면 ───────────────────────────────────────────────────────── */
+
+/*
+ * 선 몇 줄과 **아래로 사라지는 가리개**뿐이다. 채운 도형으로 그렸다가 판 위쪽에
+ * 회색 띠가 한 줄 생겨, 올려다본 물이 아니라 덧댄 사각형으로 보인 적이 있다 —
+ * 아래쪽 경계를 없애는 `mask-image`가 그 자리를 막는다.
+ */
+.beomi-surface {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 15%;
+  fill: none;
+  stroke: var(--color-on-primary);
+  stroke-linecap: round;
+  mask-image: linear-gradient(to bottom, var(--color-on-primary) 30%, transparent 100%);
+}
+
+.beomi-wave {
+  /*
+   * 미는 거리는 마크업이 표에서 넣는다(`--beomi-wave-step` = 마루 간격).
+   * 여기 적는 기본값은 **0**이다 — 넣어 주지 않으면 아예 멈춰서 바로 보인다.
+   * 그럴듯한 값을 적어 두면 간격과 어긋난 채로 돌고, 그 튐은 눈으로만 잡힌다.
+   */
+  --beomi-wave-step: 0px;
+  animation-name: beomi-wave-run;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.beomi-wave--a { stroke-width: 2.2; opacity: 0.3; }
+.beomi-wave--b { stroke-width: 1.6; opacity: 0.2; animation-direction: reverse; }
+.beomi-wave--c { stroke-width: 2.8; opacity: 0.13; }
+
+@keyframes beomi-wave-run {
+  from { translate: 0 0; }
+  to { translate: var(--beomi-wave-step) 0; }
+}
+
+/* ── 암초 ───────────────────────────────────────────────────────── */
+
+.beomi-reef {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  inline-size: 100%;
+  aspect-ratio: 600 / 180;
+}
+
+.beomi-coral {
+  fill: none;
+  stroke: var(--beomi-reef);
+  /* 끝이 뭉툭해야 산호다 — 각지면 마른 가지로 보인다. */
+  stroke-linecap: round;
+}
+
+.beomi-rock {
+  fill: var(--beomi-reef);
+}
+
+/*
+ * 투명도는 **겹에** 준다. 가지마다 주면 겹친 자리마다 색이 쌓여, 한 덩이가
+ * 그림자 뭉치처럼 얼룩진다.
+ */
+.beomi-reef-near { opacity: 0.14; animation: beomi-reef-sway 11s ease-in-out infinite; }
+.beomi-reef-far { opacity: 0.07; animation: beomi-reef-sway 17s ease-in-out infinite reverse; }
+
+@keyframes beomi-reef-sway {
+  0%, 100% { transform: skewX(0deg); }
+  50% { transform: skewX(1.4deg); }
+}
+
+/* ── 물고기 떼 ──────────────────────────────────────────────────── */
+
+.beomi-school {
+  position: absolute;
+  inline-size: 168px;
+  aspect-ratio: 104 / 32;
+  fill: var(--color-on-primary);
+  opacity: 0.2;
+  animation: beomi-swim linear infinite;
+}
+
+.beomi-school--a { inset-block-start: 52%; animation-duration: 74s; }
+.beomi-school--b { inset-block-start: 71%; animation-duration: 96s; animation-delay: -44s; scale: 0.62; opacity: 0.13; }
+
+/*
+ * 가로지르는 거리는 **판의 폭**이다. `transform`에 `vw`를 쓰면 창을 기준으로 재어,
+ * 판이 좁은 화면에서는 물고기가 한참 바깥에서 논다.
+ */
+@keyframes beomi-swim {
+  from { inset-inline-start: -180px; }
+  to { inset-inline-start: 100%; }
+}
+
+/* ── 범이 ───────────────────────────────────────────────────────── */
+
+.beomi-figure {
+  position: absolute;
+  inset-inline-start: 50%;
+  inset-block-end: 3%;
+  translate: -50% 0;
+  block-size: min(52vh, 470px);
+  aspect-ratio: 1159 / 1268;
+  animation:
+    beomi-rise 3.2s cubic-bezier(0.22, 0.68, 0.3, 1) forwards,
+    beomi-float 11s ease-in-out 3.2s infinite;
+}
+
+/*
+ * ⚠️ 두 장을 **조상 선택자로 묶지 않는다** (`#2046`·`#2047`이 밟은 자리).
+ * `.beomi-figure img`(0-1-1)로 적으면 아래 지느러미 규칙(0-1-0)이 특이도로 져서
+ * 지느러미가 상자 전체로 늘어난다 — 실제로 한 번 그렇게 그려졌다.
+ */
+.beomi-body {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
+
+/*
+ * 자리(`left`·`top`·크기)와 회전축은 **마크업이 자산에서 읽어 넣는다** — 여기 적지
+ * 않는다. 적으면 자산을 다시 뽑는 날 둘이 갈린다.
+ */
+.beomi-flipper {
+  position: absolute;
+  object-fit: contain;
+  animation: beomi-wave 0.62s ease-in-out 3.3s 4 both;
+}
+
+@keyframes beomi-rise {
+  from {
+    transform: translateY(16%) scale(0.62);
+    opacity: 0;
+    filter: blur(7px) brightness(0.55) saturate(0.7);
+  }
+  40% { opacity: 1; }
+  to { transform: none; opacity: 1; filter: none; }
+}
+
+/*
+ * 떠 있는 움직임 (`#2084` — 「좀 더 둥실」).
+ *
+ * 위아래로만 흔들면 **매달린 것**처럼 보인다. 가로로도 흐르고 기울기가 따라 돌아야
+ * 물에 떠 있는 것이 된다.
+ *
+ * ⚠️ `0%`와 `100%`는 **제자리**여야 한다. 떠오르는 동작(`beomi-rise`)이 `transform: none`
+ * 으로 끝나고 여기서 이어받는데, 시작 칸이 제자리가 아니면 그 순간 범이가 한 번 튄다.
+ */
+@keyframes beomi-float {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  20% { transform: translate(-11px, -15px) rotate(-1.8deg); }
+  45% { transform: translate(4px, -29px) rotate(1.5deg); }
+  72% { transform: translate(14px, -12px) rotate(2.2deg); }
+}
+
+@keyframes beomi-wave {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(15deg); }
+}
+
+/*
+ * 범이가 내는 물거품.
+ *
+ * **같은 상자 안에 둔다** — 범이가 떠오르고 흔들릴 때 거품도 함께 움직인다.
+ * 떨어뜨려 두면 혼자 가만히 있는 거품이 되어 「이 물에서 나온 것」으로 읽히지 않는다.
+ *
+ * 앞뒤 두 겹인 것이 요점이다. 전부 앞에 두면 범이가 거품 **뒤에** 갇혀 보이고,
+ * 전부 뒤에 두면 평평해진다.
+ */
+.beomi-foam {
+  position: absolute;
+  border-radius: 50%;
+  /* 가장자리가 밝고 속이 비어야 거품이다 — 꽉 찬 원은 그냥 점이다. */
+  background: radial-gradient(
+    circle at 34% 30%,
+    color-mix(in srgb, var(--color-on-primary) 95%, transparent) 0%,
+    color-mix(in srgb, var(--color-on-primary) 26%, transparent) 40%,
+    transparent 58%
+  );
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-on-primary) 55%, transparent);
+  opacity: 0;
+  animation-name: beomi-foam;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
+/* 뒤쪽은 멀리 있는 것이라 더 흐리고 조금 작게 보인다. */
+.beomi-foam--back {
+  filter: blur(1.2px);
+  scale: 0.9;
+}
+
+@keyframes beomi-foam {
+  from { transform: translate(0, 0) scale(0.7); opacity: 0; }
+  12% { opacity: 0.9; }
+  70% { opacity: 0.65; }
+  to { transform: translate(var(--beomi-foam-drift, 14px), -200px) scale(1.15); opacity: 0; }
+}
+
+/*
+ * 움직임을 줄여 달라고 한 사람에게는 **멈춘 장면**을 준다 (`§14`).
+ *
+ * 지느러미는 든 자세로 고정한다 — 0도로 두면 손을 내린 모습이 되어, 인사하러 온
+ * 장면이 그냥 떠 있는 장면이 된다.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .beomi-figure,
+  .beomi-flipper,
+  .beomi-foam,
+  .beomi-drift,
+  .beomi-dust,
+  .beomi-ray,
+  .beomi-ship,
+  .beomi-wave,
+  .beomi-school,
+  .beomi-reef-near,
+  .beomi-reef-far {
+    animation: none;
+  }
+
+  .beomi-flipper {
+    transform: rotate(12deg);
+  }
+
+  .beomi-foam {
+    opacity: 0.55;
+  }
+}

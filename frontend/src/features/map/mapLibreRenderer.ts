@@ -112,6 +112,61 @@ function createMap(
 /** 지구본일 때 처음 기울기 — 평면에서는 0(위에서 내려다본다). */
 const GLOBE_PITCH = 18
 
+/**
+ * 지도를 **덮는** 오버레이임을 지도에게 알리는 표시 (#2051).
+ *
+ * ## 왜 있어야 하나
+ *
+ * 대시보드의 선박 패널은 `position: absolute`로 지도 **위에** 뜬다 — 지도의 레이아웃
+ * 폭에는 잡히지 않는다. 그래서 지도는 캔버스 전체를 쓸 수 있다고 믿고 그 한가운데에
+ * 선박을 놓는데, **그 한가운데의 왼쪽 절반이 패널 밑에 깔린다.** 실제로 선박 다섯이
+ * 오른쪽 끝에 점으로 뭉쳤다.
+ *
+ * `DESIGN_SYSTEM §9.5`(v2.28)가 「오버레이는 지도의 일부다」라고 정했다. 그 말대로라면
+ * **범위를 잡을 때도 지도의 일부로 세야** 한다.
+ *
+ * ## 왜 클래스 이름을 보지 않나
+ *
+ * 이 계층은 제품 화면을 모른다 — `.fleet__panel`을 여기서 읽으면 지도 어댑터가
+ * 대시보드를 아는 셈이 되고, `architecture.test.ts`가 지키는 방향과 반대다. 대신
+ * **지도가 표시를 하나 정의하고** 덮는 쪽이 그것을 단다.
+ */
+const MAP_OVERLAY_ATTRIBUTE = 'data-map-overlay'
+
+/**
+ * 오버레이가 지도의 **왼쪽에서** 가리는 폭(px).
+ *
+ * 숫자를 새로 적지 않는다 — 폭은 CSS가 갖고 있고 여기서는 **실제 요소를 잰다.**
+ * 그래서 세 경우가 저절로 맞는다.
+ *
+ * - 패널이 접히면 그 사각형이 작아져 가리는 폭도 줄어든다
+ * - 좁은 화면(1100 이하)에서 패널이 지도 **아래**로 내려가면 세로로 겹치지 않아 0이다
+ * - 패널 폭이 바뀌어도 따라온다
+ *
+ * jsdom은 배치를 계산하지 않아 사각형이 전부 0이다 — 그때는 0을 돌려주어 종전과
+ * 같은 값이 된다. 검사는 사각형을 세워 두고 확인한다.
+ */
+function overlayInsetStart(target: HTMLElement): number {
+  const documentRef = target.ownerDocument
+  if (!documentRef || typeof target.getBoundingClientRect !== 'function') return 0
+  const map = target.getBoundingClientRect()
+  if (map.width <= 0 || map.height <= 0) return 0
+  let inset = 0
+  for (const overlay of documentRef.querySelectorAll<HTMLElement>(`[${MAP_OVERLAY_ATTRIBUTE}]`)) {
+    const rect = overlay.getBoundingClientRect()
+    // 세로로 겹치지 않으면 지도를 가리지 않는다 — 패널이 지도 아래로 내려간 경우다.
+    if (rect.bottom <= map.top || rect.top >= map.bottom) continue
+    // 지도의 왼쪽 끝에서 오버레이의 오른쪽 끝까지가 가려진 띠다.
+    const covered = rect.right - map.left
+    if (covered > inset) inset = covered
+  }
+  /*
+   * ⚠️ 절반을 넘기지 않는다. 이 값이 잘못 커지면 `fitBounds`가 들어갈 자리를 잃고
+   * 지도가 엉뚱한 배율로 튄다 — 뭉쳐 보이는 것보다 나쁜 고장이다.
+   */
+  return Math.max(0, Math.min(inset, map.width / 2))
+}
+
 /** 날짜변경선을 사이에 둔 좌표를 지구 반대편까지 넓히지 않고 같은 연속 구간으로 푼다. */
 function unwrapDateline(coordinates: readonly (readonly [number, number])[]): readonly (readonly [number, number])[] {
   if (coordinates.length < 2) return coordinates
@@ -152,6 +207,23 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
     let model = initialModel
     let ready = false
     let fitted = false
+    /**
+     * 카메라가 **이미 뜻을 갖고 놓였다** (#2051).
+     *
+     * ⚠️ 종전에는 `map.getZoom() === INITIAL_ZOOM`으로 이것을 대신했다 — **부동소수
+     * 정확 비교**다. 데이터가 오기 전에 사용자가 지도를 한 번이라도 움직이면 조건이
+     * 거짓이 되어 **범위 맞추기가 통째로 건너뛰어졌고**, 그때는 초기 `center: [127, 30]`
+     * `zoom: 2`(인도~일본)에 그대로 남았다. 「아직 한 번도 안 맞췄다」는 위 `fitted`가
+     * 이미 말하고 있으므로, 줌 비교가 보려던 것은 **사용자가 손댔는가**였다.
+     *
+     * 그 뜻을 그대로 적는다 — 사용자가 직접 움직였거나(`originalEvent`가 있는 카메라
+     * 이동), 「이 배를 보여 달라」(#1831)로 옮겨 갔으면 더는 맞추지 않는다.
+     */
+    let cameraPlaced = false
+    map.on('movestart', (event: { readonly originalEvent?: unknown }) => {
+      // 프로그램이 옮긴 이동에는 `originalEvent`가 없다 — 그쪽은 아래 `focus`가 따로 센다.
+      if (event?.originalEvent) cameraPlaced = true
+    })
     let markers: maplibregl.Marker[] = []
     let portMarkers: maplibregl.Marker[] = []
     let vesselLayer: GlobeVesselLayerController | null = null
@@ -230,10 +302,20 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
           },
         })
       }
-      if (!fitted && model.routes.bounds.length > 0 && map.getZoom() === INITIAL_ZOOM) {
+      if (!fitted && !cameraPlaced && model.routes.bounds.length > 0) {
         const bounds = new maplibregl.LngLatBounds()
         for (const coordinate of unwrapDateline(model.routes.bounds)) bounds.extend([...coordinate])
-        map.fitBounds(bounds, { padding: target.clientWidth <= 640 ? 24 : 48, maxZoom: 6, animate: false })
+        /*
+         * 패딩을 **변마다** 준다 (#2051). 왼쪽만 오버레이가 가리는 만큼 더 밀고
+         * 나머지 세 변은 종전 값 그대로다 — `maxZoom: 6`도 그대로 둔다(타일 자산이
+         * z5까지라는 근거가 `basemap.ts`에 있다).
+         */
+        const gap = target.clientWidth <= 640 ? 24 : 48
+        map.fitBounds(bounds, {
+          padding: { top: gap, bottom: gap, right: gap, left: gap + overlayInsetStart(target) },
+          maxZoom: 6,
+          animate: false,
+        })
         fitted = true
       }
 
@@ -247,6 +329,8 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       const focus = model.focus
       if (focus && focus.nonce !== focusedNonce) {
         focusedNonce = focus.nonce
+        // 사용자가 고른 배로 옮겨 간 카메라다 — 늦게 온 항로가 그것을 다시 끌어가지 않는다.
+        cameraPlaced = true
         map.once('moveend', () => {
           if (!destroyed) emit({ type: 'selection', id: focus.id })
         })

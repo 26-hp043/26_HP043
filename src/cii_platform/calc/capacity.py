@@ -36,6 +36,7 @@ attained 분모에 적용되지 않는다는 구분을 남겼다.
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
 
@@ -195,6 +196,46 @@ def resolve_reference_capacity(vessel: _Vessel, reference_line: _ReferenceLine) 
     raise ValueError(f"Unknown capacity_rule: {rule!r}")
 
 
+@dataclass(frozen=True)
+class ConditionInterval:
+    """``condition_expr`` 한 건이 가리키는 반열린 구간 ``[lower, upper)``.
+
+    ``axis``가 ``None``이면 ``all``이다 — 어느 축도 보지 않고 전 구간이다.
+    ``upper``가 ``None``이면 위로 열려 있다(``DWT >= 279000``).
+    """
+
+    axis: str | None
+    lower: int
+    upper: int | None
+
+
+def parse_condition(condition_expr: str) -> ConditionInterval:
+    """``condition_expr``을 구간으로 읽는다 — 문법 판정의 **단일 출처**다 (#2087).
+
+    :func:`evaluate_condition`이 이 함수로 읽으므로, 여기서 읽히는 식은 엔진이 평가할 수
+    있고 읽히지 않는 식은 엔진도 못 읽는다. 적재 경로(``services/parameter_import``)가
+    같은 함수로 미리 걸러, 엔진이 못 읽는 식이 활성 행으로 들어가지 않게 한다.
+
+    문법 3종 중 어디에도 맞지 않으면 :class:`ValueError`를 낸다.
+    """
+    if condition_expr == _CONDITION_ALL:
+        return ConditionInterval(None, 0, None)
+
+    simple = _CONDITION_SIMPLE.match(condition_expr)
+    if simple:
+        axis, operator, threshold = simple.groups()
+        if operator == ">=":
+            return ConditionInterval(axis, int(threshold), None)
+        return ConditionInterval(axis, 0, int(threshold))
+
+    ranged = _CONDITION_RANGE.match(condition_expr)
+    if ranged:
+        lower, axis, upper = ranged.groups()
+        return ConditionInterval(axis, int(lower), int(upper))
+
+    raise ValueError(f"Unsupported condition_expr: {condition_expr!r}")
+
+
 def evaluate_condition(condition_expr: str, vessel: _Vessel) -> bool:
     """``condition_expr``이 선박에 성립하는지 판정한다 (DB_SCHEMA §3.3).
 
@@ -204,23 +245,14 @@ def evaluate_condition(condition_expr: str, vessel: _Vessel) -> bool:
     ``False``를 반환하면 해당 행이 조용히 후보에서 빠져 "매칭 0건" 또는 "잘못된 행
     1건 매칭"으로 이어지고, 원인이 파서에 있다는 사실이 드러나지 않는다.
     """
-    if condition_expr == _CONDITION_ALL:
+    interval = parse_condition(condition_expr)
+    if interval.axis is None:
         return True
-
-    simple = _CONDITION_SIMPLE.match(condition_expr)
-    if simple:
-        axis, operator, threshold = simple.groups()
-        capacity = _capacity_for_axis(vessel, axis)
-        limit = Decimal(threshold)
-        return capacity >= limit if operator == ">=" else capacity < limit
-
-    ranged = _CONDITION_RANGE.match(condition_expr)
-    if ranged:
-        lower, axis, upper = ranged.groups()
-        capacity = _capacity_for_axis(vessel, axis)
-        return Decimal(lower) <= capacity < Decimal(upper)
-
-    raise ValueError(f"Unsupported condition_expr: {condition_expr!r}")
+    # capacity는 항상 양수다(`_capacity_for_axis`) — 하한 0은 「아래로 열림」과 같다.
+    capacity = _capacity_for_axis(vessel, interval.axis)
+    if capacity < interval.lower:
+        return False
+    return interval.upper is None or capacity < interval.upper
 
 
 def select_reference_line(

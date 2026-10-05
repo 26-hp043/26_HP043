@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.47 |
+| 버전 | v1.50 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-09-29 |
+| 최종 수정일 | 2026-10-05 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -124,7 +124,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `POST` | `/auth/login` | 불필요 | 이메일·비밀번호 검증 → 세션 발급 |
 | `POST` | `/auth/tour-login` | 불필요 | **둘러보기** (`#1486`) — 본문 `{"code": "<링크에 실린 코드>"}`를 설정 `TOUR_ACCESS_CODE`와 상수 시간 비교(`hmac.compare_digest` · 초대 코드와 같은 패턴). **`TOUR_PUBLIC=true`면 빈 코드로도 통과한다** — 코드는 선택 필드이며 길이 하한이 없다(`#1507`). 통과하면 고정 스텁 계정(**관리자 `ADMIN`** · 고정 UUID·고정 이메일 · Argon2 형식이 아닌 해시라 `POST /auth/login`으로는 열리지 않는다)으로 세션 발급 — **그 세션은 읽기 전용**이다(위 「둘러보기」 행). **성공 응답은 `POST /auth/login`과 같은 형태**(200 · `data` 사용자 객체 · `sid`·`csrf` 쿠키). 거절은 **`422 VALIDATION_ERROR` 한 가지** — 코드 미설정(fail-closed)과 불일치를 **가르지 않는다**, 문구는 `PRD §6.3` 「둘러보기 — 거절」. 요청 한도는 인증 API 버킷(`§13.2` 분당 10회) |
 | `POST` | `/auth/logout` | **필요** | 세션 즉시 무효화 + 쿠키 만료 → 204. **세션이 없으면 401**이다 (`#634`) |
-| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · **`role`** · `email_verified_at` · `last_login_at`) |
+| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · **`role`** · `email_verified_at` · `last_login_at` · **`has_avatar`** `[#2080]`) |
 | `POST` | `/auth/verify-email/request` | 불필요 | 인증 메일 재발송 |
 | `POST` | `/auth/verify-email/confirm` | 불필요 | 토큰 검증 → `email_verified_at` 기록 |
 | `POST` | `/auth/password-reset/request` | 불필요 | 재설정 메일 발송 |
@@ -132,6 +132,9 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `POST` | `/auth/password-change` | **필요** | 현재 비밀번호 검증 → 교체 + **기존 세션 전량 무효화** (로그인 상태에서의 변경) |
 | `PATCH` | `/auth/me` | **필요** | 표시 이름(`display_name`) 변경. **`email`은 받지 않는다** |
 | `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존.** 마지막 관리자면 `409 CONFLICT` (`#1301` — 종전 마지막 사무직 `#672`) |
+| `POST` | `/auth/me/avatar` | **필요** | 프로필 이미지 올리기 `[#2080]` — `multipart/form-data`. 서버가 다시 그려 저장한다. 본인 것만 |
+| `GET` | `/auth/me/avatar` | **필요** | 프로필 이미지 내보내기 `[#2080]` — `image/webp` 본문. `ETag` + `Cache-Control: private`. 없으면 `404` |
+| `DELETE` | `/auth/me/avatar` | **필요** | 프로필 이미지 지우기 `[#2080]` — 없어도 `204`(멱등) |
 | `GET` | `/auth/users` | **관리자** | 살아 있는 계정 전부 — `/auth/me`와 같은 사용자 객체의 배열, 이메일 순 (`#1301` — 종전 사무직 전용이었다 `#672`) |
 | `PATCH` | `/auth/users/{user_id}/role` | **관리자** | 본문 `{"role": "OFFICE" \| "FIELD" \| "ADMIN"}`. 같은 값이면 쓰지 않는다. 마지막 관리자 강등은 `409 CONFLICT`. 감사 로그 `ROLE_CHANGE`(행위자 `user_id` · 대상 `entity_id`) (`#1301`) |
 
@@ -215,6 +218,69 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `display_name` | string \| null | N | 100자 이하 | **`null`은 지움**이다. 보내지 않으면 바뀌지 않는다 |
 
 > **`email`을 받지 않는다.** 보내면 422다 — 이메일은 로그인 ID이자 재설정 메일이 가는 주소라, 잘못 입력하면 **계정에 접근할 수 없다.** 주소를 바꾸려면 탈퇴 후 재가입한다(`PRD §6.3`).
+
+#### 1.2.5a `POST`·`GET`·`DELETE /auth/me/avatar` — 프로필 이미지 [#2080]
+
+**이 제품이 사용자가 올린 바이트를 남기는 첫 자리다.** 종전 업로드 둘
+(`§7.5` 파라미터 적재 · `§8` 항차 가져오기)은 파싱하고 버린다.
+
+| | 올리기 | 내보내기 | 지우기 |
+|---|---|---|---|
+| 메서드·경로 | `POST /auth/me/avatar` | `GET /auth/me/avatar` | `DELETE /auth/me/avatar` |
+| 본문 | `multipart/form-data`의 `file` | — | — |
+| CSRF | **필요**(`require_csrf`) | 불필요(읽기) | **필요** |
+| 성공 | `204` | `200` + `image/webp` | `204` |
+| 없을 때 | — | `404 NOT_FOUND` | `204`(멱등) |
+
+**받는 형식** PNG · JPEG · WebP. **SVG는 받지 않는다** — 스크립트를 품을 수 있고,
+우리가 그것을 내보내면 같은 출처에서 남의 스크립트가 도는 길이 된다.
+**확장자와 `Content-Type`을 믿지 않는다** — 바이트를 디코드해 판정한다.
+
+| 거절 | 상태 | 코드 |
+|---|---|---|
+| 바이트 상한(2MB) 초과 · 펴진 픽셀 상한 초과 | `413` | `HTTP_ERROR` |
+| 디코드 실패 · 받지 않는 형식(SVG 포함) | `422` | `VALIDATION_ERROR` |
+
+> **413에 새 오류 코드를 만들지 않는다 (`#2080` 2단계 정정).** `§1.4`의 마지막 행
+> 「미등록 status(403·415 등) → `HTTP_ERROR`」가 이미 이 자리를 덮는다 — status는
+> 프레임워크 예외의 값이 그대로 보존된다(`[#182]`). 1단계 명세는 `PAYLOAD_TOO_LARGE`로
+> 적었으나, 그것을 만들면 `§1.4` 표·`errors.py`·매핑 셋이 **한 자리를 위해** 늘어난다.
+>
+> **상한 초과와 형식 오류를 가르는 이유**는 코드가 아니라 **고칠 방법이 다르기**
+> 때문이다 — 큰 것은 같은 사진을 줄이면 되고, 형식은 다른 파일을 골라야 한다.
+> 화면은 status로 가른다.
+
+> **[#2107] 올리기의 처리.** ⑴ **다시 그리기는 스레드에서 돈다** — 상한 안의 이미지 한 장이
+> 1초를 넘길 수 있어(6300×6300 PNG · 115KB · 실측 1.53초), 이벤트 루프에서 그리면 그동안
+> 다른 요청이 전부 기다린다. 동시 실행은 2로 제한한다(비밀번호 해시 · PDF 렌더와 같은 방식).
+> ⑵ **본문은 상한 한 바이트 뒤까지만 읽는다** — CSV 업로드(`§7.5` · `§8.2`)도 같다.
+> ⑶ **프레임이 둘 이상인 JPEG(MPF · Pillow가 `MPO`로 읽는다)는 JPEG로 받고 첫 프레임을 쓴다.**
+> ⑷ **413의 문구는 둘이다** — 바이트 상한 초과는 「이미지가 너무 큽니다. 2MB 이하로 올려
+> 주세요.」, 픽셀 상한(4,000만 화소) 초과는 「이미지의 가로·세로가 너무 큽니다. 가로×세로
+> 4,000만 화소 이하로 줄여 올려 주세요.」다. 뒤쪽 파일은 이미 2MB 아래라 앞 문구로는 할 수
+> 있는 일이 없다. ⑸ **세션 검증의 사용자 조회는 이미지 열을 읽지 않는다** — 열을 지연 로드로
+> 두고, 바이트는 `GET`이 `200`을 낼 때만 읽는다(`304`는 읽지 않는다). ⑹ 화면은 파일을 고른
+> 자리에서 크기(2MB)와 형식을 먼저 본다 — 통과해도 서버가 최종 판정한다.
+
+> **다른 사람의 이미지를 읽거나 바꾸는 경로를 두지 않는다.** 경로가 `/auth/me/*`
+> 하나뿐인 것이 그 결정이다 — 관리자의 계정 목록(`GET /auth/users`)에도 이미지를
+> 싣지 않는다(`PRD §5.1 [#2080]` ⑸). 남의 것을 내보내는 경로가 생기면 캐시와
+> 권한이 함께 따라온다.
+
+> **`GET /auth/me`가 `has_avatar`를 싣는다 (`#2080`).** **바이트가 아니라 있다/없다만**
+> 싣는다 — 이미지는 이 절의 `GET`이 따로 내보낸다. 이 깃발이 없으면 화면은 올렸는지
+> 모른 채 이미지 경로를 찔러 봐야 하고, **안 올린 사용자**(올리기 전이 기본 상태다)는
+> 화면을 열 때마다 404를 하나씩 만든다. 「지우기」를 보일지도 이 값으로 가른다.
+
+> **`GET`은 `ETag`로 끝낸다.** 값은 `DB_SCHEMA §2.15 avatar_etag`(바이트의
+> SHA-256)이며, `If-None-Match`가 맞으면 **본문을 읽지 않고** `304`를 낸다.
+> `Cache-Control`은 `private` — 로그인한 사람의 것이라 공용 캐시에 두지 않는다.
+> **정적 경로를 열지 않는 이유**이기도 하다(`PRD §5.1 [#2080]` ⑵).
+
+> **탈퇴가 함께 지운다** (`DELETE /auth/me`). 계정 행은 소프트 삭제로 남지만
+> 이미지는 즉시 비우고, 지운 사실은 기존 `ACCOUNT_DELETE` 감사 이벤트의
+> `details_json`에 실린다 — `§15`의 대화 원문과 같은 처리이며 **새 감사 경로를
+> 만들지 않는다**(`TECH_SPEC §13.1`).
 
 #### 1.2.6 `PATCH /auth/users/{user_id}/role` — 역할 지정 [#1301]
 
@@ -2230,6 +2296,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 
 > **[#1256] `planned_distance_source`는 선택이며 「그 숫자가 어디서 왔나」다.** `USER_INPUT`(사용자가 직접 넣은 값)과 `COORDINATE_ESTIMATE`(`§3.9`의 대권거리로 채운 값 · `PRD §15.2` 「좌표 기반 추정 거리」) 둘만 받고, 그 밖은 422(`field_label` 「계획 거리 출처」)다. **생략하면 `null` = 「모른다」로 저장한다** — 서버는 호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 직접 입력이라고도 추정이라고도 적지 않는다(`PRD §0.3`). 화면(`VoyagePanel`)은 항상 보낸다 — 좌표로 채운 뒤 손대지 않았으면 `COORDINATE_ESTIMATE`, 고쳤으면 `USER_INPUT`. CSV 가져오기(`§8.2`)는 `USER_INPUT`이다(좌표 열이 없으니 추정일 수 없다 · 경로는 `created_from = IMPORT`가 답한다). 시나리오 채택(`§5.2`)은 `null`이다 — 시나리오 행에는 직항 거리가 좌표 추정이었는지가 남아 있지 않다. 화면은 `COORDINATE_ESTIMATE`일 때만 추정 표시를 붙이고 `null`에는 아무것도 붙이지 않는다. `created_from`과 다른 축이다 — 그쪽은 「이 항차가 어느 경로로 들어왔나」다.
 
+> **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다.** 생략하면 `USER_INPUT`이다. 그 밖의 값은 422 `VALIDATION_ERROR`(`field` `fuel_uses[n].source` · `field_label` 「연료 기록 출처」)다. 저장 컬럼(`DB_SCHEMA §2.3` `chk_fuel_source`)이 받는 값은 넷이지만 나머지 셋은 **서버 경로만 적는다** — `MODEL_ESTIMATE`는 시나리오 채택(`§5.2`), `IMPORT`는 CSV 가져오기(`§8.2`), `SAMPLE`은 데모 시드다. 서버가 확인할 수 없는 출처를 클라이언트의 주장으로 받지 않는다는 점에서 `§3.6`의 시각 출처(`PUBLIC_RECORD`)와 같은 규칙이다. `§3.6` 실적 입력의 `fuel_uses[].source`도 같다.
+
 > **[#1348] 문자열 길이 상한.** 항만명(`departure_port_name`·`arrival_port_name`)은 **1~200자**, `voyage_no`는 **~100자**, `notes`는 **~1000자**다. 앞 둘은 DB 컬럼 폭(`DB_SCHEMA §8.2`)에서 오고, `notes`는 **`PRD §10.2` ⑵가 정한 값**이다 — DB는 `TEXT`라 컬럼은 더 받지만 **받는 것과 받아도 되는 것은 다르다.** 상한이 없는 동안에는 요청 본문 크기가 유일한 방어였다.
 
 > **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
@@ -2380,6 +2448,8 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 
 모든 필드가 선택이다 — **실거리만 먼저 알고 연료는 나중에 오는 경우가 실제로 있다.** 생략은 「변경 없음」이다.
 
+> **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다**(`§3.3` 같은 각주). 생략하면 기존 행의 출처를 그대로 두고, 새로 생기는 행은 `USER_INPUT`이다. `MODEL_ESTIMATE` · `IMPORT` · `SAMPLE`과 그 밖의 문자열은 422 `VALIDATION_ERROR`다.
+
 > **[#1923] 실제 시각의 출처 — `actual_departure_source` · `actual_arrival_source`.** 항차 객체(`§3.1`)에 실리는 두 키이며, 값은 `USER_INPUT`(사람이 넣음) · `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」로 옮김 · `§3.12`) · `null`(「모른다」 — 064 이전 행 · 출처 없이 넣은 시각)이다. **이 요청은 `USER_INPUT`만 받는다** — `PUBLIC_RECORD`는 서버가 공적 기록을 직접 읽어 옮긴 경우에만 참이고, 클라이언트가 「공적 기록에서 왔다」고 주장하는 것은 서버가 확인할 수 없다(422 · `field_label` 「실제 출항 시각 출처」). 시각을 **다른 값으로** 바꾸면서 출처를 생략하면 출처는 `null`로 돌아간다 — 공적 기록에서 채운 시각을 사람이 고쳤는데 「공적 기록에서 채움」이 남으면 `PRD §0.3`이 금하는 거짓말이다(`§3.4` `planned_distance_source`와 같은 규칙). 저장된 시각과 **같은 값**을 다시 보낸 요청은 출처를 그대로 둔다 — 실적 폼은 저장된 시각을 미리 채워 두고 저장 때 그대로 보내므로, 연료만 고친 저장이 출처를 지우면 사용자가 고치지 않은 시각의 표시가 사라진다.
 
 #### 상태별 허용 (#440)
@@ -2407,7 +2477,7 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 |---|---|---|
 | 404 | `NOT_FOUND` | 항차 없음 |
 | 422 | `STATE_TRANSITION_ERROR` | 위 표의 상태 |
-| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn`가 1.0 미만 또는 60 초과(VAL-009) |
+| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn`가 1.0 미만 또는 60 초과(VAL-009) · `fuel_uses[].source`가 `USER_INPUT`이 아님(`#2089`) |
 
 #### 응답 (200 OK)
 
@@ -3231,7 +3301,7 @@ POST /api/v1/annual-simulations
     },
     "reduction_plan": {
       "target_rating": "B",
-      "target_cii": "4.742300",
+      "target_cii": "4.742362",
       "allowed_planned_M_gco2": "665580000.000000",
       "required_cut_gco2": "330900000.000000",
       "required_cut_fuel_ton": "36.260000",
@@ -3314,6 +3384,44 @@ POST /api/v1/annual-simulations
         "rating_change": "C→C"
       }
     },
+    "future_years_outlook": [
+      {
+        "regulation_year": 2027,
+        "required_cii": "4.896265",
+        "boundaries": {
+          "superior_boundary": "4.210788", "lower_boundary": "4.602489",
+          "upper_boundary": "5.190041", "inferior_boundary": "5.777592"
+        },
+        "projected_rating": "C"
+      },
+      {
+        "regulation_year": 2028,
+        "required_cii": "4.747464",
+        "boundaries": {
+          "superior_boundary": "4.082819", "lower_boundary": "4.462616",
+          "upper_boundary": "5.032311", "inferior_boundary": "5.602007"
+        },
+        "projected_rating": "C"
+      },
+      {
+        "regulation_year": 2029,
+        "required_cii": "4.598662",
+        "boundaries": {
+          "superior_boundary": "3.954850", "lower_boundary": "4.322743",
+          "upper_boundary": "4.874582", "inferior_boundary": "5.426422"
+        },
+        "projected_rating": "D"
+      },
+      {
+        "regulation_year": 2030,
+        "required_cii": "4.449861",
+        "boundaries": {
+          "superior_boundary": "3.826881", "lower_boundary": "4.182870",
+          "upper_boundary": "4.716853", "inferior_boundary": "5.250837"
+        },
+        "projected_rating": "D"
+      }
+    ],
     "snapshot": {
       "snapshot_id": "uuid",
       "created_at": "2026-07-03T12:00:00Z",
@@ -3338,17 +3446,29 @@ POST /api/v1/annual-simulations
 }
 ```
 
+> **[#2043] `future_years_outlook[]` — 남은 해 기준 등급** (`PRD §12.7` 「남은 해 기준 등급」 · 디자인 담당 제안 「남은 해 전부」 · 2026-09-29 개발 결정). 올해 **결정론 연말 예상 CII**(`deterministic.projected_attained_cii`의 공표 전 원값) **하나**를 규정연도 표(`PRD §3.4`)에서 **올해 뒤의 활성 규정연도마다의 required CII와 등급 경계**에 대 본 등급이다 — 연도 오름차순, 표에 있는 해 전부. 시뮬레이션을 다시 돌리지 않으므로 비교의 바탕이 하나다. required CII는 올해와 같은 기준선 · 같은 reference capacity에 Z-factor만 그 해 것을 쓰고, 경계 판정은 올해 등급과 같은 함수다(포함 방향 `PRD §3.3.6`). 경계 4종도 함께 싣는다 — 화면은 경계를 다시 계산하지 않는다(`#2002`).
+>
+> | 필드 | 타입 | 설명 |
+> |---|---|---|
+> | `regulation_year` | int | 올해 뒤의 규정연도 |
+> | `required_cii` | string (Layer 1 · 6자리 절사) | 그 해 required CII |
+> | `boundaries` | object | 그 해 등급 경계 4종 — `§2.14` `ytd.boundaries`와 같은 키(`superior_boundary` · `lower_boundary` · `upper_boundary` · `inferior_boundary`) · Layer 1 6자리 절사 |
+> | `projected_rating` | string (A~E) | 올해 연말 예상 CII를 그 해 경계에 대 본 등급 |
+>
+> **두 상태를 가른다** — ⑴ 목록: 계산했다. **빈 목록 `[]`**은 올해 뒤의 규정연도가 표에 없어(2030년 실행) 계산할 것이 없다는 뜻이다 ⑵ **키 없음**: 이 필드 이전(`#2043` 전)에 실행한 결과다. `§6.2` 조회는 저장된 응답을 그대로 내므로 옛 실행에는 키가 없다. `§6.4` 재현은 원본에 있을 때만 **저장된 해 집합으로** 다시 내고 대조한다. 남은 해의 Z-factor는 `parameters_used` **v3**의 `future_regulation_years` 블록으로 **전부** `parameter_hash`에 들어간다(`TECH_SPEC §5.2.1.2`) — 대 본 해 중 어느 해의 감축률이 개정되거나 그 해가 비활성이 되면 재현이 409로 드러난다. **표에 새 해(2031~)가 적재되는 것은 409 사유가 아니다** — 재현은 표를 다시 읽지 않고 저장된 해 집합의 지금 Z만 대조한다(대상 해의 Z가 하나도 바뀌지 않은 실행이 새 해 적재만으로 재현 불가가 되면 안 된다). 가정 문구 원문은 `PRD §6.3` 「연간 등급 관리 — 남은 해 기준 가정」. 예시는 50,000 DWT 벌크선(`a` 4745 · `c` 0.622 · 2026년 Z 11%)에서 연말 예상 `5.02`를 그대로 둔 값이다 — 올해 required `5.045066`(`target_cii` = × d2 0.94 = `4.742362`)이고 이후 해는 같은 기준선에 그 해 Z만 바꾼 것이라, 5.02는 2027·2028의 `upper_boundary`(5.190041 · 5.032311) 이하라 C, 2029부터 그 위(4.874582 · 4.716853)라 D다.
+
 > **[#816] `meta.as_of` — 집계에 실제로 쓴 기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵). 명시 실행은 그 값, 미명시 실행은 서버가 확정한 시각(스냅숏 생성 시각과 같은 뜻)이 실린다. `§6.2` 조회·`§6.4` 재현도 같은 규칙으로 같은 값을 낸다 — 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
 
-> **[#816 ⑶] `parameters_used`는 v2다** (2026-09-18 결정). v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지가 더해진다:
+> **[#816 ⑶] `parameters_used` v2** (2026-09-18 결정) — **현행은 v3다**(`#2043`, 아래 표 끝 행). v2는 v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지를 더했다:
 >
 > | 필드 | 뜻 |
 > |---|---|
 > | `fuel_types` | 계획 항차에 곱한 **활성 CF** (`#832`). `[{code, cf}]` — 이 실행이 실제로 쓴 유종만. CF 개정이 `parameter_hash`에 드러나지 않으면 재현성 계약이 성립하지 않는다 |
 > | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 `[{code, source_ref}]` (유종별 출처). 종전 `parameter_source_version`은 기준선 하나만 담었다 |
-> | `parameter_schema_version` | `2`. **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1 실행의 해시를 그대로 재생한다 |
+> | `parameter_schema_version` | 현행 `3`(`#2043` 전 실행은 `2`). **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1·v2 실행의 해시를 그대로 재생한다 |
+> | `future_regulation_years` (v3) | 올해 뒤의 규정연도 `[{year, z_factor_percent}]` — 연도 오름차순, 표에 없으면(2030년 실행) **`[]`**. 출처는 `parameter_sources.future_regulation_years` `[{year, source_ref}]`(`fuel_types`와 같은 꼴). 위 `[#2043]` 각주의 `future_years_outlook`이 이 값으로 계산된다 |
 >
-> 스키마의 정본은 **`TECH_SPEC §5.2.1.2`**다(v1·v2 블록 대조 · 판정 규칙 · `rating_boundary.ship_type`을 싣는 이유) — 이 표는 응답에서 보이는 차이만 요약한다 (#1306).
+> 스키마의 정본은 **`TECH_SPEC §5.2.1.2`**다(v1·v2·v3 블록 대조 · 판정 규칙 · `rating_boundary.ship_type`을 싣는 이유) — 이 표는 응답에서 보이는 차이만 요약한다 (#1306).
 
 > **[#756] 거리 두 행이 기준값(`5.02`)과 같은 것은 오기가 아니다.** 거리 ±5%는 연료를 같은 비율로 함께 움직이므로, **잔여 계획의 배출 강도가 확정 실적과 같으면 CII가 정확히 변하지 않는다**(`PRD §12.6` 각주 — 혼합비와 무관하다). 예시는 그 경우다. ⚠️ **항상 같은 값이 나오는 것은 아니다** — 실적이 계획에서 벌어져 두 구간의 강도가 달라지면 이 행도 움직인다. 종전 예시는 `4.96`·`5.08`로 **구현이 낼 수 없는 변화**를 싣고 있었다.
 >
@@ -3471,7 +3591,7 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 
 | Status | Code | 조건 |
 |---|---|---|
-| 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. |
+| 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. v3 행(`#2043`)은 **저장된 `future_regulation_years` 해 집합**의 지금 Z로 대조한다 — 대 본 해의 Z 개정·비활성은 409, 표에 새 해가 적재된 것은 409가 아니다(`§6.1` `[#2043]` 각주) |
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 원본과 다른 `model_version`에서 재현했고 **결과도 다름**. `details[]`에 달라진 필드(`field` · `stored` · `current`). 새 환경에서 새로 실행한다 (#833) |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | 재현 결과의 `input_hash` 또는 Monte Carlo 결과가 원본과 불일치. canonical test vector 실패 가능. |
 | 422 | `CALCULATION_ERROR` | 스냅샷에 **거리가 없다** — `§6.1`과 같은 코드·같은 문구다(`#1084`). 실행 단계에서 이미 422로 막히므로 저장된 실행으로는 여기에 닿지 않지만, **두 경로가 같은 상태를 다르게 설명하지 않도록** 배선을 한 곳에 두었다 |
@@ -3725,6 +3845,22 @@ POST /api/v1/parameters/import
 행 검증은 저장 컬럼의 한도(길이·`NUMERIC(p,s)` 자릿수)까지 본다(#1190와 같은 계약 — 값
 때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는다). 수식 주입 방어도 `§8.2`와
 같다. 모르는 선종·파일 안 키 중복·자릿수 초과는 모두 `{row, field, message}` 행 오류다.
+
+#### `condition_expr` 검증 (`reference_lines` · `rating_boundaries`) [#2087]
+
+| 검증 | 규칙 | 오류의 `field` |
+|---|---|---|
+| 문법 | 계산 엔진이 읽는 세 형태만 받는다 — `all` · `DWT >= 279000`/`GT < 30000` · `65000 <= DWT < 100000`(`DB_SCHEMA §3.3`). 구간 형태는 하한 < 상한 | `condition_expr` |
+| 구간 | 적재 **뒤의** 그 선종 활성 행(파일의 행 + 파일에 같은 키가 없는 기존 활성 행)이 전 구간을 **빈틈·겹침 없이** 덮어야 한다. `all`은 다른 조건식과 함께 둘 수 없고, 한 선종의 조건식은 같은 축(`DWT` 또는 `GT`)을 쓴다 | `condition_expr` — 그 선종의 파일 첫 행에 붙는다 |
+| `a_raw` 변환값 | `a_decimal`의 정수·소수 자릿수가 저장 컬럼(`NUMERIC(30,6)`) 안이어야 한다 | `a_raw` |
+
+엔진은 선박마다 **정확히 한 행**이 맞아야 계산한다 — 못 읽는 식이 한 행이라도 활성이거나
+구간이 비거나 겹치면 그 선종의 CII 계산이 `409 PARAMETER_ERROR`가 된다. 그래서 적재 전에
+거른다. 구간 판정은 행이 전부 읽혔을 때만 하며, `dry_run`도 같은 판정을 낸다.
+
+적재는 **키(`ship_type` · `condition_expr`)가 같은 활성 행만** 끈다. 그래서 경계값 자체를
+바꾸는 파일(예: `DWT >= 279000` → `DWT >= 300000`)은 옛 행이 활성으로 남아 구간이 겹치고
+구간 오류로 거부된다.
 
 #### 개정의 반영 방식 (`DB_SCHEMA §7.2`)
 
@@ -4337,6 +4473,9 @@ GET /api/v1/health
 | GET | `/api/v1/auth/me` | 현재 사용자 | §1.2 |
 | PATCH | `/api/v1/auth/me` | 표시 이름 변경 (`email`은 받지 않는다) | §6.3 |
 | DELETE | `/api/v1/auth/me` | 탈퇴 (soft delete + 세션 전량 무효화) | §6.3 |
+| POST | `/api/v1/auth/me/avatar` | 프로필 이미지 올리기 (`multipart`) | §1.2.5a |
+| GET | `/api/v1/auth/me/avatar` | 프로필 이미지 내보내기 (`ETag`) | §1.2.5a |
+| DELETE | `/api/v1/auth/me/avatar` | 프로필 이미지 지우기 | §1.2.5a |
 | GET | `/api/v1/auth/users` | 계정 목록 (**관리자**) | §1.2 |
 | PATCH | `/api/v1/auth/users/{user_id}/role` | 역할 지정 (**관리자**) | §1.2 |
 | POST | `/api/v1/auth/password-change` | 비밀번호 변경 (로그인 상태) | §6.3 |
@@ -4953,3 +5092,10 @@ POST /api/v1/chat
 | 2026-09-28 | `#2014` | §15.1 `lookup_regulation` 줄에 등급 경계 행의 **`grade_ranges`** (`#1973` 후속 · `PRD §16.3.1`). 규칙만으로는 모델이 경계 포함 방향을 뒤집어, 옮겨 적을 구간 문장을 도구가 준다. `§4.3`상 줄 보강이라 버전은 올리지 않는다 (#1973) |
 | 2026-09-28 | `#2021` | §2.16 `issues[].severity` 표 `UNAVAILABLE` 행에 **⑶ `FUEL_NO_RECORD`** 추가와 `[#2019]` 각주 — 이 표의 `codes` 열을 코드 집합의 정본으로 두고 서버(`ISSUE_CODES`)·화면(`REASON_TEXT`)을 양쪽에서 대조한다. `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었는데 표에만 없었다 — 대조 검사가 처음 돌며 드러났다. 응답은 바뀌지 않는다. `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2019) |
 | 2026-09-29 | `#2036` | §15.1 `lookup_regulation` 줄 — `grade_ranges` 예시에 **백분율 표기**(「1.0600배(106.0%)」)와 감축률 **`reduction_factor.by_year`**(규제연도 표 전체) (`#1973` 폐기 후속 · `PRD §16.3.1`). 운영 「벌크선 D등급 경계」 답이 도구에 없는 표기·다른 해 값으로 폐기됐다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#1973) |
+| 2026-09-29 | `#2057` | §6.1 응답에 **`future_years_outlook[]`**(남은 해 기준 등급) 예시와 `[#2043]` 각주 — 필드 표(`boundaries` 포함) · 두 상태(목록 · 키 없음 — 빈 목록은 「올해 뒤의 규정연도 없음」) · `parameters_used` v3의 `future_regulation_years` (`#2043` · `#2017`에서 분리). 디자인 담당 제안대로 **다음 해 하나가 아니라 남은 규정연도 전부**를 싣는다 — 같은 CII 하나를 여러 해의 기준에 대는 것이라 시뮬레이션을 다시 돌리지 않는다. 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 v3 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). 리뷰 반영 — ⑴ 예시를 50,000 DWT 벌크선 한 기준선의 실값으로 정합시켰다(`target_cii` `4.742300` → `4.742362` · 남은 해 네 행의 required·경계 전부 · 등급은 그 값으로 산술 판정한 C·C·D·D — 종전 D·D·E·E는 예시의 `5.02`로는 나올 수 없었다) ⑵ `§6.4` 재현은 **저장된 해 집합**으로 대조한다(표에 새 해가 적재된 것은 409 사유가 아니다 — 각주와 오류 표에 명시). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2043) |
+| 2026-10-01 | `#2080` | **v1.48 — §1.2.5a 「프로필 이미지」 신설**(`POST`·`GET`·`DELETE /auth/me/avatar`) + §1.2 경로 표 세 줄 + §12 요약 세 줄. 이 제품이 **사용자가 올린 바이트를 남기는 첫 자리**다 — 종전 업로드 둘은 파싱하고 버린다. 받는 형식은 PNG·JPEG·WebP이고 **SVG는 받지 않는다**(스크립트를 품을 수 있다). 확장자·`Content-Type`을 믿지 않고 디코드해 판정한다. `GET`은 `ETag`(바이트 SHA-256) + `Cache-Control: private`로 끝내며 **정적 경로를 열지 않는다**. 경로가 `/auth/me/*` 하나뿐인 것이 「남의 것을 읽거나 바꾸지 않는다」는 결정이다. 탈퇴가 함께 지우고 기존 `ACCOUNT_DELETE` 이벤트에 실린다 — 새 감사 경로를 만들지 않는다. 절 신설이라 버전을 올린다 (#2081) |
+| 2026-10-01 | `#2080` | **v1.49 — §1.2.5a의 413 코드를 `PAYLOAD_TOO_LARGE`에서 `HTTP_ERROR`로 정정**하고 각주 둘 추가 · §12의 「미구현」 표시 셋 제거(2단계에서 구현됐다). `§1.4` 마지막 행이 미등록 status를 이미 `HTTP_ERROR`로 덮고 status를 보존한다(`[#182]`) — 새 코드를 만들면 `§1.4` 표·`errors.py`·매핑이 한 자리를 위해 셋 늘어난다. 상한 초과와 형식 오류를 가르는 이유는 코드가 아니라 **고칠 방법이 다르기** 때문이고 화면은 status로 가른다. 펴진 픽셀 상한(압축 폭탄)도 413으로 적었다 — 바이트 상한으로는 막히지 않는 종류다. 코드 정정이라 버전을 올린다 (#2082) |
+| 2026-10-01 | `#2080` | **v1.50 — `GET /auth/me` 응답에 `has_avatar` 추가**(§1.2 경로 표 · §1.2.5a 각주). 바이트가 아니라 **있다/없다만** 싣는다 — 이미지는 `GET /auth/me/avatar`가 ETag로 끝내는 경로로 따로 내보낸다. 이 깃발이 없으면 화면은 올렸는지 모른 채 이미지 경로를 찔러 봐야 하고, **올리기 전이 기본 상태**이므로 대부분의 사용자가 화면마다 404를 하나씩 만든다. 「지우기」를 보일지도 이 값으로 가른다. 응답 필드 추가라 버전을 올린다 (#2083) |
+| 2026-10-05 | `#2171` | **§7.5에 `condition_expr` 검증 표 추가.** 적재가 조건식을 빈 값·길이로만 보아, 엔진이 못 읽는 식(`DWT ≥ 279000` 등)이 활성 행으로 들어가면 그 선종의 CII 계산이 전부 `409`가 됐다. 문법(엔진과 같은 함수로 판정) · 적재 뒤 선종별 구간의 빈틈·겹침 · `a_decimal` 소수 자릿수를 행 오류로 거른다. 키가 같은 활성 행만 끄는 계약은 그대로라, 경계값 자체를 바꾸는 파일은 구간 오류로 거부된다는 사실도 함께 적었다. `AGENTS §4.3`상 소규모 표 추가라 버전은 올리지 않는다 (#2087) |
+| 2026-10-05 | `#2174` | **§3.3·§3.6 — `fuel_uses[].source`는 `USER_INPUT`만 받는다.** 자유 문자열이라 클라이언트가 `MODEL_ESTIMATE`·`SAMPLE`·`IMPORT`를 스스로 적을 수 있었고 리포트가 그 값을 출처로 인쇄했다. 허용값과 「나머지 셋은 서버 경로(채택·CSV 가져오기·시드)만 적는다」를 각주로, §3.6 오류 표에 422 조건을 적었다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#2089) |
+| 2026-10-05 | `#2175` | **§1.2.5a에 `[#2107]` 각주 — 올리기의 처리 여섯 가지.** 다시 그리기를 스레드로(동시 2) · 본문을 상한 한 바이트 뒤까지만 읽기(CSV 업로드 둘 포함) · 프레임 둘 이상인 JPEG(`MPO`)를 첫 프레임으로 받기 · **413 문구를 둘로**(픽셀 초과 파일은 이미 2MB 아래다) · 세션 검증이 이미지 열을 읽지 않기(`GET`은 200일 때만 읽는다) · 화면의 사전 검사. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#2107) |

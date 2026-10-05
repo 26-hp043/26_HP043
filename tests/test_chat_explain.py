@@ -166,3 +166,29 @@ def test_system_prompt_actually_carries_the_glossary() -> None:
     assert "도구가 돌려준 값" in SYSTEM_PROMPT
     # 프롬프트 전체에도 두 자리 수가 없다(위 규칙과 같은 이유).
     assert not re.search(r"\d\d", SYSTEM_PROMPT), SYSTEM_PROMPT
+
+
+def test_the_prompt_does_not_demonstrate_the_markdown_it_forbids() -> None:
+    """`#2064` — 프롬프트가 **스스로 마크다운을 시범 보이지 않는다.**
+
+    운영 답(09-30)에 ``**``가 글자 그대로 찍혔다. 원인은 「모델이 가끔 샌다」가
+    아니라 **우리가 가르친 것**이었다 — 용어 풀이가 ``- **용어**: 뜻`` 수십 줄로
+    가고 있었고, 그 덩어리가 매 호출에 실리는 가장 긴 글이다.
+
+    그래서 규칙 한 줄을 더하는 것으로는 닫히지 않는다. 금지하는 그 표기를 프롬프트
+    자신이 쓰지 않아야 한다 — 이 저장소가 여러 번 밟은 「규칙이 닿지 않는다」의
+    프롬프트판이다.
+
+    ⚠️ 밑줄(``_``)은 보지 않는다. ``source_ref`` · ``condition_expr`` 같은 칸 이름을
+    모델에게 **적으라고 시키는** 쪽이라 프롬프트에 반드시 들어 있다.
+    """
+    prompt = SYSTEM_PROMPT
+
+    assert "**" not in prompt, "강조 별표가 프롬프트에 남아 있다"
+    assert "`" not in prompt, "백틱이 프롬프트에 남아 있다"
+    for line in prompt.split("\n"):
+        assert not re.match(r"\s*[-*+][ \t]", line), line
+        assert not re.match(r"\s*#{1,6}[ \t]", line), line
+
+    # 금지만 하고 끝내지 않는다 — 대신 쓸 표기를 준다.
+    assert "마크다운" in prompt and "「」" in prompt

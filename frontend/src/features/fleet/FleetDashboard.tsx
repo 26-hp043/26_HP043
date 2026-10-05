@@ -34,6 +34,7 @@ import {
   daysValueText,
   showsDaysToD,
   isAtRisk,
+  plottedCount,
   relativeTime,
   unavailableHint,
   unavailableText,
@@ -624,7 +625,8 @@ export function FleetDashboard() {
             칩은 **지도 자신의 메타**만 든다 — 위치가 어디서 왔는가(사용자 입력)와
             **몇 척이 찍혔는가**. 정본의 그 한 줄은 이 PR에서 함께 정정한다.
           */}
-          <p className="fleet__chip">사용자 입력 기준 · {vessels.length}척</p>
+          {/* 그려진 척수다 (#2121) — 위치 없는 배는 마커가 없으므로 세지 않는다. */}
+          <p className="fleet__chip">사용자 입력 기준 · {plottedCount(vessels)}척</p>
         </div>
 
         {/*
@@ -635,6 +637,14 @@ export function FleetDashboard() {
           ref={panelRef}
           className={`fleet__panel${panelOpen ? '' : ' fleet__panel--closed'}`}
           aria-label="선박 목록과 조치"
+          /*
+            지도에게 「내가 너를 덮고 있다」를 알린다 (#2051). 이 패널은
+            `position: absolute`라 지도의 레이아웃 폭에 잡히지 않아, 지도가 범위를
+            잡을 때 캔버스 전체를 쓸 수 있다고 믿고 선박을 이 패널 **밑에** 놓았다.
+            표시 이름은 지도 어댑터가 갖는다(`mapLibreRenderer.ts`의
+            `MAP_OVERLAY_ATTRIBUTE`) — 지도가 대시보드를 알지 않게 하기 위해서다.
+          */
+          data-map-overlay=""
         >
           <button
             type="button"
@@ -654,7 +664,12 @@ export function FleetDashboard() {
           >
             {panelOpen
               ? '« 접기'
-              : `선박 ${vessels.length}${snapshot.actions.length > 0 ? ` · 조치 필요 ${snapshot.actions.length}` : ''}`}
+              : /*
+                 * 두 수 모두 **선대 전체** 기준이다 (#2121). 종전의 `vessels.length`는
+                 * 불러온 페이지의 수(최대 100)라, 뒤의 「조치 필요」(선대 전체)와 나란히
+                 * 서면 「선박 100 · 조치 필요 130」 같은 줄이 됐다.
+                 */
+                `선박 ${snapshot.counts.total}${snapshot.actions.length > 0 ? ` · 조치 필요 ${snapshot.actions.length}` : ''}`}
           </button>
 
           <div className="fleet__panel-body" hidden={!panelOpen}>
@@ -833,6 +848,22 @@ export function FleetDashboard() {
 const ACTIONS_ID = 'fleet-actions'
 
 
+/**
+ * 1분마다 다시 그리게 하는 시계 (`#2121`).
+ *
+ * 「n분 전」은 **흐르는 값**이다. 종전에는 그릴 때의 `new Date()` 한 번으로 계산해, 화면을
+ * 열어 둔 채로는 「방금」이 한 시간 뒤에도 「방금」이었다 — 옆의 절대 시각과 갈수록 어긋난다.
+ * 표시 단위가 분이므로 1분마다 한 번이면 충분하다.
+ */
+function useMinuteClock(): Date {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
+}
+
 function FleetHead({
   asOf,
   regulationYear,
@@ -845,6 +876,7 @@ function FleetHead({
   /** 「적용 기준 — 출처 · 연도 감축률」 한 줄. 그 연도의 활성 행이 없으면 `null`이고 그리지 않는다. */
   baseline?: string | null
 }) {
+  const now = useMinuteClock()
   return (
     <PageHeader screen="MAINBOARD">
       <p className="page-head__sub">
@@ -864,7 +896,7 @@ function FleetHead({
             {/* 형식은 `formatTimestamp`가 갖는다 (#1420) — 초를 내지 않는 판단이 그 안에 있다. */}
             기준 {formatTimestamp(asOf)}
           </span>
-          <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
+          <span className="fleet__asof-rel">{relativeTime(asOf, now)}</span>
         </p>
       ) : null}
       {/*

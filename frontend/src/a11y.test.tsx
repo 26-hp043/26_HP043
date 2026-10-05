@@ -51,6 +51,32 @@ import type { RiskLevel } from './features/voyage-cii/types'
 const SRC = join(process.cwd(), 'src')
 const ROOT = join(process.cwd(), '..')
 
+/** 연도별 실적 (`API_SPEC §2.7` · #2017) — 연간 등급 관리가 들어오면 선박 상세와 같은 조회를 한다. */
+function historyBody() {
+  return {
+    data: {
+      transport_capacity_basis: 'DWT',
+      years: [
+        {
+          regulation_year: 2025,
+          status: 'CONFIRMED',
+          data_available: true,
+          reason: null,
+          attained_cii: '5.412300',
+          required_cii: '5.100000',
+          rating: 'D',
+          voyage_count: 10,
+          in_progress_voyage_count: 0,
+          total_distance_nm: '60000.0',
+          total_fuel_ton: '9000.0',
+          fuels: [],
+        },
+      ],
+    },
+    meta: { as_of: '2026-09-21T05:24:00Z' },
+  }
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response
 }
@@ -230,6 +256,7 @@ describe('A11Y-003 — 확률 차트의 값이 글로도 있다', () => {
       displayName: null,
       role: 'OFFICE',
       emailVerifiedAt: null,
+      hasAvatar: false,
     })
   })
   const PROBABILITIES = { A: '0.0200', B: '0.2800', C: '0.5500', D: '0.1300', E: '0.0200' }
@@ -281,6 +308,7 @@ describe('A11Y-003 — 확률 차트의 값이 글로도 있다', () => {
         const url = String(input)
         if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
         if (url.includes('/annual-simulations')) return jsonResponse(simulationBody())
+        if (url.includes('/cii-history')) return jsonResponse(historyBody())
         return jsonResponse({ data: {} })
       }),
     )

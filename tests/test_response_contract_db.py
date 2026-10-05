@@ -165,6 +165,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.email",
             "data.email_verified_at",
             "data.id",
+            # `#2080` — **바이트가 아니라 있다/없다다.** 이미지는 `GET /auth/me/avatar`가
+            # ETag로 끝내는 경로로 따로 낸다. 화면은 이 깃발로 「지우기」를 보일지,
+            # 이미지 경로를 부를지 가른다.
+            "data.has_avatar",
             "data.last_login_at",
             # 사무직·현장직 (#672) — 화면이 사이드바·버튼을 이 값으로 가른다
             "data.role",
@@ -913,6 +917,16 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.sensitivity_analysis.speed_plus_1kn.rating_change",
             "data.sensitivity_analysis.speed_plus_1kn.target_probability_change",
             "data.simulation_id",
+            # 남은 해 기준 등급 (#2043) — 계약 fixture는 2026년 실행이라 2027~ 행이 있어 목록이 찬다
+            "data.future_years_outlook",
+            "data.future_years_outlook[].boundaries",
+            "data.future_years_outlook[].boundaries.inferior_boundary",
+            "data.future_years_outlook[].boundaries.lower_boundary",
+            "data.future_years_outlook[].boundaries.superior_boundary",
+            "data.future_years_outlook[].boundaries.upper_boundary",
+            "data.future_years_outlook[].projected_rating",
+            "data.future_years_outlook[].regulation_year",
+            "data.future_years_outlook[].required_cii",
             "data.snapshot",
             "data.snapshot.created_at",
             "data.snapshot.snapshot_id",
@@ -957,6 +971,13 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "parameters_used.parameter_sources.rating_boundary",
             "parameters_used.parameter_sources.reference_line",
             "parameters_used.parameter_sources.regulation_year",
+            # parameters_used v3 (#2043) — 남은 해 Z-factor 전부가 해시 재료다.
+            "parameters_used.parameter_sources.future_regulation_years",
+            "parameters_used.parameter_sources.future_regulation_years[].source_ref",
+            "parameters_used.parameter_sources.future_regulation_years[].year",
+            "parameters_used.future_regulation_years",
+            "parameters_used.future_regulation_years[].year",
+            "parameters_used.future_regulation_years[].z_factor_percent",
             "parameters_used.regulation_year",
             "parameters_used.regulation_year.year",
             "parameters_used.regulation_year.z_factor_percent",
@@ -1134,6 +1155,16 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.sensitivity_analysis.speed_plus_1kn.rating_change",
             "data.sensitivity_analysis.speed_plus_1kn.target_probability_change",
             "data.simulation_id",
+            # 남은 해 기준 등급 (#2043) — 계약 fixture는 2026년 실행이라 2027~ 행이 있어 목록이 찬다
+            "data.future_years_outlook",
+            "data.future_years_outlook[].boundaries",
+            "data.future_years_outlook[].boundaries.inferior_boundary",
+            "data.future_years_outlook[].boundaries.lower_boundary",
+            "data.future_years_outlook[].boundaries.superior_boundary",
+            "data.future_years_outlook[].boundaries.upper_boundary",
+            "data.future_years_outlook[].projected_rating",
+            "data.future_years_outlook[].regulation_year",
+            "data.future_years_outlook[].required_cii",
             "data.snapshot",
             "data.snapshot.created_at",
             "data.snapshot.snapshot_id",
@@ -1178,6 +1209,13 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "parameters_used.parameter_sources.rating_boundary",
             "parameters_used.parameter_sources.reference_line",
             "parameters_used.parameter_sources.regulation_year",
+            # parameters_used v3 (#2043) — 남은 해 Z-factor 전부가 해시 재료다.
+            "parameters_used.parameter_sources.future_regulation_years",
+            "parameters_used.parameter_sources.future_regulation_years[].source_ref",
+            "parameters_used.parameter_sources.future_regulation_years[].year",
+            "parameters_used.future_regulation_years",
+            "parameters_used.future_regulation_years[].year",
+            "parameters_used.future_regulation_years[].z_factor_percent",
             "parameters_used.regulation_year",
             "parameters_used.regulation_year.year",
             "parameters_used.regulation_year.z_factor_percent",
@@ -1753,6 +1791,17 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §1.2.5a` (#2080) — 응답이 **JSON 봉투가 아니다.** 올리기·지우기는 204라
+    # 본문이 없고, 내보내기는 `image/webp` 바이트다. 계약표는 봉투의 키 집합을 보는
+    # 도구라 이 셋에는 잴 것이 없다. 세 경로를 `tests/test_avatar_db.py`가 본다 —
+    # 저장된 바이트가 원본이 아니라 다시 그린 것인가 · ETag와 304 · 탈퇴 시 삭제.
+    "POST /auth/me/avatar": (
+        "tests/test_avatar_db.py::test_the_stored_bytes_are_ours_not_the_uploaded_ones"
+    ),
+    "GET /auth/me/avatar": ("tests/test_avatar_db.py::test_a_matching_etag_ends_without_a_body"),
+    "DELETE /auth/me/avatar": (
+        "tests/test_avatar_db.py::test_delete_clears_both_columns_and_is_idempotent"
+    ),
     # `API_SPEC §7.5` (#673) — 응답이 **올린 파일의 행 검증 결과**라 데모 시드로는 볼 수
     # 없다. 그 파일이 사무직·현장직 클라이언트로 적재·`dry_run`·오류 봉투·감사 로그를
     # 전부 확인한다(IT-IMPORT-001~005).

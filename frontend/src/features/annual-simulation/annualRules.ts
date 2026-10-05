@@ -5,6 +5,7 @@ import {
   formatGrouped,
   formatPercent,
   formatTimestamp,
+  kstYear,
 } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
@@ -363,9 +364,30 @@ export function reproducibilityLine(mc: MonteCarloBlock): string {
  */
 export function reductionCutText(gco2: string, fuelTon: string): { co2: string; fuel: string } {
   return {
-    co2: `${formatGrouped(gramsToTonnes(gco2), DISPLAY_DIGITS.co2Ton)} ${DISPLAY_UNITS.co2}`,
-    fuel: `${formatGrouped(fuelTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`,
+    co2: amountOrBelowStep(gramsToTonnes(gco2), DISPLAY_DIGITS.co2Ton, DISPLAY_UNITS.co2),
+    fuel: amountOrBelowStep(fuelTon, DISPLAY_DIGITS.fuelTon, DISPLAY_UNITS.fuel),
   }
+}
+
+/**
+ * 표시 자릿수로 적되, **반올림이 0을 만들었는데 원값은 양수**면 「0.1 tCO₂ 미만」으로 적는다
+ * (`#2121`).
+ *
+ * 이 줄은 「줄여야 하는 양」이다. `0.0 tCO₂`는 「줄일 것이 없다」로 읽히는데, 화면이 이 줄을
+ * 그리는 조건은 **원값이 0이 아닐 때**다 — 50kg 미만이 남은 배가 「0.0」을 보게 된다. 항차
+ * CII의 여유율이 같은 상황을 「0.1% 미만」으로 적는 것과 같은 규칙이다
+ * (`voyage-cii/resultRules.marginDisplay`).
+ */
+function amountOrBelowStep(value: string, digits: number, unit: string): string {
+  const rounded = formatGrouped(value, digits)
+  const trimmed = value.trim()
+  const positive = !trimmed.startsWith('-') && /[1-9]/.test(trimmed)
+  if (positive && !/[1-9]/.test(rounded)) {
+    // 표시할 수 있는 가장 작은 값 — 1자리면 0.1, 0자리면 1이다.
+    const step = digits > 0 ? `0.${'0'.repeat(digits - 1)}1` : '1'
+    return `${step} ${unit} 미만`
+  }
+  return `${rounded} ${unit}`
 }
 
 /** 십진 문자열의 소수점을 왼쪽으로 여섯 자리 옮긴다 (g → t). */
@@ -423,4 +445,36 @@ export function estimateNoticeText(asOf: string | undefined): string {
   if (asOf === undefined) return ANNUAL_COPY.estimateNotice
   const time = formatTimestamp(asOf)
   return `${ANNUAL_COPY.estimateNotice} ${ANNUAL_COPY.estimateAsOf.replace('{time}', time)}`
+}
+
+/**
+ * 「이대로면 …」 남은 해 기준 한 줄을 싣는 조건 — **실행한 규제연도 == 올해** (`#2056` 디자인 확정 C⑤).
+ *
+ * 폼에서 2024를 골라 실행하면 결과는 2024의 연말 예상인데, 그것을 2025~2030 기준에 대 보는
+ * 것은 「이대로면」이 뜻하는 바가 아니다. 서버는 지나간 해 실행에도 목록을 싣는다 —
+ * 재현 계약(`TECH_SPEC §5.4`)이라 그대로 두고, 화면이 싣지 않는다.
+ *
+ * 「올해」는 **둘 다**여야 한다 — ⑴ 그 실행의 기준 시각 `meta.as_of`의 해 ⑵ 지금(`now`)의 해.
+ * ⑴만 보면 2025-12에 실행한 2025 결과를 2026에 다시 열었을 때(`#1701` 마지막 결과 복원)
+ * **지나간 해의 결과 위에** 「이대로면 2026년 …」을 싣는다 — 디자인 문언은 「아래 결과가
+ * 지나간 해일 때는 싣지 마세요」다. ⑵만 보면 기준 시각이 지난해인 실행을 올해 것으로 읽는다.
+ * 이것은 계산이 아니라 **표시 조건**이라 지금 시각을 봐도 재현 계약(`TECH_SPEC §5.4`)과 무관하다.
+ *
+ * 해는 `DESIGN_SYSTEM §4.4` 🔒대로 KST 달력으로 센다(`kstYear`). 기준 시각이 없으면 올해인지
+ * 알 수 없으므로 싣지 않는다 — 서버는 시각을 늘 싣고(`API_SPEC §6.1` 계약 ⑵), 없는 값을
+ * 기기 시계로 메우지 않는다. `now`는 호출부가 읽어 넘긴다(`pickDefaultYear`와 같은 이유 —
+ * 함수 안에서 `new Date()`를 부르면 검사가 해를 고정할 수 없다).
+ */
+export function futureYearsLineShown(year: string, asOf: string | undefined, now: Date): boolean {
+  if (asOf === undefined) return false
+  const run = Number(year)
+  return run === kstYear(asOf) && run === kstYear(now)
+}
+
+/**
+ * 남은 해가 없을 때(빈 목록)의 문구 — 실행한 규제연도가 표의 **마지막 해**였다는 사실을 말한다
+ * (`#2056` 디자인 확정 C⑤). 해를 박아 두지 않는다 — 규정연도 표가 늘면 마지막 해가 바뀐다.
+ */
+export function futureYearsUnavailableText(year: string): string {
+  return ANNUAL_COPY.futureYearsUnavailable.replace('{year}', year)
 }

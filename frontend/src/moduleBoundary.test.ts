@@ -363,9 +363,24 @@ describe('기능 사이 요청 계층 import (#1249)', () => {
      * 두 곳이 정의하면 한쪽만 고쳐졌을 때 두 화면이 다른 값을 말한다.
      */
     'features/fleet/VesselPopover.tsx → realtime-cii/apiProvider',
+    /*
+     * 선박 관리 목록의 올해 누적 등급을 대시보드와 **같은 선대 요약 조회**로 받는다 (#2018).
+     * `/vessels`(`API_SPEC §2.1`)에는 등급이 없고, 같은 값을 내는 경로를 하나 더 만들면
+     * 같은 배의 누적 CII가 경로마다 갈린다(`#750` · `#866`). 파싱까지 같은 provider를 쓴다.
+     */
+    'features/vessel-management/VesselManagement.tsx → fleet/apiProvider',
+    /*
+     * 연간 등급 관리가 **선박 상세와 같은 연도별 이력 조회**를 결과 위에 보인다 (#2017 ·
+     * `API_SPEC §2.7`). 나란히 둘 것은 시뮬레이션 결과가 아니라 확정 실적이고, 그 경로는
+     * 선박 단위 조회라 이 화면에서도 그대로 부른다. 같은 경로를 두 곳이 정의하면 한쪽만
+     * 고쳐졌을 때 두 화면이 다른 값을 말한다(`#750` · `#866`).
+     */
+    'features/annual-simulation/AnnualSimulation.tsx → vessel-detail/apiProvider',
+    // 위 결합의 검사 — 없는 선박(404)의 오류 계약(`VesselDetailError.notFound`)을 대역으로 만든다.
+    'features/annual-simulation/AnnualSimulation.actuals.test.tsx → vessel-detail/apiProvider',
   ].sort()
 
-  it('요청 계층 결합은 사유가 적힌 여섯뿐이다', () => {
+  it('요청 계층 결합은 사유가 적힌 아홉뿐이다', () => {
     expect(crossFeatureProviderImports()).toEqual(COMPOSITION)
   })
 

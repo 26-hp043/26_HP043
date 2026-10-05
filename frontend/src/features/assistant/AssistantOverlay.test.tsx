@@ -283,6 +283,85 @@ describe('안내문과 빈 로그 (#1818)', () => {
   })
 })
 
+/**
+ * 범이 런처와 소개 일러스트 (#2008).
+ *
+ * ## 무엇을 잠그나
+ *
+ * 그림이 예쁜지가 아니다. **이름이 그림으로 바뀌면서 사라지지 않았는가**와
+ * **장식이 접근성 트리에 끼어들지 않는가**를 본다. 둘 다 눈으로는 드러나지 않는다 —
+ * 화면은 똑같이 잘 보이고, 스크린리더에서만 버튼이 이름 없는 버튼이 된다.
+ *
+ * 크기는 여기서 보지 않는다. `§16 항목 16`이 조건부 대기라 값은 CSS가 갖고,
+ * jsdom은 어차피 레이아웃을 계산하지 않는다 — `launcherReserve.sync.test.ts`가
+ * 소스에서 「예약 폭이 런처 지름을 따라가는가」를 본다.
+ */
+describe('범이 런처와 소개 일러스트 (#2008)', () => {
+  function launcher() {
+    return screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
+  }
+
+  it('런처가 범이 얼굴 그림이고, 버튼 이름은 글자로 남는다', () => {
+    /*
+     * 라벨이 `<img>`로 바뀌었으므로 이름은 `aria-label`이 든다. 이것이 빠지면
+     * 버튼이 **이름 없는 버튼**이 되고, 위 검사들이 쓰는 `/AI 어시스턴트 열기/`
+     * 조회가 전부 무너진다 — 그때는 이 검사가 먼저 말한다.
+     */
+    setup()
+    const img = launcher().querySelector('img')
+    expect(img, '런처 안에 그림이 없습니다').not.toBeNull()
+    expect(img!.getAttribute('src')).toMatch(/beomi-3d-default-56/)
+  })
+
+  it('런처 그림은 장식이다 — 이름을 두 번 읽지 않는다', () => {
+    setup()
+    expect(launcher().querySelector('img')!.getAttribute('alt')).toBe('')
+    // 그림이 이름을 거들면 「AI 어시스턴트 열기 (실험) 범이」처럼 두 번 읽힌다.
+    expect(launcher().textContent).toBe('')
+  })
+
+  it('런처 그림이 화면 배율을 따라간다 — `@1x`/`@2x` 둘 다 건다', () => {
+    /*
+     * `srcSet`이 없으면 고배율 화면에서 56px 원본이 늘어나 뭉갠다. 눈으로는
+     * 「좀 흐리네」로만 보여 회귀가 조용하다.
+     */
+    setup()
+    const srcset = launcher().querySelector('img')!.getAttribute('srcset') ?? ''
+    expect(srcset).toMatch(/beomi-3d-default-56@1x\.webp 1x/)
+    expect(srcset).toMatch(/beomi-3d-default-56@2x\.webp 2x/)
+  })
+
+  it('대화가 없으면 소개 일러스트를 그린다', () => {
+    setup()
+    open()
+    const art = document.querySelector('.assistant__intro-art')
+    expect(art, '소개 일러스트가 없습니다').not.toBeNull()
+    expect(art!.getAttribute('src')).toMatch(/beomi-3d-intro-160/)
+  })
+
+  it('첫 메시지를 보내면 소개 일러스트가 걷힌다', async () => {
+    setup()
+    open()
+    await send('올해 연말 예상 등급은?')
+
+    await screen.findByText(ANSWER.answer)
+    expect(document.querySelector('.assistant__intro-art')).toBeNull()
+  })
+
+  it('소개 일러스트는 장식이다 — 안내문이 뜻을 갖는다 (`§14`)', () => {
+    /*
+     * `§14`는 그림 단독으로 뜻을 전하는 것을 금한다. 여기서 뜻을 지는 것은
+     * `.assistant__intro` 문장과 예시 질문이고, 그림은 거들지 않는다.
+     */
+    setup()
+    open()
+    const art = document.querySelector('.assistant__intro-art')!
+    expect(art.getAttribute('alt')).toBe('')
+    expect(art.getAttribute('aria-hidden')).toBe('true')
+    expect(screen.getByText(/규제 판단이나 권고는 하지 않으며/)).toBeTruthy()
+  })
+})
+
 describe('버린 답과 실패 (`PRD §16.2` 격리)', () => {
   it('폐기된 답은 **답과 다르게** 보인다 (`API_SPEC §15.2`)', async () => {
     const ask = vi.fn<AssistantProvider['ask']>(async () => ({
@@ -569,5 +648,197 @@ describe('화면의 결과를 함께 보낸다 (`#1533`)', () => {
     await send('안녕하세요')
     await waitFor(() => expect(ask).toHaveBeenCalled())
     expect(ask.mock.calls[0][0].calculationRunId).toBeUndefined()
+  })
+})
+
+/**
+ * 머리·말풍선 아바타의 표정 (#2009).
+ *
+ * ## 무엇을 잠그나
+ *
+ * 표정 **표의 네 행이 화면에 닿는가**다. `avatarMood.test.ts`가 순수 함수로 네 행을
+ * 보고, 여기서는 그 값이 실제로 `<img>`까지 가는지와 **장식으로 남는지**를 본다 —
+ * 함수만 맞고 화면이 안 읽으면 아무것도 바뀌지 않으며, 그 실패는 눈으로 드러나지
+ * 않는다(얼굴은 늘 하나 떠 있다).
+ *
+ * 크기는 보지 않는다 — `§16 항목 16`이 조건부 대기라 값은 CSS가 갖는다.
+ */
+describe('머리·말풍선 아바타의 표정 (#2009)', () => {
+  const head = () => document.querySelector('.assistant__head-avatar') as HTMLImageElement
+  const bubbleAvatars = () =>
+    [...document.querySelectorAll('.assistant__avatar')] as HTMLImageElement[]
+
+  it('대기 — 머리는 `default` 얼굴이다', () => {
+    setup()
+    open()
+    expect(head().getAttribute('src')).toMatch(/beomi-3d-default-40/)
+  })
+
+  it('답을 받으면 머리가 `default` → `guide`로 바뀐다', async () => {
+    setup()
+    open()
+    expect(head().getAttribute('src')).toMatch(/default/)
+
+    await send('올해 연말 예상 등급은?')
+    await screen.findByText(ANSWER.answer)
+
+    expect(head().getAttribute('src')).toMatch(/beomi-3d-guide-40/)
+  })
+
+  it('실패하면 머리가 `warning`으로 바뀐다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => {
+      throw new AssistantError('서버에 연결하지 못했습니다.')
+    })
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('알려줘')
+    await screen.findByText('서버에 연결하지 못했습니다.')
+
+    expect(head().getAttribute('src')).toMatch(/beomi-3d-warning-40/)
+  })
+
+  it('⚠️ 보내는 중에는 머리 아바타가 바뀌지 않는다', async () => {
+    /*
+     * 이것이 **의도**다 (`#2009` 표의 「답변 작성 중」 행). 쓸 수 있는 얼굴이
+     * `default`와 같아 바꿔도 화면에서 보이지 않으므로, 바꾸는 시늉을 하지 않는다.
+     * 작성 중은 `PENDING_TEXT`가 말한다 — 그 줄이 함께 떠 있는 것도 본다.
+     */
+    let release: ((answer: ChatAnswer) => void) | undefined
+    const ask = vi.fn<AssistantProvider['ask']>(
+      () =>
+        new Promise<ChatAnswer>((resolve) => {
+          release = resolve
+        }),
+    )
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    const before = head().getAttribute('src')
+
+    await send('올해 연말 예상 등급은?')
+    await waitFor(() => expect(ask).toHaveBeenCalled())
+
+    expect(document.querySelector('.assistant__turn--pending')).not.toBeNull()
+    expect(head().getAttribute('src')).toBe(before)
+
+    release!(ANSWER)
+    await screen.findByText(ANSWER.answer)
+    expect(head().getAttribute('src')).toMatch(/guide/)
+  })
+
+  it('⚠️ 열자마자 「쓸 수 없음」이면 턴이 없어도 머리가 `warning`이다', async () => {
+    /*
+     * `statusOff`(#1535)는 **턴과 무관한** 상태라, 배선이 빠지면 대기와 똑같이
+     * `default` 얼굴이 뜬다 — 안내문은 떠 있는데 얼굴만 멀쩡한 꼴이다. 턴이 하나도
+     * 없는 자리를 골랐으므로 이 검사는 `statusOff`가 실제로 전해지는지만 본다
+     * (턴이 있으면 그 턴의 `failed`만으로도 `warning`이 되어 아무것도 못 가른다).
+     */
+    const status = vi.fn(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(status).toHaveBeenCalled())
+
+    expect(document.querySelectorAll('.assistant__turn').length).toBe(0)
+    await waitFor(() => expect(head().getAttribute('src')).toMatch(/beomi-3d-warning-40/))
+  })
+
+  it('말풍선 아바타는 **어시스턴트 턴에만** 붙는다 — 사용자 턴에는 없다', async () => {
+    setup()
+    open()
+    await send('올해 연말 예상 등급은?')
+    await screen.findByText(ANSWER.answer)
+
+    // 턴은 둘(사용자 · 어시스턴트)인데 아바타는 하나다.
+    expect(document.querySelectorAll('.assistant__turn').length).toBe(2)
+    expect(bubbleAvatars().length).toBe(1)
+    expect(bubbleAvatars()[0].getAttribute('src')).toMatch(/beomi-2d-guide\.svg/)
+  })
+
+  it('말풍선 아바타는 3D가 아니라 2D다 — 32px 이하에서 3D는 뭉개진다', async () => {
+    setup()
+    open()
+    await send('등급?')
+    await screen.findByText(ANSWER.answer)
+
+    const src = bubbleAvatars()[0].getAttribute('src') ?? ''
+    expect(src).toMatch(/beomi-2d-/)
+    expect(src).not.toMatch(/beomi-3d-/)
+  })
+
+  it('폐기된 답의 말풍선에는 경고 표정이 붙는다 — §8.5의 두 채널은 그대로다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '설명되지 않는 수치가 있습니다.',
+      discarded: true,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('수치 알려줘')
+    const prefix = await screen.findByText(/^답을 드리지 못했습니다/)
+
+    expect(bubbleAvatars()[0].getAttribute('src')).toMatch(/beomi-2d-warning\.svg/)
+    // 아바타를 더했다고 기존 두 채널이 대체되지 않는다 (`§8.5` 🔒).
+    expect(prefix.closest('p')!.className).toContain('assistant__turn--discarded')
+  })
+
+  it('실패한 턴에는 경고 표정 아바타가 붙는다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => {
+      throw new AssistantError('서버에 연결하지 못했습니다.')
+    })
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('알려줘')
+    await screen.findByText('서버에 연결하지 못했습니다.')
+
+    expect(bubbleAvatars()[0].getAttribute('src')).toMatch(/beomi-2d-warning\.svg/)
+  })
+
+  it('면책에는 아바타를 붙이지 않는다', async () => {
+    setup()
+    open()
+    await send('등급?')
+    await screen.findByText(ANSWER.answer)
+
+    const disclaimer = document.querySelector('.assistant__disclaimer')!
+    expect(disclaimer.querySelector('img')).toBeNull()
+    // 면책은 로그 밖이라 말풍선 줄에도 들어가지 않는다.
+    expect(disclaimer.closest('.assistant__turn-row')).toBeNull()
+  })
+
+  it('아바타는 전부 장식이다 — 낭독에 끼어들지 않는다 (`§14`)', async () => {
+    setup()
+    open()
+    await send('등급?')
+    await screen.findByText(ANSWER.answer)
+
+    for (const img of [head(), ...bubbleAvatars()]) {
+      expect(img.getAttribute('alt')).toBe('')
+      expect(img.getAttribute('aria-hidden')).toBe('true')
+    }
+    /*
+     * 상태의 뜻은 기존 채널이 진다 — 아바타를 `§8.5`의 구분 채널로 쓰지 않는다.
+     * 폐기와 실패가 같은 `warning` 얼굴이어도 두 채널은 그대로다.
+     */
+    expect(screen.getByText(ANSWER.disclaimer)).toBeTruthy()
+  })
+})
+
+describe('마크다운 기호 (`#2064`)', () => {
+  it('어시스턴트 답에서는 걷고, 사용자가 친 글자는 그대로 둔다', async () => {
+    /*
+     * 사용자가 별표를 쳤다면 그것은 서식이 아니라 **그가 친 글자**다. 말풍선 하나를
+     * 두 역할이 함께 쓰므로, 걷는 일을 역할로 가르지 않으면 사용자 글자까지 바뀐다.
+     */
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '기준 CII의 **1.0600배** 초과입니다',
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('**이것은 내가 친 별표다**')
+
+    await waitFor(() => {
+      expect(screen.getByText('기준 CII의 1.0600배 초과입니다')).toBeTruthy()
+    })
+    expect(screen.getByText('**이것은 내가 친 별표다**')).toBeTruthy()
   })
 })

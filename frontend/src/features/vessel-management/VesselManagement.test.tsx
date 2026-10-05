@@ -3,10 +3,20 @@ import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VesselManagement } from './VesselManagement'
+import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
+import { unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
+import { MISSING } from './listRules'
+import {
+  GRADE_FAILED_LINE,
+  GRADE_REFRESH_FAILED_TEXT,
+  GRADE_RETRY_TEXT,
+  GRADE_SORT_DISABLED_REASON,
+  GRADE_SORT_DISABLED_SUFFIX,
+} from './gradeLookup'
 
 /**
  * 최초 조회 중 본문이 비지 않는다 (#824 ⑷).
@@ -37,6 +47,7 @@ function stubRole(role: session.UserRole) {
     displayName: null,
     role,
     emailVerifiedAt: null,
+    hasAvatar: false,
   })
 }
 
@@ -779,5 +790,627 @@ describe('조회 조건은 쿼리로 간다 (#1783)', () => {
     // 카드가 사라져도 검색칸·선종·걸린 조건은 남아 있다.
     expect(screen.getByTestId('vessel-search')).toBeTruthy()
     expect(screen.getByRole('button', { name: /선종 벌크선/ })).toBeTruthy()
+  })
+})
+
+/**
+ * 올해 누적 등급 열 (#2018).
+ *
+ * 등급은 `/vessels`가 아니라 대시보드와 같은 `/fleet/summary`에서 받아 **선박 번호로
+ * 찾아 붙인다**(`gradeLookup.ts`). 화면에서 지키는 것:
+ *
+ * - 요약이 실패해도 **목록은 뜬다** — 이 화면의 일은 제원을 고치는 것이다
+ * - 「받지 못함」과 서버 사유(「실적 없음」 등)를 **다른 말**로 그린다
+ * - 검색·선종은 요약과 무관하게 `/vessels`가 거른다 — 조건이 바뀌어도 요약을 다시 받지 않는다
+ *
+ * 문구는 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 대시보드 문구 함수와 **같은 값인지**,
+ * 서로 **다른지**를 본다.
+ */
+describe('올해 누적 등급 열 (#2018)', () => {
+  const RATED_ID = '00000000-0000-4000-8000-00000000000a'
+  const SPEC_ID = '00000000-0000-4000-8000-00000000000b'
+  const NEW_ID = '00000000-0000-4000-8000-00000000000c'
+
+  function listVessel(id: string, name: string) {
+    return {
+      id,
+      imo_number: `9${id.slice(-6)}`,
+      name,
+      ship_type: 'BULK_CARRIER',
+      deadweight: 50000,
+      gross_tonnage: 30000,
+      is_cii_applicable_hint: true,
+      reference_speed_kn: 12,
+      reference_daily_foc_ton: 20,
+      block_coefficient: null,
+      call_sign: null,
+      default_fuel_type: 'HFO',
+      underway_state: 'NOT_UNDER_WAY',
+      detail_status: null,
+    }
+  }
+
+  function summaryVessel(id: string, name: string, rating: string | null, reason: string | null) {
+    return {
+      vessel_id: id,
+      name,
+      ship_type: 'BULK_CARRIER',
+      imo_number: '9000001',
+      underway_state: null,
+      detail_status: null,
+      current_lat: null,
+      current_lon: null,
+      position_updated_at: null,
+      data_available: rating !== null,
+      unavailable_reason: reason,
+      ytd_attained_cii: rating === null ? null : '5.123456',
+      ytd_required_cii: rating === null ? null : '5.000000',
+      ytd_rating: rating,
+      risk_level: null,
+      risk_reasons: [],
+      days_to_d: null,
+      days_to_d_reason: null,
+    }
+  }
+
+  const DEFAULT_SUMMARY = () => [
+    summaryVessel(RATED_ID, '가등급호', 'E', null),
+    summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+  ]
+
+  function summaryResponse(vessels = DEFAULT_SUMMARY()) {
+    return jsonResponse({
+      data: {
+        as_of: '2026-09-28T00:00:00Z',
+        regulation_year: 2026,
+        summary: { total: vessels.length },
+        vessels,
+      },
+      meta: { has_more: false, next_cursor: null },
+    })
+  }
+
+  /**
+   * `summaryReplies`는 **두 번째 요약 요청부터** 차례로 쓴다(제원 저장 뒤 다시 받기).
+   * 첫 요청은 `summaryStatus` · `summaryVessels`를 따른다 — `firstSummary`를 주면 그 응답을 쥔다.
+   */
+  function stubServer({
+    summaryStatus = 200,
+    summaryVessels,
+    listVessels,
+    summaryReplies = [],
+    firstSummary,
+  }: {
+    summaryStatus?: number
+    summaryVessels?: ReturnType<typeof summaryVessel>[]
+    listVessels?: ReturnType<typeof listVessel>[]
+    summaryReplies?: (Response | Deferred)[]
+    firstSummary?: Deferred
+  } = {}) {
+    const urls: string[] = []
+    let summaryCalls = 0
+    const list = listVessels ?? [
+      listVessel(NEW_ID, '다신규호'),
+      listVessel(SPEC_ID, '나제원호'),
+      listVessel(RATED_ID, '가등급호'),
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+          })
+        }
+        if (url.includes('/fleet/summary')) {
+          summaryCalls += 1
+          if (summaryCalls === 1 && firstSummary !== undefined) return firstSummary.promise
+          if (summaryCalls > 1 && summaryReplies.length > 0) {
+            const reply = summaryReplies.shift()!
+            return 'promise' in reply ? reply.promise : reply
+          }
+          if (summaryStatus !== 200) {
+            return jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, summaryStatus)
+          }
+          return summaryResponse(summaryVessels)
+        }
+        if (init?.method === 'PATCH') {
+          const id = url.split('/').pop()
+          const target = list.find((v) => v.id === id)!
+          return jsonResponse({ data: { ...target, reference_speed_kn: 13 } })
+        }
+        return jsonResponse({ data: list, meta: {} })
+      }),
+    )
+    return urls
+  }
+
+  async function renderScreen() {
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가등급호')
+  }
+
+  const gradeCell = (name: string) =>
+    (screen.getByText(name).closest('.vm__item') as HTMLElement).querySelector(
+      '.vm__grade',
+    ) as HTMLElement
+
+  it('값이 있는 배는 등급 배지와 누적 CII, 값이 없는 배는 대시보드와 같은 사유를 보인다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    expect(within(gradeCell('가등급호')).getByRole('img', { name: /E/ })).toBeTruthy()
+    expect(gradeCell('가등급호').textContent).toContain(ytdCiiText('5.123456'))
+
+    const spec = gradeCell('나제원호')
+    expect(spec.dataset.gradeState).toBe('unavailable')
+    // 대시보드 문구 함수와 같은 값이다 — 베끼면 두 화면이 갈린다.
+    expect(spec.textContent).toContain(unavailableText('MISSING_SPEC'))
+    // 배지 대신 문구다 — 배지(img)가 없다.
+    expect(within(spec).queryByRole('img')).toBeNull()
+    // 할 일 문장(`unavailableHint`)은 행에 넣지 않는다 — 화면에도, 낭독에도, 툴팁에도 (디자인 ⑵).
+    expect(spec.textContent).not.toContain(unavailableHint('MISSING_SPEC'))
+    expect(spec.getAttribute('title')).toBeNull()
+    expect(document.body.textContent).not.toContain(unavailableHint('MISSING_SPEC'))
+
+    // 요약에 없는 배(요약 뒤 등록 등)는 받지 못함도 계산 못 함도 아니다.
+    expect(gradeCell('다신규호').dataset.gradeState).toBe('absent')
+  })
+
+  const REASONS = ['NO_DATA', 'MISSING_SPEC', 'NO_PARAMETERS', 'CALCULATION_ERROR'] as const
+
+  it('요약이 실패해도 목록은 뜨고, 등급 칸은 `—`만 — 받지 못한 사실은 목록 위 한 줄이 한 번 말한다', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+
+    // 목록은 그대로 — 세 척 모두 있고 수정 버튼도 있다. 화면 단위 오류가 아니다.
+    expect(screen.getByText('나제원호')).toBeTruthy()
+    expect(screen.getByText('다신규호')).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: '수정' })).toHaveLength(3)
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    // 칸은 세 척 모두 같은 `—` — 값이 없는 다른 칸(기준속도 등)과 같은 표시다.
+    const cells = ['가등급호', '나제원호', '다신규호'].map((name) => gradeCell(name))
+    for (const cell of cells) {
+      expect(cell.dataset.gradeState).toBe('failed')
+      expect(cell.textContent?.replace('올해 누적 등급', '').trim()).toBe(MISSING)
+    }
+
+    // 목록 위 한 줄은 **하나**이고 행 안에 있지 않다.
+    const lines = screen.getAllByTestId('grade-failed-line')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].closest('.vm__list')).toBeNull()
+    const lineText = (lines[0].textContent ?? '').replace(GRADE_RETRY_TEXT, '').trim()
+    // 그 문장은 행에 반복되지 않는다.
+    for (const cell of cells) expect(cell.textContent).not.toContain(lineText)
+
+    // 「받지 못함」과 「계산하지 못함」이 문장에서 갈린다 — 서버 사유 문구를 쓰지 않는다.
+    for (const reason of REASONS) {
+      expect(lineText).not.toContain(unavailableText(reason))
+      expect(lineText).not.toBe(unavailableHint(reason))
+    }
+  })
+
+  it('받지 못했을 때 「다시 시도」(텍스트 버튼)가 요약을 다시 묻고, 성공하면 한 줄이 걷힌다', async () => {
+    const urls = stubServer({ summaryStatus: 500, summaryReplies: [summaryResponse()] })
+    await renderScreen()
+    const line = await screen.findByTestId('grade-failed-line')
+    const retry = within(line).getByRole('button', { name: GRADE_RETRY_TEXT })
+    expect(retry.className).toContain('vm__retry')
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(2)
+    expect(screen.queryByTestId('grade-failed-line')).toBeNull()
+  })
+
+  it('받지 못한 동안 등급순 선택지는 잠기고 사유를 함께 낸다 (DESIGN_SYSTEM §14)', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+
+    const option = screen
+      .getByTestId('vessel-sort')
+      .querySelector('option[value="grade"]') as HTMLOptionElement
+    expect(option.disabled).toBe(true)
+    // 잠긴 선택지는 짧은 꼬리를 달고, 사유 문장은 목록 위 한 줄이 갖는다 — 정렬 칸이
+    // 그 줄을 가리켜 낭독에도 닿는다. 이름만 남은 잠긴 선택지는 왜 안 되는지 말하지 않는다.
+    expect(option.textContent).toContain(GRADE_SORT_DISABLED_SUFFIX)
+    const describedBy = screen.getByTestId('vessel-sort').getAttribute('aria-describedby')
+    expect(describedBy).not.toBeNull()
+    const reasonLine = document.getElementById(describedBy!)
+    expect(reasonLine!.closest('[data-testid="grade-failed-line"]')).toBe(
+      screen.getByTestId('grade-failed-line'),
+    )
+    expect(reasonLine!.textContent).toContain(GRADE_SORT_DISABLED_REASON)
+    // 다른 정렬은 그대로 쓸 수 있다.
+    const others = [...screen.getByTestId('vessel-sort').querySelectorAll('option')].filter(
+      (o) => o.value !== 'grade',
+    )
+    expect(others.every((o) => !o.disabled)).toBe(true)
+  })
+
+  it('받았으면 등급순 선택지는 열려 있다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    const option = screen
+      .getByTestId('vessel-sort')
+      .querySelector('option[value="grade"]') as HTMLOptionElement
+    expect(option.disabled).toBe(false)
+    expect(option.textContent).not.toContain(GRADE_SORT_DISABLED_SUFFIX)
+    expect(screen.getByTestId('vessel-sort').getAttribute('aria-describedby')).toBeNull()
+  })
+
+  /**
+   * 칸 순서 · 머리글 정렬 (디자인 ⑴ · `#2015`).
+   *
+   * 목록은 `<table>`이 아니라 `<ul>` + 그리드라 `test/tableColumns.ts`(thead 기준)를 쓸 수
+   * 없다 — 같은 대조를 머리줄(`.vm__head`)의 칸과 각 행(`.vm__row`)의 같은 번째 칸으로 한다.
+   */
+  it('등급 칸은 「선박」 다음 · 「선종」 앞이고, 머리글과 값이 같은 정렬 클래스를 받는다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    const heads = [...document.querySelectorAll('.vm__head > *')]
+    const labels = heads.map((el) => (el.textContent ?? '').trim())
+    const at = labels.indexOf('올해 누적 등급')
+    expect(at).toBeGreaterThan(0)
+    expect(labels[at - 1]).toBe('선박')
+    expect(labels[at + 1]).toBe('선종')
+
+    // 같은 번째 칸이 행마다 등급 칸이다 — 머리글과 값이 한 열에 선다.
+    const rows = [...document.querySelectorAll('.vm__row')]
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row.children[at].classList.contains('vm__grade')).toBe(true)
+      // 머리글과 값이 **같은** 정렬 클래스 — 한쪽에만 걸면 `#2015`다.
+      expect(row.children[at].classList.contains('vm__num')).toBe(
+        heads[at].classList.contains('vm__num'),
+      )
+    }
+    expect(heads[at].classList.contains('vm__num')).toBe(true)
+    // 기준 CII는 싣지 않는다 — 요약 응답의 `ytd_required_cii`(5.000000)가 칸에 없다.
+    expect(gradeCell('가등급호').textContent).not.toContain(ytdCiiText('5.000000'))
+  })
+
+  it('선종 조건은 `/vessels`가 거르고, 요약은 다시 받지 않는다', async () => {
+    const urls = stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+    await waitFor(() =>
+      expect(urls.some((u) => u.includes('/vessels?') && u.includes('ship_type=BULK_CARRIER'))).toBe(
+        true,
+      ),
+    )
+    expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(1)
+    // 요약에는 목록 조건을 보내지 않는다 — 그 경로에는 검색·선종 필터가 없다(`API_SPEC §2.8`).
+    expect(urls.find((u) => u.includes('/fleet/summary'))).not.toContain('ship_type')
+  })
+
+  it('등급 나쁜 순 — E가 위, 등급이 없는 배는 아래', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names[0]).toBe('가등급호')
+  })
+
+  it('등급 나쁜 순 — 등급이 없는 배는 목록 이름순보다 앞서도 끝으로 간다', async () => {
+    const A_ID = '00000000-0000-4000-8000-00000000000d'
+    stubServer({
+      // 목록 순서상 등급 없는 배가 맨 앞이다 — 그래도 끝으로 가야 한다.
+      listVessels: [
+        listVessel(NEW_ID, '다신규호'),
+        listVessel(SPEC_ID, '나제원호'),
+        listVessel(A_ID, '라에이호'),
+        listVessel(RATED_ID, '가등급호'),
+      ],
+      summaryVessels: [
+        summaryVessel(RATED_ID, '가등급호', 'E', null),
+        summaryVessel(A_ID, '라에이호', 'A', null),
+        summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+      ],
+    })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('라에이호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names.slice(0, 2)).toEqual(['가등급호', '라에이호'])
+    expect(new Set(names.slice(2))).toEqual(new Set(['나제원호', '다신규호']))
+  })
+
+  /** 가등급호의 제원을 저장한다 — 기준속도만 바꾼다. */
+  async function saveRatedVessel() {
+    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('가등급호')).getByLabelText(/기준속도/), {
+      target: { value: '13' },
+    })
+    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '저장' }))
+    await screen.findByText(/가등급호의 정보를 저장했습니다/)
+  }
+
+  it('제원을 저장하면 요약을 다시 받는다', async () => {
+    const urls = stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    await saveRatedVessel()
+    await waitFor(() =>
+      expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(2),
+    )
+  })
+
+  it('다시 받는 동안 값이 있던 칸은 「불러오는 중」으로 되돌아가지 않고, 등급순도 흩어지지 않는다', async () => {
+    const refetch = deferred()
+    stubServer({ summaryReplies: [refetch] })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+
+    await saveRatedVessel()
+    // 응답을 쥐고 있는 동안 — 직전 표가 그대로다.
+    expect(gradeCell('가등급호').dataset.gradeState).toBe('rated')
+    expect(gradeCell('나제원호').dataset.gradeState).toBe('unavailable')
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names[0]).toBe('가등급호')
+
+    await act(async () => {
+      refetch.resolve(
+        summaryResponse([
+          summaryVessel(RATED_ID, '가등급호', 'D', null),
+          summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+        ]),
+      )
+    })
+    // 응답이 오면 새 표로 바뀐다.
+    await waitFor(() =>
+      expect(within(gradeCell('가등급호')).getByRole('img', { name: /D/ })).toBeTruthy(),
+    )
+  })
+
+  it('다시 받기가 실패하면 직전 값을 지우지 않고, 새로 고치지 못했다는 한 줄만 더한다', async () => {
+    stubServer({ summaryReplies: [jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, 500)] })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    expect(screen.queryByTestId('grade-failed-line')).toBeNull()
+
+    await saveRatedVessel()
+    const line = await screen.findByTestId('grade-failed-line')
+    // 처음 받기 실패와 다른 문장이다 — 칸이 빈 것이 아니라 직전 값이 남아 있다.
+    expect(line.textContent).not.toContain(GRADE_FAILED_LINE)
+    expect(within(line).getByRole('button', { name: GRADE_RETRY_TEXT })).toBeTruthy()
+    // 칸은 「받지 못함」이 아니라 직전 값 그대로다.
+    expect(gradeCell('가등급호').dataset.gradeState).toBe('rated')
+    expect(within(gradeCell('가등급호')).getByRole('img', { name: /E/ })).toBeTruthy()
+    expect(gradeCell('나제원호').dataset.gradeState).toBe('unavailable')
+  })
+
+  /** 낭독되는 글 — 이름이 붙은 그림(`role="img"`)은 그 이름으로, 나머지는 글자로 읽는다. */
+  function spokenText(el: Element): string {
+    if (el.getAttribute('role') === 'img') return el.getAttribute('aria-label') ?? ''
+    return [...el.childNodes]
+      .map((node) => (node instanceof Element ? spokenText(node) : (node.textContent ?? '')))
+      .join('')
+  }
+
+  it('값이 있는 칸은 「올해 누적 등급」을 한 번만 읽는다 — 배지 이름이 이미 말한다', async () => {
+    stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    expect(spokenText(gradeCell('가등급호')).split('올해 누적 등급')).toHaveLength(2)
+    // 값이 없는 칸은 배지가 없어 접두어를 그대로 둔다 — 역시 한 번이다.
+    expect(spokenText(gradeCell('나제원호')).split('올해 누적 등급')).toHaveLength(2)
+  })
+
+  it('다시 받기 실패 줄은 낭독에 알리고(role="status"), 처음 받기 실패 줄은 알리지 않는다', async () => {
+    stubServer({ summaryReplies: [jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, 500)] })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    await saveRatedVessel()
+    const refreshLine = await screen.findByTestId('grade-failed-line')
+    const status = within(refreshLine).getByRole('status')
+    expect(status.textContent).toContain(GRADE_REFRESH_FAILED_TEXT)
+    // 알림은 문장만 — 버튼 이름까지 읽지 않는다.
+    expect(status.textContent).not.toContain(GRADE_RETRY_TEXT)
+  })
+
+  it('처음 받기 실패 줄에는 낭독 알림이 없다', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    const line = await screen.findByTestId('grade-failed-line')
+    expect(within(line).queryByRole('status')).toBeNull()
+  })
+
+  it('잠긴 등급순의 사유(`aria-describedby`)는 문장만 가리키고 「다시 시도」를 포함하지 않는다', async () => {
+    stubServer({ summaryStatus: 500 })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+    const describedBy = screen.getByTestId('vessel-sort').getAttribute('aria-describedby')
+    const reason = document.getElementById(describedBy!)!
+    expect(reason.textContent).toContain(GRADE_SORT_DISABLED_REASON)
+    expect(reason.textContent).not.toContain(GRADE_RETRY_TEXT)
+    expect(reason.querySelector('button')).toBeNull()
+  })
+
+  it('받는 동안 등급순을 골랐는데 받지 못하면 기본 정렬로 되돌아간다', async () => {
+    const first = deferred()
+    stubServer({ firstSummary: first })
+    await renderScreen()
+    const select = screen.getByTestId('vessel-sort') as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'grade' } })
+    expect(select.value).toBe('grade')
+
+    await act(async () => {
+      first.resolve(jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, 500))
+    })
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
+    // 잠긴 선택지가 선택된 채로 남지 않는다 — 기본값(`useState` 초기값)으로 돌아간다.
+    expect(select.value).toBe('gaps')
+    expect((select.querySelector('option[value="grade"]') as HTMLOptionElement).disabled).toBe(true)
+  })
+
+  it('응답을 기다리는 중에 화면을 떠나면, 늦게 온 응답은 아무것도 갱신하지 않는다', async () => {
+    const first = deferred()
+    stubServer({ firstSummary: first })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { unmount } = render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가등급호')
+    unmount()
+    await act(async () => {
+      first.resolve(summaryResponse())
+    })
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
+  })
+
+  it('앞 요청이 늦게 와도 뒤 요청의 표를 덮지 않는다 — 「다시 시도」 뒤 저장으로 겹친 두 요청', async () => {
+    const retryReply = deferred()
+    const saveReply = deferred()
+    stubServer({ summaryStatus: 500, summaryReplies: [retryReply, saveReply] })
+    await renderScreen()
+    const line = await screen.findByTestId('grade-failed-line')
+    fireEvent.click(within(line).getByRole('button', { name: GRADE_RETRY_TEXT }))
+    await saveRatedVessel()
+
+    // 뒤 요청(저장 뒤 다시 받기)이 먼저 온다 — D.
+    await act(async () => {
+      saveReply.resolve(
+        summaryResponse([
+          summaryVessel(RATED_ID, '가등급호', 'D', null),
+          summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+        ]),
+      )
+    })
+    await waitFor(() =>
+      expect(within(gradeCell('가등급호')).getByRole('img', { name: /D/ })).toBeTruthy(),
+    )
+    // 앞 요청(다시 시도)이 뒤늦게 온다 — E. 버린다.
+    await act(async () => {
+      retryReply.resolve(summaryResponse())
+    })
+    expect(within(gradeCell('가등급호')).getByRole('img', { name: /D/ })).toBeTruthy()
+    expect(within(gradeCell('가등급호')).queryByRole('img', { name: /E/ })).toBeNull()
+  })
+
+  it('공식 등급이 아님을 알리는 면책 배너가 있다 (PRD §3.3.7 각주 · §6.3)', async () => {
+    stubServer()
+    await renderScreen()
+    expect(screen.getByRole('note')).toBeTruthy()
+  })
+})
+
+/**
+ * 목록을 바꾸면 셸에 알린다 (#2119).
+ *
+ * 상단 선박 선택기의 목록은 셸이 mount할 때 한 번 부른다(`#1643`). 이 화면이 선명을
+ * 바꾸거나 선박을 지우고도 알리지 않아, 선택기에 **옛 이름과 지운 배**가 새로고침할
+ * 때까지 남았다. 셸 대역을 넣어 호출 자체를 본다 — 화면 안의 목록은 이미 맞게 바뀌므로
+ * 화면만 봐서는 드러나지 않는다.
+ */
+describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119)', () => {
+  function renderInShell(shell: ShellContext) {
+    render(
+      <MemoryRouter>
+        <Routes>
+          <Route element={<Outlet context={shell} />}>
+            <Route path="/" element={<VesselManagement />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  function shellWith(vesselId: string | null) {
+    const refreshVessels = vi.fn()
+    const selectVesselId = vi.fn()
+    return { shell: { ...EMPTY_SHELL_CONTEXT, vesselId, refreshVessels, selectVesselId }, refreshVessels, selectVesselId }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('confirm', () => true)
+  })
+
+  it('저장에 성공하면 부른다 — 실패하면 부르지 않는다', async () => {
+    const { shell, refreshVessels } = shellWith(null)
+    stubFetch({
+      [`PATCH /vessels/${A.id}`]: jsonResponse({ data: { ...A, name: '알파호 개명' } }),
+      [`PATCH /vessels/${B.id}`]: jsonResponse(
+        { error: { code: 'VALIDATION_ERROR', message: '선명이 너무 깁니다.', details: [{ field: 'name' }] } },
+        422,
+      ),
+    })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('브라보호')).getByLabelText('선명'), { target: { value: '브라보호 개명' } })
+    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '저장' }))
+    await within(rowOf('브라보호')).findByRole('alert')
+    expect(refreshVessels).not.toHaveBeenCalled()
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), { target: { value: '알파호 개명' } })
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+    await screen.findByText('알파호 개명')
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+  })
+
+  it('삭제에 성공하면 부른다 — 선택돼 있지 않던 배라면 선택은 건드리지 않는다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(B.id)
+    stubFetch({ [`DELETE /vessels/${A.id}`]: jsonResponse(null, 204) })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+    expect(selectVesselId).not.toHaveBeenCalled()
+  })
+
+  it('지운 배가 상단에서 선택돼 있었으면 선택을 푼다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(A.id)
+    stubFetch({ [`DELETE /vessels/${A.id}`]: jsonResponse(null, 204) })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
+    expect(selectVesselId).toHaveBeenCalledWith(null)
+    expect(refreshVessels).toHaveBeenCalledTimes(1)
+  })
+
+  it('삭제에 실패하면 부르지 않는다', async () => {
+    const { shell, refreshVessels, selectVesselId } = shellWith(A.id)
+    stubFetch({
+      [`DELETE /vessels/${A.id}`]: jsonResponse({ error: { code: 'CONFLICT', message: '지울 수 없습니다.' } }, 409),
+    })
+    renderInShell(shell)
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    await screen.findByText('지울 수 없습니다.')
+    expect(refreshVessels).not.toHaveBeenCalled()
+    expect(selectVesselId).not.toHaveBeenCalled()
   })
 })

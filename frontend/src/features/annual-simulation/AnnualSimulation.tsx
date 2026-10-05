@@ -9,7 +9,7 @@ import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
@@ -37,6 +37,8 @@ import {
   reductionCutText,
   resultConditionsText,
   estimateNoticeText,
+  futureYearsLineShown,
+  futureYearsUnavailableText,
   targetVesselText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -51,6 +53,9 @@ import { VerdictStrip } from '../../components/VerdictStrip'
 import { publishScreenResult } from '../assistant/screenResult'
 import { AnnualPlayback } from './visualization/AnnualPlayback'
 import type { AnnualMapGeometryProvider } from './visualization/model'
+import { YearlyActuals, type ActualsState } from './YearlyActuals'
+import { createApiVesselDetailProvider, VesselDetailError } from '../vessel-detail/apiProvider'
+import type { VesselDetailProvider } from '../vessel-detail/types'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -122,16 +127,37 @@ const TARGET_RATINGS = ['A', 'B', 'C', 'D'] as const
 export function AnnualSimulation({
   onDisclaimer,
   mapGeometryProvider,
+  historyProvider: injectedHistory,
 }: {
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
   /** API 응답에는 없는 실제 snapshot 좌표를 future provider가 주입하는 경계다. */
   mapGeometryProvider?: AnnualMapGeometryProvider
+  /**
+   * 연도별 실적의 출처 (#2017) — **선박 상세와 같은 조회**(`GET /vessels/{id}/cii-history`)다.
+   * 이 화면이 경로를 따로 정의하지 않는다: 같은 경로를 두 곳이 정의하면 한쪽만 고쳐진 날
+   * 두 화면이 다른 값을 말한다(`#750` · `#866`). 검사가 시간을 쥐려고 주입한다.
+   *
+   * ⚠️ **안정된 참조**를 넘겨야 한다 — 이 값은 조회 effect의 의존성이라, 렌더마다 새 객체를
+   * 만들어 넘기면 렌더마다 다시 받는다. 호출자가 `useMemo`로 쥐거나 모듈 상수로 둔다.
+   */
+  historyProvider?: Pick<VesselDetailProvider, 'load'>
 }) {
   // 선박은 **상단바 전역 선택을 따른다** (#484 · #535). 종전에는 UUID가 상수로
   // 박혀 있어, 상단에서 어떤 배를 골라도 늘 같은 배로 계산했다.
   const shell = useShellContext()
   const provider = useMemo(() => createAnnualSimulationProvider(), [])
+  const historyProvider = useMemo(
+    () => injectedHistory ?? createApiVesselDetailProvider(),
+    [injectedHistory],
+  )
+  /*
+   * 연도별 실적 (#2017). `vesselId`를 함께 쥔다 — 렌더는 **지금 고른 배의 것**일 때만 그린다.
+   * 선박이 바뀐 직후 effect가 돌기 전 한 렌더에서 앞 배의 표가 새 배 이름 아래 보이지 않게.
+   */
+  const [actuals, setActuals] = useState<(ActualsState & { vesselId: string }) | null>(null)
+  /** 「다시 시도」 — 올리면 같은 선박으로 다시 받는다. */
+  const [actualsAttempt, setActualsAttempt] = useState(0)
   // 실행은 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직은 폼을 읽되 실행 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
   const [state, setState] = useState<RunState>({ status: 'idle' })
@@ -320,6 +346,41 @@ export function AnnualSimulation({
     }
   }, [provider, shell.vesselId])
 
+  /*
+   * 연도별 실적을 받는다 (#2017 · `API_SPEC §2.7`, 기본 창 최근 3년).
+   *
+   * - **조회다** — 화면에 들어올 때 시뮬레이션을 자동 실행하지 않는다는 `#1701` 결정과 무관하다.
+   *   `CalculationRun`이 쌓이지 않고 두 역할 모두 읽을 수 있다.
+   * - 실패해도 **이 블록 안에서만** 알린다(`PRD §16.2` 오류 격리). 시뮬레이션은 그대로 실행된다.
+   * - 선박이 바뀌면 다시 받고, 앞 배의 늦은 응답은 `alive`로 버린다(`#1094`와 같은 이유 —
+   *   결과 표에 선박명이 없어 사용자가 섞인 것을 알아챌 수 없다).
+   */
+  useEffect(() => {
+    const vesselId = shell.vesselId
+    if (vesselId === null) return
+    let alive = true
+    // oxlint-disable-next-line react/set-state-in-effect -- 선박이 바뀌면 앞 배의 실적을 지우고 「받는 중」으로 — 요청과 함께 시작하는 상태라 파생값으로 둘 수 없다
+    setActuals({ vesselId, status: 'loading' })
+    historyProvider.load(vesselId).then(
+      (detail) => {
+        if (alive) setActuals({ vesselId, status: 'success', detail })
+      },
+      (error: unknown) => {
+        if (!alive) return
+        setActuals({
+          vesselId,
+          status: 'error',
+          message: error instanceof Error ? error.message : ANNUAL_COPY.actualsErrorFallback,
+          // 없는 선박(404)에는 재시도를 주지 않는다 — 다시 눌러도 같은 실패다(선박 상세 · `#694`).
+          retryable: !(error instanceof VesselDetailError && error.notFound),
+        })
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [historyProvider, shell.vesselId, actualsAttempt])
+
   const targetVessel = targetVesselText(shell.vesselId, shell.vessels, shell.vesselsState, {
     none: ANNUAL_COPY.targetVesselNone,
     loading: ANNUAL_COPY.targetVesselLoading,
@@ -456,6 +517,11 @@ export function AnnualSimulation({
                   setChosenYear(event.target.value)
                 }}
               >
+                {/*
+                  선박을 고르기 전에는 자리표시 한 줄이 선다 (#2048 · `PRD §6.4`).
+                  없으면 빈 상자가 떠서 「고장」과 「내 차례가 아님」이 구분되지 않는다.
+                */}
+                {shell.vesselId ? null : <option value="">{SELECT_VESSEL_FIRST}</option>}
                 {years.map((y) => (
                   <option key={y} value={String(y)}>
                     {y}
@@ -617,56 +683,76 @@ export function AnnualSimulation({
         그 안의 블록들이 `.annual-sim`의 직계 자식이 되고, 12컬럼 자동 배치가
         첫 블록만 폼 옆에 올린 뒤 나머지를 아래 줄로 흘려보낸다.
       */}
-      <div className="annual-sim__results">
-        {state.status === 'idle' ? (
-          <p className="annual-sim__placeholder">
-            {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
-            {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
-          </p>
-        ) : null}
-        {/*
-          실행 전 차단은 안내다 — `role="status"`로 읽히고 「실패했습니다」 제목이 없다.
-          `alert`로 내면 실행한 적 없는 일이 실패한 것으로 읽힌다 (#1096 ⑸).
-        */}
-        {state.status === 'blocked' ? (
-          <p className="annual-sim__placeholder" role="status">
-            {state.message}
-          </p>
-        ) : null}
-        {state.status === 'running' ? (
-          <p className="annual-sim__placeholder" aria-live="polite">
-            {ANNUAL_COPY.loading}
-          </p>
-        ) : null}
-        {/*
-          오류는 `role="alert"`로 낸다 — `aria-atomic`을 암시하므로 제목과 본문이
-          통째로 읽힌다. `aria-live`만 두면 바뀐 노드만 읽혀 둘이 따로 논다.
-          다른 화면 8곳이 모두 이 형태다 (#613).
-        */}
-        {state.status === 'error' ? (
-          <ErrorState level="region" action={ANNUAL_COPY.errorAction} message={state.message} />
-        ) : null}
+      {/*
+        오른쪽 기둥 — **연도별 실적이 위, 시뮬레이션 결과가 아래** (#2017). 실적은
+        결과 컨테이너 **밖**에 둔다: 결과의 첫 자리는 결론 띠여야 하고(`DESIGN_SYSTEM §8.6` 🔒),
+        지나간 해의 기록은 그 결과의 일부가 아니다. 선박이 없으면 실적을 그리지 않는다 —
+        아래 자리표시자가 「선박을 먼저 선택하라」를 이미 말하고 있어 같은 말을 두 번 두지 않는다.
 
-        {/*
-          재현 상태(`ReproduceState`)가 **직전 실행의 「재현 확인」을 새 결과 옆에 남기지
-          않아야** 한다 — 새 결과는 아직 아무도 재현하지 않았다.
-
-          지금은 실행 중(`running`)에 결과가 내려가 어차피 새로 그려진다. `key`는 그
-          경로에 기대지 않으려고 둔다 — 실행 중에도 직전 결과를 남기도록 바뀌는 날
-          재현 확인이 새 결과에 붙는다. 동작은 `AnnualSimulation.test.tsx`가 잠근다.
-        */}
-        {state.status === 'success' ? (
-          <Result
-            key={state.result.simulation_id}
-            result={state.result}
-            conditions={
-              state.restored ? { ...state.conditions, vesselName: targetVessel } : state.conditions
-            }
-            restored={state.restored}
-            provider={provider}
-            mapGeometryProvider={mapGeometryProvider}
+        선박을 바꾸는 동안 **절은 남기고 본문만 「받는 중」**으로 둔다 — 절을 없앴다 다시 그리면
+        제목이 깜빡이고 낭독이 다시 시작된다. 앞 배의 표가 새 배 이름 아래 보이지 않게 하는
+        가드(`actuals.vesselId`)는 그대로다.
+      */}
+      <div className="annual-sim__column">
+        {shell.vesselId !== null && actuals !== null ? (
+          <YearlyActuals
+            state={actuals.vesselId === shell.vesselId ? actuals : { status: 'loading' }}
+            onRetry={() => setActualsAttempt((attempt) => attempt + 1)}
+            // 결과의 해가 표의 확정 행과 같으면 두 값의 계산 경로가 다르다는 한 줄을 표 아래에 둔다.
+            simulatedYear={state.status === 'success' ? Number(state.conditions.year) : undefined}
           />
         ) : null}
+        <div className="annual-sim__results">
+          {state.status === 'idle' ? (
+            <p className="annual-sim__placeholder">
+              {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
+              {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
+            </p>
+          ) : null}
+          {/*
+            실행 전 차단은 안내다 — `role="status"`로 읽히고 「실패했습니다」 제목이 없다.
+            `alert`로 내면 실행한 적 없는 일이 실패한 것으로 읽힌다 (#1096 ⑸).
+          */}
+          {state.status === 'blocked' ? (
+            <p className="annual-sim__placeholder" role="status">
+              {state.message}
+            </p>
+          ) : null}
+          {state.status === 'running' ? (
+            <p className="annual-sim__placeholder" aria-live="polite">
+              {ANNUAL_COPY.loading}
+            </p>
+          ) : null}
+          {/*
+            오류는 `role="alert"`로 낸다 — `aria-atomic`을 암시하므로 제목과 본문이
+            통째로 읽힌다. `aria-live`만 두면 바뀐 노드만 읽혀 둘이 따로 논다.
+            다른 화면 8곳이 모두 이 형태다 (#613).
+          */}
+          {state.status === 'error' ? (
+            <ErrorState level="region" action={ANNUAL_COPY.errorAction} message={state.message} />
+          ) : null}
+
+          {/*
+            재현 상태(`ReproduceState`)가 **직전 실행의 「재현 확인」을 새 결과 옆에 남기지
+            않아야** 한다 — 새 결과는 아직 아무도 재현하지 않았다.
+
+            지금은 실행 중(`running`)에 결과가 내려가 어차피 새로 그려진다. `key`는 그
+            경로에 기대지 않으려고 둔다 — 실행 중에도 직전 결과를 남기도록 바뀌는 날
+            재현 확인이 새 결과에 붙는다. 동작은 `AnnualSimulation.test.tsx`가 잠근다.
+          */}
+          {state.status === 'success' ? (
+            <Result
+              key={state.result.simulation_id}
+              result={state.result}
+              conditions={
+                state.restored ? { ...state.conditions, vesselName: targetVessel } : state.conditions
+              }
+              restored={state.restored}
+              provider={provider}
+              mapGeometryProvider={mapGeometryProvider}
+            />
+          ) : null}
+        </div>
       </div>
     </section>
   )
@@ -692,6 +778,67 @@ type ReproduceState =
    */
   | { status: 'success'; warnings: readonly string[] }
   | { status: 'error'; message: string }
+
+/**
+ * 남은 해 기준 한 줄 (#2043 · 디자인 담당 제안 「남은 해 전부」) — 올해 결과 **하나**를 올해
+ * 뒤의 규정연도마다의 기준에 대 본 등급. 「이대로면 2027년 C · 2028년 C · 2029년 D · 2030년 D」.
+ *
+ * 시뮬레이션을 다시 돌리지 않는다 — 위 「연도별 실적」(지나간 해 · 확정)과 달리 이 줄은
+ * **예측** 쪽이라 결론 띠 아래 조건 줄들 사이에 둔다. 등급은 서버가 그 해의 경계로 판정한
+ * 값 그대로다(`#2002`). 지나간 해는 위 블록이 맡으므로 이 줄은 이력 링크를 두지 않는다.
+ *
+ * **두 상태를 가른다**(`FutureYearOutlook` 타입 주석). 키가 없는 옛 실행은 그리지 않는다 —
+ * 「계산하지 않았다」를 「이후 해는 괜찮다」로 읽히게 두지 않으려고 빈 목록은 사유를 말한다.
+ * 등급 문자 뒤에 시각 숨김 「등급」을 붙여 낭독이 「2027년 D 등급」으로 읽히게 한다(`§14`).
+ *
+ * 모양은 `rlatnals4114`의 2026-09-29 확정이다(`#2056` C · `UIFLOW 2-3`) — 머리말 「이대로면」 ·
+ * 구분자 「·」 · 배지 없는 글자 등급 · 결론 띠 아래. 그때 붙은 조건 둘:
+ * - **지나간 해의 실행에는 이 줄을 싣지 않는다** — 실행한 규제연도가 기준 시각(`as_of`)의
+ *   해이자 **지금**의 해일 때만 그린다(`futureYearsLineShown`). 지금을 함께 보는 것은 지난해
+ *   결과를 올해 복원했을 때(`#1701`)를 위해서다. 빈 목록 문구도 같은 조건이다.
+ * - **같은 등급의 연속 해를 묶지 않는다** — 해마다 한 항목이다. 「2027–2029 D」로 접으면
+ *   기준선이 해마다 내려간다는 사실이 사라진다.
+ * 가정 문구는 이 줄 **바로 아래**에 둔다 — 하단 면책 배너에 합치지 않는다(`#2056` C④).
+ * `DESIGN_SYSTEM §13`의 「배너 한 칸」은 화면 바닥 고지의 규칙이고, 이 문장은 바로 위
+ * 한 줄을 한정하는 문맥이라 그 대상에서 떨어지면 무엇에 대한 가정인지 사라진다.
+ */
+function FutureYearsLine({
+  outlook,
+  year,
+  asOf,
+}: {
+  outlook: AnnualSimulationResult['future_years_outlook']
+  /** 실행한 규제연도 (`RunConditions.year`) */
+  year: string
+  /** 그 실행의 기준 시각 (`meta.as_of`) — 「올해」의 근거 */
+  asOf: string | undefined
+}) {
+  if (!outlook) return null
+  // 지금을 **여기서 읽어** 넘긴다 — 검사는 `vi.useFakeTimers({ toFake: ['Date'] })`로 해를 고정한다.
+  if (!futureYearsLineShown(year, asOf, new Date())) return null
+  return (
+    <div className="annual-sim__future-years" data-testid="annual-sim-future-years">
+      {outlook.length === 0 ? (
+        <p className="annual-sim__notice">{futureYearsUnavailableText(year)}</p>
+      ) : (
+        <>
+          <p className="annual-sim__conditions">
+            <span className="annual-sim__conditions-label">{ANNUAL_COPY.futureYearsLabel}</span>{' '}
+            {outlook.map((row, index) => (
+              <span key={row.regulation_year} data-testid="annual-sim-future-year">
+                {index > 0 ? ' · ' : null}
+                {`${row.regulation_year}${ANNUAL_COPY.futureYearSuffix}`}{' '}
+                <strong>{row.projected_rating}</strong>
+                <span className="sr-only">{` ${ANNUAL_COPY.futureYearRatingUnit}`}</span>
+              </span>
+            ))}
+          </p>
+          <p className="annual-sim__notice">{ANNUAL_COPY.futureYearsAssumption}</p>
+        </>
+      )}
+    </div>
+  )
+}
 
 function Result({
   result,
@@ -788,6 +935,11 @@ function Result({
             {ANNUAL_COPY.lastRunNeedsRecalc}
           </p>
         ) : null}
+        <FutureYearsLine
+          outlook={result.future_years_outlook}
+          year={conditions.year}
+          asOf={result.as_of}
+        />
         {result.is_sample_data ? (
           <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
         ) : (

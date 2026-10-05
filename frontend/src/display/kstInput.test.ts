@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { formatTimestamp, kstInputToIso, toKstInput } from './format'
+import { formatTimestamp, kstInputToIso, kstYear, toKstInput } from './format'
 
 /** `#1686` 본문의 실측 표에 쓰인 값이다. */
 const INSTANT = '2026-09-20T00:30:00Z'
@@ -80,5 +80,46 @@ describe('입력 칸의 KST 변환 (#1686 · §4.4 🔒)', () => {
     // 초가 붙은 값은 입력 칸의 꼴이 아니다 — 칸 모양이 항차마다 달라진다(`#873`).
     expect(kstInputToIso('2026-09-20T09:30:00')).toBeNull()
     expect(kstInputToIso('2026-13-40T99:99')).toBeNull()
+  })
+})
+
+/**
+ * 「올해」의 해도 KST로 센다 — `DESIGN_SYSTEM §4.4` 🔒 (`#2056`).
+ *
+ * 연간 등급 관리의 「이대로면 …」 한 줄은 실행한 규제연도가 기준 시각 `as_of`의 해와 같을 때만
+ * 싣는다. 서버는 `as_of`를 UTC로 주므로 UTC 달력으로 읽으면 KST 1월 1일 0시~9시의 실행이
+ * 지난해가 되고, 기기 시간대로 읽으면 기기마다 다른 해가 된다. 기대값은 위와 같은 이유로
+ * **KST 리터럴**이다 — 기기에서 계산해 비교하면 기기 시간대 구현도 통과한다.
+ */
+describe('순간의 KST 달력 해 (#2056 · §4.4 🔒)', () => {
+  it('UTC로는 아직 지난해인 새해 첫 아홉 시간을 올해로 센다', () => {
+    // UTC 2025-12-31 15:00 = KST 2026-01-01 00:00 — 여기서 갈린다.
+    expect(kstYear('2025-12-31T15:00:00Z')).toBe(2026)
+    expect(kstYear('2025-12-31T14:59:59Z')).toBe(2025)
+    // UTC 달력과 KST 달력이 갈리는 값 — UTC 해(2025)를 내면 시간대를 고정하지 않은 것이다.
+    expect(kstYear('2025-12-31T23:30:00Z')).toBe(2026)
+  })
+
+  it('해가 갈리지 않는 값은 그대로다 — `Date`도 받는다', () => {
+    expect(kstYear('2026-09-21T05:24:00Z')).toBe(2026)
+    expect(kstYear(new Date('2026-09-21T05:24:00Z'))).toBe(2026)
+  })
+
+  it('읽을 수 없는 값은 `null` — 지어낸 해로 판정하지 않는다', () => {
+    expect(kstYear('어제')).toBeNull()
+    expect(kstYear('')).toBeNull()
+  })
+
+  it('오프셋이 없는 문자열은 `null` — 기기 시간대로 읽지 않는다(닫힌 실패)', () => {
+    // `Date`는 오프셋 없는 값을 기기 시간대로 읽는다 — 통과시키면 기기마다 다른 해가 뒷문으로 돌아온다.
+    expect(kstYear('2025-12-31T23:30:00')).toBeNull()
+    expect(kstYear('2026-01-01')).toBeNull()
+    expect(kstYear('2026-01-01T09:30')).toBeNull()
+    // 오프셋 세 꼴은 모두 받는다 — `Z` · `±hh:mm` · `±hhmm`.
+    expect(kstYear('2025-12-31T23:30:00Z')).toBe(2026)
+    expect(kstYear('2025-12-31T23:30:00+00:00')).toBe(2026)
+    expect(kstYear('2025-12-31T23:30:00+0000')).toBe(2026)
+    expect(kstYear('2026-01-01T08:59:00+09:00')).toBe(2026)
+    expect(kstYear('2025-12-31T23:59:00-05:00')).toBe(2026)
   })
 })

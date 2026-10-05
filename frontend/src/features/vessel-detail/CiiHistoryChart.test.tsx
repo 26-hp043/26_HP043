@@ -244,7 +244,8 @@ describe('연도별 연료 내역 (#769)', () => {
  * 올해 값은 「올해 누적」 카드 한 곳에 (#1571).
  *
  * 종전에는 같은 올해 값이 카드 · 차트 막대 라벨 · 연도별 표에 세 번 나왔다. 올해 막대 라벨은
- * 「진행 중」, 연도별 표는 「표로 보기」 접기 안이다. 차트가 없으면 표가 유일한 자리라 펼친다.
+ * 「진행 중」, 연도별 표는 「연도별 표로 보기」 접기 안이다(#2052 이름 갱신). 차트가 없으면 표가
+ * 유일한 자리라 펼친다.
  */
 describe('올해 값은 한 번 (#1571)', () => {
   const YEARS = [
@@ -259,13 +260,13 @@ describe('올해 값은 한 번 (#1571)', () => {
     expect(caps(container)).toEqual(['C5.200', 'E진행 중'])
   })
 
-  it('연도별 표는 「표로 보기」 안에 닫혀 있고, 차트가 그 이름을 가리킨다', () => {
+  it('연도별 표는 「연도별 표로 보기」 안에 닫혀 있고, 차트가 그 이름을 가리킨다', () => {
     const { container } = render(<CiiHistoryChart years={YEARS} basis="DWT" />)
     const details = container.querySelector('details.history__table-toggle') as HTMLDetailsElement
     expect(details.open).toBe(false)
-    expect(details.querySelector('summary')?.textContent).toBe('표로 보기')
+    expect(details.querySelector('summary')?.textContent).toBe('연도별 표로 보기')
     expect(details.querySelector('caption')?.textContent).toMatch(/연도별 CII 실적/)
-    expect(container.querySelector('svg')?.getAttribute('aria-label')).toContain('「표로 보기」')
+    expect(container.querySelector('svg')?.getAttribute('aria-label')).toContain('「연도별 표로 보기」')
   })
 
   it('연료별 내역은 접지 않는다 — 차트에 없는 정보다', () => {

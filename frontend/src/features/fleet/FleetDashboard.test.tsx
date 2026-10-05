@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
@@ -1052,5 +1055,124 @@ describe('열린 패널이 지도 아래 문구 줄을 가리지 않는다 (#187
 
     fireEvent.click(screen.getByRole('button', { name: /^선박 \d/ }))
     await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true))
+  })
+})
+
+/**
+ * ⚠️ 지도가 읽는 표시를 패널이 실제로 단다 (#2051).
+ *
+ * ## 왜 따로 잠그나
+ *
+ * 지도 어댑터는 `[data-map-overlay]`를 **읽기만** 한다. 대시보드가 그 표시를
+ * 떼어도 지도 쪽 검사는 전부 초록이다 — 덮는 것이 없다고 읽고 종전 패딩을 내기
+ * 때문이다. 화면에서는 선박이 다시 패널 밑으로 몰리는데 **아무도 붉어지지 않는다.**
+ * `#2015`·`#2038`·`#2046`·`#2047`이 전부 「규칙이 화면에 닿지 않는다」의 사본이었다.
+ *
+ * 이름을 여기 문자열로 적지 않고 **지도 소스에서 읽어** 대조한다. 한쪽만 바꿔도
+ * 갈리지 않게 하려는 것이고, 그 방향은 `reasonCodes.sync.test.ts`가 정본을 읽는 것과 같다.
+ */
+describe('지도 위 패널이 「덮고 있다」를 알린다 (#2051)', () => {
+  const overlayAttribute = (() => {
+    /*
+     * jsdom 환경에서는 `import.meta.url`이 `file:`이 아니라 개발 서버 주소라
+     * `fileURLToPath`가 던진다 — `stickyTop.sync.test.ts`와 같이 작업 폴더에서 잡는다.
+     */
+    const source = readFileSync(join(process.cwd(), 'src/features/map/mapLibreRenderer.ts'), 'utf-8')
+    const found = /const MAP_OVERLAY_ATTRIBUTE = '([^']+)'/.exec(source)
+    if (!found) throw new Error('mapLibreRenderer.ts에서 MAP_OVERLAY_ATTRIBUTE를 찾지 못했습니다')
+    return found[1]
+  })()
+
+  it('표시 이름이 지도 어댑터가 찾는 것과 같다', () => {
+    // 이름이 갈리면 아래 검사가 무엇을 보는지 알 수 없어지므로 먼저 못 박는다.
+    expect(overlayAttribute).toBe('data-map-overlay')
+  })
+
+  it('패널이 그 표시를 단다 — 접혀 있어도 단다', async () => {
+    stubFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const panel = await screen.findByRole('complementary', { name: '선박 목록과 조치' })
+    expect(
+      panel.hasAttribute(overlayAttribute),
+      `패널에 [${overlayAttribute}]가 없습니다 — 지도가 범위를 잡을 때 이 패널을 세지 못합니다.`,
+    ).toBe(true)
+
+    // 접으면 폭만 줄고 여전히 지도를 덮는다 — 표시가 남아야 그만큼만 센다.
+    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
+    expect(panel.hasAttribute(overlayAttribute)).toBe(true)
+  })
+})
+
+/**
+ * 숫자가 **무엇을 센 값인지** (#2121).
+ *
+ * 세 자리 모두 값은 맞았고 뜻이 어긋나 있었다. 지도 칩은 불러온 선박 수를 「그려진 척수」
+ * 자리에 적었고, 접힌 패널은 불러온 페이지 수를 선대 전체 수 옆에 적었고, 「n분 전」은
+ * 화면을 연 순간에 멈춰 있었다.
+ */
+describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
+  function stubPositions() {
+    const located = { ...vessel('v1', '가선'), current_lat: '35.1000', current_lon: '129.0400' }
+    const adrift = vessel('v2', '나선') // 좌표 없음 — 마커가 없다
+    const body = page([located, adrift], { next_cursor: 'c2', has_more: true })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+  }
+
+  it('지도 칩은 **그려진** 척수를 적는다 — 위치 없는 배를 세지 않는다', async () => {
+    stubPositions()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    const chip = document.querySelector('.fleet__chip') as HTMLElement
+    // 불러온 배는 둘, 좌표가 있는 배는 하나다.
+    expect(chip.textContent).toContain('1척')
+    expect(chip.textContent).not.toContain('2척')
+  })
+
+  it('접힌 패널의 「선박 N」은 선대 전체 수다 — 불러온 페이지 수가 아니다', async () => {
+    stubPositions() // 요약의 total은 3, 불러온 배는 2다.
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
+    expect(screen.getByRole('button', { name: /^선박 3/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^선박 2/ })).toBeNull()
+  })
+
+  it('「n분 전」이 화면을 열어 둔 동안에도 흐른다', async () => {
+    stubPositions()
+    // 요약의 기준 시각(`as_of`)은 12:00이다 — 그 30초 뒤에 화면을 연다.
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date('2026-08-16T12:00:30Z') })
+    try {
+      render(
+        <MemoryRouter>
+          <FleetDashboard />
+        </MemoryRouter>,
+      )
+      await screen.findByText('가선')
+      const relative = () => (document.querySelector('.fleet__asof-rel') as HTMLElement).textContent
+      const opened = relative()
+
+      await act(async () => {
+        vi.advanceTimersByTime(5 * 60_000)
+      })
+      // 문구가 아니라 **바뀌었다**를 본다 — 5분이 지났는데 같은 글자면 멈춘 것이다.
+      expect(relative()).not.toBe(opened)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -31,6 +31,21 @@ const read = (path: string) =>
  */
 const OUTSIDE_SHELL = [join(SRC, 'features/annual-simulation/visualization/experiments')]
 
+/**
+ * 상단바 높이와 **숫자만 겹치는** 선언.
+ *
+ * 이 검사가 잠그는 것은 「상단바 높이를 두 번 적지 않는가」다. 뜻이 다른 치수가
+ * 우연히 같은 숫자가 되는 일까지 막을 수는 없고, 막으면 그 치수가 숫자를 피해
+ * 달아나게 된다 — 상단바와 아무 관계 없는 값이 상단바 때문에 정해지는 꼴이다.
+ *
+ * 그래서 **한 줄씩 적어 둔다.** 목록에 없는 새 `56px`는 그대로 잡힌다.
+ *
+ * - `--assistant-launcher-size` (`#2008`) — 범이 런처 원형 버튼의 **지름**이다.
+ *   `§16 항목 16`(어시스턴트 치수)이 조건부 대기라 개발이 정했고, 확정이 오면
+ *   이 값만 바뀐다. 상단바가 바뀌어도 따라가지 않아야 한다.
+ */
+const UNRELATED = ['features/assistant/AssistantOverlay.css: --assistant-launcher-size: 56px;']
+
 function cssFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const full = join(dir, entry)
@@ -61,7 +76,25 @@ describe('상단바가 차지하는 띠는 토큰 하나다 (#1790 · #1884)', (
         .filter((line) => /\b56px\b/.test(line))
         .map((line) => `${relative(SRC, file)}: ${line.trim()}`),
     )
-    expect(found).toEqual(['layout/AppShell.css: --shell-topbar-height: 56px;'])
+    expect(found.filter((line) => !UNRELATED.includes(line))).toEqual([
+      'layout/AppShell.css: --shell-topbar-height: 56px;',
+    ])
+  })
+
+  it('숫자만 겹치는 예외 목록이 **죽은 채로 남지 않는다**', () => {
+    /*
+     * 예외는 한 번 적으면 잊힌다. 그 줄이 사라져도 목록은 남아, 다음에 같은 자리에
+     * 생기는 진짜 중복을 조용히 덮는다 — 예외가 검사를 무력화하는 흔한 경로다.
+     */
+    const found = cssFiles(SRC).flatMap((file) =>
+      read(relative(SRC, file))
+        .split('\n')
+        .filter((line) => /\b56px\b/.test(line))
+        .map((line) => `${relative(SRC, file)}: ${line.trim()}`),
+    )
+    for (const line of UNRELATED) {
+      expect(found, `예외가 가리키는 선언이 없습니다 — 목록에서 지우세요: ${line}`).toContain(line)
+    }
   })
 
   it('띠 토큰은 틈 · 2 + 높이 토큰이다', () => {

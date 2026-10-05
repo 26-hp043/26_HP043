@@ -28,7 +28,7 @@ import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { ManagedVoyage } from '../voyage-management/types'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
@@ -460,7 +460,7 @@ export function VoyageCiiForm({
            * 항로 비교 화면(`ScenarioComparison.tsx`)과 보고서 화면(`ReportsView`)이
            * 이미 같은 구분을 하고 있다. 문구도 그쪽 것을 그대로 쓴다.
            */
-          <StaticField label="규제연도" labelEn="Year" value="선박을 먼저 선택해 주세요" />
+          <StaticField label="규제연도" labelEn="Year" value={SELECT_VESSEL_FIRST} />
         ) : yearsLoading ? (
           <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오는 중…" />
         ) : yearsFailed ? (

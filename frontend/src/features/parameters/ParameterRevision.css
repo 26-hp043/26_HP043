@@ -44,15 +44,20 @@
   color: var(--text-secondary);
 }
 
-.param-revision__row select,
-.param-revision__row input[type='file'] {
+.param-revision__row select {
   font: inherit;
   font-size: var(--font-size-label);
   color: var(--text-primary);
   min-inline-size: 0;
 }
 
+/*
+ * 파일 선택 라벨이 **옆 버튼과 같은 모양**을 쓴다 (#2049). 브라우저 기본 단추를
+ * 가리고 `<label>`이 그 자리를 지므로, 높이·테두리를 여기서 함께 준다 —
+ * 컴포넌트가 제 값을 가지면 이 줄의 버튼들과 어긋난다.
+ */
 .param-revision__row button,
+.param-revision__row .param-revision__file,
 .param-revision__more {
   font: inherit;
   font-size: var(--font-size-label);

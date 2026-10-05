@@ -166,6 +166,20 @@
  * 공용 클래스로 바뀌면 조용히 안 걸리므로 입력칸 자체에 이름을 준다.
  */
 .scenario-comparison__control {
+  /*
+   * ⚠️ **이 줄이 없으면 UA 기본값이 그려진다** (`#2046`).
+   *
+   * `global.css`가 `input·select·button·textarea`에 `font-family: inherit`를 걸어
+   * 두었지만 **`font-size`는 걸지 않았다.** 컨트롤은 글자 크기를 상속하지 않으므로
+   * 부모의 본문 15가 내려오지 않고 Chrome 기본값 `13.33px`이 남는다 — `§3`이 적은
+   * 값이 화면에 나오지 않는다.
+   *
+   * 이 자리가 그랬다. 저장소를 세어 보니 **집의 컨트롤 높이 `40px`을 선언한 규칙
+   * 스물둘 중 여덟**이 같은 줄을 빠뜨리고 있었고, 항로 비교 · 선박 관리 · 항차 CII
+   * 동작의 컨트롤 블록은 **같은 일곱 줄을 복사한 것**인데 셋 다 이 줄만 없었다.
+   * `styles/controlFont.sync.test.ts`가 `40px` 가족 전체를 센다.
+   */
+  font-size: var(--font-size-body);
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
@@ -423,8 +437,21 @@
   border-collapse: collapse;
 }
 
-.scenario-table th,
-.scenario-table td {
+/*
+ * 셀의 **기본 모양** (`#2062`).
+ *
+ * ⚠️ 종전에는 `.scenario-table th, .scenario-table td`였다. 그 선택자는 **클래스 하나 +
+ * 타입 하나**라 `0-1-1`인데, 변종 `.scenario-table__corner`·`.scenario-table__scenario`는
+ * `0-1-0`이다. 변종이 더 세지 않으므로 `font-size: var(--font-size-caption)`(모서리 칸)과
+ * `vertical-align: bottom`(시나리오 머리 칸)이 통째로 버려졌다 — 모서리 칸은 시나리오
+ * 이름과 **같은 크기**로 그려져 주석이 적어 둔 「같은 무게로 읽히지 않게 한다」가 정확히
+ * 반대로 나왔고, 시나리오 이름이 두 줄이 되는 칸이 생기면 머리 줄이 어긋났다.
+ *
+ * 기본 쪽을 `.scenario-table__cell` 클래스로 내려 `0-1-0`으로 맞춘다. 그러면 소스 순서가
+ * 판정하고, 변종을 더할 때마다 같은 싸움을 다시 하지 않아도 된다 — `#2047`·`#2061`이 쓴
+ * 방법과 같다. `styles/variantWins.sync.test.ts`가 이 역전을 센다.
+ */
+.scenario-table__cell {
   padding: var(--space-8) var(--space-12);
   border-block-end: 1px solid var(--color-border);
   text-align: left;

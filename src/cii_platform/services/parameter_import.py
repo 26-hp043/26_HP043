@@ -37,10 +37,12 @@ import re
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from cii_platform.calc.capacity import ConditionInterval, parse_condition
 from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.calc.imo_parser import parse_imo_scientific
 from cii_platform.db.models.cii_rating_boundary import CiiRatingBoundary
@@ -86,6 +88,18 @@ _YEAR_MIN, _YEAR_MAX = 2019, 2050
 _FIXED_RE = re.compile(r"^fixed [0-9]+$")
 
 _SAVE_STAGE_MESSAGE = "저장 단계에서 거부됐습니다. 값을 확인해 주세요."
+
+#: 조건식 문법 안내 — 예시는 엔진이 받는 세 형태 그대로다(``calc/capacity.py``).
+_CONDITION_MESSAGE = (
+    "조건식을 읽을 수 없습니다. 'all' · 'DWT >= 279000' · 'GT < 30000' · "
+    "'65000 <= DWT < 100000' 형태여야 합니다."
+)
+
+#: 구간 판정을 하는 종류와 그 활성 행 조회 함수.
+_PARTITIONED = {
+    "reference_lines": param_repo.list_reference_lines,
+    "rating_boundaries": param_repo.list_rating_boundaries,
+}
 
 
 #: 적재 행의 ``version`` 라벨. 시드의 ``1.0``과 달리 **사람이 올린 배치**임이 드러난다 —
@@ -230,6 +244,64 @@ def _int(row: dict[str, str], column: str) -> int:
         raise RowError(column, f"연도로 읽을 수 없습니다: {raw}") from exc
 
 
+def _condition(row: dict[str, str], spec: _Spec) -> str:
+    """``condition_expr`` — 계산 엔진이 읽는 문법인지 적재 전에 본다 (#2087).
+
+    엔진은 그 선종의 활성 행 **전부**에 조건식을 평가하므로, 못 읽는 식이 한 행이라도
+    활성으로 들어가면 그 선종의 CII 계산이 전부 409가 된다. 판정은 엔진과 **같은 함수**
+    (:func:`~cii_platform.calc.capacity.parse_condition`)로 한다 — 문법을 여기 다시 적으면
+    두 곳이 갈린다.
+    """
+    value = _text(row, "condition_expr", spec)
+    try:
+        interval = parse_condition(value)
+    except ValueError as exc:
+        raise RowError("condition_expr", _CONDITION_MESSAGE) from exc
+    if interval.upper is not None and interval.lower >= interval.upper:
+        raise RowError("condition_expr", "구간의 하한이 상한보다 작아야 합니다.")
+    return value
+
+
+def partition_problem(conditions: Sequence[str]) -> str | None:
+    """한 선종의 활성 조건식들이 전 구간을 **빈틈·겹침 없이** 덮는지 본다 (#2087).
+
+    덮으면 ``None``, 아니면 사용자에게 보일 사유를 돌려준다. 엔진은 선박마다 정확히
+    한 행이 맞아야 계산한다(``select_reference_line`` · ``select_rating_boundary``) —
+    0행이면 「해당 없음」, 2행이면 「모호함」으로 둘 다 409다.
+
+    DB를 보지 않는 순수 함수다. 무엇을 넘길지(기존 활성 행 + 파일의 행)는 호출자가 정한다.
+    """
+    intervals: list[tuple[ConditionInterval, str]] = []
+    for condition in conditions:
+        try:
+            intervals.append((parse_condition(condition), condition))
+        except ValueError:
+            return f"읽을 수 없는 조건식이 활성 행에 있습니다: {condition}"
+    if not intervals:
+        return "활성 행이 없습니다."
+    if any(interval.axis is None for interval, _ in intervals):
+        if len(intervals) == 1:
+            return None
+        others = ", ".join(text for interval, text in intervals if interval.axis is not None)
+        return f"'all'은 다른 조건식과 함께 둘 수 없습니다 — 구간이 겹칩니다: {others}"
+    axes = sorted({interval.axis for interval, _ in intervals if interval.axis is not None})
+    if len(axes) > 1:
+        return f"한 선종의 조건식이 서로 다른 축을 씁니다: {' · '.join(axes)}"
+    axis = axes[0]
+    ordered = sorted(intervals, key=lambda pair: pair[0].lower)
+    if ordered[0][0].lower != 0:
+        return f"{axis} {ordered[0][0].lower} 미만을 덮는 행이 없습니다."
+    for (current, current_text), (following, following_text) in pairwise(ordered):
+        if current.upper is None or current.upper > following.lower:
+            return f"구간이 겹칩니다: '{current_text}' · '{following_text}'"
+        if current.upper < following.lower:
+            return f"{axis} {current.upper} 이상 {following.lower} 미만을 덮는 행이 없습니다."
+    last = ordered[-1][0]
+    if last.upper is not None:
+        return f"{axis} {last.upper} 이상을 덮는 행이 없습니다."
+    return None
+
+
 def _parse_regulation_year(row: dict[str, str]) -> dict[str, object]:
     spec = _SPECS["regulation_years"]
     year = _int(row, "year")
@@ -252,6 +324,7 @@ def _parse_reference_line(row: dict[str, str]) -> dict[str, object]:
     ship_type = _text(row, "ship_type", spec)
     if ship_type not in VALID_SHIP_TYPES:
         raise RowError("ship_type", f"알 수 없는 선종입니다: {ship_type}")
+    condition_expr = _condition(row, spec)
     capacity_rule = _text(row, "capacity_rule", spec)
     if capacity_rule not in ("DWT", "GT") and not _FIXED_RE.match(capacity_rule):
         raise RowError("capacity_rule", "DWT · GT · 'fixed 279000' 형태여야 합니다.")
@@ -265,13 +338,17 @@ def _parse_reference_line(row: dict[str, str]) -> dict[str, object]:
     precision, scale = spec.numeric("a_decimal")
     if a_decimal.adjusted() + 1 > precision - scale:
         raise RowError("a_raw", f"변환값이 커서 저장할 수 없습니다: {a_decimal}")
+    # 소수 자릿수도 다른 숫자 열(`_numeric`)과 같은 수준으로 본다 (#2087). 넘는 자리는
+    # 저장 단계에서 조용히 깎여, 적재한 값과 계산이 읽는 값이 달라진다.
+    if -a_decimal.as_tuple().exponent > scale:
+        raise RowError("a_raw", f"변환값의 소수가 {scale}자리를 넘습니다: {a_decimal}")
     c = _numeric(row, "c", spec)
     if c < 0:  # chk_c_positive(046)
         raise RowError("c", "c는 음수일 수 없습니다.")
     return {
-        "key": (ship_type, _text(row, "condition_expr", spec)),
+        "key": (ship_type, condition_expr),
         "ship_type": ship_type,
-        "condition_expr": _text(row, "condition_expr", spec),
+        "condition_expr": condition_expr,
         "capacity_rule": capacity_rule,
         "a_raw": a_raw,
         "a_decimal": a_decimal,
@@ -285,6 +362,7 @@ def _parse_rating_boundary(row: dict[str, str]) -> dict[str, object]:
     ship_type = _text(row, "ship_type", spec)
     if ship_type not in VALID_SHIP_TYPES:
         raise RowError("ship_type", f"알 수 없는 선종입니다: {ship_type}")
+    condition_expr = _condition(row, spec)
     capacity_basis = _text(row, "capacity_basis", spec)
     if capacity_basis not in ("DWT", "GT"):
         raise RowError("capacity_basis", "DWT 또는 GT여야 합니다.")
@@ -292,9 +370,9 @@ def _parse_rating_boundary(row: dict[str, str]) -> dict[str, object]:
     if not (ds["d1"] < ds["d2"] < ds["d3"] < ds["d4"]):  # chk_d_order
         raise RowError("d1", "d1 < d2 < d3 < d4 순서여야 합니다.")
     return {
-        "key": (ship_type, _text(row, "condition_expr", spec)),
+        "key": (ship_type, condition_expr),
         "ship_type": ship_type,
-        "condition_expr": _text(row, "condition_expr", spec),
+        "condition_expr": condition_expr,
         "capacity_basis": capacity_basis,
         **ds,
         "source_ref": _text(row, "source_ref", spec),
@@ -420,6 +498,43 @@ async def _apply_versioned(
     return inserted, replaced
 
 
+async def _partition_errors(
+    session: AsyncSession, kind: str, parsed: Sequence[tuple[int, dict[str, object]]]
+) -> list[dict[str, object]]:
+    """적재 **뒤의** 선종별 활성 행이 전 구간을 덮는지 본다 (#2087).
+
+    적재 뒤의 활성 행 = 파일의 행 + 파일에 같은 키가 없는 기존 활성 행이다
+    (``_apply_versioned``가 끄는 것은 키가 같은 행뿐이다). ``dry_run``도 여기를 지난다 —
+    실제 적재와 같은 판정이어야 한다(#1190).
+
+    오류는 그 선종의 **파일 첫 행**에 붙인다. 구간은 여러 행이 함께 만드는 성질이라
+    한 행을 지목할 수 없고, 사용자가 고칠 자리는 그 선종의 행들이다.
+    """
+    by_ship_type: dict[str, list[tuple[int, str]]] = {}
+    for row_number, item in parsed:
+        by_ship_type.setdefault(str(item["ship_type"]), []).append(
+            (row_number, str(item["condition_expr"]))
+        )
+    found: list[dict[str, object]] = []
+    for ship_type, rows in by_ship_type.items():
+        in_file = {condition for _, condition in rows}
+        kept = [
+            existing.condition_expr
+            for existing in await _PARTITIONED[kind](session, ship_type)
+            if existing.condition_expr not in in_file
+        ]
+        problem = partition_problem([*kept, *(condition for _, condition in rows)])
+        if problem is not None:
+            found.append(
+                {
+                    "row": rows[0][0],
+                    "field": "condition_expr",
+                    "message": f"{ship_type}의 구간이 맞지 않습니다 — {problem}",
+                }
+            )
+    return found
+
+
 async def _flush_row(session: AsyncSession, row_number: int) -> None:
     """한 행을 flush — 저장 단계 거부를 행 번호와 함께 올린다.
 
@@ -496,6 +611,11 @@ async def import_parameters(
                 "message": f"행 수 상한({MAX_ROWS})을 넘어 {truncated}행을 처리하지 않았습니다.",
             }
         )
+
+    # 행이 전부 읽혔을 때만 구간을 본다 — 행 오류가 있으면 그 행이 빠진 채로 판정하게
+    # 되어, 고치면 사라질 「빈틈」을 함께 보고한다.
+    if not errors and kind in _PARTITIONED:
+        errors.extend(await _partition_errors(session, kind, parsed))
 
     if dry_run or errors:
         return {
