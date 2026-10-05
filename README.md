@@ -171,8 +171,11 @@ DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올�
 
 ```bash
 # 1) credential 주입 — CUBRID로 바뀌었다 (#1058). 종전 POSTGRES_* 는 쓰이지 않는다.
-#    CUBRID_PASSWORD는 healthcheck도 읽는다 — 비워 두면 비밀번호 없는 dba로 붙는다.
-export CUBRID_DB=cii CUBRID_PASSWORD=...
+#    ⚠️ CUBRID_PASSWORD는 **여기서 넣지 않는다** (#2115). cubrid/cubrid:11.4 이미지는 첫
+#    부트에 이 값을 적용하지 않고 dba를 빈 비밀번호로 만든다 — 값을 넣으면 앱과 healthcheck만
+#    그 비밀번호로 묻고 DB는 모르는 상태가 되어 `Incorrect or missing password (errno=-171)`로
+#    DB가 unhealthy에 머문다. 비밀번호를 걸려면 아래 3-1)을 밟는다.
+export CUBRID_DB=cii
 #    가입 게이트는 .env에 둔다 — SIGNUP_ALLOWED_DOMAINS 또는 SIGNUP_INVITE_CODE.
 #    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
 #    최초 관리자도 .env에 둔다 — INITIAL_ADMIN_EMAILS=팀장@회사.kr,운항관리자@회사.kr
@@ -185,6 +188,14 @@ docker compose -f docker-compose.prod.yml build
 
 # 3) DB만 먼저 올린다 (healthcheck 통과까지 기다린다)
 docker compose -f docker-compose.prod.yml up -d db
+
+# 3-1) (선택) dba 비밀번호를 건다 — DB가 뜬 **뒤에** 걸고, 같은 값을 환경에 넣어 db를 다시 올린다.
+#      다시 올려야 healthcheck가 새 비밀번호로 묻는다. 데이터는 볼륨에 남는다.
+#      건너뛰면 dba는 빈 비밀번호다 — 이 스택은 DB 포트를 호스트에 열지 않는다.
+# docker compose -f docker-compose.prod.yml exec -T db \
+#   csql -u dba cii -c "ALTER USER dba PASSWORD '바꿀-비밀번호'"
+# export CUBRID_PASSWORD='바꿀-비밀번호'
+# docker compose -f docker-compose.prod.yml up -d db
 
 # 4) 마이그레이션 — 스키마 + 규제 파라미터 seed가 함께 들어간다
 docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
@@ -334,7 +345,7 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 >
 > 허용값은 `development`·`test`·`staging`·`production` 넷뿐이고, **그 밖의 값이면 앱이 뜨지 않는다.** 대소문자와 앞뒤 공백은 정규화한다(`Production`·`"production "` → `production`, 경고 로그를 남긴다). 이 확인은 CI의 `docker` 잡에도 같은 형태로 들어 있다.
 
-> **`app`은 호스트 포트를 열지 않는다 (`#811`).** 프로덕션 스택에서 외부로 열리는 포트는 nginx의 `:80` 하나뿐이며, 백엔드는 compose 네트워크 안에서 `http://app:8000`으로만 닿는다. 종전에는 `app`이 `8000:8000`을 열어 두어 **nginx가 제공하는 보호가 전부 우회 가능**했다 — `X-Forwarded-For` 덮어쓰기(`frontend/nginx.conf:24`) · `client_max_body_size` · TLS 종단 · `Host` 검사. 디버깅으로 백엔드에 직접 붙어야 하면 `docker compose -f docker-compose.prod.yml exec app …`을 쓰거나 그때만 `--publish 8000:8000`을 붙인다.
+> **`app`은 호스트 포트를 열지 않는다 (`#811`).** 프로덕션 스택에서 외부로 열리는 포트는 nginx의 `:80` 하나뿐이며, 백엔드는 compose 네트워크 안에서 `http://app:8000`으로만 닿는다. 종전에는 `app`이 `8000:8000`을 열어 두어 **nginx가 제공하는 보호가 전부 우회 가능**했다 — `X-Forwarded-For` 덮어쓰기(`frontend/nginx.conf:24`) · 본문 상한(`client_max_body_size 6m` — CSV 5MB에 multipart 여유를 더한 값 · `#2115`) · TLS 종단 · `Host` 검사. 디버깅으로 백엔드에 직접 붙어야 하면 `docker compose -f docker-compose.prod.yml exec app …`을 쓰거나 그때만 `--publish 8000:8000`을 붙인다.
 
 ### ⚠️ 배포 환경에서는 스텁 인증이 등록되지 않는다
 
