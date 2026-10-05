@@ -91,12 +91,14 @@ from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.voyage_cii import DISCLAIMER, _model_version
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
+    WARNING_COMPLETED_FUEL_UNFILLED,
     _load_regulation_year,
     _load_vessel,
     _resolve_reference_capacity,
     _resolve_transport_capacity,
     _select_rating_boundary,
     _select_reference_line,
+    has_no_fuel_record,
 )
 
 #: 계획 항차에 연료 정보가 없어 그 항차를 연말 예상에서 제외했다 (`TECH_SPEC §12.3`, #812).
@@ -474,6 +476,7 @@ def _inputs_from_snapshot(
     completed_distance_nm = Decimal(0)
     remaining: list[RemainingVoyage] = []
     skipped_no_fuel = 0
+    confirmed_without_fuel = 0
 
     reference_speed_kn = (
         None if vessel.reference_speed_kn is None else float(vessel.reference_speed_kn)
@@ -485,6 +488,14 @@ def _inputs_from_snapshot(
     for row in rows:
         fuel_uses = row.get("fuel_uses") or []
         if row.get("kind") == "ACTUAL":
+            if has_no_fuel_record(fuel_uses):
+                # 연료 기록이 **한 행도 없는** 실적 확정 항차다 (`#2095`). 아래에서 거리는
+                # 더해지고 연료 루프는 돌지 않아 CO₂는 0이다 — 분모만 커져 연말 예상이
+                # 실제보다 좋게 나온다. ⑴ 연간 누적(`ytd_cii._aggregate` · `#1095`)이 같은
+                # 상태를 **거리는 넣고 경고를 내는** 쪽으로 다루므로 여기도 그렇게 한다:
+                # 판정은 같은 함수, 경고는 같은 코드다. 거리를 빼면 같은 확정분을 두고
+                # ⑴과 ⑶의 분모가 갈린다.
+                confirmed_without_fuel += 1
             for fuel_use in fuel_uses:
                 completed_co2_g += (
                     _decimal_or(fuel_use.get("actual_fuel_ton"), fuel_use.get("planned_fuel_ton"))
@@ -548,6 +559,8 @@ def _inputs_from_snapshot(
         co2_g=float(completed_co2_g), distance_nm=float(completed_distance_nm)
     )
     warnings = [WARNING_PLAN_NO_FUEL] if skipped_no_fuel else []
+    if confirmed_without_fuel:
+        warnings.append(WARNING_COMPLETED_FUEL_UNFILLED)
     return completed, remaining, warnings
 
 
@@ -636,6 +649,8 @@ class AnnualInputs:
     completed: CompletedTotals
     remaining: list[RemainingVoyage]
     #: 연료를 알 수 없어 제외한 계획 항차가 있으면 ``WARNING_PLAN_NO_FUEL``.
+    #: 연료 기록이 한 행도 없는 실적 확정 항차가 있으면 ``COMPLETED_FUEL_UNFILLED``
+    #: (`#2095` — ⑴ 연간 누적과 같은 판정·같은 코드).
     warnings: list[str]
     #: 스냅샷의 PLAN 행 수. **제외된 항차도 센다** — 「4건 중 3건만 계산했다」를
     #: 경고와 함께 읽을 수 있어야 한다.

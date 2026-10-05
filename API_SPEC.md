@@ -492,7 +492,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (#653) | 총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요. |
 | `COMPLETED_NO_FUEL` | COMPLETED 항차 actual_fuel_ton NULL | 실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중. |
 | `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | 실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중. |
-| `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차(`INCLUDE_AS_ACTUAL`)에 `voyage_fuel_use` 행이 **한 행도 없음** — 거리만 더해지고 연료는 0이 되어 등급이 조용히 좋아진다 (#1095) | 연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요. |
+| `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차(`INCLUDE_AS_ACTUAL`)에 `voyage_fuel_use` 행이 **한 행도 없음** — 거리만 더해지고 연료는 0이 되어 등급이 조용히 좋아진다 (#1095). **연말 예상의 확정분도 같은 판정으로 같은 코드를 낸다**(#2095) — ⑴ 누적과 같이 그 항차의 거리는 넣고 연료는 0이다. 실리는 자리는 `§2.14` `year_end_projection.warnings` · `§2.17.1` · `§2.18` · `§6.1`의 `warnings` | 연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요. |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (PRD §11.2 「floor 도달 시 경고 표시」) | 감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다. |
 | `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시뮬레이션 시계가 진행 중 항차분을 만들지 못함 (실시간 CII) | 선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요. |
 | `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없어 CF를 붙일 수 없음 (항차 연료 기록도 선박 기본 연료도 없음) | 진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요. |
@@ -1687,6 +1687,8 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 | `planned_distance_nm` · `planned_co2_ton` | 잔여 계획분의 거리·CO₂ |
 | `completed_distance_nm` · `completed_co2_ton` | 확정분의 거리·CO₂ — **확정 항차 + 올해 `as_of`까지 이미 쓴 정박·묘박 몫**(`#1803` · `PRD §12.3`). 정박 몫은 ⑴ `ytd.not_underway_co2_ton`·`not_underway_distance_nm`과 같은 값이다 |
 
+> **확정분에 연료 기록이 한 행도 없는 실적 확정 항차가 있으면 `year_end_projection.warnings`에 `COMPLETED_FUEL_UNFILLED`가 실린다** (`§1.6` · `#2095`). ⑴의 최상위 `warnings`가 같은 항차에 내는 것과 **같은 판정 · 같은 코드**다. 그 항차의 거리는 ⑴과 같이 `completed_distance_nm`에 들어 있고 연료는 0이라, 경고가 없으면 연말 예상이 실제보다 좋게 나온 사실이 드러날 자리가 없다.
+
 > **잔여 계획이 0건이어도 값을 낸다.** 더할 계획이 없으면 「연말 = 지금」이 맞는 답이고, 빈칸은 「아직 로딩 중」으로 읽힌다. 다만 그 답은 종전 결함(항상 ⑴과 같음)과 화면에서 구분되지 않으므로 `PROJECTION_NO_REMAINING_PLAN`으로 **성격을 밝힌다.**
 
 #### ⑶을 무엇이 올리는가 — `drivers[]` (#1673)
@@ -2001,7 +2003,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
 | `vessels[].remaining_voyage_count` | **스냅샷의 잔여 계획(PLAN) 항차 수** — `§6.1` `deterministic.remaining_voyage_count`와 **같은 기준**이다(`#1070` ⑷). 계산에서 뺀 항차가 있어도 이 수는 줄지 않는다. 무엇을 뺐는지는 `warnings`가 말한다 — 종전에는 제외 **후** 개수를 실어, 같은 선박·같은 연도인데 연간 등급 관리 화면과 항차 수가 달랐다 |
 | `vessels[].required_cut_fuel_ton` · `achievable` | 조정 **후**에도 남는 필요 감축량(`§6.1.1` · `PRD §12.3.1`). 잔여 계획이 없으면 `null` |
 | `costs.charter_loss` · `fuel_saving` · `net` | **필요한 단가가 하나라도 없으면 `null`** — 0으로 채우지 않는다. 무엇이 비었는지는 `missing_charter_rates`(선박 ID) · `missing_fuel_prices`(유종) |
-| `warnings` | 선대 전체에 한 번씩만 싣는 경고(`§1.6`). `SLOWDOWN_SKIPPED_NO_SPEED_MODEL`(감속 미적용 항차 있음) · `SIMULATION_PLAN_NO_FUEL`(연료 정보가 없어 연말 예상에서 뺀 계획 항차 있음 — `#812`·`#1070` ⑷). **입력 조립이 낸 경고를 버리지 않는다** |
+| `warnings` | 선대 전체에 한 번씩만 싣는 경고(`§1.6`). `SLOWDOWN_SKIPPED_NO_SPEED_MODEL`(감속 미적용 항차 있음) · `SIMULATION_PLAN_NO_FUEL`(연료 정보가 없어 연말 예상에서 뺀 계획 항차 있음 — `#812`·`#1070` ⑷) · `COMPLETED_FUEL_UNFILLED`(연료 기록이 한 행도 없는 실적 확정 항차 있음 — `#2095`). **입력 조립이 낸 경고를 버리지 않는다** |
 
 #### 2.17.2 저장
 
@@ -2123,7 +2125,7 @@ GET /api/v1/vessels/{vessel_id}/cii/ytd-series?year=2026&as_of=2026-09-26T00:00:
 | `points[].voyage_id` | uuid \| null | 점을 만든 항차 — `ACTUAL`은 도착한 항차, `IN_PROGRESS`는 진행 중 항차, `PLAN`은 그 잔여 항차 |
 | `points[].period_id` | uuid \| null | 종료된 정박 구간이 만든 점이면 그 구간 |
 | `points[].substituted` | boolean | **이 점을 만든 항차**가 실적 대신 계획값으로 들어갔는가 — `ytd.substitutions`(`§2.14`)와 같은 판정을 그 항차에 대해 읽는다. `PLAN`·정박 점은 거짓 |
-| `warnings` | string[] | `§2.14`와 같은 합집합 — `as_of` 시점 누적 경고 + 진행분 경고 + 잔여 계획 경고(`PROJECTION_NO_REMAINING_PLAN` · `SIMULATION_PLAN_NO_FUEL` — `§1.6`) |
+| `warnings` | string[] | `§2.14`와 같은 합집합 — `as_of` 시점 누적 경고 + 진행분 경고 + 잔여 계획 경고(`PROJECTION_NO_REMAINING_PLAN` · `SIMULATION_PLAN_NO_FUEL` — `§1.6`). 연말 예상의 확정분이 내는 `COMPLETED_FUEL_UNFILLED`(`#2095`)는 누적 경고와 같은 코드라 한 번만 실린다 |
 
 **점의 키 집합은 종류와 무관하게 같다** — `null`이어도 키를 싣는다. 화면이 종류마다 다른 모양을 기대하지 않게 하기 위해서다.
 
@@ -5113,3 +5115,4 @@ POST /api/v1/chat
 | 2026-10-06 | `#2187` | **§8.2에 `[#2093]` 단락 — 선박이 없거나 삭제됐으면 가져오기 종류와 무관하게 404** (#2093). 라우트가 `type` 검증 뒤 · 파일을 읽기 전에 선박을 확인한다. 종전에는 이 404가 항차 CSV(§3.3의 `[#1332]`)에만 있었고, 정박·미운항 구간 CSV는 없는 선박에 200과 행 오류를 냈으며 `dry_run`은 전부 가져올 수 있다고 답했다. 404이면 아무 행도 저장되지 않는다. 잘못된 `type`은 선박 확인보다 앞선 422 그대로다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2189` | **§5.1 `base_daily_foc_ton`의 검증 범위 명시 · §5.2 항만명 상한과 `updated_fields`의 `planned_arrival_at` 서술 정정** (#2091). 시나리오 비교의 `base_daily_foc_ton`은 0보다 크기만 하면 받았다 — 같은 양인 선박 제원의 일일 연료(§2.3)와 같은 범위 `0.01 ~ 999,999.99`를 쓴다. 채택 요청의 항만명은 「최대 100자」였는데 항차 생성(§3.3)과 저장 열이 200자라 맞췄다. `updated_fields` 표의 `planned_arrival_at`은 「출발 시각을 모르면 null」이라고 적혀 있었다 — 도착 예정 시각을 지우던 동작을 그대로 옮긴 서술이다. 이제 출항 예정 시각이 없는 항차는 도착 예정 시각을 건드리지 않고 그 키를 응답에서 뺀다. `AGENTS §4.3`상 값·서술 정정이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2196` | **§1.3.2 오류 응답 예시에서 `rule` 삭제 · §2.7 `from` · `to`에 범위 명시** (#2100). 예시에 `"rule": "VAL-002"`가 있었는데 구현은 그 키를 싣지 않고 화면도 읽지 않는다 — 같은 문서의 `#1329` 각주가 이미 「`rule`을 넣지 않는다」고 적고 있어 예시만 남은 잔재였다. §2.7의 이력 조회는 `from` · `to` 모두 2019~2100이다(§2.14 · §2.18의 `year`와 같은 범위). 종전 구현은 시작 연도의 하한만 보았다. `to`만 준 요청의 기본 시작 연도(`to - 2`)는 2019 아래로 내려가지 않는다. `AGENTS §4.3`상 오기 정정·소규모 보강이라 버전은 올리지 않는다 |
+| 2026-10-06 | `#2195` | **§1.6 `COMPLETED_FUEL_UNFILLED` 행의 조건에 연말 예상의 확정분 추가 · §2.14 · §2.17.1 · §2.18의 `warnings` 서술 보강** (#2095). 이 코드는 연간 누적만 냈다. 같은 항차(연료 행이 한 행도 없는 실적 확정 항차)를 쓰는 연말 예상 · 연간 시뮬레이션 · 함대 감축의 확정분 조립도 같은 판정으로 같은 코드를 낸다. 실리는 자리는 실시간 CII의 `year_end_projection.warnings`(§2.14) · 함대 감축 평가의 `warnings`(§2.17.1) · 누적 추이의 `warnings`(§2.18) · 연간 시뮬레이션 봉투의 `warnings`(§6.1)다. 사용자 메시지는 그대로다. `AGENTS §4.3`상 행·각주 보강이라 버전은 올리지 않는다 |
