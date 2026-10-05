@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
+import sqlalchemy as sa
 from sqlalchemy import func, select, tuple_
 
 from cii_platform.db.models.calculation_run import CalculationRun
@@ -199,6 +200,37 @@ async def insert_scenario(
     session.add(run)
     await session.flush()
     return run
+
+
+async def find_scenario_run(
+    session: AsyncSession, *, vessel_id: UUID, scenario_id: UUID
+) -> CalculationRun | None:
+    """그 시나리오 행을 만든 비교(``SCENARIO``) 이력을 찾는다 (`#2092`).
+
+    비교 한 번은 ``voyage_scenario`` 3행과 계산 이력 **1건**을 남기고, 둘을 잇는 키는
+    ``result_json.scenarios[].scenario_id``뿐이다(``DB_SCHEMA §2.5`` `[#102]` 각주가 같은
+    경로를 적는다 — 이력 쪽에 시나리오 FK가 없다). 문자열 포함으로 후보를 좁힌 뒤
+    **파싱한 값으로 다시 확인한다** — 포함 검색만으로는 다른 키에 같은 문자열이 든 행을
+    가를 수 없다.
+
+    없으면 ``None``이다. 저장하지 않는 경로가 남긴 행(`#2088` 이전)이 그렇다.
+    """
+    needle = str(scenario_id)
+    stmt = (
+        select(CalculationRun)
+        .where(
+            CalculationRun.vessel_id == vessel_id,
+            CalculationRun.calculation_type == CALCULATION_TYPE_SCENARIO,
+            # ``JSONText``의 바인드 처리(``json.dumps``)를 타지 않게 문자열 열로 본다.
+            sa.type_coerce(CalculationRun.result_json, sa.Text).like(f"%{needle}%"),
+        )
+        .order_by(CalculationRun.created_at.desc(), CalculationRun.id.desc())
+    )
+    for run in (await session.execute(stmt)).scalars():
+        scenarios = (run.result_json or {}).get("scenarios") or []
+        if any(item.get("scenario_id") == needle for item in scenarios):
+            return run
+    return None
 
 
 async def list_runs(
