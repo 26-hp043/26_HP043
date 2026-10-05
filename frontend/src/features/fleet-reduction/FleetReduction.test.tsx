@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
@@ -828,5 +828,42 @@ describe('함대 감축 계획 화면 — 연도 칸 상태와 재계산 중 (#2
     })
     await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('false'))
     expect(save.disabled).toBe(false)
+  })
+
+  it('⚠️ 「다시 시도」도 응답이 오기 전에는 진행 중이다 — 요청이 같아도 기다리는 중이고, 지난 실패는 그동안 보이지 않는다', async () => {
+    stubCatalogs()
+    let release: (value: EvaluateResult) => void = () => {}
+    const evaluate = vi
+      .fn<FleetReductionProvider['evaluate']>()
+      .mockRejectedValueOnce(new Error('평가 실패'))
+      .mockImplementationOnce(() => new Promise<EvaluateResult>((resolve) => (release = resolve)))
+    mount(evaluate)
+
+    // 화면에는 다른 「다시 시도」(목록 조회 실패)도 있을 수 있다 — 평가 실패의 것을 집는다.
+    const failure = (await screen.findByText(/평가 실패/)).closest('[role="alert"]') as HTMLElement
+    const root = document.querySelector('.fr') as HTMLElement
+    expect(root.getAttribute('aria-busy')).toBe('false')
+
+    fireEvent.click(within(failure).getByRole('button'))
+
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('true'))
+    expect(screen.getByText(FLEET_REDUCTION_COPY.loading)).toBeTruthy()
+    expect(screen.queryByText(/평가 실패/)).toBeNull()
+    // 요청은 디바운스 뒤에 나간다 — 나간 것을 보고 답을 준다.
+    await waitFor(() => expect(evaluate).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      release(result())
+    })
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('false'))
+  })
+
+  it('연도 칸이 문구일 때도 라벨이 가리키는 id가 화면에 있다', async () => {
+    stubCatalogs(() => new Response('{}', { status: 500 }))
+    mount(vi.fn<FleetReductionProvider['evaluate']>())
+    const hint = await screen.findByText(/규제연도/, { selector: '.fr__hint' })
+    const label = document.querySelector('label[for="fr-year"]')
+    expect(label).not.toBeNull()
+    expect(hint.id).toBe('fr-year')
   })
 })

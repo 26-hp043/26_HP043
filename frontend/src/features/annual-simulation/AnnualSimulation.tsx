@@ -508,9 +508,9 @@ export function AnnualSimulation({
         >
           {(control) =>
             yearsLoading ? (
-              <span className="annual-sim__hint">규제연도 목록을 불러오는 중…</span>
+              <span className="annual-sim__hint">{YEAR_STATE_COPY.loading}</span>
             ) : yearsFailed ? (
-              <span className="annual-sim__hint">규제연도 목록을 불러오지 못했습니다</span>
+              <span className="annual-sim__hint">{YEAR_STATE_COPY.failed}</span>
             ) : shell.vesselId && years.length === 0 ? (
               <span className="annual-sim__hint">{YEAR_STATE_COPY.empty}</span>
             ) : (

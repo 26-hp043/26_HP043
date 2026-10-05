@@ -62,8 +62,11 @@ const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
 type EvalState = {
   result: EvaluateResult | null
   error: string | null
-  /** 마지막으로 응답(성공·실패)을 받은 요청 — 지금 요청과 다르면 결과가 새 입력의 것이 아니다 (#2120). */
-  settledFor: object | null
+  /**
+   * 마지막으로 응답(성공·실패)을 받은 요청과 그때의 재시도 횟수 — 지금 것과 다르면 응답을 기다리는 중이다 (#2120).
+   * 「다시 시도」는 요청이 같으므로 횟수까지 대조해야 재시도 중이 잡힌다.
+   */
+  settledFor: { request: object; retryKey: number } | null
 }
 
 const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
@@ -162,14 +165,14 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       api
         .evaluate(request)
         .then((result) => {
-          if (!cancelled) setEvaluation({ result, error: null, settledFor: request })
+          if (!cancelled) setEvaluation({ result, error: null, settledFor: { request, retryKey } })
         })
         .catch((error: unknown) => {
           if (cancelled) return
           setEvaluation((prev) => ({
             result: prev.result,
             error: error instanceof Error ? error.message : COPY.evaluateFailed,
-            settledFor: request,
+            settledFor: { request, retryKey },
           }))
         })
     }, EVALUATE_DELAY_MS)
@@ -185,7 +188,10 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
    * 응답을 받은 요청과 지금 요청을 대조한다(성공·실패 모두 `settledFor`를 채운다).
    * 잘못된 단가는 요청을 보내지 않으므로 기다릴 응답이 없다.
    */
-  const pending = year !== '' && !pricesInvalid && evaluation.settledFor !== request
+  const pending =
+    year !== '' &&
+    !pricesInvalid &&
+    (evaluation.settledFor?.request !== request || evaluation.settledFor.retryKey !== retryKey)
 
   /**
    * 단가를 물을 연료 (`#1273`).
@@ -283,7 +289,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         <Field id="fr-year" label={COPY.yearLabel}>
           {(control) => (
             yearText !== null ? (
-              <span className="fr__hint">{yearText}</span>
+              // 라벨이 가리키는 id를 문구가 받는다 — 셀렉트가 없을 때 라벨이 허공을 가리키지 않게.
+              <span id={control.id} className="fr__hint">{yearText}</span>
             ) : (
               <select
                 {...control}
@@ -473,12 +480,13 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       ) : null}
 
       {/* 연도를 못 골랐으면 계산하지 않으므로 「계산하는 중」을 적지 않는다 — 연도 칸이 사유를 말한다. */}
-      {pending && evaluation.error === null ? (
+      {pending ? (
         <p className="fr__placeholder" aria-live="polite">
           {COPY.loading}
         </p>
       ) : null}
-      {evaluation.error !== null ? (
+      {/* 다시 묻는 동안에는 지난 실패를 보이지 않는다 — 지금 입력의 답이 아니다. */}
+      {!pending && evaluation.error !== null ? (
         <ErrorState
           level="region"
           subject={COPY.loadSubject}
