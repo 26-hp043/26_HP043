@@ -74,10 +74,12 @@ ADOPT_MODES: tuple[str, ...] = (MODE_UPDATE, MODE_CREATE)
 #: 「무엇이 바뀌었나」로 읽는 단위**라 같은 목록에 둔다 (#1072).
 FIELD_PLANNED_FUEL = "planned_fuel_ton"
 
+FIELD_PLANNED_ARRIVAL = "planned_arrival_at"
+
 UPDATED_FIELDS: tuple[str, ...] = (
     "planned_distance_nm",
     "planned_speed_kn",
-    "planned_arrival_at",
+    FIELD_PLANNED_ARRIVAL,
     FIELD_PLANNED_FUEL,
 )
 
@@ -194,7 +196,13 @@ async def adopt_scenario(
         # 같은 규칙).
         target.planned_distance_source = None
         target.planned_speed_kn = scenario.speed_kn
-        target.planned_arrival_at = _arrival_at(target, scenario)
+        # 출항 예정 시각이 없으면 도착 예정 시각은 **건드리지 않는다** — 종전에는 `None`으로
+        # 덮어써 사용자가 적어 둔 값이 지워지고도 「바꿨다」고 보고됐다 (#2091).
+        arrival_at = _arrival_at(target, scenario)
+        if arrival_at is None:
+            updated_fields.remove(FIELD_PLANNED_ARRIVAL)
+        else:
+            target.planned_arrival_at = arrival_at
         # 연료도 바꾼다 (#1072) — 종전에는 이 줄이 없어 「새 거리 + 옛 연료」가 남았다.
         if not await _apply_scenario_fuel(session, target, scenario):
             # 넣을 연료 종류를 몰라 건너뛴 경우다. **바꾸지 않은 것을 바꿨다고 적지 않는다.**

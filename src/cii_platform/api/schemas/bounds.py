@@ -67,5 +67,11 @@ SPEED = {"ge": Decimal("1.0"), "le": MAX_SPEED_KN}
 #: 선박 기준 속력 — 하한은 저장 형식(``0.01`` · VAL-002), 상한은 운항 속력과 같다(VAL-009).
 REFERENCE_SPEED = {"ge": smallest_positive(2), "le": MAX_SPEED_KN}
 VOYAGE_FUEL = storable(12, 4)
+#: 일일 연료(t/일) ``NUMERIC(8,2)`` — 선박 기준 일일 연료(``vessel.reference_daily_foc_ton``)와
+#: 시나리오 비교의 ``base_daily_foc_ton``은 **같은 양**이라 같은 범위를 쓴다 (`#2091`).
+DAILY_FOC = storable(8, 2)
+#: 항만명 최대 길이 — ``voyage.departure_port_name``·``arrival_port_name`` ``VARCHAR(200)``.
+#: 항차 생성·수정과 시나리오 채택 요청이 같은 상수를 쓴다 (`#2091`).
+PORT_NAME_MAX_LENGTH = 200
 NOT_UNDERWAY_FUEL = storable(12, 2)
 NOT_UNDERWAY_DISTANCE = {"ge": Decimal(0), "le": largest(12, 2)}

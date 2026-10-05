@@ -3013,7 +3013,7 @@ POST /api/v1/scenarios/compare
 | `destination_lon` | decimal | 조건부 | VAL-007 | 목적항 경도 |
 | `current_speed_kn` | decimal | Y | VAL-009: 1.0 이상 60 이하 | 현재 속도 |
 | `fuel_type` | string | Y | VAL-006 | 연료 종류 |
-| `base_daily_foc_ton` | decimal | 조건부 | VAL-002 | 선박 기준값 없을 시 필요 |
+| `base_daily_foc_ton` | decimal | 조건부 | VAL-002: 0.01 이상 999,999.99 이하 | 선박 기준값 없을 시 필요. 범위는 선박 기준 일일 연료(`§2.3` `reference_daily_foc_ton`)와 같다 — 같은 양이며 `NUMERIC(8,2)`다 (`#2091`) |
 | `direct_distance_nm` | decimal | 조건부 | VAL-002 | 좌표 있으면 자동 계산 |
 | `detour_distance_nm` | decimal | N | VAL-002 | 기본: direct × 1.05. **우회 경유지보다 우선한다** |
 | `detour_waypoint_name` | string | N | 최대 200자 | 우회 경유지 **표기용** 이름 (`#1300`). 계산에 쓰지 않는다 — `destination_port_name`과 같은 규칙 |
@@ -3183,8 +3183,8 @@ POST /api/v1/scenarios/{scenario_id}/adopt
 |---|---|---|---|
 | `target_voyage_id` | UUID | Y | 반영할 대상 항차 ID. `CREATE_NEW_VOYAGE` 모드 시 신규 항차 생성 |
 | `adopt_mode` | string | N | 기본: `UPDATE_EXISTING_PLAN`. `CREATE_NEW_VOYAGE` 시 신규 항차 생성 (departure_port_name, arrival_port_name, planned_departure_at 추가 필요) |
-| `departure_port_name` | string | 조건부 | 새 항차의 출발항 이름 (최대 100자). **`CREATE_NEW_VOYAGE`에서만 필요**하며 없으면 422 — 모드별 필수 여부는 서비스가 판정하고, 스키마(`ScenarioAdoptRequest`)에서는 선택 필드다. 기본 모드에서는 무시된다 (`#1523`) |
-| `arrival_port_name` | string | 조건부 | 새 항차의 도착항 이름 (최대 100자). 위와 같다 |
+| `departure_port_name` | string | 조건부 | 새 항차의 출발항 이름 (최대 200자 — `§3.3`과 같다). **`CREATE_NEW_VOYAGE`에서만 필요**하며 없으면 422 — 모드별 필수 여부는 서비스가 판정하고, 스키마(`ScenarioAdoptRequest`)에서는 선택 필드다. 기본 모드에서는 무시된다 (`#1523`) |
+| `arrival_port_name` | string | 조건부 | 새 항차의 도착항 이름 (최대 200자). 위와 같다 |
 | `planned_departure_at` | string (ISO 8601) | 조건부 | 새 항차의 출발 예정 시각. 위와 같다 |
 
 #### 응답 (200 OK)
@@ -3218,7 +3218,7 @@ POST /api/v1/scenarios/{scenario_id}/adopt
 |---|---|
 | `planned_distance_nm` | 시나리오 거리 |
 | `planned_speed_kn` | 시나리오 속력 |
-| `planned_arrival_at` | 출발 예정 시각 + 시나리오 소요 시간. **출발 시각을 모르면 `null`이다** — 지금 시각으로 채우면 계획이 「지금 출발한다」로 바뀐다 |
+| `planned_arrival_at` | 출발 예정 시각 + 시나리오 소요 시간. **출발 예정 시각이 없는 항차는 도착 예정 시각을 건드리지 않고 이 목록에서도 뺀다** — 종전에는 `null`로 덮어 사용자가 적어 둔 값을 지우고도 「바꿨다」고 보고했다(`#2091`). 지금 시각으로 채우지도 않는다 — 계획이 「지금 출발한다」로 바뀐다 |
 | **`planned_fuel_ton`** | **시나리오 연료량.** `voyage_fuel_use`의 열이지만 사용자가 「무엇이 바뀌었나」로 읽는 단위라 같은 목록에 둔다 |
 
 > **두 모드가 같은 계획 연료를 남긴다.** 종전에는 `CREATE_NEW_VOYAGE`만 시나리오 연료를 쓰고 `UPDATE_EXISTING_PLAN`은 **연료를 그대로 두었다** — 같은 시나리오인데 채택 방식에 따라 연간 예상 결과가 갈렸다. 우회(거리↑) 시나리오는 「새 거리 + 옛 연료」가 되어 CII가 실제보다 **좋게**, 감속(연료↓) 시나리오는 **나쁘게** 나왔다. 화면이 도달하는 경로는 `UPDATE_EXISTING_PLAN` 하나뿐이라(`UIFLOW 2-2`) 그쪽이 틀린 쪽이었다.
