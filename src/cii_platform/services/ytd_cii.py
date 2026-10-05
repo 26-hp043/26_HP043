@@ -92,6 +92,7 @@ from cii_platform.services.calc_errors import log_calculation_failure, selection
 from cii_platform.services.request_cache import as_of_key, cached
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -125,6 +126,22 @@ WARNING_COMPLETED_NO_DISTANCE = "COMPLETED_NO_DISTANCE"
 #: 기준 미달 선박이 조용히 좋은 등급으로 표시됐다(결정요청 v7 §1.3 실측). 대체·미기재 기록은
 #: **행이 있는데 값이 빌 때만** 쌓여(`:555-590`) 이 경우를 보지 못했다.
 WARNING_COMPLETED_FUEL_UNFILLED = "COMPLETED_FUEL_UNFILLED"
+
+
+def has_no_fuel_record(fuel_rows: Sequence[object]) -> bool:
+    """실적 확정 항차에 연료 기록이 **한 행도 없는가** (`#1095` ⑵ · `#2095`).
+
+    ``COMPLETED_FUEL_UNFILLED``의 판정을 **이 한 곳**에 둔다. 연간 누적(:func:`_aggregate`)과
+    연말 예상의 확정분 조립(``annual_simulation._inputs_from_snapshot``)이 함께 부른다 —
+    종전에는 누적만 이 상태를 보았고, 같은 항차를 같은 방식(거리는 더하고 연료는 0)으로
+    읽는 연말 예상은 경고 없이 지나갔다(`#2095`).
+
+    받는 것은 그 항차의 연료 행 목록이다 — 누적은 ``voyage_fuel_use`` ORM 행을, 연말 예상은
+    스냅샷 사본의 ``fuel_uses``를 넘긴다. 사본은 원본 행을 하나씩 옮긴 것이라
+    (``annual_simulation._snapshot_row``) 행 수가 같다.
+    """
+    return not fuel_rows
+
 
 #: API_SPEC §1.6 — 모든 계산 결과에 붙는다.
 WARNING_REFERENCE_ONLY = "REFERENCE_ONLY"
@@ -592,7 +609,7 @@ async def _aggregate(
         )
 
         fuel_rows = fuel_by_voyage.get(voyage.id, [])
-        if not fuel_rows:
+        if has_no_fuel_record(fuel_rows):
             # 연료 기록이 **한 행도 없다** (`#1095` ⑵). 위의 거리는 이미 더해졌고 연료는
             # 아래 루프가 돌지 않아 0이다 — 분모만 커진다. 항차 단위 기록으로 남겨
             # 데이터 점검이 **어느 항차인지** 가리킬 수 있게 한다(경고만으로는 사용자가

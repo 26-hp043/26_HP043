@@ -1650,7 +1650,7 @@ class SimulationSnapshot:
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (`#653`) | `총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.` |
 | `COMPLETED_NO_FUEL` | COMPLETED 항차 actual_fuel_ton NULL | `실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.` |
 | `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | `실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.` |
-| `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차에 `voyage_fuel_use` 행이 **한 행도 없음**. `COMPLETED_NO_FUEL`과 뜻이 반대다 — 그쪽은 「계획값을 넣었다」이고 이쪽은 「넣을 값이 아예 없다」다 (`#1095` ⑵) | `연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요.` |
+| `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차에 `voyage_fuel_use` 행이 **한 행도 없음**. `COMPLETED_NO_FUEL`과 뜻이 반대다 — 그쪽은 「계획값을 넣었다」이고 이쪽은 「넣을 값이 아예 없다」다 (`#1095` ⑵). 연말 예상의 확정분 조립(`_inputs_from_snapshot`)도 **같은 판정 함수**(`ytd_cii.has_no_fuel_record`)로 같은 코드를 낸다 — 거리는 누적과 같이 넣는다 (`#2095`) | `연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요.` |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (`PRD §11.2`) | `감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다.` |
 | `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시뮬레이션 시계가 진행 중 항차분을 만들지 못함 (`§5` 시계) | `선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.` |
 | `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없어 CF를 붙일 수 없음 | `진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.` |
