@@ -11,6 +11,7 @@ TECH_SPEC §1.2.1(작업 정밀도 = 정본 자릿수 + 최소 20 · ROUND_HALF_
 """
 
 import threading
+from datetime import UTC, datetime
 from decimal import (
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
@@ -23,6 +24,8 @@ from decimal import (
     localcontext,
     setcontext,
 )
+from fractions import Fraction
+from types import SimpleNamespace
 
 import pytest
 
@@ -234,3 +237,142 @@ def test_days_to_target_derives_inside_the_context():
     assert seen["prec"] == LAYER1_WORKING_PRECISION == 50
     # 값 자체는 이 검사의 관심이 아니다 — 산식은 `test_fleet_summary.py`가 본다.
     assert result is not None
+
+
+# ── 진행 중 항차의 연료 분배도 적용 지점 안에서 한다 (`#2097`) ──────────────────
+#
+# 시뮬레이션 시계가 넘기는 진행 연료는 작업 정밀도(50자리) 값이다. 그것을 유종별로
+# 나누는 `_split_fuel`이 기본 컨텍스트(prec=28)에서 돌아, 단일 유종(몫 1)에서도
+# `총량 − 0` 한 번으로 28자리가 됐다. 구간 CII가 전송 자릿수 경계에 놓이는 입력에서
+# 그 차이가 응답에 드러난다 — 참값 `8477/1250 = 6.7816`인데 전송값이 `6.781599`였다.
+
+_SEGMENT_INPUT = {
+    "planned_distance_nm": Decimal("2300"),
+    "speed_kn": Decimal("14"),
+    "reference_speed_kn": Decimal("12"),
+    "daily_foc_ton": Decimal("23.04"),
+}
+_SEGMENT_CAPACITY = Decimal("50000")
+_SEGMENT_CF = Decimal("3.114")
+
+
+def _segment_cii_exact() -> Fraction:
+    """이슈의 항차 구간 CII를 **분수로** 낸다 — 반올림·절단된 값을 입력으로 쓰지 않는다.
+
+    ``연료 = 소모율 × (v / v_ref)³ × (거리 / v) / 24`` (`TECH_SPEC §4.1`),
+    ``CII = 연료 × CF × 10⁶ / (capacity × 거리)`` (`PRD §3.3.1`).
+    """
+    speed = Fraction(_SEGMENT_INPUT["speed_kn"])
+    distance = Fraction(_SEGMENT_INPUT["planned_distance_nm"])
+    fuel_ton = (
+        Fraction(_SEGMENT_INPUT["daily_foc_ton"])
+        * (speed / Fraction(_SEGMENT_INPUT["reference_speed_kn"])) ** 3
+        * (distance / speed)
+        / 24
+    )
+    return fuel_ton * Fraction(_SEGMENT_CF) * 10**6 / (Fraction(_SEGMENT_CAPACITY) * distance)
+
+
+def _truncated_6(value: Fraction) -> str:
+    """분수를 소수 6자리로 **절사**한 문자열 (`API_SPEC §1.7`). 정수 나눗셈만 쓴다."""
+    scaled = value.numerator * 10**6 // value.denominator
+    return f"{scaled // 10**6}.{scaled % 10**6:06d}"
+
+
+def _segment_progress():
+    """계획 거리(2,300 nm)를 넘긴 시점의 시계 값 — 거리가 정확히 계획값에서 멎는다."""
+    from cii_platform.services.simulation_clock import compute_progress
+
+    return compute_progress(
+        as_of=datetime(2026, 6, 30, tzinfo=UTC),
+        departure_at=datetime(2026, 6, 1, tzinfo=UTC),
+        arrival_at=None,
+        planned_arrival_at=None,
+        not_underway_periods=[],
+        **_SEGMENT_INPUT,
+    )
+
+
+def _segment_cii_sent() -> str:
+    """`current_voyage.attained_cii` 전송값. 시계 → `_split_fuel` → 엔진 → 절사를 다 지난다."""
+    from cii_platform.services import cii_current
+
+    progress = _segment_progress()
+    assert progress.distance_nm == _SEGMENT_INPUT["planned_distance_nm"], "상한에 닿지 않았다"
+    voyage = SimpleNamespace(
+        id="voyage",
+        voyage_no="V-2097",
+        status="IN_PROGRESS",
+        departure_port_name="A",
+        arrival_port_name="B",
+        planned_distance_nm=_SEGMENT_INPUT["planned_distance_nm"],
+    )
+    segment = cii_current._voyage_segment(
+        voyage=voyage,
+        progress=progress,
+        transport_capacity=_SEGMENT_CAPACITY,
+        cf_by_fuel={"HFO": _SEGMENT_CF},
+        fuel_code="HFO",
+        fuel_split=(("HFO", Decimal(1)),),
+    )
+    return segment["attained_cii"]
+
+
+def test_in_progress_segment_cii_is_the_truncation_of_the_exact_value():
+    """⚠️ #2097 — 구간 CII 전송값이 **참값의 절사**와 같다 (`6.781600`).
+
+    참값은 분수로 정확히 ``8477/1250``이다. 종전에는 `_split_fuel`이 50자리 연료를
+    28자리로 깎아 CII가 ``6.78159999…``가 됐고, 절사가 그것을 ``6.781599``로 내보냈다.
+    """
+    exact = _segment_cii_exact()
+    # 이 입력이 전송 자릿수 **경계에 정확히 놓인다**는 것이 검사의 전제다 — 경계가
+    # 아니면 28자리로 깎여도 6자리 절사는 같아, 결함이 있어도 통과한다.
+    assert (exact * 10**6).denominator == 1
+
+    assert _segment_cii_sent() == _truncated_6(exact) == "6.781600"
+
+
+def test_split_fuel_does_not_shorten_the_working_precision_total():
+    """`_split_fuel`을 지난 연료가 **들어온 값 그대로**다 — 단일 유종도, 다유종도 (#2097).
+
+    단일 유종(몫 1)은 곱셈 없이 ``총량 − 0``만 지난다. 그 뺄셈 하나가 기본
+    컨텍스트에서는 28자리로 반올림한다 — 「몫이 1이면 값이 종전과 같다」가 깨진 자리다.
+    """
+    from cii_platform.services.cii_current import _planned_shares, _split_fuel
+
+    total = _segment_progress().fuel_ton
+    assert len(total.as_tuple().digits) > 28, "28자리 이하면 이 검사는 아무것도 잠그지 않는다"
+
+    assert _split_fuel(total, (("HFO", Decimal(1)),)) == (("HFO", total),)
+
+    # 다유종 — 몫도 컨텍스트 안에서 나눈 값이어야 하고, 합은 총량과 **정확히** 같다.
+    shares = _planned_shares(
+        [("DIESEL_GAS_OIL", Decimal("40")), ("HFO", Decimal("50")), ("LNG", Decimal("30"))]
+    )
+    parts = _split_fuel(total, shares)
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+        assert shares == (
+            ("DIESEL_GAS_OIL", Decimal(40) / Decimal(120)),
+            ("HFO", Decimal(50) / Decimal(120)),
+            ("LNG", Decimal(30) / Decimal(120)),
+        )
+        assert parts[0][1] == total * shares[0][1]
+        assert sum(ton for _, ton in parts) == total
+
+
+@pytest.mark.parametrize("offset", [10, 20])
+def test_in_progress_segment_cii_is_stable_under_higher_precision(monkeypatch, offset):
+    """작업 정밀도 P · P+10 · P+20에서 구간 CII 전송값이 같다 (`TECH_SPEC §1.2.1` 불변성 검사).
+
+    `_split_fuel`이 컨텍스트 밖에 있으면 작업 정밀도를 아무리 올려도 연료가 28자리에서
+    멎어 값이 ``6.781599``로 남는다 — 그 상태도 「안정적」이므로, 기준이 참값의 절사와
+    맞는지를 함께 본다(안정적이지만 틀린 값을 잡기 위함).
+    """
+    baseline = _segment_cii_sent()
+    assert baseline == _truncated_6(_segment_cii_exact())
+
+    # 데코레이터는 호출 시점에 모듈 상수를 읽는다 — 상수를 바꾸면 전 구간이 그 정밀도로 돈다.
+    higher = LAYER1_WORKING_PRECISION + offset
+    monkeypatch.setattr("cii_platform.calc.precision.LAYER1_WORKING_PRECISION", higher)
+    assert len(_segment_progress().fuel_ton.as_tuple().digits) == higher
+    assert _segment_cii_sent() == baseline

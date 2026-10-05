@@ -685,9 +685,9 @@ async def _voyage_fuel_split(session: AsyncSession, *, voyage, vessel) -> FuelSp
         lambda: voyage_repo.list_fuel_uses(session, voyage.id),
     )
     planned = [(fu.fuel_type, Decimal(str(fu.planned_fuel_ton or 0))) for fu in fuel_uses]
-    total = sum((ton for _, ton in planned), Decimal(0))
-    if total > 0:
-        return tuple((code, ton / total) for code, ton in planned if ton > 0)
+    shares = _planned_shares(planned)
+    if shares is not None:
+        return shares
     if fuel_uses:
         return ((fuel_uses[0].fuel_type, Decimal(1)),)
     if vessel.default_fuel_type is not None:
@@ -695,11 +695,32 @@ async def _voyage_fuel_split(session: AsyncSession, *, voyage, vessel) -> FuelSp
     return None
 
 
+@layer1_context
+def _planned_shares(planned: list[tuple[str, Decimal]]) -> FuelSplit | None:
+    """계획 연료량의 유종별 비율. 합이 0이면 ``None``이다 (`#2097`).
+
+    몫은 **나눗셈으로 새로 만드는 값**이라 Layer 1 컨텍스트 안에서 낸다
+    (`TECH_SPEC §1.2.1`). :func:`_voyage_fuel_split`은 코루틴이라 데코레이터를 달 수
+    없다 — 컨텍스트가 코루틴 객체를 만드는 동안에만 걸리고 실행 때는 풀려 있다.
+    """
+    total = sum((ton for _, ton in planned), Decimal(0))
+    if total <= 0:
+        return None
+    return tuple((code, ton / total) for code, ton in planned if ton > 0)
+
+
+@layer1_context
 def _split_fuel(total_ton: Decimal, split: FuelSplit) -> tuple[tuple[str, Decimal], ...]:
     """총 연료를 몫대로 나눈다. **마지막 몫은 「총량 − 나머지 합」**이다.
 
     몫마다 곱하면 반올림 찌꺼기로 합이 총량과 어긋날 수 있다 — 누적 연료가 원래보다
     미세하게 늘거나 줄면 같은 화면의 「누적 연료」와 CO₂가 설명되지 않는다.
+
+    ⚠️ **Layer 1 컨텍스트 안에서 돈다** (`TECH_SPEC §1.2.1` · `#2097`). 시계가 넘기는
+    총량은 작업 정밀도(50자리) 값인데, 종전에는 이 함수가 기본 컨텍스트(``prec=28``)에서
+    돌아 **뺄셈·곱셈 한 번으로 28자리가 됐다** — 단일 유종(몫 1)도 ``총량 − 0``을
+    지나므로 예외가 아니다. 구간 CII가 전송 자릿수 경계에 놓이면 그 차이가 드러난다
+    (``6.7816`` → 전송 ``6.781599``).
     """
     parts: list[tuple[str, Decimal]] = []
     assigned = Decimal(0)
