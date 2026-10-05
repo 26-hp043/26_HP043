@@ -462,5 +462,6 @@ export function showsCurrentVoyage(
   currentSegment: string,
 ): boolean {
   if (routeVoyageId === undefined || routeVoyageId === currentSegment) return true
-  return routeVoyageId === currentVoyageId
+  // 서버 id는 소문자다. 손으로 친 대문자 주소도 같은 항차다.
+  return routeVoyageId.toLowerCase() === currentVoyageId?.toLowerCase()
 }

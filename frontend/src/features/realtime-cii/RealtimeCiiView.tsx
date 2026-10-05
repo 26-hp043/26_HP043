@@ -960,7 +960,9 @@ function OtherVoyageNotice({
     return () => {
       cancelled = true;
     };
-  }, [client, voyageId]);
+    // 진행 중 항차가 폴링 사이에 바뀌면 다시 묻는다 — 그 사이 이 항차의 상태도 바뀌었을 수 있다.
+    // 결과의 `id`가 그대로라 다시 묻는 동안 안내가 깜박이지 않는다.
+  }, [client, voyageId, currentVoyageId]);
 
   if (result === null || result.id !== voyageId) {
     return (
