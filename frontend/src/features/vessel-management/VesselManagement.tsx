@@ -41,6 +41,7 @@ import {
   type VesselEditState,
 } from './editRules'
 import { DISPLAY_UNIT_DAILY_FUEL, DISPLAY_UNITS } from '../../display/format'
+import { withEulReul } from '../../display/josa'
 import {
   LOADED_PARTIAL_HINT,
   MISSING,
@@ -416,7 +417,7 @@ export function VesselManagement() {
       if (shell.vesselId === vessel.id) shell.selectVesselId(null)
       shell.refreshVessels()
       setEdit((current) => (current !== null && current.id === vessel.id ? null : current))
-      setActionNotice(`${vessel.name}을(를) 목록에서 제거했습니다.`)
+      setActionNotice(`${withEulReul(vessel.name)} 목록에서 제거했습니다.`)
     } catch (error) {
       setActionError(
         error instanceof VesselManagementError ? error.message : '삭제에 실패했습니다.',

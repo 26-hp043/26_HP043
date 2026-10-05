@@ -295,7 +295,7 @@ async def test_coordinate_outside_its_range_is_a_row_error(session, vessel_id):
 
     assert result["imported_count"] == 1
     assert result["errors"] == [
-        {"row": 3, "field": "lat", "message": "위도은(는) -90 이상 90 이하여야 합니다: 91"}
+        {"row": 3, "field": "lat", "message": "위도는 -90 이상 90 이하여야 합니다: 91"}
     ]
 
 

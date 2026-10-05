@@ -1,4 +1,4 @@
-import { withEunNeun } from '../../display/josa'
+import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { VesselRegistrationError } from './provider'
 import { capacityAxisOf, findShipType } from './shipTypes'
@@ -246,7 +246,7 @@ export function checkOptionalPositive(
   if (trimmed === '') return
   const value = toNumber(trimmed)
   if (value === null) {
-    errors[field] = `${label}을(를) 숫자로 입력해 주세요.`
+    errors[field] = `${withEulReul(label)} 숫자로 입력해 주세요.`
     return
   }
   // VAL-002 — 0 이하는 종전 문구를 그대로 쓴다(사용자에게 가장 흔한 실수다).
