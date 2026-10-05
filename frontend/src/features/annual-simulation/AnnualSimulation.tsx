@@ -203,8 +203,9 @@ export function AnnualSimulation({
   /*
    * 셀렉트에 보이는 값과 요청에 실리는 값은 **같은 값**이다 (#2125). 복원한 결과의 대체 연료가
    * 지금 연료 목록에 없는 코드이면(비활성화 · 아직 받는 중 · 받지 못함) 셀렉트는 「고르지 않음」을
-   * 보이는데 요청에는 그 코드가 실려 갈리게 된다 — 목록에 있는 코드일 때만 쓴다. 상태는 그대로
-   * 두므로 목록이 늦게 도착하면 그때 보인다.
+   * 보이는데 요청에는 그 코드가 실려 갈리게 된다 — 목록에 있는 코드일 때만 쓴다. 목록이 늦게
+   * 도착하면 그때 보이지만, 그 사이에 실행을 눌렀다면 실행 시작에서 상태를 **실제로 보낸 값**으로
+   * 고정한다 — 그러지 않으면 목록이 오는 순간 방금 돌린 결과와 다른 연료가 입력칸에 나타난다.
    */
   const alternativeFuelValue = fuelOptions.fuels.some((fuel) => fuel.code === alternativeFuel)
     ? alternativeFuel
@@ -450,6 +451,8 @@ export function AnnualSimulation({
       setAdvancedOpen(true)
       return
     }
+    // 보낸 값으로 상태를 고정한다 — 복원한 연료가 목록 도착 전이라 빠졌다면 상태에서도 뺀다 (#2125).
+    setAlternativeFuel(alternativeFuelValue)
     setState({ status: 'running' })
     // 새 실행이 시작되면 들어올 때 받던 마지막 결과가 뒤늦게 와도 버린다(#1701).
     generationRef.current += 1
