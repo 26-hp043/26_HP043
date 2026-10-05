@@ -577,3 +577,25 @@ describe('정박 악화 판정은 배출량을 본다 (#1658)', () => {
     expect(isDegradingAtBerth(unknown)).toBe(false)
   })
 })
+
+describe('showsCurrentVoyage — 주소의 항차가 진행 중 항차인가 (#2129)', () => {
+  const ID = '0199aa00-0000-7000-8000-00000000abcd'
+
+  it('입구 조각과 항차 없는 주소는 서버 판정을 따른다', async () => {
+    const { showsCurrentVoyage } = await import('./realtimeRules')
+    expect(showsCurrentVoyage('current', null, 'current')).toBe(true)
+    expect(showsCurrentVoyage(undefined, ID, 'current')).toBe(true)
+  })
+
+  it('진행 중 항차의 id만 통과한다 — 다른 id와 진행 중 항차가 없는 경우는 아니다', async () => {
+    const { showsCurrentVoyage } = await import('./realtimeRules')
+    expect(showsCurrentVoyage(ID, ID, 'current')).toBe(true)
+    expect(showsCurrentVoyage(ID, ID.replace('abcd', 'ffff'), 'current')).toBe(false)
+    expect(showsCurrentVoyage(ID, null, 'current')).toBe(false)
+  })
+
+  it('손으로 친 대문자 주소도 같은 항차다', async () => {
+    const { showsCurrentVoyage } = await import('./realtimeRules')
+    expect(showsCurrentVoyage(ID.toUpperCase(), ID, 'current')).toBe(true)
+  })
+})

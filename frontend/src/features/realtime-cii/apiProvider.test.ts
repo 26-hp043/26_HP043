@@ -285,3 +285,36 @@ describe('실패 경로', () => {
     await expect(promise).rejects.toMatchObject({ cause })
   })
 })
+
+describe('loadVoyage — 주소의 항차 조회 (#2129)', () => {
+  const respond = (status: number, body: unknown = null) =>
+    (async () =>
+      new Response(body === null ? null : JSON.stringify(body), { status })) as unknown as typeof fetch
+
+  it('404는 없는 항차다', async () => {
+    const provider = createApiRealtimeCiiProvider(respond(404), 'http://x')
+    expect(await provider.loadVoyage!('vy-1')).toEqual({ found: false })
+  })
+
+  it('200은 상태와 선박을 돌려준다', async () => {
+    const provider = createApiRealtimeCiiProvider(
+      respond(200, { data: { id: 'vy-1', vessel_id: 'v-1', status: 'COMPLETED' } }),
+      'http://x',
+    )
+    expect(await provider.loadVoyage!('vy-1')).toEqual({
+      found: true,
+      status: 'COMPLETED',
+      vesselId: 'v-1',
+    })
+  })
+
+  it('id 꼴이 아닌 주소(422)도 없는 항차다', async () => {
+    const provider = createApiRealtimeCiiProvider(respond(422, { error: {} }), 'http://x')
+    expect(await provider.loadVoyage!('not-a-uuid')).toEqual({ found: false })
+  })
+
+  it('500은 「없다」가 아니라 실패다', async () => {
+    const provider = createApiRealtimeCiiProvider(respond(500, { error: {} }), 'http://x')
+    await expect(provider.loadVoyage!('vy-1')).rejects.toThrow()
+  })
+})

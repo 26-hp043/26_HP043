@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import './ScenarioAdoptPanel.css'
 import { ErrorState } from '../../components/ErrorState'
-import { voyagePath } from '../../layout/globalContext'
+import { vesselPath } from '../../layout/globalContext'
 import { createApiVoyageCatalog, voyageOptionLabel, type VoyageOption } from '../../layout/voyageCatalog'
 import type { SamplePort } from '../ports/samplePorts'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
@@ -306,7 +306,11 @@ export function ScenarioAdoptPanel({
             {adopt.result.updated_fields.map(fieldLabel).join(' · ')}
           </p>
           <p>{invalidatedMessage(adopt.result.invalidated_calculation_runs)}</p>
-          <Link className="scenario-adopt__link" to={voyagePath(vesselId, adopt.result.voyage_id)}>
+          {/*
+            반영 대상은 계획 항차다. 실시간 CII는 진행 중 항차의 값만 그리므로(`#2129`)
+            그 주소로 보내면 「진행 중이 아닙니다」 안내에 닿는다 — 항차 카드가 있는 선박 상세로 보낸다.
+          */}
+          <Link className="scenario-adopt__link" to={vesselPath(vesselId)}>
             반영한 항차 보기
           </Link>
         </div>

@@ -1052,7 +1052,8 @@ describe('계획에 반영 (#580)', () => {
       screen.getByText(/계산 결과 7건에 재계산 필요 표시를 남겼습니다/),
     ).toBeTruthy()
     const link = screen.getByRole('link', { name: '반영한 항차 보기' })
-    expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL}/voyages/v-planned`)
+    // 반영 대상은 계획 항차다 — 실시간 CII(진행 중 항차의 값만 그린다 · `#2129`)가 아니라 항차 카드가 있는 선박 상세로 간다.
+    expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL}`)
 
     const [, init] = fetchImpl.mock.calls.find(([url]) => String(url).includes('/adopt')) ?? []
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
