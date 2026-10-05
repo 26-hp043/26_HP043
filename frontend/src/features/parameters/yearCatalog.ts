@@ -168,6 +168,24 @@ export interface YearOptionsState {
 }
 
 /**
+ * 연도 칸 자리에 쓰는 상태 문구 (`PRD §6.4` · #2120). 로딩·실패·빈 목록을 **서로 다른 말**로 한다 —
+ * 「없다」와 「아직 모른다」를 같게 그리면 사용자는 기다려야 할지 문의해야 할지 판단할 수 없다.
+ * 보고서가 먼저 쓰던 문구 그대로다(낱말·마침표 포함).
+ */
+export const YEAR_STATE_COPY = {
+  loading: '규제연도를 불러오는 중입니다…',
+  failed: '규제연도 목록을 불러오지 못했습니다.',
+  empty: '등재된 규제연도가 없습니다.',
+} as const
+
+/** 연도 칸이 목록 대신 보일 문구. 목록이 있으면 `null`이다(칸을 그린다). */
+export function yearStateText({ years, loading, failed }: YearOptionsState): string | null {
+  if (loading) return YEAR_STATE_COPY.loading
+  if (failed) return YEAR_STATE_COPY.failed
+  return years.length === 0 ? YEAR_STATE_COPY.empty : null
+}
+
+/**
  * 규제연도 선택지를 받아 오는 훅 (`#632`).
  *
  * ## 왜 훅으로 뽑는가

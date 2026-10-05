@@ -592,3 +592,27 @@ describe('연도 선택지 — 조회 화면은 올해까지 · 최신 연도부
     }
   })
 })
+
+describe('연도 칸 상태 — 문구 없는 빈 상자가 아니다 (#2120)', () => {
+  async function yearTextFor(response: () => Response) {
+    vi.stubGlobal('fetch', vi.fn(async () => response()))
+    const provider: DataQualityProvider = { load: vi.fn(async () => SNAPSHOT) }
+    const { unmount } = render(
+      <MemoryRouter>
+        <DataQuality provider={provider} />
+      </MemoryRouter>,
+    )
+    const note = await screen.findByText(/규제연도/, { selector: '.dq__note' })
+    const text = note.textContent
+    // 목록이 없으면 연도 칸은 선택 상자가 아니라 상태 문구다.
+    expect(screen.queryByRole('combobox', { name: DATA_QUALITY_COPY.yearLabel })).toBeNull()
+    unmount()
+    return text
+  }
+
+  it('실패와 빈 목록이 서로 다른 문구를 보인다', async () => {
+    const failed = await yearTextFor(() => new Response('{}', { status: 500 }))
+    const empty = await yearTextFor(() => new Response(JSON.stringify({ data: [] }), { status: 200 }))
+    expect(failed).not.toBe(empty)
+  })
+})

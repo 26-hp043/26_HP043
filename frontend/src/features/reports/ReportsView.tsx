@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PageHeader } from '../../components/PageHeader'
-import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   coerceYear,
@@ -489,13 +489,13 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   할지 문의해야 할지 판단할 수 없다.
                 */}
                 {vesselId && yearsLoading ? (
-                  <em className="rp__hint">규제연도를 불러오는 중입니다…</em>
+                  <em className="rp__hint">{YEAR_STATE_COPY.loading}</em>
                 ) : null}
                 {vesselId && yearsFailed ? (
-                  <em className="rp__hint">규제연도 목록을 불러오지 못했습니다.</em>
+                  <em className="rp__hint">{YEAR_STATE_COPY.failed}</em>
                 ) : null}
                 {vesselId && !yearsLoading && !yearsFailed && years.length === 0 ? (
-                  <em className="rp__hint">등재된 규제연도가 없습니다.</em>
+                  <em className="rp__hint">{YEAR_STATE_COPY.empty}</em>
                 ) : null}
               </label>
             ) : (

@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
@@ -73,9 +73,28 @@ function result(overrides: Partial<EvaluateResult> = {}): EvaluateResult {
   }
 }
 
+/**
+ * 연도·연료 목록은 실 fetch를 탄다. 연도 목록은 정상으로 주고(올해 · 전해), 나머지는 500이다 —
+ * 연도 조회 500은 정상 전제가 아니라 연도 칸 상태를 검사하는 별도 자리(#2120)에서만 쓴다.
+ */
+function stubCatalogs(yearsResponse: () => Response = okYears) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+    String(input).includes('/parameters/regulation-years') ? yearsResponse() : new Response('{}', { status: 500 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+function okYears() {
+  const thisYear = new Date().getFullYear()
+  return new Response(JSON.stringify({ data: [{ year: thisYear - 1 }, { year: thisYear }] }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
 function renderWith(evaluated: EvaluateResult = result()) {
-  // 연도·연료 목록은 실 fetch를 탄다 — 여기서는 실패시켜 서버 기본(올해)으로 부르게 둔다.
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+  stubCatalogs()
   const provider = {
     evaluate: vi.fn(async (_req: EvaluateRequest) => evaluated),
     save: vi.fn(),
@@ -144,6 +163,8 @@ describe('함대 감축 계획 화면 (#513)', () => {
     renderWith()
     const button = (await screen.findByRole('button', { name: FLEET_REDUCTION_COPY.saveButton })) as HTMLButtonElement
     expect(button.disabled).toBe(true)
+    // 첫 결과가 오기 전에는 이름이 있어도 잠겨 있다(#2120) — 결과가 선 뒤에 이름으로 켠다.
+    await screen.findByText('MV One')
 
     await act(async () => {
       fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
@@ -195,7 +216,7 @@ describe('선박명은 한 줄로 고정된다 (#1427)', () => {
 
 describe('함대 감축 계획 화면 — 실패해도 빠져나올 수 있다 (#1069)', () => {
   function renderProvider(provider: FleetReductionProvider) {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    stubCatalogs()
     render(
       <MemoryRouter>
         <FleetReduction provider={provider} />
@@ -340,7 +361,7 @@ describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)',
   it('⚠️ 값을 넣어도 칸이 사라지지 않는다 — 채우는 순간 missingFuelPrices에서 빠진다', async () => {
     let missing = ['HFO']
     const evaluate = vi.fn(async (_req: EvaluateRequest) => withMissingFuels(missing))
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    stubCatalogs()
     render(
       <MemoryRouter>
         <FleetReduction provider={{ evaluate, save: vi.fn(), list: vi.fn(async () => []) }} />
@@ -536,7 +557,7 @@ describe('이어받은 단가는 출처를 말한다 (#2020)', () => {
   }
 
   function renderWithPlans(plans: SavedPlanSummary[]) {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    stubCatalogs()
     const provider = {
       evaluate: vi.fn(async (_req: EvaluateRequest) =>
         result({ costs: { ...result().costs, missingFuelPrices: ['HFO'] } }),
@@ -732,5 +753,80 @@ describe('위험 선박의 기준 표기 (#1593)', () => {
      */
     expect(FLEET_REDUCTION_COPY.statusBasis).toContain('연말')
     expect(FLEET_REDUCTION_COPY.statusBasis).not.toMatch(/YTD|누적/)
+  })
+})
+
+describe('함대 감축 계획 화면 — 연도 칸 상태와 재계산 중 (#2120)', () => {
+  function mount(evaluate: FleetReductionProvider['evaluate'], save = vi.fn()) {
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={{ evaluate, save, list: vi.fn(async () => []) }} />
+      </MemoryRouter>,
+    )
+  }
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('⚠️ 연도 조회가 500이면 평가 요청을 보내지 않고 연도 칸 자리에 상태 문구를 보인다', async () => {
+    stubCatalogs(() => new Response('{}', { status: 500 }))
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => result())
+    mount(evaluate)
+
+    await screen.findByText(/규제연도/, { selector: '.fr__hint' })
+    await wait(600)
+    // 기기 시계의 해로 대신 묻지 않는다 — 한 번도 나가지 않는다.
+    expect(evaluate).not.toHaveBeenCalled()
+    expect(screen.queryByRole('combobox', { name: FLEET_REDUCTION_COPY.yearLabel })).toBeNull()
+    // 계산을 시작하지 않았으므로 「계산하는 중」을 적지 않는다.
+    expect(screen.queryByText(FLEET_REDUCTION_COPY.loading)).toBeNull()
+  })
+
+  it('연도 목록이 비어 있을 때(실패가 아님)도 요청이 없고, 문구는 실패와 서로 다르다', async () => {
+    stubCatalogs(() => new Response(JSON.stringify({ data: [] }), { status: 200 }))
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => result())
+    mount(evaluate)
+    const empty = await screen.findByText(/규제연도/, { selector: '.fr__hint' })
+    await wait(600)
+    expect(evaluate).not.toHaveBeenCalled()
+    const emptyText = empty.textContent
+    cleanup()
+
+    stubCatalogs(() => new Response('{}', { status: 500 }))
+    mount(evaluate)
+    const failed = await screen.findByText(/규제연도/, { selector: '.fr__hint' })
+    expect(failed.textContent).not.toBe(emptyText)
+  })
+
+  it('⚠️ 감속률을 바꾼 뒤 응답이 오기 전에는 진행 표시가 서고 저장이 잠긴다 — 응답이 오면 풀린다', async () => {
+    stubCatalogs()
+    let release: (value: EvaluateResult) => void = () => {}
+    const evaluate = vi
+      .fn<FleetReductionProvider['evaluate']>()
+      .mockResolvedValueOnce(result())
+      .mockImplementationOnce(() => new Promise<EvaluateResult>((resolve) => (release = resolve)))
+    mount(evaluate)
+
+    const slider = await screen.findByLabelText('MV One 감속률')
+    const root = document.querySelector('.fr') as HTMLElement
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('false'))
+    fireEvent.click(screen.getByText(FLEET_REDUCTION_COPY.saveTitle))
+    fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
+      target: { value: '계획' },
+    })
+    const save = screen.getByRole('button', { name: FLEET_REDUCTION_COPY.saveButton }) as HTMLButtonElement
+    await waitFor(() => expect(save.disabled).toBe(false))
+
+    fireEvent.change(slider, { target: { value: '50' } })
+
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('true'))
+    await waitFor(() => expect(evaluate).toHaveBeenCalledTimes(2))
+    expect(save.disabled).toBe(true)
+    // 이전 결과가 그대로 남은 채 진행 중임을 말한다.
+    expect(screen.getByText(FLEET_REDUCTION_COPY.loading)).toBeTruthy()
+
+    await act(async () => {
+      release(result())
+    })
+    await waitFor(() => expect(root.getAttribute('aria-busy')).toBe('false'))
+    expect(save.disabled).toBe(false)
   })
 })

@@ -14,7 +14,7 @@ import {
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { fuelTypeText } from '../parameters/fuelTypes'
-import { useYearOptions } from '../parameters/yearCatalog'
+import { useYearOptions, yearStateText } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
 import { hasAnyPrice, hasInvalidPrice, hasVisiblePrice, isInvalidPrice } from './priceRules'
 import { FLEET_REDUCTION_COPY as COPY, TARGET_TEXT, UNAVAILABLE_TEXT } from './copy'
@@ -59,19 +59,27 @@ const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
  * 종전에는 `loading | error | ready` 중 하나라 실패하는 순간 선박 표·단가 칸·저장이 함께 사라졌다.
  * 실패 원인이 입력(예: 음수 단가 → 422)이면 **고칠 칸이 없어** 새로고침 말고는 빠져나올 수 없었다.
  */
-type EvalState = { result: EvaluateResult | null; error: string | null }
+type EvalState = {
+  result: EvaluateResult | null
+  error: string | null
+  /** 마지막으로 응답(성공·실패)을 받은 요청 — 지금 요청과 다르면 결과가 새 입력의 것이 아니다 (#2120). */
+  settledFor: object | null
+}
 
 const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 
 export function FleetReduction({ provider }: { provider?: FleetReductionProvider }) {
   const api = useMemo(() => provider ?? createApiFleetReductionProvider(), [provider])
-  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
+  const yearOptions = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
+  const { years, loading: yearsLoading } = yearOptions
+  /** 목록이 없으면 연도 칸 자리에 보일 상태 문구 — 로딩·실패·빈 목록이 서로 다르다 (#2120). */
+  const yearText = yearStateText(yearOptions)
   /** 사용자가 고른 해(저장한 계획을 불러온 해 포함). 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
   const [chosenYear, setChosenYear] = useState('')
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})
   const [prices, setPrices] = useState<Prices>(EMPTY_PRICES)
-  const [evaluation, setEvaluation] = useState<EvalState>({ result: null, error: null })
+  const [evaluation, setEvaluation] = useState<EvalState>({ result: null, error: null, settledFor: null })
   const [retryKey, setRetryKey] = useState(0)
   const [plans, setPlans] = useState<SavedPlanSummary[]>([])
   const [plansFailed, setPlansFailed] = useState(false)
@@ -91,7 +99,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   /*
    * 기본 연도는 **렌더 중에 파생**한다 (`#1616` · `DataQuality`와 같은 형태). 종전에는
    * 목록이 오면 effect가 상태를 채워, 목록 도착과 기본값 사이에 연도가 빈 렌더가 한 번
-   * 있었다. 목록이 비어 있으면 `''`이고 그때 요청은 올해로 나간다(아래 `request`).
+   * 있었다. 목록이 비어 있으면 `''`이고 그때는 요청을 보내지 않는다(아래 `request` · 평가 효과 · `save`) — 기기 시계의 해로 대신 계산하지 않는다(#2120).
    * 고른 해가 목록에 없으면(예: 불러온 계획의 해) 올해로 떨어진다 — 셀렉트가 보여 주는
    * 값과 요청에 실리는 값이 늘 같다.
    */
@@ -124,7 +132,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
 
   const request = useMemo(
     () => ({
-      regulationYear: year === '' ? new Date().getFullYear() : Number(year),
+      regulationYear: Number(year),
       target,
       adjustments: Object.entries(percents).map(([vesselId, percent]) => ({ vesselId, percent })),
       prices,
@@ -145,6 +153,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
 
   useEffect(() => {
     if (yearsLoading) return
+    // 연도를 못 골랐으면(목록 실패·빈 목록) 값을 지어내 묻지 않는다 (#2120).
+    if (year === '') return
     // 잘못된 단가로는 묻지 않는다 — 칸에 오류를 보이고 마지막 결과를 그대로 둔다.
     if (pricesInvalid) return
     let cancelled = false
@@ -152,13 +162,14 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       api
         .evaluate(request)
         .then((result) => {
-          if (!cancelled) setEvaluation({ result, error: null })
+          if (!cancelled) setEvaluation({ result, error: null, settledFor: request })
         })
         .catch((error: unknown) => {
           if (cancelled) return
           setEvaluation((prev) => ({
             result: prev.result,
             error: error instanceof Error ? error.message : COPY.evaluateFailed,
+            settledFor: request,
           }))
         })
     }, EVALUATE_DELAY_MS)
@@ -166,9 +177,15 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       cancelled = true
       clearTimeout(timer)
     }
-  }, [api, request, yearsLoading, pricesInvalid, retryKey])
+  }, [api, request, year, yearsLoading, pricesInvalid, retryKey])
 
   const shown = evaluation.result
+  /**
+   * 재계산 중 (#2120) — 지금 입력의 응답이 아직 오지 않았다. 이 동안 `shown`은 **이전 입력의 결과**다.
+   * 응답을 받은 요청과 지금 요청을 대조한다(성공·실패 모두 `settledFor`를 채운다).
+   * 잘못된 단가는 요청을 보내지 않으므로 기다릴 응답이 없다.
+   */
+  const pending = year !== '' && !pricesInvalid && evaluation.settledFor !== request
 
   /**
    * 단가를 물을 연료 (`#1273`).
@@ -196,7 +213,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
 
   const save = async () => {
     const name = planName.trim()
-    if (name === '' || pricesInvalid) return
+    if (name === '' || pricesInvalid || year === '' || pending) return
     setSaving(true)
     setSaveMessage(null)
     try {
@@ -236,7 +253,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   ).length
 
   return (
-    <section className="fr">
+    <section className={pending && shown !== null ? 'fr fr--stale' : 'fr'} aria-busy={pending}>
       {/*
         결론 띠 (#1757 · `§8.6` 🔒). 종전에는 이 답(「목표를 달성합니다」)이 오른쪽 기둥
         맨 위의 한 줄짜리 상태 문장이었고, 그 아래로 비용 · 단가 · 분포 · 저장이 네 장 더
@@ -265,19 +282,22 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       <div className="fr__tools">
         <Field id="fr-year" label={COPY.yearLabel}>
           {(control) => (
-            <select
-              {...control}
-              className="fr__control"
-              value={year}
-              disabled={years.length === 0}
-              onChange={(e) => setChosenYear(e.target.value)}
-            >
-              {years.map((y) => (
-                <option key={y} value={String(y)}>
-                  {y}
-                </option>
-              ))}
-            </select>
+            yearText !== null ? (
+              <span className="fr__hint">{yearText}</span>
+            ) : (
+              <select
+                {...control}
+                className="fr__control"
+                value={year}
+                onChange={(e) => setChosenYear(e.target.value)}
+              >
+                {years.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            )
           )}
         </Field>
         <Field id="fr-target" label={COPY.targetLabel}>
@@ -373,7 +393,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
               <button
                 type="button"
                 className="fr__button"
-                disabled={saving || planName.trim() === '' || pricesInvalid}
+                disabled={saving || pending || year === '' || planName.trim() === '' || pricesInvalid}
                 /*
                  * 단가 오류는 **다른 접기(연료 단가)에 있다** — 이 버튼 옆에서는
                  * 왜 잠겼는지 알 길이 없었다. 이름이 비어 있는 쪽은 바로 위 칸이
@@ -452,7 +472,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         </p>
       ) : null}
 
-      {shown === null && evaluation.error === null ? (
+      {/* 연도를 못 골랐으면 계산하지 않으므로 「계산하는 중」을 적지 않는다 — 연도 칸이 사유를 말한다. */}
+      {pending && evaluation.error === null ? (
         <p className="fr__placeholder" aria-live="polite">
           {COPY.loading}
         </p>

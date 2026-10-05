@@ -372,3 +372,10 @@
 .fr__table-card .fr__table td:nth-child(2) {
   min-width: 9rem;
 }
+
+/* 재계산 중 (#2120) — 보이는 결과는 이전 입력의 것이다. 옅게 해 새 입력의 결과로 읽히지 않게 한다. */
+.fr--stale .fr__table-card,
+.fr--stale .fr__status,
+.fr--stale .fr__costs {
+  opacity: 0.55;
+}

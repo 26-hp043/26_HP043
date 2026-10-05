@@ -255,7 +255,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
     'features/assistant/AssistantOverlay.tsx :: pending || stopped || draft.trim().length === 0':
       null,
-    "features/fleet-reduction/FleetReduction.tsx :: saving || planName.trim() === '' || pricesInvalid":
+    // #2120 — 재계산 중(`pending`)이거나 연도를 못 골랐으면(`year === ''`)도 잠긴다. 앞의 것은 일시적이고, 뒤의 것은 연도 칸이 사유를 글자로 말한다.
+    "features/fleet-reduction/FleetReduction.tsx :: saving || pending || year === '' || planName.trim() === '' || pricesInvalid":
       'fr-save-blocked',
     // #1325 — 현장직 잠금(`!office`)이 더해졌다. 낭독은 더 근본적인 사유(사무직 전용)를 앞세우고,
     // 사무직이면 종전대로 `scenario-adopt-stale`로 잇는다.
