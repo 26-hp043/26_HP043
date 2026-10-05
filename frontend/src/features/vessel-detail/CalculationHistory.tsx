@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ErrorState } from '../../components/ErrorState'
-import { formatTimestamp } from '../../display/format'
+import { NO_TIMESTAMP_TEXT, formatTimestamp } from '../../display/format'
 import { fetchCalculationPage, type CalculationRow } from './calculationRuns'
 
 /**
@@ -163,7 +163,7 @@ export function CalculationHistory({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td>{formatTimestamp(row.createdAt)}</td>
+                  <td>{formatTimestamp(row.createdAt) ?? NO_TIMESTAMP_TEXT}</td>
                   <td>
                     {row.typeLabel}
                     {row.attachedToVoyage ? <span className="vd-calcs__tag">항차</span> : null}

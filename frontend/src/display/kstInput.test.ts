@@ -81,6 +81,43 @@ describe('입력 칸의 KST 변환 (#1686 · §4.4 🔒)', () => {
     expect(kstInputToIso('2026-09-20T09:30:00')).toBeNull()
     expect(kstInputToIso('2026-13-40T99:99')).toBeNull()
   })
+
+  it('달력에 없는 날짜는 `null`이다 — 다음 달로 굴리지 않는다 (#2124)', () => {
+    // 종전에는 `2026-02-31T09:30`이 `2026-03-03T00:30:00.000Z`가 됐다.
+    expect(kstInputToIso('2026-02-31T09:30')).toBeNull()
+    expect(kstInputToIso('2026-02-30T09:30')).toBeNull()
+    expect(kstInputToIso('2026-04-31T00:00')).toBeNull()
+    expect(kstInputToIso('2026-00-10T09:30')).toBeNull()
+    expect(kstInputToIso('2026-06-00T09:30')).toBeNull()
+  })
+
+  it('윤년의 2월 29일만 받는다 (#2124)', () => {
+    expect(kstInputToIso('2024-02-29T09:30')).toBe('2024-02-29T00:30:00.000Z')
+    expect(kstInputToIso('2026-02-29T09:30')).toBeNull()
+    // 100으로 나뉘는 해는 400으로도 나뉘어야 윤년이다.
+    expect(kstInputToIso('2000-02-29T09:30')).not.toBeNull()
+    expect(kstInputToIso('2100-02-29T09:30')).toBeNull()
+  })
+
+  it('월말은 그 달의 마지막 날까지 받는다 (#2124)', () => {
+    expect(kstInputToIso('2026-02-28T23:59')).toBe('2026-02-28T14:59:00.000Z')
+    expect(kstInputToIso('2026-04-30T23:59')).toBe('2026-04-30T14:59:00.000Z')
+    expect(kstInputToIso('2026-12-31T23:59')).toBe('2026-12-31T14:59:00.000Z')
+  })
+
+  it('`24:00`·`23:60`은 다음 날·다음 시로 굴리지 않는다 (#2124)', () => {
+    // `Date`는 `T24:00:00`을 다음 날 0시로 읽는다 — 사용자가 적은 날짜와 다른 날이 된다.
+    expect(kstInputToIso('2026-09-20T24:00')).toBeNull()
+    expect(kstInputToIso('2026-09-20T23:60')).toBeNull()
+    expect(kstInputToIso('2026-09-20T23:59')).not.toBeNull()
+    expect(kstInputToIso('2026-09-20T00:00')).toBe('2026-09-19T15:00:00.000Z')
+  })
+
+  it('받은 값은 적은 그대로 되돌아온다 — 굴렀으면 왕복이 깨진다 (#2124)', () => {
+    for (const local of ['2024-02-29T09:30', '2026-02-28T23:59', '2026-12-31T23:59', '2026-01-01T00:00']) {
+      expect(toKstInput(kstInputToIso(local) as string), local).toBe(local)
+    }
+  })
 })
 
 /**

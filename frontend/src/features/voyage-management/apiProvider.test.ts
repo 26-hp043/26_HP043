@@ -179,6 +179,22 @@ describe('create — API_SPEC §3.3', () => {
     expect(sent.planned_distance_nm).toBe(2800)
   })
 
+  it('쉼표·전각으로 적은 숫자를 검증과 같은 값으로 보낸다 (#2124)', async () => {
+    // 검증(`validateDraft`)은 통과시키는데 조립이 `Number()`로 다시 읽으면 `NaN` → `null`이 나간다.
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {
+      ...DRAFT,
+      plannedDistanceNm: '12,480',
+      plannedSpeedKn: '１３．５',
+      fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '1,210.5' }],
+    })
+
+    const sent = bodyOf(fetchMock)
+    expect(sent.planned_distance_nm).toBe(12480)
+    expect(sent.planned_speed_kn).toBe(13.5)
+    expect((sent.fuel_uses as Array<{ planned_fuel_ton: number }>)[0].planned_fuel_ton).toBe(1210.5)
+  })
+
   it('기준연도가 비어 있으면 키 자체를 넣지 않는다 — optional이다 (#150)', async () => {
     const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
     await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {

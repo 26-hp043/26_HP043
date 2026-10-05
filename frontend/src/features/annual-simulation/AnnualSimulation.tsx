@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { PercentileRange } from './PercentileRange'
-import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
+import { DISPLAY_DIGITS, NO_TIMESTAMP_TEXT, formatDecimalString, formatTimestamp } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
@@ -970,7 +970,7 @@ function Result({
         {restored ? (
           <p className="annual-sim__conditions" data-testid="annual-sim-last-run">
             <span className="annual-sim__conditions-label">{ANNUAL_COPY.lastRunLabel}</span>{' '}
-            <time dateTime={restored.createdAt}>{formatTimestamp(restored.createdAt)}</time>
+            <time dateTime={restored.createdAt}>{formatTimestamp(restored.createdAt) ?? NO_TIMESTAMP_TEXT}</time>
           </p>
         ) : null}
         {restored?.needsRecalc ? (

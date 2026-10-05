@@ -401,7 +401,7 @@ export function formatOrNull(
  * 형식은 `display/format`의 `formatTimestamp`가 갖는다 (#1420) — 화면마다 다르던 자리다.
  * 이 이름을 남겨 두는 것은 호출부가 「이 화면의 기준 시각」으로 읽기 때문이다.
  */
-export function formatAsOf(asOf: string): string {
+export function formatAsOf(asOf: string): string | null {
   return formatTimestamp(asOf)
 }
 

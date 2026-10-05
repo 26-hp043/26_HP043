@@ -413,7 +413,8 @@ export function VesselDetail({
             */}
             <div className="card__head vd__subhead">
               <h3 className="card__title">현재 위치</h3>
-              {vessel.positionUpdatedAt ? (
+              {/* 읽을 수 없는 시각이면 「기준」 조각을 통째로 뺀다 (#2124). */}
+              {vessel.positionUpdatedAt && formatTimestamp(vessel.positionUpdatedAt) !== null ? (
                 <span className="card__meta">
                   {formatTimestamp(vessel.positionUpdatedAt)} 기준
                 </span>
@@ -573,7 +574,7 @@ export function VesselDetail({
             두었더니 입구 상태에 따라 위치가 오르내렸다. 「이 배의 값이 언제 기준인가」는 배를
             설명하는 줄이므로 식별 정보 바로 아래가 제자리다.
           */}
-          {detail.asOf ? (
+          {detail.asOf && formatTimestamp(detail.asOf) !== null ? (
             <p className="vd__asof">
               기준 {formatTimestamp(detail.asOf)}
             </p>

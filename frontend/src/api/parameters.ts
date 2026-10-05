@@ -91,8 +91,7 @@ export function createApiParametersProvider(
         throw new ParametersError(`연료 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
       }
 
-      const body = (await response.json().catch(() => null)) as { data?: unknown } | null
-      const rows = Array.isArray(body?.data) ? (body?.data as ServerFuelType[]) : []
+      const rows = (await readRows(response, '연료 목록')) as ServerFuelType[]
       return rows.filter((row) => typeof row.code === 'string').map(toFuelTypeOption)
     },
 
@@ -115,8 +114,7 @@ export function createApiParametersProvider(
         throw new ParametersError(`규제연도 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
       }
 
-      const body = (await response.json().catch(() => null)) as { data?: unknown } | null
-      const rows = Array.isArray(body?.data) ? (body?.data as ServerRegulationYear[]) : []
+      const rows = (await readRows(response, '규제연도 목록')) as ServerRegulationYear[]
       // 서버가 정렬을 보장한다는 계약은 없다. 셀렉트 순서는 화면이 정한다.
       return rows
         .map((row) => row.year)
@@ -124,6 +122,33 @@ export function createApiParametersProvider(
         .sort((a, b) => a - b)
     },
   }
+}
+
+/**
+ * 200 응답의 `data` 배열을 꺼낸다. **형식이 깨졌으면 던진다** (#2124).
+ *
+ * 종전에는 본문이 JSON이 아니거나 `data`가 배열이 아니면 **빈 배열**을 돌려줬다. 화면은
+ * 그것을 「등록된 연료가 없습니다」로 그렸다 — **받지 못한 것**을 **없는 것**으로 적은
+ * 것이고, 사용자는 다시 시도하지 않고 연료를 등록하러 간다. `layout/voyageCatalog.ts`가
+ * 같은 상황에 오류를 던지는 것과 맞춘다.
+ *
+ * 문구는 HTTP 실패와 같은 꼴(`PRD §6.4` 영역 실패 — 「{대상}을/를 불러오지 못했습니다」)이다.
+ * 이 메시지가 그대로 화면에 나가는 자리가 있다(`VoyagePanel` · `NotUnderwayPanel`).
+ *
+ * 배열 **안의** 낱개 행이 깨진 것은 호출부가 걸러 낸다 — 한 행 때문에 목록 전체를
+ * 잃지 않는다. 여기서 보는 것은 목록 자체를 받았는가다.
+ */
+async function readRows(response: Response, label: string): Promise<unknown[]> {
+  let body: { data?: unknown } | null
+  try {
+    body = (await response.json()) as { data?: unknown } | null
+  } catch (cause) {
+    throw new ParametersError(`${label}을 불러오지 못했습니다 (응답 해석 실패).`, { cause })
+  }
+  if (!Array.isArray(body?.data)) {
+    throw new ParametersError(`${label}을 불러오지 못했습니다 (응답 형식 오류).`)
+  }
+  return body.data
 }
 
 function toFuelTypeOption(raw: ServerFuelType): FuelTypeOption {

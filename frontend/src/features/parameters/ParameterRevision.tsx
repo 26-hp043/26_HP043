@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { isOffice, type CurrentUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ErrorState } from '../../components/ErrorState'
-import { formatTimestamp } from '../../display/format'
+import { NO_TIMESTAMP_TEXT, formatTimestamp } from '../../display/format'
 import { RevisionError, type ParameterRevisionProvider } from './revisionProvider'
 import {
   COMMIT_NOTICE,
@@ -323,7 +323,7 @@ function RevisionHistory({ provider }: { provider: ParameterRevisionProvider }) 
             <tbody>
               {events.map((event) => (
                 <tr key={event.id}>
-                  <td>{formatTimestamp(event.timestamp)}</td>
+                  <td>{formatTimestamp(event.timestamp) ?? NO_TIMESTAMP_TEXT}</td>
                   <td>{kindLabel(event.kind)}</td>
                   <td>{actorLabel(event)}</td>
                   <td className="num">

@@ -67,10 +67,11 @@ export function toLocalInput(iso: string): string {
 
 export function formatRange(period: Pick<Period, 'startedAt' | 'endedAt'>): string {
   // 형식은 `formatTimestamp`가 갖는다 (#1420).
-  const start = formatTimestamp(period.startedAt)
+  // 읽을 수 없는 시각은 값 없음으로 적는다 (#2124) — 구간은 두 끝이 다 있어야 구간으로 읽힌다.
+  const start = formatTimestamp(period.startedAt) ?? NO_VALUE_TEXT
   // 「진행 중」과 「모름」은 다르다. 빈칸이나 「—」로 두면 종료 시각을 잊은 것으로 읽힌다.
   if (period.endedAt === null) return `${start} ~ 진행 중`
-  return `${start} ~ ${formatTimestamp(period.endedAt)}`
+  return `${start} ~ ${formatTimestamp(period.endedAt) ?? NO_VALUE_TEXT}`
 }
 
 /**

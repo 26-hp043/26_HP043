@@ -84,12 +84,19 @@ describe('실 API 카탈로그', () => {
     expect(rows).toEqual([2026])
   })
 
-  it('data가 배열이 아니면 빈 목록이다', async () => {
+  it('data가 배열이 아니면 실패다 — 「등록된 규제연도가 없습니다」로 그리지 않는다 (#2124)', async () => {
+    // 종전에는 빈 목록이었다. 받지 못한 것을 없는 것으로 적으면 화면이 빈 상태 문구를 낸다.
     mockFetch(() => jsonResponse({ data: null }))
 
-    const rows = await createApiYearCatalog().listYears(CONTAINER_VESSEL_ID)
+    await expect(createApiYearCatalog().listYears(CONTAINER_VESSEL_ID)).rejects.toBeInstanceOf(
+      YearCatalogError,
+    )
+  })
 
-    expect(rows).toEqual([])
+  it('빈 배열은 실패가 아니다 — 없는 것과 못 받은 것이 갈린다 (#2124)', async () => {
+    mockFetch(() => jsonResponse({ data: [] }))
+
+    await expect(createApiYearCatalog().listYears(CONTAINER_VESSEL_ID)).resolves.toEqual([])
   })
 
   it('선박이 바뀌어도 다시 부르지 않는다 — 답이 선박과 무관하다', async () => {

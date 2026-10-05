@@ -71,6 +71,20 @@ describe('표시', () => {
     expect(formatRange({ ...PERIOD, endedAt: null })).toContain('진행 중')
   })
 
+  it('읽을 수 없는 시각을 영문 오류 문자열로 적지 않는다 (#2124)', () => {
+    const brokenStart = formatRange({ startedAt: 'not-a-date', endedAt: null })
+    const brokenEnd = formatRange({ ...PERIOD, endedAt: 'not-a-date' })
+
+    for (const text of [brokenStart, brokenEnd]) {
+      expect(text).not.toMatch(/Invalid|null/)
+      // 구간의 꼴(두 끝)은 남는다.
+      expect(text.split('~')).toHaveLength(2)
+    }
+    // 끝을 못 읽은 것과 「진행 중」은 다른 말이다.
+    expect(brokenEnd).not.toBe(formatRange({ ...PERIOD, endedAt: null }))
+    expect(brokenEnd).not.toBe(formatRange(PERIOD))
+  })
+
   it('끝난 구간은 두 시각을 모두 보여 준다', () => {
     expect(formatRange(PERIOD)).not.toContain('진행 중')
     expect(formatRange(PERIOD).split('~')).toHaveLength(2)

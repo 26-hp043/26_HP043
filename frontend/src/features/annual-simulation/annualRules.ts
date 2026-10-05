@@ -449,6 +449,8 @@ export function resultConditionsText(conditions: {
 export function estimateNoticeText(asOf: string | undefined): string {
   if (asOf === undefined) return ANNUAL_COPY.estimateNotice
   const time = formatTimestamp(asOf)
+  // 읽을 수 없는 시각도 「없음」과 같다 — 지어낸 시각을 문장에 끼우지 않는다 (#2124).
+  if (time === null) return ANNUAL_COPY.estimateNotice
   return `${ANNUAL_COPY.estimateNotice} ${ANNUAL_COPY.estimateAsOf.replace('{time}', time)}`
 }
 

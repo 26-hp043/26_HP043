@@ -516,6 +516,12 @@ describe('결과 위 추정 고지 — 추정 성격과 기준 시각 (#1578 · 
     expect(estimateNoticeText(AS_OF)).not.toMatch(/37/)
   })
 
+  it('읽을 수 없는 시각은 없는 것과 같다 — 「Invalid Date」를 문장에 끼우지 않는다 (#2124)', () => {
+    for (const broken of ['not-a-date', '2026-09-21T05:24:37']) {
+      expect(estimateNoticeText(broken), broken).toBe(estimateNoticeText(undefined))
+    }
+  })
+
   it('시각이 없으면 추정 성격만 — 빈 시각을 지어내지 않는다', () => {
     expect(estimateNoticeText(undefined)).toBe('이 결과의 수치는 모두 잔여 계획을 전제로 한 추정값입니다.')
     expect(estimateNoticeText(undefined)).not.toMatch(/기준 시각/)
