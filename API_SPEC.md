@@ -2300,6 +2300,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 
 > **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다.** 생략하면 `USER_INPUT`이다. 그 밖의 값은 422 `VALIDATION_ERROR`(`field` `fuel_uses[n].source` · `field_label` 「연료 기록 출처」)다. 저장 컬럼(`DB_SCHEMA §2.3` `chk_fuel_source`)이 받는 값은 넷이지만 나머지 셋은 **서버 경로만 적는다** — `MODEL_ESTIMATE`는 시나리오 채택(`§5.2`), `IMPORT`는 CSV 가져오기(`§8.2`), `SAMPLE`은 데모 시드다. 서버가 확인할 수 없는 출처를 클라이언트의 주장으로 받지 않는다는 점에서 `§3.6`의 시각 출처(`PUBLIC_RECORD`)와 같은 규칙이다. `§3.6` 실적 입력의 `fuel_uses[].source`도 같다.
 
+> **[#2090] 도착 시각은 출항 시각보다 뒤여야 한다.** `planned_departure_at`·`planned_arrival_at`가 **둘 다 있을 때** `planned_arrival_at <= planned_departure_at`이면 422 `VALIDATION_ERROR`(`field` `planned_arrival_at` · `field_label` 「계획 도착 시각」 · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」)다. **같은 시각도 거부한다** — 정박 구간(`§2.11`)의 「종료는 시작보다 뒤」와 같은 쪽이다. 한쪽만 있거나 둘 다 없으면 통과다(모르는 것을 틀렸다고 하지 않는다). 종전에는 검사가 없어 도착이 앞서도 201로 저장됐고, 진행분 계산이 창이 빈 항차를 0으로 돌려줬다. 판정은 `§3.4`·`§3.6`·`§8.2`·`§3.12`가 **같은 함수 하나**로 한다.
+
 > **[#1348] 문자열 길이 상한.** 항만명(`departure_port_name`·`arrival_port_name`)은 **1~200자**, `voyage_no`는 **~100자**, `notes`는 **~1000자**다. 앞 둘은 DB 컬럼 폭(`DB_SCHEMA §8.2`)에서 오고, `notes`는 **`PRD §10.2` ⑵가 정한 값**이다 — DB는 `TEXT`라 컬럼은 더 받지만 **받는 것과 받아도 되는 것은 다르다.** 상한이 없는 동안에는 요청 본문 크기가 유일한 방어였다.
 
 > **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
@@ -2327,6 +2329,8 @@ PATCH /api/v1/voyages/{voyage_id}
 > **[#150]** 대상 필드는 §3.3 요청 본문과 같으므로 **`regulation_year`도 여기서 설정·변경한다.** 주어지면 `VAL-005`로 검증한다. `annual_inclusion_policy ≠ EXCLUDE`인 항차에서 `regulation_year`를 `null`로 지우는 요청은 `DB_SCHEMA`의 `chk_year_policy`를 깨뜨리므로 거부한다.
 
 > **[#1256] `planned_distance_nm`을 바꾸면서 `planned_distance_source`를 생략하면 출처는 `null`(「모른다」)로 돌아간다.** 출처는 항차가 아니라 **숫자에 붙은 표시**다 — 좌표로 채운 항차(`COORDINATE_ESTIMATE`)의 거리를 사람이 고쳤는데 「추정값입니다」가 남아 있으면 `PRD §0.3`이 금하는 거짓말이고, 서버는 새 숫자를 어떻게 얻었는지 모르므로 직접 입력이라고도 적지 않는다(§3.3 생성 기본값과 같은 규칙). 거리와 출처를 **함께** 보내면 그 출처가 붙고, 출처만 보내면(거리 생략) 표시만 바뀌며, 명시적 `null`은 지움이다(#312 규약). 거리를 건드리지 않는 요청은 출처를 그대로 둔다. 시나리오 채택(`§5.2` `UPDATE_EXISTING_PLAN`)도 거리를 갈아 끼우므로 같은 규칙으로 `null`이 된다. **출처 변경은 거리와 같은 상태(`DRAFT`·`PLANNED`)에서만 된다** — 재계산 대상은 아니지만 계획 거리에 붙은 표시라, 확정된 항차의 거리에 사후로 「추정」을 붙이거나 떼면 `422 STATE_TRANSITION_ERROR`다(`#865` 가드와 같은 문구).
+
+> **[#2090] 시각 순서는 합친 결과로 본다.** `planned_departure_at`·`planned_arrival_at` 중 하나라도 요청에 있으면 **요청 값과 저장된 값을 합친 쌍**으로 `§3.3` 규칙(도착은 출항보다 뒤 · 같은 시각 거부)을 다시 검사한다 — 도착만 앞당겨 저장된 출항보다 이르게 만드는 요청도 422(`planned_arrival_at`)다. 시각을 건드리지 않는 요청은 이 검사를 받지 않는다(이미 뒤집혀 저장된 행의 메모 수정까지 막지 않는다).
 
 ### 3.5 항차 상태 전환
 
@@ -2453,6 +2457,8 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 > **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다**(`§3.3` 같은 각주). 생략하면 기존 행의 출처를 그대로 두고, 새로 생기는 행은 `USER_INPUT`이다. `MODEL_ESTIMATE` · `IMPORT` · `SAMPLE`과 그 밖의 문자열은 422 `VALIDATION_ERROR`다.
 
 > **[#1923] 실제 시각의 출처 — `actual_departure_source` · `actual_arrival_source`.** 항차 객체(`§3.1`)에 실리는 두 키이며, 값은 `USER_INPUT`(사람이 넣음) · `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」로 옮김 · `§3.12`) · `null`(「모른다」 — 064 이전 행 · 출처 없이 넣은 시각)이다. **이 요청은 `USER_INPUT`만 받는다** — `PUBLIC_RECORD`는 서버가 공적 기록을 직접 읽어 옮긴 경우에만 참이고, 클라이언트가 「공적 기록에서 왔다」고 주장하는 것은 서버가 확인할 수 없다(422 · `field_label` 「실제 출항 시각 출처」). 시각을 **다른 값으로** 바꾸면서 출처를 생략하면 출처는 `null`로 돌아간다 — 공적 기록에서 채운 시각을 사람이 고쳤는데 「공적 기록에서 채움」이 남으면 `PRD §0.3`이 금하는 거짓말이다(`§3.4` `planned_distance_source`와 같은 규칙). 저장된 시각과 **같은 값**을 다시 보낸 요청은 출처를 그대로 둔다 — 실적 폼은 저장된 시각을 미리 채워 두고 저장 때 그대로 보내므로, 연료만 고친 저장이 출처를 지우면 사용자가 고치지 않은 시각의 표시가 사라진다.
+
+> **[#2090] 실제 시각도 순서를 지킨다.** `actual_departure_at`·`actual_arrival_at` 중 하나라도 요청에 있으면 **저장된 값과 합친 쌍**에서 `actual_arrival_at <= actual_departure_at`이면 422 `VALIDATION_ERROR`(`field` `actual_arrival_at` · `field_label` 「실제 도착 시각」 · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」)다. 같은 시각도 거부하고, 한쪽만 있으면 통과다. 계획 쌍(`§3.3`)과 실적 쌍은 **각자** 본다 — 서로 비교하지 않는다. `§3.12` 「이 값으로 채우기」가 항차 칸(`DEPARTURE`·`ARRIVAL`)을 채울 때도 채운 뒤의 쌍으로 같은 검사를 받는다.
 
 #### 상태별 허용 (#440)
 
@@ -4141,7 +4147,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | Content-Type 검증 | `text/csv`, `application/vnd.ms-excel` 허용. 그 외 거부 |
 | 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 앞에 `'` (apostrophe)를 prefix하여 escape (formula injection 방지). 숫자 컬럼은 numeric parser로 검증하여 문자열 수식 거부 |
 | 필수 컬럼 | `voyage_no`, `departure_port_name`, `arrival_port_name`, `planned_distance_nm`, `planned_speed_kn`, `fuel_type`, `planned_fuel_ton` |
-| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없으면 그 행 오류 · 저장은 UTC (#906) |
+| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없으면 그 행 오류 · 저장은 UTC (#906). **둘 다 있는데 `planned_arrival_at`이 `planned_departure_at`보다 이르거나 같으면 그 행 오류**(`field` `planned_arrival_at` · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」 · `§3.3` 같은 판정, #2090) |
 
 #### 응답 (200 OK)
 
@@ -5102,3 +5108,4 @@ POST /api/v1/chat
 | 2026-10-05 | `#2174` | **§3.3·§3.6 — `fuel_uses[].source`는 `USER_INPUT`만 받는다.** 자유 문자열이라 클라이언트가 `MODEL_ESTIMATE`·`SAMPLE`·`IMPORT`를 스스로 적을 수 있었고 리포트가 그 값을 출처로 인쇄했다. 허용값과 「나머지 셋은 서버 경로(채택·CSV 가져오기·시드)만 적는다」를 각주로, §3.6 오류 표에 422 조건을 적었다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#2089) |
 | 2026-10-05 | `#2175` | **§1.2.5a에 `[#2107]` 각주 — 올리기의 처리 여섯 가지.** 다시 그리기를 스레드로(동시 2) · 본문을 상한 한 바이트 뒤까지만 읽기(CSV 업로드 둘 포함) · 프레임 둘 이상인 JPEG(`MPO`)를 첫 프레임으로 받기 · **413 문구를 둘로**(픽셀 초과 파일은 이미 2MB 아래다) · 세션 검증이 이미지 열을 읽지 않기(`GET`은 200일 때만 읽는다) · 화면의 사전 검사. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#2107) |
 | 2026-10-06 | `#2182` | **§2.10 겹침 오류에 `[#2122]` 문단 — 상대 구간의 시각을 `details[]`에 값으로 싣는다 · §1.3.2 예시와 §4.1의 거리 이름을 「항해거리」로** (#2122). 정박·미운항 구간이 겹치면 409 문구에 상대 구간의 시각이 `2026-08-10T00:00:00+00:00`(UTC ISO)으로 박혀 나갔고, 화면 목록은 같은 구간을 KST로 보였다. `details[0]`에 `overlap_started_at` · `overlap_ended_at`(진행 중이면 `null`)을 싣고 화면이 표시 형식으로 그린다. `message`의 시각은 지우지 않고 KST 표기로 바꿨다 — CSV 가져오기의 행 오류가 `message`만 전달하기 때문이다. 이 항목에는 `field`가 없다(있으면 화면이 오류를 입력칸 아래로 옮긴다). §1.3.2의 422 예시 세 줄과 §4.1 `distance_nm` 설명은 서버 라벨이 「운항 거리」에서 「항해거리」로 바뀐 데 맞췄다. `AGENTS §4.3`상 각주 보강·표기 정정이라 버전은 올리지 않는다 |
+| 2026-10-06 | `#2186` | **§3.3 · §3.4 · §3.6 · §8.2에 `[#2090]` 각주 — 항차의 도착 시각은 출항 시각보다 뒤여야 한다** (#2090). 계획 쌍(출항 예정 · 도착 예정)과 실적 쌍(실제 출항 · 실제 도착)을 각각 보며, 둘 다 있을 때만 판정하고 같은 시각도 거부한다. 수정(§3.4)과 실적 입력(§3.6)은 요청에 온 값과 저장된 값을 합친 쌍으로 판정한다 — 한쪽만 고쳐 순서를 뒤집는 경우를 잡기 위해서다. 시각 키가 요청에 없으면 판정하지 않는다. 위반은 422이고 `details[].field`가 도착 쪽 필드를 가리키며, CSV 가져오기(§8.2)는 같은 판정을 행 오류로 낸다. 종전에는 어느 경로도 이 순서를 보지 않았다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |

@@ -70,7 +70,7 @@ from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ValidationError
 from cii_platform.reports.csv_export import sanitize
-from cii_platform.services.voyage import create_voyage, require_vessel
+from cii_platform.services.voyage import create_voyage, require_vessel, time_order_violation
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -336,6 +336,13 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     # 문구는 `_MIN_MESSAGES`에 있다. 여기서 한 번 더 보면 한도가 두 곳에 생긴다 (#1190).
     speed = _numeric(row, "planned_speed_kn")
 
+    # #2090 — 도착은 출항보다 뒤여야 한다. 생성·수정과 같은 함수가 판정한다.
+    planned_departure_at = _instant(row, "planned_departure_at")
+    planned_arrival_at = _instant(row, "planned_arrival_at")
+    violation = time_order_violation("planned", planned_departure_at, planned_arrival_at)
+    if violation is not None:
+        raise RowError(violation[0], violation[2])
+
     return {
         "voyage_no": _text(row, "voyage_no"),
         "departure_port_name": _text(row, "departure_port_name"),
@@ -344,8 +351,8 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "planned_speed_kn": speed,
         "fuel_type": fuel_type,
         "planned_fuel_ton": _numeric(row, "planned_fuel_ton"),
-        "planned_departure_at": _instant(row, "planned_departure_at"),
-        "planned_arrival_at": _instant(row, "planned_arrival_at"),
+        "planned_departure_at": planned_departure_at,
+        "planned_arrival_at": planned_arrival_at,
     }
 
 
