@@ -244,6 +244,33 @@ async def test_window_validation(session):
         )
 
 
+def test_window_year_range_boundaries_match_regulation_year_constants():
+    """시작·종료 양쪽이 2019~2100 안이어야 한다 — 경계값 통과·바로 밖 거부 (#2100).
+
+    상수는 `cii_current`의 것을 그대로 쓴다(숫자를 두 곳에 적지 않는다). DB가 필요 없다.
+    """
+    from cii_platform.services import cii_current
+    from cii_platform.services.cii_history import MAX_REGULATION_YEAR, _validate_window
+
+    assert MIN_REGULATION_YEAR is cii_current.MIN_REGULATION_YEAR
+    assert MAX_REGULATION_YEAR is cii_current.MAX_REGULATION_YEAR
+    assert (MIN_REGULATION_YEAR, MAX_REGULATION_YEAR) == (2019, 2100)
+
+    _validate_window(2019, 2019)
+    _validate_window(2100, 2100)
+    _validate_window(2091, 2100)
+    for start, end, field in [
+        (2018, 2019, "from"),
+        (2100, 2101, "to"),
+        (9990, 9999, "from"),
+        (2020, 9999, "to"),
+        (2101, 2101, "from"),
+    ]:
+        with pytest.raises(ValidationError) as exc:
+            _validate_window(start, end)
+        assert exc.value.details[0]["field"] == field, (start, end)
+
+
 @pytest.mark.asyncio
 async def test_unknown_vessel_is_404(session):
     await _ensure_params(session, 2026)
@@ -319,6 +346,21 @@ async def test_cii_history_api_end_to_end(migrated_db, app_fresh_engine):
                 params={"from": 2026, "to": 2025, "as_of": "2026-08-15T00:00:00Z"},
             )
             assert bad.status_code == 422
+
+            # 연도 범위 밖 — 종료 연도 상한 (#2100). 종전에는 `to=9999`가 통과해 열 해를 집계했다.
+            far = client.get(
+                f"/api/v1/vessels/{BULK_VESSEL_ID}/cii-history",
+                params={"from": 9990, "to": 9999, "as_of": "2026-08-15T00:00:00Z"},
+            )
+            assert far.status_code == 422
+            assert far.json()["error"]["details"][0]["field"] == "from"
+            assert far.json()["error"]["details"][0]["field_label"] == "시작 연도"
+            over = client.get(
+                f"/api/v1/vessels/{BULK_VESSEL_ID}/cii-history",
+                params={"from": 2100, "to": 2101, "as_of": "2026-08-15T00:00:00Z"},
+            )
+            assert over.status_code == 422
+            assert over.json()["error"]["details"][0]["field"] == "to"
 
             # 없는 선박 — 404.
             missing = client.get("/api/v1/vessels/00000000-0000-4000-8000-00000000ffff/cii-history")

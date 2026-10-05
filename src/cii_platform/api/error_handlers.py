@@ -140,10 +140,8 @@ _WHOLE_BODY_LABEL = "요청 본문"
 def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
     """Pydantic 오류를 API_SPEC §1.3.2 ``details[]`` 형식으로 옮긴다.
 
-    ``rule``은 넣지 않는다. §1.3.2 예시에는 있으나 **Pydantic 오류에서 VAL 번호를
-    유도할 수 없고**, 임의로 붙이면 근거 없는 규칙 번호가 응답에 실린다. VAL 번호가
-    필요한 검증은 서비스 계층이 :class:`~cii_platform.errors.ValidationError`로
-    직접 던지며 그쪽에서 ``details``를 구성한다.
+    ``rule``은 넣지 않는다. §1.3.2 예시에도 없다(#2100). **Pydantic 오류에서 VAL 번호를
+    유도할 수 없고**, 임의로 붙이면 근거 없는 규칙 번호가 응답에 실린다.
 
     ``field_label``은 :func:`~cii_platform.api.field_labels.field_label`이 채운다.
     미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약) — 요청 필드가 전부
@@ -223,14 +221,15 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 # --- #183: HTTPException -----------------------------------------------------------
 
 #: HTTPException의 status → error_code 매핑. API_SPEC §1.4에서 HTTP status ↔ 코드가
-#: 1:1인 행만 발췌한다. 422(5개)·500(2개)는 1:1이 아니므로 status만으로 결정할 수
-#: 없어 표에 넣지 않는다 — 코드는 status가 아닌 원인에서 유래한다.
+#: 1:1인 행만 발췌한다. 409(3개)·422(5개)·500(2개)는 1:1이 아니므로 status만으로 결정할 수
+#: 없어 표에 넣지 않는다(409는 `AppError`로만 나간다 — 라우트가 `HTTPException(409)`를 던지지 않고
+#: 프레임워크도 던지지 않는다. 던지면 `HTTP_ERROR`로 떨어진다, #2100).
+#: 코드는 status가 아닌 원인에서 유래한다.
 #: 405는 #182에서 ``METHOD_NOT_ALLOWED``로 확정됐다 (#183 착수 시점엔 미확정).
 _HTTP_EXCEPTION_CODES: dict[int, str] = {
     400: "BAD_REQUEST",
     404: "NOT_FOUND",
     405: "METHOD_NOT_ALLOWED",
-    409: "PARAMETER_ERROR",
     429: "RATE_LIMIT_EXCEEDED",
 }
 

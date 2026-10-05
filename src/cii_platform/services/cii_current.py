@@ -86,7 +86,8 @@ if TYPE_CHECKING:
 #: 수치 직렬화 자릿수 (``API_SPEC §1.7``). ``cii_history``와 같은 기준이다.
 _DIGITS = {"cii": 6, "ratio": 5, "distance_nm": 2, "fuel_ton": 2, "co2_ton": 2, "hours": 4}
 
-#: ``voyage.regulation_year``의 CHECK 하한(``DB_SCHEMA §2.2``).
+#: 규제연도 입력 범위 — 실시간 CII(`API_SPEC §2.14`)·연간(`§2.18`)·이력(`§2.7`)이 같이 쓴다.
+#: 하한은 ``voyage.regulation_year``의 CHECK 하한(``DB_SCHEMA §2.2``)과 같은 값이다.
 MIN_REGULATION_YEAR = 2019
 MAX_REGULATION_YEAR = 2100
 
