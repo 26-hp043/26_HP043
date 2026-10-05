@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '../test/renderSetup'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { LoginPage } from './LoginPage'
@@ -20,6 +20,14 @@ import { probeCurrentUser } from '../auth/session'
 function jsonResponse(body: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as Response
 }
+
+/*
+ * 이 파일은 **세션이 없다고 확인된 뒤**의 화면을 본다 (`#2127`). 화면이 마운트되며 세션을
+ * 확인하게 되어, 확인 전에는 폼이 그려지지 않는다 — 그 구간은 `authEntryProbe.test.tsx`가 본다.
+ */
+beforeEach(async () => {
+  await probeCurrentUser(async () => ({ ok: false, status: 401, json: async () => null }) as Response)
+})
 
 afterEach(async () => {
   /*

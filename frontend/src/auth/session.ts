@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { clearStored } from '../layout/globalContext'
 import { SCREEN_BY_ID } from '../screens'
+import { safeNext } from './safeNext'
 
 /**
  * 인증 세션 클라이언트 — `UIFLOW.md` §0 (#278).
@@ -10,7 +11,7 @@ import { SCREEN_BY_ID } from '../screens'
  *
  * - **세션 확인** — `GET /auth/me` 프로브. 미들웨어가 401을 내면 비인증이다.
  * - **로그인 진입** — 세션이 없거나 만료되면 `/login?next=<원래 경로>`로 이동한다
- *   (:func:`redirectToLogin`). 로그인 뒤에는 `features/auth/authRules.ts`의 `safeNext`가
+ *   (:func:`redirectToLogin`). 로그인 뒤에는 `auth/safeNext.ts`의 `safeNext`가
  *   같은 사이트 안의 경로인지 확인해 그리로 돌려보낸다. 종전 설명(구글 OIDC ·
  *   `redirect_to` 서버 왕복)은 `#413`에서 사라진 흐름이었다(`#758`에서 정정).
  * - **CSRF** — 상태 변경 요청에 `csrf` 쿠키 값을 `X-CSRF-Token` 헤더로 옮긴다.
@@ -126,6 +127,55 @@ function subscribeAuth(listener: Listener): () => void {
   return () => listeners.delete(listener)
 }
 
+/**
+ * 세션을 **세운다** — 로그인·가입·둘러보기가 성공한 자리 (`#2127`).
+ *
+ * ## 왜 한 함수인가
+ *
+ * 세션이 새로 서면 **앞 사람의 선택(선박·항차)을 물려받으면 안 된다.** 그 선택은
+ * `sessionStorage`에 있고 `sessionStorage`는 「탭 수명」이라, 지우지 않으면 같은 탭에서
+ * 다음 계정이 그대로 복원한다(`globalContext.clearStored` 주석).
+ *
+ * 종전에는 그 비우기가 `logout`과 `leaveAfterPasswordChange` 두 곳에만 있었고
+ * 탈퇴·로그인·가입·둘러보기·비밀번호 재설정에는 없었다. 지점마다 따로 부르는 구조에서는
+ * 다음에 생기는 지점이 또 빠지므로, **캐시를 채우거나 비우는 자리 자체**에 넣는다 —
+ * 세션을 세우는 길은 이 함수, 내리는 길은 `endSession()` 하나씩이다.
+ *
+ * ## 세울 때도 비우는 이유
+ *
+ * 내릴 때만 비우면 **내리는 길을 지나지 않은 전환**이 남는다 — 세션이 만료돼 로그인
+ * 화면으로 온 뒤 다른 계정으로 들어오는 경우, 다른 탭에서 로그아웃한 경우. 로그인 화면은
+ * 셸 밖이라 이 시점에는 선택을 들고 있는 화면이 없고, 셸은 로그인 뒤에 마운트되며 저장값을
+ * 읽는다 — 그래서 여기서 비우면 새 세션은 언제나 빈 선택에서 시작한다.
+ *
+ * 같은 계정으로 다시 들어와도 비워진다. `logout`이 이미 그렇게 동작하고, 복귀 경로
+ * (`next`)는 주소로 따로 보존되므로 하던 화면으로는 돌아간다.
+ *
+ * ⚠️ `probeCurrentUser`는 이 함수를 지나지 않는다 — 새로고침은 **같은 세션을 다시 확인**하는
+ * 것이지 세션이 바뀐 것이 아니다. 거기서 비우면 새로고침마다 선택이 사라진다.
+ */
+function startSession(user: CurrentUser): CurrentUser {
+  clearStored()
+  currentUser = user
+  authResolved = true
+  notify()
+  return user
+}
+
+/**
+ * 세션을 **내린다** — 로그아웃·탈퇴·비밀번호 재설정·비밀번호 변경 뒤 이탈 (`#2127`).
+ * `startSession()` 주석 참조.
+ *
+ * 세션 만료(`failExpiredSession`)는 이 함수를 지나지 않는다 — 그쪽은 「다시 로그인해 하던
+ * 일로 돌아온다」이고, 다시 세워지는 순간 `startSession()`이 비운다.
+ */
+function endSession(): void {
+  clearStored()
+  currentUser = null
+  authResolved = true
+  notify()
+}
+
 /** 현재 캐시된 사용자. 없으면 `null`. */
 export function getCachedUser(): CurrentUser | null {
   return currentUser
@@ -196,6 +246,17 @@ export async function probeCurrentUser(
     }
   })()
   return probing
+}
+
+/**
+ * 아직 확인하지 않았을 때만 세션을 확인한다 — 로그인·가입 화면용 (`#2127`).
+ *
+ * 가드(`RequireAuth`)가 비인증으로 판정해 로그인 화면으로 보낸 직후에는 **이미 답을
+ * 알고 있다.** 그때 또 물으면 같은 질문이 두 번 나간다. 주소창으로 직접 연 경우에만
+ * 확인이 안 된 상태이므로 그때만 묻는다.
+ */
+export function probeSessionOnce(): void {
+  if (!authResolved) void probeCurrentUser()
 }
 
 /** `document.cookie` 원문에서 쿠키 하나를 꺼낸다 — 순수 함수(테스트 대상). */
@@ -415,9 +476,7 @@ export async function login(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<CurrentUser> {
   const { body, status } = await postJsonWithStatus(LOGIN_API_URL, { email, password }, fetchImpl)
-  currentUser = requireUser(body, status)
-  notify()
-  return currentUser
+  return startSession(requireUser(body, status))
 }
 
 /**
@@ -438,9 +497,7 @@ export async function tourLogin(
     { code: code ?? '' },
     fetchImpl,
   )
-  currentUser = requireUser(body, status)
-  notify()
-  return currentUser
+  return startSession(requireUser(body, status))
 }
 
 /**
@@ -467,9 +524,7 @@ export async function signup(
     },
     fetchImpl,
   )
-  currentUser = requireUser(body, status)
-  notify()
-  return currentUser
+  return startSession(requireUser(body, status))
 }
 
 /** 인증 메일 재발송. 성공 문구는 서버가 준다. */
@@ -510,8 +565,7 @@ export async function confirmPasswordReset(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string> {
   const body = await postJson(RESET_CONFIRM_URL, { token, password }, fetchImpl)
-  currentUser = null
-  notify()
+  endSession()
   return messageOf(body)
 }
 
@@ -528,15 +582,17 @@ function messageOf(body: unknown): string {
 export function redirectToLogin(next?: string): void {
   if (typeof window === 'undefined') return
   const target = next ?? `${window.location.pathname}${window.location.search}`
-  const safeNext = target.startsWith('/') && !target.startsWith('//') ? target : '/'
-  window.location.assign(`${LOGIN_PATH}?next=${encodeURIComponent(safeNext)}`)
+  window.location.assign(`${LOGIN_PATH}?next=${encodeURIComponent(safeNext(target))}`)
 }
 
 /**
  * 로그아웃 — 서버 세션 무효화 후 로그인 화면으로 이동한다.
  *
- * 서버 호출이 실패해도 클라이언트 상태는 초기화하고 이동한다 — 로그아웃 버튼에
- * 갇히는 것이 최악의 경험이다. 세션은 서버 만료·브라우저 재시작으로 자연 정리된다.
+ * | 서버 응답 | 처리 |
+ * |---|---|
+ * | 2xx | 캐시와 저장된 선택을 비우고 로그인 화면으로 |
+ * | **401** | **위와 같다** — 세션이 이미 끝나 있었다 (`#2127`) |
+ * | 그 밖의 실패 · 통신 오류 | **비우지 않고 던진다** — 서버 세션이 살아 있을 수 있다 (`#825` ⑵ · `#1659`) |
  */
 export async function logout(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
@@ -558,7 +614,21 @@ export async function logout(
       credentials: 'include',
       headers: { ...csrfHeaders() },
     })
-    if (!response.ok) {
+    /*
+     * **401은 실패가 아니다** (`#2127`).
+     *
+     * `POST /auth/logout`은 세션이 없으면 401이다(`API_SPEC §1.2`). 만료된 화면에서
+     * 로그아웃을 누른 경우가 그것인데, 종전에는 실패 문구를 띄우고 로그인 상태를 유지했다 —
+     * **이미 끝난 세션에서 나갈 수 없는** 화면이 됐다(다시 눌러도 401이다).
+     *
+     * 아래 「실패하면 비우지 않는다」의 근거는 *서버 세션이 살아 있을 수 있다*인데,
+     * 401은 서버가 **세션이 없다고 답한 것**이라 그 근거가 성립하지 않는다.
+     *
+     * `failExpiredSession()`을 쓰지 않는다. 그쪽은 「만료됐으니 다시 로그인해 하던 일로
+     * 돌아오라」(만료 문구를 던지고 `next`를 붙인다)인데, 여기 사람은 **스스로 나가는
+     * 중**이다 — 평소 로그아웃과 같은 자리(복귀 경로 없는 로그인 화면)에 조용히 닿는다.
+     */
+    if (!response.ok && response.status !== 401) {
       const body = (await response.json().catch(() => null)) as {
         error?: { message?: string }
       } | null
@@ -585,17 +655,8 @@ export async function logout(
     throw new AuthRequestError(failure, 0)
   }
 
-  /*
-   * ⑶ 성공했으니 전역 컨텍스트를 지운다.
-   *
-   * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니고, 아래 이동은
-   * **같은 탭 안에서** 일어난다. 지우지 않으면 다음 계정이 **앞 계정의 선박 선택**을
-   * 물려받는다(`globalContext.clearStored` 주석 참조).
-   */
-  clearStored()
-  currentUser = null
-  authResolved = true
-  notify()
+  // ⑶ 세션이 끝났다(성공 또는 401) — 캐시와 저장된 선택을 함께 비운다(`endSession`).
+  endSession()
 
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)
@@ -899,10 +960,7 @@ export async function updateUserRole(
  * `/login`이 `next`로 되돌려 보내고 다음 요청의 401에서야 로그인 폼이 나온다(`#825` ⑷).
  */
 export function leaveAfterPasswordChange(): void {
-  clearStored()
-  currentUser = null
-  authResolved = true
-  notify()
+  endSession()
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)
   }
@@ -918,13 +976,11 @@ export function leaveAfterPasswordChange(): void {
  * 규제 대응의 근거가 되는 기록이기 때문이다. 세션은 전량 무효화되고 쿠키 2종이
  * 지워지며 응답은 **204**(돌려줄 사용자 정보가 없다)다.
  *
- * ## 실패해도 이동하지 않는다 — `logout`과 다르다
+ * ## 실패하면 이동하지 않는다
  *
- * `logout`은 서버 호출이 실패해도 클라이언트 상태를 비우고 이동한다. **로그아웃
- * 버튼에 갇히는 것이 최악**이기 때문이다.
- *
- * 탈퇴는 반대다. 실패한 채 로그인 화면으로 보내면 사용자는 **탈퇴됐다고 믿는데
- * 계정이 살아 있다.** 그래서 실패를 그대로 던지고 화면이 사유를 보여 준다.
+ * 실패한 채 로그인 화면으로 보내면 사용자는 **탈퇴됐다고 믿는데 계정이 살아 있다.**
+ * 그래서 실패를 그대로 던지고 화면이 사유를 보여 준다(`logout`도 401 밖의 실패에서는
+ * 이동하지 않는다 — `#825` ⑵).
  *
  * ## 성공하면 캐시를 비우고 로그인 화면으로
  *
@@ -963,8 +1019,7 @@ export async function deleteAccount(
     throw authErrorOf(body, response.status, '탈퇴하지 못했습니다.')
   }
 
-  currentUser = null
-  notify()
+  endSession()
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)
   }

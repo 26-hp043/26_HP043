@@ -3,16 +3,19 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import { ErrorState } from '../components/ErrorState'
 import { PAGE_FAILURE_MESSAGE, actionFailureTitle } from '../components/errorCopy'
-import { hasErrors, safeNext, splitSubmitFailure, validateLogin } from '../features/auth/authRules'
+import { hasErrors, splitSubmitFailure, validateLogin } from '../features/auth/authRules'
 import type { FieldErrors } from '../features/auth/authRules'
 import {
   LOGIN_PATH,
   PASSWORD_RESET_PATH,
   SIGNUP_PATH,
   login,
+  probeSessionOnce,
   tourLogin,
+  useAuthResolved,
   useAuthUser,
 } from '../auth/session'
+import { safeNext } from '../auth/safeNext'
 
 /** 서버 필드 경로 → 이 폼의 칸 (#877 ⑴). */
 const LOGIN_SERVER_FIELDS = { email: 'email', password: 'password' } as const
@@ -34,7 +37,19 @@ const LOGIN_SERVER_FIELDS = { email: 'email', password: 'password' } as const
 export function LoginPage() {
   const [searchParams] = useSearchParams()
   const user = useAuthUser()
+  const resolved = useAuthResolved()
   const next = safeNext(searchParams.get('next'))
+
+  /*
+   * 세션을 확인한다 (`#2127`).
+   *
+   * 종전에는 **캐시된 사용자가 있을 때만** 이동했다. 주소창에 `/login`을 직접 치거나
+   * 새로고침하면 캐시가 비어 있으므로, 세션이 유효한데도 로그인 폼이 그려졌다.
+   * 가드(`RequireAuth`)를 거쳐 온 경우에는 이미 확인이 끝났으므로 다시 묻지 않는다.
+   */
+  useEffect(() => {
+    probeSessionOnce()
+  }, [])
   /*
    * 둘러보기 링크 (`#1486`). 코드는 링크에 실려 오며, **버튼의 존재 자체가
    * 기능을 알리므로** 코드가 없으면 버튼을 렌더하지 않는다 — 아래 `submitTour`가
@@ -86,6 +101,13 @@ export function LoginPage() {
   const [busy, setBusy] = useState(false)
 
   if (user) return <Navigate to={next} replace />
+
+  /*
+   * 확인이 끝나기 전에는 폼을 그리지 않는다 — 그렸다가 이동하면 폼이 깜박인다
+   * (`RequireAuth`가 같은 이유로 같은 자리표시를 쓴다). 확인이 **실패로 끝나도**
+   * 「확인됨」이므로(401·서버 오류·통신 오류 모두) 그때는 폼이 그대로 나온다.
+   */
+  if (!resolved) return <div className="require-auth__pending" aria-busy="true" />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
