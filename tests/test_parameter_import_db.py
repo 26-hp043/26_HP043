@@ -324,7 +324,7 @@ async def test_reference_line_a_raw_must_be_an_imo_coefficient(client):
         client,
         _csv(
             _REF_HEADER,
-            "BULK_CARRIER,__test__,DWT,not-a-number,0.622,TEST",
+            "BULK_CARRIER,DWT >= 279000,fixed 279000,not-a-number,0.622,TEST",
         ),
         "reference_lines",
     )
@@ -336,7 +336,7 @@ async def test_reference_line_computes_a_decimal_from_a_raw(client, conn):
     """``a_decimal``은 서버가 ``parse_imo_scientific``으로 계산한다 (TECH_SPEC §9.2~9.3)."""
     data = _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,__test__,DWT,14405E7,0.4550,TEST"),
+        _csv(_REF_HEADER, "GAS_CARRIER,DWT >= 65000,DWT,14405E7,0.4550,TEST"),
         "reference_lines",
     )
     assert data["imported_count"] == 1
@@ -344,7 +344,8 @@ async def test_reference_line_computes_a_decimal_from_a_raw(client, conn):
         await conn.execute(
             text(
                 "SELECT a_raw, a_decimal, is_active FROM cii_reference_line "
-                "WHERE condition_expr = '__test__'"
+                "WHERE ship_type = 'GAS_CARRIER' AND condition_expr = 'DWT >= 65000' "
+                "AND version LIKE 'import.%'"
             )
         )
     ).one()
@@ -356,12 +357,12 @@ async def test_reference_line_computes_a_decimal_from_a_raw(client, conn):
 async def test_reference_line_revision_keeps_history_and_active_is_unique(client, conn):
     _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,__rev__,DWT,4745E3,0.622,TEST"),
+        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4745E3,0.622,TEST"),
         "reference_lines",
     )
     data = _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,__rev__,DWT,4800E3,0.622,TEST"),
+        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4800E3,0.622,TEST"),
         "reference_lines",
     )
     assert data["replaced_count"] == 1
@@ -369,7 +370,8 @@ async def test_reference_line_revision_keeps_history_and_active_is_unique(client
         await conn.execute(
             text(
                 "SELECT a_raw, is_active FROM cii_reference_line "
-                "WHERE condition_expr = '__rev__' ORDER BY is_active"
+                "WHERE ship_type = 'GAS_CARRIER' AND condition_expr = 'DWT < 65000' "
+                "AND version LIKE 'import.%' ORDER BY is_active"
             )
         )
     ).all()
@@ -378,7 +380,7 @@ async def test_reference_line_revision_keeps_history_and_active_is_unique(client
     listed = client.get(
         f"{API_V1_PREFIX}/parameters/reference-lines", params={"ship_type": "GAS_CARRIER"}
     ).json()["data"]
-    revs = [row for row in listed if row["condition_expr"] == "__rev__"]
+    revs = [row for row in listed if row["condition_expr"] == "DWT < 65000"]
     assert [row["a_raw"] for row in revs] == ["4800E3"]
 
 
@@ -387,7 +389,7 @@ async def test_rating_boundary_d_order_is_a_row_error(client):
         client,
         _csv(
             "ship_type,condition_expr,capacity_basis,d1,d2,d3,d4,source_ref",
-            "BULK_CARRIER,__test__,DWT,0.94,0.86,1.06,1.18,TEST",
+            "BULK_CARRIER,all,DWT,0.94,0.86,1.06,1.18,TEST",
         ),
         "rating_boundaries",
     )
@@ -398,7 +400,7 @@ async def test_rating_boundary_d_order_is_a_row_error(client):
 async def test_unknown_ship_type_is_a_row_error(client):
     data = _post(
         client,
-        _csv(_REF_HEADER, "BULK_CARIER,__test__,DWT,4745E3,0.622,TEST"),  # 오타
+        _csv(_REF_HEADER, "BULK_CARIER,DWT >= 279000,DWT,4745E3,0.622,TEST"),  # 오타
         "reference_lines",
     )
     assert data["errors"][0]["field"] == "ship_type"
@@ -407,10 +409,75 @@ async def test_unknown_ship_type_is_a_row_error(client):
 async def test_bad_capacity_rule_is_a_row_error(client):
     data = _post(
         client,
-        _csv(_REF_HEADER, "BULK_CARRIER,__test__,fixed abc,4745E3,0.622,TEST"),
+        _csv(_REF_HEADER, "BULK_CARRIER,DWT >= 279000,fixed abc,4745E3,0.622,TEST"),
         "reference_lines",
     )
     assert data["errors"][0]["field"] == "capacity_rule"
+
+
+# ── ⑶-b condition_expr — 엔진이 못 읽는 식·구간 (#2087) ─────────────────────
+
+
+@pytest.mark.parametrize(
+    ("row", "needle"),
+    [
+        # 완료 기준 — 부등호 한 글자. 엔진이 못 읽는 식이다.
+        ("BULK_CARRIER,DWT ≥ 279000,fixed 279000,4745,0.622,TEST", "조건식을 읽을 수 없습니다"),
+        # 문법은 맞지만 옛 행('DWT >= 279000')이 활성으로 남아 구간이 겹친다.
+        ("BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST", "겹칩니다"),
+    ],
+)
+async def test_unreadable_or_overlapping_condition_changes_nothing(client, conn, row, needle):
+    """``dry_run``과 실제 적재가 같은 행을 지목하고, DB는 바뀌지 않는다."""
+    body = _csv(_REF_HEADER, row)
+
+    dry = _post(client, body, "reference_lines", dry_run=True)
+    real = _post(client, body, "reference_lines")
+
+    for data in (dry, real):
+        assert data["imported_count"] == 0
+        assert [(error["row"], error["field"]) for error in data["errors"]] == [
+            (2, "condition_expr")
+        ]
+        assert needle in data["errors"][0]["message"]
+    assert dry["errors"] == real["errors"]
+    # 새 행이 들어가지 않았고, 기존 활성 행도 꺼지지 않았다.
+    imported = (
+        await conn.execute(
+            text("SELECT count(*) FROM cii_reference_line WHERE version LIKE 'import.%'")
+        )
+    ).scalar()
+    assert imported == 0
+    active = (
+        await conn.execute(
+            text(
+                "SELECT condition_expr FROM cii_reference_line "
+                "WHERE ship_type = 'BULK_CARRIER' AND is_active = 1 ORDER BY condition_expr"
+            )
+        )
+    ).all()
+    assert [row.condition_expr for row in active] == ["DWT < 279000", "DWT >= 279000"]
+
+
+async def test_a_clean_revision_still_leaves_one_matching_row_per_capacity(client, conn):
+    """적재가 성공한 뒤에도 그 선종의 활성 구간은 빈틈·겹침이 없다 — 계산이 409가 되지 않는다."""
+    from cii_platform.services.parameter_import import partition_problem
+
+    data = _post(
+        client,
+        _csv(_REF_HEADER, "BULK_CARRIER,DWT >= 279000,fixed 279000,4800,0.622,TEST"),
+        "reference_lines",
+    )
+    assert data["errors"] == []
+    active = (
+        await conn.execute(
+            text(
+                "SELECT condition_expr FROM cii_reference_line "
+                "WHERE ship_type = 'BULK_CARRIER' AND is_active = 1"
+            )
+        )
+    ).all()
+    assert partition_problem([row.condition_expr for row in active]) is None
 
 
 # ── ⑷ fuel_type — 제자리 갱신 + OTHER 생성 ──────────────────────────────────
