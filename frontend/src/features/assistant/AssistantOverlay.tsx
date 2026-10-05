@@ -393,6 +393,12 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       </p>
 
       {/*
+        #2158 — 머리줄과 입력 줄 **사이**를 한 스크롤 영역으로 묶는다. 화면이 낮아
+        내용물이 패널에 다 들어가지 않아도 넘친 만큼은 이 안에서 스크롤되고, 입력 줄은
+        제자리에 남는다. 대화가 시작되면 로그가 이 높이를 다 받아 종전처럼 로그가 스크롤된다.
+      */}
+      <div className="assistant__body">
+      {/*
         #1818 — 안내문도 예시 질문처럼 **대화를 시작하면 걷는다.** 「무엇을 물어볼 수
         있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그 말이 쓰일 때다.
         50px을 돌려받아 대화 로그가 그만큼 넓어진다.
@@ -516,6 +522,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         {pending ? (
           <p className="assistant__turn assistant__turn--pending">{PENDING_TEXT}</p>
         ) : null}
+      </div>
       </div>
 
       {/*
