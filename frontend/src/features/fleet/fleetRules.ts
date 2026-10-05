@@ -244,6 +244,25 @@ export function detailStatusText(code: string | null): string | null {
 }
 
 /**
+ * 지도에 **실제로 그려지는** 선박 수 (`#2121`).
+ *
+ * 위치(위도·경도)가 있는 배만 마커가 된다 — `PositionChart`와 같은 조건이다. 지도 칩은
+ * 종전에 불러온 선박 전체 수를 적어, 위치 없는 배가 섞이면 칩의 수와 지도의 마커 수가
+ * 달랐다. `DESIGN_SYSTEM §9.5`는 칩에 「그려진 척수」를 적으라고 한다.
+ */
+export function plottedCount(
+  vessels: readonly { lat: number | string | null; lon: number | string | null }[],
+): number {
+  return vessels.filter(
+    (vessel) =>
+      vessel.lat !== null &&
+      vessel.lon !== null &&
+      Number.isFinite(Number(vessel.lat)) &&
+      Number.isFinite(Number(vessel.lon)),
+  ).length
+}
+
+/**
  * 기준 시각을 「n분 전」으로.
  *
  * 상대 시각만 보여 주면 어느 시점 데이터인지 특정할 수 없으므로, 화면은 **원본
