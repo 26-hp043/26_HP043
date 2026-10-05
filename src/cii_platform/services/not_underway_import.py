@@ -47,6 +47,7 @@ from cii_platform.services.not_underway import (
     PERIOD_TYPES,
     create_period,
 )
+from cii_platform.services.voyage import require_vessel
 from cii_platform.services.voyage_import import (
     INSTANT_EXAMPLE,
     MAX_ROWS,
@@ -304,6 +305,11 @@ async def import_not_underway_periods(
     겹치는 구간을 받으면 같은 연료가 두 번 세어져 분자가 부풀고, 그 사실이 화면에
     드러나지 않는다.
     """
+    # 선박을 **파일을 읽기 전에** 본다 (`#2093` · 항차 CSV는 `#1332`). 종전에는 이 검사가
+    # 없어 없는 선박에 200과 행 오류를 냈고, 저장 루프를 돌지 않는 `dry_run`은
+    # 「전부 가능」이라 답했다 (`API_SPEC §1.4`는 404).
+    await require_vessel(session, vessel_id)
+
     rows, truncated = read_rows(content, content_type=content_type)
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
 

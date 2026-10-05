@@ -32,6 +32,7 @@ from cii_platform.services.voyage import (
     delete_voyage,
     get_voyage,
     list_voyages,
+    require_vessel,
     set_actuals,
     transition_voyage,
     update_voyage,
@@ -336,6 +337,11 @@ async def import_voyages_route(
             field="type",
             field_label="자료 종류",
         )
+
+    # 선박을 **파일을 읽기 전에, 가져오기 종류와 무관하게** 여기서 한 번 본다 (`#2093`).
+    # 종류별 가져오기 함수가 각자 부르면 새 종류를 더할 때 빠뜨릴 수 있다 — 정박 구간이
+    # 그렇게 빠져 있어 없는 선박에 200을 내고 `dry_run`이 「전부 가능」이라 답했다.
+    await require_vessel(session, vessel_id)
 
     # 상한 **한 바이트 뒤까지만** 읽는다 (#2107). 넘는 파일은 서비스가 「파일이 너무 큽니다」로
     # 거절하므로(`voyage_import._check_limits`) 끝까지 메모리에 올릴 이유가 없다.

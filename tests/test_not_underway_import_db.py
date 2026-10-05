@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from conftest import insert_returning_id
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.services import not_underway_import
 from cii_platform.services.not_underway_import import import_not_underway_periods
@@ -199,24 +202,23 @@ async def test_save_stage_errors_report_the_original_file_row(session, vessel_id
     assert "겹치는 구간" in result["errors"][1]["message"]
 
 
-async def test_an_error_with_no_matching_column_reports_a_null_field(session):
-    """CSV에 **대응하는 칸이 없는** 오류는 ``field``를 지어내지 않는다 (#1087).
+async def test_absent_vessel_is_not_found_before_the_file_is_read(session):
+    """없는 선박은 행 오류가 아니라 **404**다 (#2093).
 
-    선박이 없으면 ``create_period``가 404를 내는데, 그것은 파일의 어느 칸 문제도
-    아니다. 화면은 ``field``를 보고 해당 입력 칸 아래에 메시지를 붙이므로
-    (``API_SPEC §1.3.2``), 없는 칸을 적으면 붙일 데가 없거나 엉뚱한 칸에 붙는다.
+    `create_period`가 저장 루프에서 던지는 `NotFoundError`를 행 오류로 담던 경로는 CSV
+    어느 칸의 문제도 아니었다(#1087). 선박 확인이 파일을 읽기 전에 오므로 그 경로는
+    이제 닿지 않는다 — 파일이 깨져 있어도 선박이 없다는 사실이 먼저 나온다.
     """
     import uuid
 
+    from cii_platform.errors import NotFoundError
+
     content = _csv("IN_PORT,2026-09-01T00:00:00+09:00,2026-09-02T00:00:00+09:00,0,HFO,10,,")
 
-    result = await import_not_underway_periods(session, uuid.uuid4(), content=content)
-
-    assert result["imported_count"] == 0
-    assert len(result["errors"]) == 1
-    assert result["errors"][0]["row"] == 2
-    assert result["errors"][0]["field"] is None
-    assert "선박을 찾을 수 없습니다" in result["errors"][0]["message"]
+    with pytest.raises(NotFoundError):
+        await import_not_underway_periods(session, uuid.uuid4(), content=content)
+    with pytest.raises(NotFoundError):
+        await import_not_underway_periods(session, uuid.uuid4(), content=b"\xff\xfe not csv")
 
 
 def test_error_field_prefers_the_error_s_own_column():
@@ -323,3 +325,107 @@ async def test_save_stage_failure_is_a_row_error_not_a_500(session, vessel_id, m
     assert result["imported_count"] == 0
     assert result["errors"] == [{"row": 2, "field": None, "message": SAVE_STAGE_MESSAGE}]
     assert "errno" not in str(result["errors"])
+
+
+# --- HTTP 수준: 선박이 없거나 삭제됐으면 파일을 읽기 전에 404 (#2093) ----------------
+
+_HTTP_IMO = "9074729"
+_ABSENT_VESSEL = "00000000-0000-4000-8000-0000000020a3"
+
+
+@pytest.fixture
+def client(migrated_db, app_fresh_engine):
+    with TestClient(app, base_url="https://testserver") as c:
+        c.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        yield c
+
+
+def _post_import(client, vessel_id: str, *, dry_run: bool, kind: str = "not_underway_periods"):
+    body = _csv("IN_PORT,2026-09-01T00:00:00+09:00,2026-09-02T00:00:00+09:00,0,HFO,10,,")
+    return client.post(
+        f"{API_V1_PREFIX}/vessels/{vessel_id}/import",
+        params={"dry_run": str(dry_run).lower()},
+        headers={"X-CSRF-Token": client.cookies.get("csrf", "")},
+        data={"type": kind},
+        files={"file": ("periods.csv", body, "text/csv")},
+    )
+
+
+async def _count_periods(vessel_id: str) -> int:
+    from uuid import UUID
+
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        row = await s.execute(
+            text("SELECT COUNT(*) FROM not_underway_period WHERE vessel_id = :v"),
+            {"v": UUID(vessel_id)},
+        )
+        return int(row.scalar_one())
+
+
+async def _purge(vessel_id: str) -> None:
+    from uuid import UUID
+
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                "DELETE FROM not_underway_fuel_use WHERE period_id IN "
+                "(SELECT id FROM not_underway_period WHERE vessel_id = :v)"
+            ),
+            {"v": UUID(vessel_id)},
+        )
+        await s.execute(
+            text("DELETE FROM not_underway_period WHERE vessel_id = :v"), {"v": UUID(vessel_id)}
+        )
+        await s.execute(text("DELETE FROM vessel WHERE id = :v"), {"v": UUID(vessel_id)})
+        await s.commit()
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_absent_vessel_is_404_for_both_import_kinds(client, dry_run):
+    """없는 UUID는 `dry_run` 여부와 무관하게 404 — 항차 CSV와 같은 응답이다 (#2093).
+
+    종전에는 정박 구간만 200이었고, `dry_run=true`는 저장 루프를 돌지 않아
+    「전부 들어갈 수 있다」고 답했다.
+    """
+    periods = _post_import(client, _ABSENT_VESSEL, dry_run=dry_run)
+    voyages = _post_import(client, _ABSENT_VESSEL, dry_run=dry_run, kind="voyages")
+
+    assert periods.status_code == 404, periods.text
+    assert voyages.status_code == 404, voyages.text
+    assert periods.json()["error"]["code"] == voyages.json()["error"]["code"]
+    assert periods.json()["error"]["message"] == voyages.json()["error"]["message"]
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_deleted_vessel_is_404_and_nothing_is_stored(client, dry_run):
+    """삭제된 선박도 404이고 **아무 행도 저장되지 않는다** (#2093)."""
+    created = client.post(
+        f"{API_V1_PREFIX}/vessels",
+        headers={"X-CSRF-Token": client.cookies.get("csrf", "")},
+        json={
+            "imo_number": _HTTP_IMO,
+            "name": "NU IMPORT HTTP",
+            "ship_type": "BULK_CARRIER",
+            "deadweight": 50000,
+            "gross_tonnage": 30000,
+        },
+    )
+    assert created.status_code == 201, created.text
+    vessel_id = created.json()["data"]["id"]
+    try:
+        removed = client.delete(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}",
+            headers={"X-CSRF-Token": client.cookies.get("csrf", "")},
+        )
+        assert removed.status_code == 200, removed.text
+
+        response = _post_import(client, vessel_id, dry_run=dry_run)
+
+        assert response.status_code == 404, response.text
+        assert await _count_periods(vessel_id) == 0
+    finally:
+        await _purge(vessel_id)
