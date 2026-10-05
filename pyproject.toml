@@ -35,7 +35,7 @@ dependencies = [
     # `alembic` 하한은 **`main` 쪽을 따른다** — 봇 PR `#1137`이 1.20.0으로 올렸다.
     # 낮은 하한을 고집할 이유가 없고, 고집하면 머지마다 같은 충돌이 되돌아온다.
     "alembic>=1.20.0,<2.0",
-    "fastapi>=0.141.1,<0.150",
+    "fastapi>=0.142.2,<0.150",
     "uvicorn[standard]>=0.54.0,<0.60",
     "httpx>=0.28.1,<0.29",
     # `#1664` — 보고서·내보내기가 `ZoneInfo("Asia/Seoul")`을 쓴다(`services/report.py` ·
