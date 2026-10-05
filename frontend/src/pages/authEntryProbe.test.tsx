@@ -193,6 +193,93 @@ describe('가드와 겹치지 않는다 (#2127)', () => {
   })
 })
 
+/*
+ * 서버가 연결은 받고 응답을 주지 않는 경우. 시한이 없으면 프록시가 끊을 때까지 자리표시만
+ * 보인다 — 로그인 폼조차 뜨지 않는다. 시한 값 자체는 단언하지 않는다(프록시 시한보다
+ * 훨씬 짧은 30초 안에 끝나는지만 본다).
+ */
+describe('응답이 오지 않으면 시한 뒤 폼이 보인다 (#2127)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('로그인 화면 — 시한 전에는 자리표시, 시한 뒤에는 폼. 늦은 응답이 화면을 뒤집지 않는다', async () => {
+    let answer: (response: Response) => void = () => {}
+    stubFetch(() => new Promise<Response>((resolve) => (answer = resolve)))
+    const { open, screen, act } = await fresh()
+    vi.useFakeTimers()
+
+    const { container } = open('/login?next=%2Fvessels%2Fv-1')
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1_000)))
+    expect(screen.queryByTestId('login-submit')).toBeNull()
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(29_000)))
+    expect(screen.getByTestId('login-submit')).toBeTruthy()
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull()
+
+    // 폼을 보인 뒤에 응답이 도착해도 사용자를 다른 화면으로 끌고 가지 않는다.
+    await act(async () => {
+      answer(ME_OK)
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(screen.getByTestId('login-submit')).toBeTruthy()
+    expect(screen.queryByTestId('elsewhere')).toBeNull()
+  })
+
+  it('가입 화면 — 시한 뒤 가입 폼이 보인다', async () => {
+    stubFetch(() => new Promise<Response>(() => {}))
+    const { open, act } = await fresh()
+    vi.useFakeTimers()
+
+    const { container } = open('/signup')
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1_000)))
+    expect(container.querySelector('button[type="submit"]')).toBeNull()
+    await act(async () => void (await vi.advanceTimersByTimeAsync(29_000)))
+    expect(container.querySelector('button[type="submit"]')).not.toBeNull()
+  })
+
+  it('가드 — 시한 뒤에는 비인증과 같은 길(로그인 화면)로 가고 다시 묻지 않는다', async () => {
+    const fetchImpl = stubFetch(() => new Promise<Response>(() => {}))
+    const { open, screen, act } = await fresh()
+    vi.useFakeTimers()
+
+    open('/guarded')
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(1_000)))
+    expect(screen.queryByTestId('guarded')).toBeNull()
+    expect(screen.queryByTestId('login-submit')).toBeNull()
+
+    await act(async () => void (await vi.advanceTimersByTimeAsync(29_000)))
+    expect(screen.getByTestId('login-submit')).toBeTruthy()
+    expect(screen.queryByTestId('guarded')).toBeNull()
+    expect(meCalls(fetchImpl)).toBe(1)
+  })
+})
+
+describe('복귀 경로가 로그인·가입 화면일 때 제자리에서 돌지 않는다 (#2127)', () => {
+  it.each(['/login/', '/LOGIN', '/%6Cogin'])(
+    '로그인 화면의 다른 표기(%s)는 앱 루트로 간다',
+    async (next) => {
+      stubFetch(async () => ME_OK)
+      const { open, screen, waitFor } = await fresh()
+
+      open('/login?next=' + encodeURIComponent(next))
+
+      await waitFor(() => expect(screen.getByTestId('elsewhere').textContent).toBe('/'))
+    },
+  )
+
+  it('가입 화면은 거부하지 않아도 스스로 기본 화면으로 떠난다', async () => {
+    stubFetch(async () => ME_OK)
+    const { open, screen, waitFor, DEFAULT_PATH } = await fresh()
+
+    open('/login?next=%2Fsignup')
+
+    await waitFor(() => expect(screen.getByTestId('elsewhere').textContent).toBe(DEFAULT_PATH))
+  })
+})
+
 describe('가입 화면도 같은 확인을 한다 (#2127)', () => {
   it('유효한 세션이면 폼 대신 기본 화면으로 간다', async () => {
     stubFetch(async () => ME_OK)

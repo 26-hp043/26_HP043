@@ -213,31 +213,58 @@ function isAuthResolved(): boolean {
  * 종전에는 `env`를 받아 데모 모드에서 프로브를 건너뛰었다. `#542`가 그 갈래를
  * 없애면서 인자도 사라졌다.
  */
+/**
+ * 세션 확인을 기다리는 시한 (`#2127`).
+ *
+ * 로그인·가입 화면과 가드는 확인이 끝날 때까지 자리표시만 그린다. 서버가 연결은 받고
+ * 응답을 주지 않으면 그 상태가 프록시 시한(`frontend/nginx.conf`의 `proxy_read_timeout`
+ * 120초)까지 이어진다 — 그동안 로그인 폼조차 뜨지 않는다.
+ *
+ * 시한이 지나면 **「확인됨 · 비인증」**으로 끝낸다. 오류 응답·연결 실패와 같은 처리다
+ * (fail-closed) — 로그인 화면은 폼을 보이고, 가드는 로그인 화면으로 보낸다.
+ *
+ * 값은 8초다. 이 앱에 요청 시한 관례가 없어 새로 정했다: `GET /auth/me`는 세션 한 건을
+ * 읽는 요청이라 정상이면 1초 안에 끝나고, 느린 회선·서버 기동 직후를 넉넉히 덮으면서
+ * 사람이 빈 화면을 고장으로 읽기 전에 폼이 나오는 길이다.
+ */
+const SESSION_PROBE_TIMEOUT_MS = 8_000
+
 export async function probeCurrentUser(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<CurrentUser | null> {
   if (probing) return probing
 
   probing = (async () => {
-    try {
+    /*
+     * 시한 (`#2127`). 요청을 끊고(`abort`), 끊기지 않는 경우에도 **기다리기를 그만둔다**
+     * (`race`). 시한 뒤에 늦게 온 응답은 아래 `race`가 이미 끝났으므로 어디에도 쓰이지
+     * 않는다 — 「비인증」으로 폼을 보인 뒤에 화면이 뒤집히지 않는다.
+     */
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const expired = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort()
+        reject(new Error('세션 확인 시한 초과'))
+      }, SESSION_PROBE_TIMEOUT_MS)
+    })
+    const ask = async (): Promise<CurrentUser | null> => {
       const response = await fetchImpl(ME_URL, {
         method: 'GET',
         credentials: 'include',
         headers: { Accept: 'application/json' },
+        signal: controller.signal,
       })
-      if (!response.ok) {
-        currentUser = null
-        notify()
-        return null
-      }
-      currentUser = toCurrentUser(await response.json())
-      notify()
+      return response.ok ? toCurrentUser(await response.json()) : null
+    }
+    try {
+      currentUser = await Promise.race([ask(), expired])
       return currentUser
     } catch {
       currentUser = null
-      notify()
       return null
     } finally {
+      clearTimeout(timer)
       // 성공·실패 모두 **확인은 끝났다** (`#825` ⑴). `notify()`보다 먼저 세워야
       // 구독자가 깨어난 시점에 이미 확정된 값을 본다.
       authResolved = true

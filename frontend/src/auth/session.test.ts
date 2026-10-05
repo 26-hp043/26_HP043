@@ -110,6 +110,67 @@ describe('safeNext — open redirect 방어', () => {
   })
 })
 
+/*
+ * 세션 확인의 시한 (`#2127`).
+ *
+ * 로그인·가입 화면과 가드는 확인이 끝날 때까지 자리표시만 그린다. 서버가 연결은 받고
+ * 응답을 주지 않으면 그 상태가 프록시 시한까지 이어진다 — 시한이 없으면 로그인 폼이
+ * 뜨지 않는다.
+ */
+describe('probeCurrentUser — 응답이 오지 않으면 시한 뒤 비인증으로 끝난다 (#2127)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('시한 전에는 끝나지 않고, 시한이 지나면 null로 끝나며 요청을 끊는다', async () => {
+    vi.useFakeTimers()
+    await probeCurrentUser(async () => ME_OK)
+    let signal: AbortSignal | undefined
+    let settled = false
+    const pending = probeCurrentUser(((_url: string, init: RequestInit) => {
+      signal = init.signal ?? undefined
+      return new Promise<Response>(() => {})
+    }) as unknown as typeof fetch).then((user) => {
+      settled = true
+      return user
+    })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(settled).toBe(false)
+    expect(signal?.aborted).toBe(false)
+
+    // 프록시 시한(120초)보다 **훨씬 먼저** 끝나야 한다 — 값 자체가 아니라 그 성질을 본다.
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(settled).toBe(true)
+    expect(await pending).toBeNull()
+    expect(getCachedUser()).toBeNull()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('시한 뒤에 늦게 온 응답은 상태를 뒤집지 않는다', async () => {
+    vi.useFakeTimers()
+    let answer: (response: Response) => void = () => {}
+    const pending = probeCurrentUser(
+      (() => new Promise<Response>((resolve) => (answer = resolve))) as unknown as typeof fetch,
+    )
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await pending).toBeNull()
+
+    answer(ME_OK)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('제때 온 응답은 그대로 쓰고 타이머를 남기지 않는다', async () => {
+    vi.useFakeTimers()
+    const user = await probeCurrentUser(async () => ME_OK)
+    expect(user).not.toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(getCachedUser()).not.toBeNull()
+  })
+})
+
 describe('probeCurrentUser', () => {
   it('200이면 사용자를 캐시한다 — display_name이 없으면 null', async () => {
     const noName = jsonResponse({
