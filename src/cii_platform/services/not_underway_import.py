@@ -38,6 +38,7 @@ from uuid import UUID
 from sqlalchemy.exc import SQLAlchemyError
 
 from cii_platform.api.schemas.bounds import NOT_UNDERWAY_FUEL
+from cii_platform.api.validation_messages import _MESSAGES, josa
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ConflictError, ValidationError
@@ -95,6 +96,11 @@ _FUEL_MIN = NOT_UNDERWAY_FUEL["ge"]
 _NUMERIC_MAX = NOT_UNDERWAY_FUEL["le"]
 
 
+def _with_raw(sentence: str, raw: str) -> str:
+    """틀이 만든 문장 끝에 입력 원문을 붙인다 — 「…이어야 합니다: 91」."""
+    return f"{sentence.removesuffix('.')}: {raw}"
+
+
 def _decimal(row: dict[str, str], column: str, *, label: str, positive: bool = False) -> Decimal:
     """``NUMERIC(12,2)``에 담을 수 있는 값만 받는다 (#1086 ⑤ · `schemas/bounds.py`).
 
@@ -104,19 +110,23 @@ def _decimal(row: dict[str, str], column: str, *, label: str, positive: bool = F
     """
     raw = _text(row, column)
     if not raw:
-        raise RowError(column, f"{label}이(가) 비어 있습니다.")
+        raise RowError(column, _MESSAGES["missing"](label, {}))
     try:
         value = Decimal(raw)
     except (InvalidOperation, ValueError) as exc:
-        raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}") from exc
+        raise RowError(column, _with_raw(_MESSAGES["decimal_parsing"](label, {}), raw)) from exc
     if not value.is_finite():
-        raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}")
+        raise RowError(column, _with_raw(_MESSAGES["decimal_parsing"](label, {}), raw))
     if positive and value < _FUEL_MIN:
-        raise RowError(column, f"{label}은(는) {_FUEL_MIN} 이상이어야 합니다: {raw}")
+        raise RowError(
+            column, _with_raw(_MESSAGES["greater_than_equal"](label, {"ge": _FUEL_MIN}), raw)
+        )
     if not positive and value < 0:
-        raise RowError(column, f"{label}은(는) 0 이상이어야 합니다: {raw}")
+        raise RowError(column, _with_raw(_MESSAGES["greater_than_equal"](label, {"ge": 0}), raw))
     if value > _NUMERIC_MAX:
-        raise RowError(column, f"{label}이(가) 너무 큽니다(최대 {_NUMERIC_MAX}): {raw}")
+        raise RowError(
+            column, _with_raw(_MESSAGES["less_than_equal"](label, {"le": _NUMERIC_MAX}), raw)
+        )
     return value
 
 
@@ -129,7 +139,7 @@ def _instant(row: dict[str, str], column: str, *, label: str, required: bool) ->
     raw = _text(row, column)
     if not raw:
         if required:
-            raise RowError(column, f"{label}이(가) 비어 있습니다.")
+            raise RowError(column, _MESSAGES["missing"](label, {}))
         return None
     try:
         parsed = datetime.fromisoformat(raw)
@@ -196,12 +206,14 @@ def _optional_decimal(row: dict[str, str], column: str, *, label: str) -> Decima
     try:
         value = Decimal(raw)
     except (InvalidOperation, ValueError) as exc:
-        raise RowError(column, f"{label}은(는) 숫자여야 합니다.") from exc
+        raise RowError(column, _MESSAGES["decimal_parsing"](label, {})) from exc
     if not value.is_finite():
-        raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}")
+        raise RowError(column, _with_raw(_MESSAGES["decimal_parsing"](label, {}), raw))
     low, high = _COORDINATE_BOUNDS[column]
     if not low <= value <= high:
-        raise RowError(column, f"{label}은(는) {low} 이상 {high} 이하여야 합니다: {raw}")
+        raise RowError(
+            column, f"{josa(label, '은', '는')} {low} 이상 {high} 이하여야 합니다: {raw}"
+        )
     return value
 
 

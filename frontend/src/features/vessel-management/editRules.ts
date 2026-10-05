@@ -1,4 +1,4 @@
-import { withEunNeun } from '../../display/josa'
+import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import {
   CB_MAX,
@@ -238,7 +238,7 @@ export function clearAttemptNotice(vessel: Vessel, state: VesselEditState): stri
 
   if (attempted.length === 0) return null
   return (
-    `${attempted.join(' · ')}을(를) 비웠지만 저장되지 않습니다. ` +
+    `${withEulReul(attempted.join(' · '))} 비웠지만 저장되지 않습니다. ` +
     '이 항목은 값을 바꿀 수만 있고 지울 수는 없습니다. ' +
     '값을 바꾸려면 새 값을 입력해 주세요.'
   )

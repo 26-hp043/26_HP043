@@ -1,3 +1,4 @@
+import { withEulReul } from '../../display/josa'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -345,7 +346,7 @@ export function saveFailureNotice(vesselName: string, message: string): string {
  */
 export function deleteConfirmMessage(vessel: Vessel): string {
   return (
-    `${vessel.name}(IMO ${vessel.imo_number})을(를) 목록에서 제거합니다. ` +
+    `${withEulReul(`${vessel.name}(IMO ${vessel.imo_number})`)} 목록에서 제거합니다. ` +
     '항차·계산 이력은 보존되며 같은 IMO로 다시 등록할 수 있습니다.'
   )
 }

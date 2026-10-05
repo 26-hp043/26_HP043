@@ -118,8 +118,8 @@ describe('eunNeun — 주격 조사 (#1369)', () => {
   })
 })
 
-describe('화면이 조사를 박아 쓰지 않는다 (#1369)', () => {
-  it('검증 문구에 「은(는)」 병기가 남아 있지 않다', async () => {
+describe('화면이 조사를 박아 쓰지 않는다 (#1369 · #2123)', () => {
+  it('화면 문구에 조사 괄호 병기가 남아 있지 않다', async () => {
     // 종전에는 여덟 자리가 `${label}은(는) …`을 그대로 적었다. 서버는 받침을 계산해
     // 하나만 쓰므로, 같은 오류에 두 가지 문구가 나갔다.
     const { readFileSync, readdirSync, statSync } = await import('node:fs')
@@ -134,9 +134,17 @@ describe('화면이 조사를 박아 쓰지 않는다 (#1369)', () => {
         return /\.tsx?$/.test(entry) && !/\.test\./.test(entry) ? [full] : []
       })
 
-    const offenders = walk(root).filter((file) => {
-      if (file.endsWith('josa.ts')) return false // 규칙을 설명하는 주석이 있다
-      return readFileSync(file, 'utf-8').includes('은(는)')
+    // 조사 괄호 일반형(#2123). 제외는 둘이다 — `josa.ts`(규칙을 설명하며 병기를 인용한다)와
+    // 주석 줄(`//` · `/*` · `*`로 시작, 사용자에게 나가지 않는다). 문자열 안의 병기는 잡힌다.
+    const PAREN_JOSA = /은\(는\)|을\(를\)|이\(가\)|와\(과\)|\(으\)로/
+    const isComment = (line: string): boolean => /^\s*(\/\/|\/\*|\*)/.test(line)
+
+    const offenders = walk(root).flatMap((file) => {
+      if (file.endsWith('josa.ts')) return []
+      return readFileSync(file, 'utf-8')
+        .split('\n')
+        .filter((line) => !isComment(line) && PAREN_JOSA.test(line))
+        .map((line) => `${file}: ${line.trim()}`)
     })
 
     expect(offenders).toEqual([])

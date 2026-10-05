@@ -1,4 +1,4 @@
-import { withEunNeun } from '../../display/josa'
+import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 import type { WeatherModel } from '../voyage-cii/types'
@@ -259,12 +259,12 @@ function checkRequiredPositive(
 ): void {
   const trimmed = raw.trim()
   if (trimmed === '') {
-    errors[field] = `${label}을(를) 입력해 주세요.`
+    errors[field] = `${withEulReul(label)} 입력해 주세요.`
     return
   }
   const value = toNumber(trimmed)
   if (value === null) {
-    errors[field] = `${label}을(를) 숫자로 입력해 주세요.`
+    errors[field] = `${withEulReul(label)} 숫자로 입력해 주세요.`
     return
   }
   if (!(value > 0)) {
@@ -289,7 +289,7 @@ function checkOptionalBound(
   if (trimmed === '') return
   const value = toNumber(trimmed)
   if (value === null) {
-    errors[field] = `${label}을(를) 숫자로 입력해 주세요.`
+    errors[field] = `${withEulReul(label)} 숫자로 입력해 주세요.`
     return
   }
   if (inclusive ? value < min : !(value > min)) {
