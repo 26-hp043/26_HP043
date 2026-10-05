@@ -2284,6 +2284,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 
 > **[#1256] `planned_distance_source`는 선택이며 「그 숫자가 어디서 왔나」다.** `USER_INPUT`(사용자가 직접 넣은 값)과 `COORDINATE_ESTIMATE`(`§3.9`의 대권거리로 채운 값 · `PRD §15.2` 「좌표 기반 추정 거리」) 둘만 받고, 그 밖은 422(`field_label` 「계획 거리 출처」)다. **생략하면 `null` = 「모른다」로 저장한다** — 서버는 호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 직접 입력이라고도 추정이라고도 적지 않는다(`PRD §0.3`). 화면(`VoyagePanel`)은 항상 보낸다 — 좌표로 채운 뒤 손대지 않았으면 `COORDINATE_ESTIMATE`, 고쳤으면 `USER_INPUT`. CSV 가져오기(`§8.2`)는 `USER_INPUT`이다(좌표 열이 없으니 추정일 수 없다 · 경로는 `created_from = IMPORT`가 답한다). 시나리오 채택(`§5.2`)은 `null`이다 — 시나리오 행에는 직항 거리가 좌표 추정이었는지가 남아 있지 않다. 화면은 `COORDINATE_ESTIMATE`일 때만 추정 표시를 붙이고 `null`에는 아무것도 붙이지 않는다. `created_from`과 다른 축이다 — 그쪽은 「이 항차가 어느 경로로 들어왔나」다.
 
+> **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다.** 생략하면 `USER_INPUT`이다. 그 밖의 값은 422 `VALIDATION_ERROR`(`field` `fuel_uses[n].source` · `field_label` 「연료 기록 출처」)다. 저장 컬럼(`DB_SCHEMA §2.3` `chk_fuel_source`)이 받는 값은 넷이지만 나머지 셋은 **서버 경로만 적는다** — `MODEL_ESTIMATE`는 시나리오 채택(`§5.2`), `IMPORT`는 CSV 가져오기(`§8.2`), `SAMPLE`은 데모 시드다. 서버가 확인할 수 없는 출처를 클라이언트의 주장으로 받지 않는다는 점에서 `§3.6`의 시각 출처(`PUBLIC_RECORD`)와 같은 규칙이다. `§3.6` 실적 입력의 `fuel_uses[].source`도 같다.
+
 > **[#1348] 문자열 길이 상한.** 항만명(`departure_port_name`·`arrival_port_name`)은 **1~200자**, `voyage_no`는 **~100자**, `notes`는 **~1000자**다. 앞 둘은 DB 컬럼 폭(`DB_SCHEMA §8.2`)에서 오고, `notes`는 **`PRD §10.2` ⑵가 정한 값**이다 — DB는 `TEXT`라 컬럼은 더 받지만 **받는 것과 받아도 되는 것은 다르다.** 상한이 없는 동안에는 요청 본문 크기가 유일한 방어였다.
 
 > **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
@@ -2434,6 +2436,8 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 
 모든 필드가 선택이다 — **실거리만 먼저 알고 연료는 나중에 오는 경우가 실제로 있다.** 생략은 「변경 없음」이다.
 
+> **[#2089] `fuel_uses[].source`는 `USER_INPUT`만 받는다**(`§3.3` 같은 각주). 생략하면 기존 행의 출처를 그대로 두고, 새로 생기는 행은 `USER_INPUT`이다. `MODEL_ESTIMATE` · `IMPORT` · `SAMPLE`과 그 밖의 문자열은 422 `VALIDATION_ERROR`다.
+
 > **[#1923] 실제 시각의 출처 — `actual_departure_source` · `actual_arrival_source`.** 항차 객체(`§3.1`)에 실리는 두 키이며, 값은 `USER_INPUT`(사람이 넣음) · `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」로 옮김 · `§3.12`) · `null`(「모른다」 — 064 이전 행 · 출처 없이 넣은 시각)이다. **이 요청은 `USER_INPUT`만 받는다** — `PUBLIC_RECORD`는 서버가 공적 기록을 직접 읽어 옮긴 경우에만 참이고, 클라이언트가 「공적 기록에서 왔다」고 주장하는 것은 서버가 확인할 수 없다(422 · `field_label` 「실제 출항 시각 출처」). 시각을 **다른 값으로** 바꾸면서 출처를 생략하면 출처는 `null`로 돌아간다 — 공적 기록에서 채운 시각을 사람이 고쳤는데 「공적 기록에서 채움」이 남으면 `PRD §0.3`이 금하는 거짓말이다(`§3.4` `planned_distance_source`와 같은 규칙). 저장된 시각과 **같은 값**을 다시 보낸 요청은 출처를 그대로 둔다 — 실적 폼은 저장된 시각을 미리 채워 두고 저장 때 그대로 보내므로, 연료만 고친 저장이 출처를 지우면 사용자가 고치지 않은 시각의 표시가 사라진다.
 
 #### 상태별 허용 (#440)
@@ -2461,7 +2465,7 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 |---|---|---|
 | 404 | `NOT_FOUND` | 항차 없음 |
 | 422 | `STATE_TRANSITION_ERROR` | 위 표의 상태 |
-| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn`가 1.0 미만 또는 60 초과(VAL-009) |
+| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn`가 1.0 미만 또는 60 초과(VAL-009) · `fuel_uses[].source`가 `USER_INPUT`이 아님(`#2089`) |
 
 #### 응답 (200 OK)
 
