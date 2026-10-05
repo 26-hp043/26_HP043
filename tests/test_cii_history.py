@@ -361,6 +361,12 @@ async def test_cii_history_api_end_to_end(migrated_db, app_fresh_engine):
             )
             assert over.status_code == 422
             assert over.json()["error"]["details"][0]["field"] == "to"
+            # `to`만 준 요청의 기본 시작 연도는 하한 아래로 내려가지 않는다 — 2020 − 2 = 2018이 아니다.
+            early = client.get(
+                f"/api/v1/vessels/{BULK_VESSEL_ID}/cii-history",
+                params={"to": 2020, "as_of": "2026-08-15T00:00:00Z"},
+            )
+            assert early.status_code == 200
 
             # 없는 선박 — 404.
             missing = client.get("/api/v1/vessels/00000000-0000-4000-8000-00000000ffff/cii-history")

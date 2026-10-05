@@ -318,7 +318,13 @@ async def list_cii_history(
     resolved = resolve_as_of(as_of)
     current_year = resolved.year
     end = to_year if to_year is not None else current_year
-    start = from_year if from_year is not None else end - (DEFAULT_WINDOW_YEARS - 1)
+    # 기본 창의 시작은 하한 아래로 내려가지 않는다 — `to=2020`만 준 요청이 `from=2018`로
+    # 계산돼 422가 되던 자리다(`#2100`). 리포트의 같은 계산(`report.py`)과 같은 처리다.
+    start = (
+        from_year
+        if from_year is not None
+        else max(MIN_REGULATION_YEAR, end - (DEFAULT_WINDOW_YEARS - 1))
+    )
     _validate_window(start, end)
 
     vessel = await cached(
