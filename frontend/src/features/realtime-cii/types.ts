@@ -174,8 +174,24 @@ export interface RealtimeCii {
   simulated: boolean
 }
 
+/**
+ * 주소의 항차 하나를 조회한 결과 (`#2129` · `API_SPEC §3.2`).
+ *
+ * 없는 항차(404)와 있지만 진행 중이 아닌 항차를 가르려고 둔다. `vesselId`는 그 항차가
+ * 속한 선박이다 — 주소의 선박과 다르면 이 선박에는 없는 항차로 읽는다.
+ */
+export type VoyageLookup =
+  | { found: false }
+  | { found: true; status: string; vesselId: string | null }
+
 export interface RealtimeCiiProvider {
   load(vesselId: string): Promise<RealtimeCii>
+  /**
+   * 주소의 항차가 진행 중 항차가 아닐 때 그 사정을 묻는다 (`#2129`).
+   *
+   * 선택 메서드다 — 없으면 화면은 사유를 가르지 않고 일반 안내만 한다.
+   */
+  loadVoyage?(voyageId: string): Promise<VoyageLookup>
   /**
    * 올해 누적 CII 추이 (`#1949`).
    *

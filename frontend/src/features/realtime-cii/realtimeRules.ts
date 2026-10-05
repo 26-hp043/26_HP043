@@ -447,3 +447,20 @@ export function substitutionSummary(ytd: YtdValues): string {
 
   return `완료 항차의 ${parts.join(' · ')}이 실적 대신 계획값으로 계산됐습니다. 실적을 입력하면 등급이 달라질 수 있습니다.`
 }
+
+/**
+ * 주소의 항차가 이 화면이 값을 그리는 진행 중 항차인가 (`#2129`).
+ *
+ * 화면이 값을 그리는 항차는 서버가 고른 진행 중 항차 하나(`current_voyage`)뿐이다.
+ * 주소에 항차 id가 따로 있는데 그것이 다른 항차면 **그 값을 그 항차인 것처럼 그리지
+ * 않는다.** 진행 중 항차의 입구 조각(`current`)이거나 주소에 항차가 없으면 서버 판정을
+ * 그대로 따른다.
+ */
+export function showsCurrentVoyage(
+  routeVoyageId: string | undefined,
+  currentVoyageId: string | null,
+  currentSegment: string,
+): boolean {
+  if (routeVoyageId === undefined || routeVoyageId === currentSegment) return true
+  return routeVoyageId === currentVoyageId
+}

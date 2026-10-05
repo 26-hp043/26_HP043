@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { RealtimeCiiView } from './RealtimeCiiView'
 import { RealtimeCiiError } from './apiProvider'
@@ -1071,5 +1071,118 @@ describe('배치 — 카드 예산과 경고색 (#1949)', () => {
 
     const ytd = await screen.findByRole('region', { name: '연간 누적 CII' })
     expect(within(ytd).queryByText('위험도')).toBeNull()
+  })
+})
+
+/**
+ * 주소의 항차가 진행 중 항차가 아니면 진행 중 항차의 값을 그리지 않는다 (#2129).
+ *
+ * 종전에는 화면이 `voyageId`를 읽지 않아 완료·계획·없는 항차의 주소에서도 진행 중
+ * 항차(`vy-1`)의 값이 그 항차의 것처럼 보였다.
+ */
+describe('주소의 항차가 진행 중 항차가 아니다 (#2129)', () => {
+  function renderAt(voyageId: string, provider: RealtimeCiiProvider) {
+    return render(
+      <MemoryRouter initialEntries={['/vessels/v-1/voyages/' + voyageId]}>
+        <Routes>
+          <Route
+            path="/vessels/:vesselId/voyages/:voyageId"
+            element={<RealtimeCiiView provider={provider} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  type Lookup = Awaited<ReturnType<NonNullable<RealtimeCiiProvider['loadVoyage']>>>
+  const lookupOf = (lookup: Lookup): RealtimeCiiProvider => ({
+    load: vi.fn(async () => BASE),
+    loadVoyage: vi.fn(async () => lookup),
+  })
+
+  async function noticeText(voyageId: string, provider: RealtimeCiiProvider) {
+    cleanup()
+    renderAt(voyageId, provider)
+    const notice = await screen.findByTestId('rt-other-voyage')
+    return notice.querySelector('[role="status"]')?.textContent ?? ''
+  }
+
+  it('완료 항차 주소 — 진행 중 항차의 값이 그려지지 않는다', async () => {
+    renderAt('vy-done', lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-1' }))
+    await screen.findByTestId('rt-other-voyage')
+    expect(screen.queryByRole('region', { name: '연간 누적 CII' })).toBeNull()
+    expect(screen.queryByText(/2026-02/)).toBeNull()
+  })
+
+  it('계획 항차 주소도 값을 그리지 않는다', async () => {
+    renderAt('vy-plan', lookupOf({ found: true, status: 'PLANNED', vesselId: 'v-1' }))
+    await screen.findByTestId('rt-other-voyage')
+    expect(screen.queryByRole('region', { name: '연간 누적 CII' })).toBeNull()
+  })
+
+  it('없는 항차와 진행 중이 아닌 항차는 문구가 다르다', async () => {
+    const missing = await noticeText('vy-none', lookupOf({ found: false }))
+    const done = await noticeText(
+      'vy-done',
+      lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-1' }),
+    )
+    expect(missing).not.toBe('')
+    expect(done).not.toBe('')
+    expect(missing).not.toBe(done)
+  })
+
+  it('다른 선박의 항차는 이 선박에 없는 항차로 읽는다', async () => {
+    const missing = await noticeText('vy-none', lookupOf({ found: false }))
+    const foreign = await noticeText(
+      'vy-x',
+      lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-9' }),
+    )
+    expect(foreign).toBe(missing)
+  })
+
+  it('진행 중 항차가 있으면 그 항차 주소로 가는 링크와 선박 상세로 돌아가는 링크가 있다', async () => {
+    renderAt('vy-done', lookupOf({ found: true, status: 'COMPLETED', vesselId: 'v-1' }))
+    const link = await screen.findByTestId('rt-current-voyage-link')
+    expect(link.getAttribute('href')).toBe('/vessels/v-1/voyages/vy-1')
+    const back = screen.getAllByRole('link').find((a) => a.getAttribute('href') === '/vessels/v-1')
+    expect(back).toBeDefined()
+  })
+
+  it('진행 중 항차가 없으면 이동 링크는 없다', async () => {
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async () => ({ ...BASE, currentVoyage: null })),
+      loadVoyage: vi.fn(async () => ({ found: false as const })),
+    }
+    renderAt('vy-none', provider)
+    await screen.findByTestId('rt-other-voyage')
+    expect(screen.queryByTestId('rt-current-voyage-link')).toBeNull()
+  })
+
+  it('항차 조회가 실패하면 사유를 지어내지 않고 값도 그리지 않는다', async () => {
+    const failing: RealtimeCiiProvider = {
+      load: vi.fn(async () => BASE),
+      loadVoyage: vi.fn(async () => {
+        throw new Error('x')
+      }),
+    }
+    const failed = await noticeText('vy-done', failing)
+    expect(screen.queryByRole('region', { name: '연간 누적 CII' })).toBeNull()
+    const missing = await noticeText('vy-none', lookupOf({ found: false }))
+    expect(failed).not.toBe(missing)
+  })
+
+  it('진행 중 항차의 주소면 값을 그린다 — 항차 조회도 하지 않는다', async () => {
+    const provider = lookupOf({ found: false })
+    renderAt('vy-1', provider)
+    await screen.findByRole('region', { name: '연간 누적 CII' })
+    expect(screen.queryByTestId('rt-other-voyage')).toBeNull()
+    expect(provider.loadVoyage).not.toHaveBeenCalled()
+  })
+
+  it('`current` 입구 조각도 값을 그린다 — 선박 상세의 링크가 깨지지 않는다', async () => {
+    const provider = lookupOf({ found: false })
+    renderAt('current', provider)
+    await screen.findByRole('region', { name: '연간 누적 CII' })
+    expect(provider.loadVoyage).not.toHaveBeenCalled()
   })
 })

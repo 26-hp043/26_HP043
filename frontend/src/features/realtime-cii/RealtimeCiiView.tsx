@@ -37,7 +37,8 @@ import {
 } from "../../display/format";
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from "./apiProvider";
 import { regulationParametersPath } from "../parameters/referenceRules";
-import { voyageActualsPath } from "../voyage-management/voyageRules";
+import { STATUS_LABELS, voyageActualsPath } from "../voyage-management/voyageRules";
+import { CURRENT_VOYAGE_SEGMENT, voyagePath } from "../../layout/globalContext";
 import { portDisplayName, useSamplePorts } from "../ports/samplePorts";
 import {
   POLL_INTERVAL_MS,
@@ -47,6 +48,7 @@ import {
   isNotUnderWay,
   projectionSentence,
   projectionReason,
+  showsCurrentVoyage,
   hasSubstitutedInputs,
   substitutionSummary,
   remainingDistanceNm,
@@ -59,6 +61,7 @@ import type {
   Rating,
   RealtimeCii,
   RealtimeCiiProvider,
+  VoyageLookup,
   VoyageRoute,
   YearEndProjection,
   YtdSeries,
@@ -119,7 +122,7 @@ export function RealtimeCiiView({
 }: {
   provider?: RealtimeCiiProvider;
 }) {
-  const { vesselId } = useParams();
+  const { vesselId, voyageId } = useParams();
   const [data, setData] = useState<RealtimeCii | null>(null);
   const [failure, setFailure] = useState<{
     message: string;
@@ -299,6 +302,33 @@ export function RealtimeCiiView({
       <div className="rt" aria-busy="true">
         <BackLink vesselId={vesselId} />
         <p className="fleet__loading">실시간 값을 불러오는 중입니다…</p>
+      </div>
+    );
+  }
+
+  /*
+   * 주소의 항차가 진행 중 항차가 아니면 값을 그리지 않는다 (`#2129`).
+   *
+   * 종전에는 `voyageId`를 읽지 않아 완료·계획·없는 항차의 주소에서도 진행 중 항차의
+   * 값이 그 항차의 것처럼 보였다. 조용히 다른 주소로 바꾸지도 않는다 — 사용자가 연
+   * 주소와 화면이 말하는 항차가 달라진다. 사실을 말하고 갈 곳을 준다.
+   */
+  if (
+    !showsCurrentVoyage(
+      voyageId,
+      data.currentVoyage?.voyageId ?? null,
+      CURRENT_VOYAGE_SEGMENT,
+    )
+  ) {
+    return (
+      <div className="rt">
+        <BackLink vesselId={vesselId} />
+        <OtherVoyageNotice
+          provider={provider}
+          vesselId={vesselId}
+          voyageId={voyageId!}
+          currentVoyageId={data.currentVoyage?.voyageId ?? null}
+        />
       </div>
     );
   }
@@ -880,6 +910,103 @@ function ConclusionStrip({ data }: { data: RealtimeCii }) {
         ? {}
         : { risk: { level: risk, heading: "위험도", ...riskLabel(risk) } })}
     />
+  );
+}
+
+/**
+ * 주소의 항차가 진행 중 항차가 아닐 때의 안내 (`#2129`).
+ *
+ * 「없는 항차」와 「있지만 진행 중이 아닌 항차」는 문구가 다르다 — 앞은 주소가 틀렸고
+ * 뒤는 그 항차의 값을 이 화면이 그리지 않는 것이다. 사유를 가르려고 항차를 조회하며
+ * (`API_SPEC §3.2`), 조회가 실패하면 사유를 지어내지 않고 조회 실패를 말한다.
+ */
+function OtherVoyageNotice({
+  provider,
+  vesselId,
+  voyageId,
+  currentVoyageId,
+}: {
+  provider?: RealtimeCiiProvider;
+  vesselId?: string;
+  voyageId: string;
+  currentVoyageId: string | null;
+}) {
+  const client = useMemo(
+    () => provider ?? createApiRealtimeCiiProvider(),
+    [provider],
+  );
+  // 결과에 어느 항차의 것인지 붙인다 — 주소의 항차가 바뀌면 옛 결과는 쓰지 않는다.
+  const [result, setResult] = useState<{
+    id: string;
+    lookup: VoyageLookup | null;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadVoyage = client.loadVoyage;
+    if (loadVoyage === undefined) {
+      // oxlint-disable-next-line react/set-state-in-effect -- 조회 수단이 없으면 사유를 가르지 못한다는 결과로 바로 끝낸다
+      setResult({ id: voyageId, lookup: null });
+      return;
+    }
+    loadVoyage.call(client, voyageId).then(
+      (lookup) => {
+        if (!cancelled) setResult({ id: voyageId, lookup });
+      },
+      () => {
+        if (!cancelled) setResult({ id: voyageId, lookup: null });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [client, voyageId]);
+
+  if (result === null || result.id !== voyageId) {
+    return (
+      <p className="fleet__loading" role="status" aria-busy="true">
+        항차를 불러오는 중입니다…
+      </p>
+    );
+  }
+
+  const lookup = result.lookup;
+  // 다른 선박의 항차는 이 선박에 없는 항차다.
+  const missing =
+    lookup !== null &&
+    (!lookup.found || (lookup.vesselId !== null && lookup.vesselId !== vesselId));
+  const label =
+    lookup !== null && lookup.found
+      ? ((STATUS_LABELS as Record<string, string>)[lookup.status] ?? null)
+      : null;
+
+  let message: string;
+  if (lookup === null) {
+    message = "항차를 확인하지 못했습니다.";
+  } else if (missing) {
+    message = "등록된 항차가 없습니다.";
+  } else {
+    message = `이 항차는 진행 중이 아닙니다${label ? ` (${label})` : ""}.`;
+  }
+
+  return (
+    <section data-testid="rt-other-voyage">
+      <p className="rt__nodata" role="status">
+        {message}
+      </p>
+      <p className="rt__nodata">
+        이 화면은 진행 중인 항차의 값만 보여 줍니다.
+      </p>
+      {vesselId && currentVoyageId ? (
+        <Link
+          className="rt__back"
+          data-testid="rt-current-voyage-link"
+          to={voyagePath(vesselId, currentVoyageId)}
+        >
+          진행 중 항차 보기
+        </Link>
+      ) : null}
+    </section>
   );
 }
 

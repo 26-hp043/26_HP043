@@ -9,6 +9,7 @@ import type {
   Substitution,
   VoyageSegment,
   YearEndProjection,
+  VoyageLookup,
   VoyageRoute,
   YtdSeries,
   YtdValues,
@@ -342,6 +343,42 @@ export function createApiRealtimeCiiProvider(
      * `meta.as_of`로 돌려준다(`§1.10` 계약 ⑵). 화면이 「오늘」을 정하면 같은 화면의
      * `/cii/current`와 기준 시각이 갈릴 수 있다.
      */
+    /**
+     * 주소의 항차 하나 — `GET /voyages/{id}` (`API_SPEC §3.2` · `#2129`).
+     *
+     * 404만 「없는 항차」다. 그 밖의 실패는 던진다 — 통신 오류를 「없다」로 읽으면 있는
+     * 항차를 없다고 안내하게 된다.
+     */
+    async loadVoyage(voyageId: string): Promise<VoyageLookup> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/voyages/${encodeURIComponent(voyageId)}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+      } catch (cause) {
+        throw new RealtimeCiiError('서버에 연결하지 못했습니다.', { cause })
+      }
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new RealtimeCiiError(SESSION_EXPIRED_MESSAGE)
+      }
+      if (response.status === 404) return { found: false }
+      if (!response.ok) {
+        throw new RealtimeCiiError(`불러오지 못했습니다 (HTTP ${response.status}).`)
+      }
+      const body = (await response.json().catch(() => null)) as {
+        data?: { status?: unknown; vessel_id?: unknown }
+      } | null
+      const status = body?.data?.status
+      if (typeof status !== 'string') {
+        throw new RealtimeCiiError('응답 형식이 올바르지 않습니다.')
+      }
+      const vesselId = body?.data?.vessel_id
+      return { found: true, status, vesselId: typeof vesselId === 'string' ? vesselId : null }
+    },
+
     async loadRoute(vesselId: string, voyageId: string): Promise<VoyageRoute> {
       const get = async (path: string): Promise<Record<string, unknown> | null> => {
         const response = await fetchImpl(`${baseUrl}${path}`, {
