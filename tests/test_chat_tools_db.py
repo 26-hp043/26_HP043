@@ -218,6 +218,63 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
     assert VESSEL_NAME not in _flat(body)
 
 
+async def test_scenario_comparison_tool_stores_no_scenario_rows(session, vessel_id):
+    """IT-CHATDB-008 — ⚠️ **비교 도구는 ``voyage_scenario``에 아무것도 남기지 않는다** (#2088).
+
+    ``persist=False``는 「저장하지 않는 경로」인데 ``calculation_run``만 건너뛰고 시나리오
+    3행은 넣고 있었다. 챗봇 라우트가 답변 뒤 같은 세션을 커밋하므로, 도구가 불릴 때마다
+    실행에 묶이지 않은 3행이 그 선박에 남았다. 같은 세션에서 세므로 flush만 된 행도 잡힌다.
+    """
+    from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
+
+    async def stored() -> int:
+        return (
+            await session.execute(
+                text("SELECT COUNT(*) FROM voyage_scenario WHERE vessel_id = :vid").bindparams(
+                    bindparam("vid", type_=UuidText())
+                ),
+                {"vid": vessel_id},
+            )
+        ).scalar_one()
+
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_COMPARE_SCENARIOS,
+        arguments={
+            "current_speed_kn": "12",
+            "fuel_type": "HFO",
+            "direct_distance_nm": "5000",
+            "base_daily_foc_ton": "30",
+            "regulation_year": 2026,
+        },
+        vessel_id=vessel_id,
+    )
+    body = _parsed(raw)
+    # 계산이 실제로 돌았다 — 오류 봉투였다면 「0행」이 아무것도 말하지 않는다.
+    assert "error" not in body, body
+    assert len(body["result"]["scenarios"]) == 3
+    assert await stored() == 0
+
+    payload = ScenarioCompareInput(
+        vessel_id=vessel_id,
+        regulation_year=2026,
+        current_speed_kn=Decimal("12"),
+        fuel_type="HFO",
+        direct_distance_nm=Decimal("5000"),
+        base_daily_foc_ton=Decimal("30"),
+    )
+    # 가리킬 행이 없으므로 id도 없다 — 없는 행의 id를 지어 주면 채택 요청이 404가 된다.
+    unsaved = await compare_scenarios(session, payload, persist=False)
+    assert [row["scenario_id"] for row in unsaved["data"]["scenarios"]] == [None, None, None]
+    assert unsaved["calculation_run_id"] is None
+    assert await stored() == 0
+
+    # 저장하는 경로는 그대로다 — 3행과 그 id.
+    saved = await compare_scenarios(session, payload, commit=False)
+    assert all(row["scenario_id"] for row in saved["data"]["scenarios"])
+    assert await stored() == 3
+
+
 async def test_annual_simulation_passes_the_reason_code_through(session, vessel_id):
     """IT-CHATDB-006 — 연말 예상을 못 낼 때 **사유 코드를 그대로** 넘긴다.
 

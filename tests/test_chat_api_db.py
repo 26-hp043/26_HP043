@@ -752,6 +752,60 @@ async def test_search_resolution_carries_into_the_next_tool_and_response(
         await _cleanup()
 
 
+async def test_the_compare_tool_leaves_no_scenario_rows_after_the_route_commits(
+    migrated_db, app_fresh_engine
+):
+    """#2088 — 챗봇 라우트로 비교 도구를 유발해도 ``voyage_scenario`` 행 수가 그대로다.
+
+    라우트는 답변 뒤 세션을 **커밋한다.** 도구가 flush만 해 둔 행도 그 커밋으로 확정되므로,
+    「저장하지 않는 경로」가 남긴 3행이 호출마다 그 선박에 쌓였다. 도구 수준 검사
+    (``test_chat_tools_db``의 IT-CHATDB-008)는 같은 세션 안을 보고, 이 검사는 **커밋된 뒤**를
+    다른 세션으로 센다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    async def stored() -> int:
+        async with get_sessionmaker()() as s:
+            return (await s.execute(text("SELECT COUNT(*) FROM voyage_scenario"))).scalar_one()
+
+    provider = FakeProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="compare_scenarios",
+                        arguments={
+                            "current_speed_kn": 12,
+                            "fuel_type": "HFO",
+                            "direct_distance_nm": 1000,
+                            "base_daily_foc_ton": 30,
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="비교했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        before = await stored()
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "로로 여객선 속도 시나리오 비교"}, headers=headers
+            )
+            assert response.status_code == 200, response.text
+            data = response.json()["data"]
+            assert data["tool_calls"] == ["search_vessel", "compare_scenarios"]
+            # 선박이 정해져 도구가 실제로 돌았다 — 안내 오류였다면 행 수가 그대로인 것이 당연하다.
+            assert "어느 선박인지" not in json.dumps(data, ensure_ascii=False)
+            assert data["vessel_resolved"] is True
+        assert await stored() == before
+    finally:
+        await _cleanup()
+
+
 async def test_no_vessel_anywhere_reports_unresolved(migrated_db, app_fresh_engine):
     """#1242 — 어디에도 선박이 없으면 `vessel_resolved: false` — 계산 도구는 안내 error."""
     provider = FakeProvider(

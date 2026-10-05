@@ -219,6 +219,12 @@ async def compare_scenarios(
     ``persist=False``는 **저장하지 않는 경로**다 (`#1334` ⑷) — 근거는
     :func:`~cii_platform.services.voyage_cii.estimate_voyage_cii`의 같은 절에 있다.
     챗봇 도구가 이 함수도 부른다.
+
+    **``voyage_scenario`` 행도 넣지 않는다** (`#2088`). 종전에는 ``calculation_run``만
+    건너뛰고 시나리오 3행은 넣었는데, 챗봇 라우트가 답변 뒤 같은 세션을 커밋하므로
+    비교 도구가 불릴 때마다 실행에 묶이지 않은 3행이 그 선박에 남았다 — 채택
+    (``POST /scenarios/{id}/adopt``) 대상도 됐다. 저장한 행이 없으므로 이 경로의
+    응답 ``scenario_id``는 ``None``이다(챗봇 도구는 그 값을 내보내지 않는다).
     """
     if weather_provider is None and payload.weather_model not in (None, "NONE"):
         from cii_platform.weather.open_meteo import OpenMeteoProvider
@@ -321,8 +327,14 @@ async def compare_scenarios(
     # 시나리오 행을 먼저 저장한다 — PK가 gen_random_uuid() server_default라 flush를
     # 해야 id를 알 수 있고, 그 id가 응답 시나리오 객체와 result_json 양쪽에
     # 들어간다(§5.2 adopt가 이 id를 참조한다).
-    scenario_ids: list[UUID] = []
+    #
+    # ``persist=False``면 **넣지 않는다** (`#2088`) — 저장하지 않는 경로가 남기는 행은
+    # 실행(``calculation_run``)에 묶이지 않은 채 호출부의 커밋으로 확정된다.
+    scenario_ids: list[UUID | None] = []
     for plan, item, row in zip(plans, computed, _db_rows(computed), strict=True):
+        if not persist:
+            scenario_ids.append(None)
+            continue
         scenario = await scenario_repo.insert(
             session,
             vessel_id=payload.vessel_id,
@@ -734,7 +746,7 @@ def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
 def _serialize_scenarios(
     *,
     computed: list[_ScenarioComputed],
-    scenario_ids: list[UUID],
+    scenario_ids: list[UUID | None],
     vessel,
     reference_line,
     regulation,
@@ -743,7 +755,10 @@ def _serialize_scenarios(
     weather_model_used: str,
     weather_factor: Decimal,
 ) -> list[dict[str, object]]:
-    """API_SPEC §5.1 ``scenarios[]`` 블록. ``scenario_ids``는 저장된 행의 PK다."""
+    """API_SPEC §5.1 ``scenarios[]`` 블록. ``scenario_ids``는 저장된 행의 PK다.
+
+    저장하지 않는 경로(``persist=False``)에서는 ``None``이다 — 가리킬 행이 없다 (`#2088`).
+    """
     calculation_basis = {
         "ship_type": vessel.ship_type,
         "transport_capacity": _plain(transport_capacity),
@@ -762,7 +777,7 @@ def _serialize_scenarios(
         json_list.append(
             {
                 # §5.2 adopt가 참조하는 id다.
-                "scenario_id": str(scenario_id),
+                "scenario_id": None if scenario_id is None else str(scenario_id),
                 "scenario_type": item.plan.scenario_type,
                 "scenario_name": SCENARIO_NAMES[item.plan.scenario_type],
                 # 입력 에코는 숫자다 (API_SPEC §5.1 응답 예시).
