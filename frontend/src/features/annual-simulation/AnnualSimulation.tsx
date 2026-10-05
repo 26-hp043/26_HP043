@@ -199,8 +199,23 @@ export function AnnualSimulation({
    * 않는다. 그래서 `<details>`의 열림을 상태로 쥔다.
    */
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const advancedChanged = countAdvancedChanges({ runs, seed, applyFeedback, alternativeFuel })
   const fuelOptions = useFuelOptions()
+  /*
+   * 셀렉트에 보이는 값과 요청에 실리는 값은 **같은 값**이다 (#2125). 복원한 결과의 대체 연료가
+   * 지금 연료 목록에 없는 코드이면(비활성화 · 아직 받는 중 · 받지 못함) 셀렉트는 「고르지 않음」을
+   * 보이는데 요청에는 그 코드가 실려 갈리게 된다 — 목록에 있는 코드일 때만 쓴다. 목록이 늦게
+   * 도착하면 그때 보이지만, 그 사이에 실행을 눌렀다면 실행 시작에서 상태를 **실제로 보낸 값**으로
+   * 고정한다 — 그러지 않으면 목록이 오는 순간 방금 돌린 결과와 다른 연료가 입력칸에 나타난다.
+   */
+  const alternativeFuelValue = fuelOptions.fuels.some((fuel) => fuel.code === alternativeFuel)
+    ? alternativeFuel
+    : ''
+  const advancedChanged = countAdvancedChanges({
+    runs,
+    seed,
+    applyFeedback,
+    alternativeFuel: alternativeFuelValue,
+  })
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
@@ -330,6 +345,14 @@ export function AnnualSimulation({
           setTarget(item.target_rating as (typeof TARGET_RATINGS)[number])
         }
         setRuns(String(item.simulation_runs))
+        /*
+         * 실적 보정·대체 연료도 **결과 본문이 말하는 값**으로 맞춘다 (#2125). 옛 결과에는 두 블록이
+         * 없을 수 있다 — 값을 지어내지 않고 기본(끔·고르지 않음)으로 둔다. `seed`는 되돌리지
+         * 않는다: 결과의 `rng` 메타는 서버가 정한 값이어서, 사용자가 직접 고르지 않은 실행에서
+         * 입력칸을 채우면 「직접 고정했다」로 읽힌다(고급 설정 변경 수 표시도 달라진다).
+         */
+        setApplyFeedback(result.feedback?.requested === true)
+        setAlternativeFuel(result.sensitivity_analysis?.fuel_cf_alternative?.alternative_fuel ?? '')
         setState({
           status: 'success',
           result,
@@ -387,6 +410,19 @@ export function AnnualSimulation({
     unknown: ANNUAL_COPY.targetVesselUnknown,
   })
 
+  /*
+   * 어시스턴트가 읽는 실행은 **화면에 보이는 결과의 실행**이다 (#1533 · #2125).
+   * 새 실행이 성공했을 때뿐 아니라 들어올 때 다시 연 「마지막 실행」(#1701)도 올리고, 결과가
+   * 지워지는 모든 경로(선박·연도 전환 · 새 실행 시작 · 실패 · 막힘 · 화면을 떠남)에서 비운다 —
+   * `state`가 성공이 아니게 되는 순간이 곧 그 경로들이라 한 곳에서 맞춘다.
+   * (확률까지 저장된 실행에서 읽게 하는 이유: 다시 돌리면 화면과 달라진다.)
+   */
+  const shownRunId = state.status === 'success' ? state.result.calculation_run_id : null
+  useEffect(() => {
+    publishScreenResult(shownRunId)
+    return () => publishScreenResult(null)
+  }, [shownRunId])
+
   const run = useCallback(async () => {
     // 실행 전 차단은 `blocked`다 — 실패가 아니라 안내 (#1096 ⑸).
     if (shell.vesselId === null) {
@@ -415,6 +451,8 @@ export function AnnualSimulation({
       setAdvancedOpen(true)
       return
     }
+    // 보낸 값으로 상태를 고정한다 — 복원한 연료가 목록 도착 전이라 빠졌다면 상태에서도 뺀다 (#2125).
+    setAlternativeFuel(alternativeFuelValue)
     setState({ status: 'running' })
     // 새 실행이 시작되면 들어올 때 받던 마지막 결과가 뒤늦게 와도 버린다(#1701).
     generationRef.current += 1
@@ -434,13 +472,11 @@ export function AnnualSimulation({
         // 끈 상태는 보내지 않는다 — 서버 기본이 끔이고, 요청 모양이 종전과 같게 남는다.
         ...(applyFeedback ? { apply_feedback_factor: true } : {}),
         // 대체 연료 지렛대 (#756 ⑴) — 골랐을 때만 보낸다.
-        ...(alternativeFuel ? { alternative_fuel: alternativeFuel } : {}),
+        ...(alternativeFuelValue ? { alternative_fuel: alternativeFuelValue } : {}),
       })
       // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
       // 결과를 붙이지 않는다 (`#1094`).
       if (ticket !== generationRef.current) return
-      // #1533 — 챗봇이 확률까지 저장된 실행에서 읽게 한다(다시 돌리면 화면과 달라진다).
-      publishScreenResult(result.calculation_run_id)
       setState({ status: 'success', result, conditions })
       onDisclaimer?.(undefined)
     } catch (error: unknown) {
@@ -452,7 +488,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
-  }, [provider, shell.vesselId, targetVessel, year, yearsFailed, yearsLoading, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
+  }, [provider, shell.vesselId, targetVessel, year, yearsFailed, yearsLoading, target, runs, seed, applyFeedback, alternativeFuelValue, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -653,7 +689,7 @@ export function AnnualSimulation({
               <select
                 id="annual-sim-alt-fuel"
                 className="annual-sim__control"
-                value={alternativeFuel}
+                value={alternativeFuelValue}
                 aria-describedby="annual-sim-alt-fuel-hint"
                 onChange={(event) => setAlternativeFuel(event.target.value)}
               >

@@ -13,6 +13,7 @@ import type { FeedbackBlock, FutureYearOutlook, ReductionPlanBlock } from './typ
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
+import { currentScreenResult, resetScreenResult } from '../assistant/screenResult'
 
 /**
  * 「이 seed로 다시 실행」의 **화면 배선** (`PRD §12.4.3` · #776).
@@ -2092,5 +2093,239 @@ describe('연도 목록이 빈 배열이면 「불러오는 중」이 아니라 
     expect(status.textContent).not.toBe(ANNUAL_COPY.yearsPending)
     expect(status.textContent).not.toBe(ANNUAL_COPY.yearsUnavailable)
     expect(submittedBody(fetchImpl as never)).toBeNull()
+  })
+})
+
+/**
+ * 복원한 「마지막 실행」의 조건이 입력칸·어시스턴트와 같은 실행을 가리킨다 (#2125).
+ * 표시 문구가 아니라 성질을 단언한다 — 입력칸의 켜짐·값, 어시스턴트가 읽는 실행 id.
+ */
+describe('복원한 마지막 실행의 조건 (#2125)', () => {
+  const LAST = {
+    simulation_id: 'sim-last',
+    calculation_run_id: 'run-sim-last',
+    regulation_year: 2026,
+    target_rating: 'B',
+    simulation_runs: 2000,
+    as_of: null,
+    created_at: '2026-09-23T06:40:12.123000+00:00',
+    needs_recalc: false,
+  }
+
+  /** 마지막 실행(`sim-last`)의 본문을 호출부가 고친다. 연료 목록은 HFO·LNG. */
+  function stubLast(
+    edit: (payload: Record<string, any>) => void = () => {},
+    gates: { fuels?: Promise<void>; post?: Promise<void> } = {},
+  ) {
+    let runs = 0
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        await gates.fuels
+        return jsonResponse({
+          data: [
+            { code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true },
+            { code: 'LNG', display_name: 'LNG', cf: '2.750', unit: 't', is_active: true },
+          ],
+        })
+      }
+      if (url.includes('/annual-simulations?vessel_id=')) {
+        return jsonResponse({ data: [LAST], meta: { next_cursor: null } })
+      }
+      if (url.endsWith('/annual-simulations/sim-last')) {
+        const payload = body('sim-last') as Record<string, any>
+        edit(payload)
+        return jsonResponse(payload)
+      }
+      if (url.endsWith('/annual-simulations') && init?.method === 'POST') {
+        await gates.post
+        runs += 1
+        return jsonResponse(body(`sim-${runs}`))
+      }
+      if (url.includes('/cii-history')) return jsonResponse(historyBody())
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  const feedbackBox = () => screen.getByLabelText(ANNUAL_COPY.feedbackToggle) as HTMLInputElement
+  const altFuel = () =>
+    screen.getByLabelText(ANNUAL_COPY.alternativeFuelLabel) as HTMLSelectElement
+
+  beforeEach(() => {
+    window.history.pushState({}, '', '/annual')
+    resetScreenResult()
+  })
+  afterEach(() => {
+    resetScreenResult()
+  })
+
+  it('실적 보정을 켜고 돌린 실행을 다시 열면 입력칸이 켜져 있다', async () => {
+    stubLast((payload) => {
+      payload.data.feedback = {
+        factor: '1.05',
+        sample_size: 5,
+        min_sample: 3,
+        requested: true,
+        applied: true,
+      }
+    })
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(feedbackBox().checked).toBe(true)
+  })
+
+  it('켜지 않고 돌렸거나 feedback 블록이 없는 옛 실행은 끈 채로 둔다', async () => {
+    stubLast()
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(feedbackBox().checked).toBe(false)
+    await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
+    expect(altFuel().value).toBe('')
+  })
+
+  it('대체 연료를 고르고 돌린 실행을 다시 열면 셀렉트와 다시 실행 요청이 그 연료다', async () => {
+    const fetchImpl = stubLast((payload) => {
+      payload.data.sensitivity_analysis.fuel_cf_alternative = {
+        projected_cii: '4.7',
+        rating_change: 'C→C',
+        alternative_fuel: 'LNG',
+      }
+    })
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    await waitFor(() => expect(altFuel().value).toBe('LNG'))
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
+    expect(submittedBody(fetchImpl as never)?.alternative_fuel).toBe('LNG')
+  })
+
+  it('지금 목록에 없는 연료 코드면 셀렉트와 요청이 함께 「고르지 않음」이다', async () => {
+    const fetchImpl = stubLast((payload) => {
+      payload.data.sensitivity_analysis.fuel_cf_alternative = {
+        projected_cii: '4.7',
+        rating_change: 'C→C',
+        alternative_fuel: 'RETIRED_FUEL',
+      }
+    })
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
+    expect(altFuel().value).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
+    expect(submittedBody(fetchImpl as never)).not.toHaveProperty('alternative_fuel')
+  })
+
+  it('복원한 결과를 어시스턴트가 읽는다 — 그 실행의 id로', async () => {
+    stubLast()
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(currentScreenResult()).toBe('run-sim-last')
+  })
+
+  it('새 실행이 성공하면 어시스턴트가 새 실행을 읽는다', async () => {
+    stubLast()
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
+    expect(currentScreenResult()).toBe('run-sim-1')
+  })
+
+  it('실행이 실패하면 비운다', async () => {
+    const fetchImpl = stubLast()
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(currentScreenResult()).toBe('run-sim-last')
+    const base = fetchImpl.getMockImplementation()!
+    fetchImpl.mockImplementation(async (input: unknown, init?: RequestInit) =>
+      String(input).endsWith('/annual-simulations') && init?.method === 'POST'
+        ? new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } })
+        : base(input, init),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await screen.findByRole('alert', undefined, { timeout: 5000 })
+    expect(currentScreenResult()).toBeUndefined()
+  })
+
+  it('화면을 떠나면 비운다', async () => {
+    stubLast()
+    const view = renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(currentScreenResult()).toBe('run-sim-last')
+
+    view.unmount()
+    expect(currentScreenResult()).toBeUndefined()
+  })
+
+  it('연료 목록이 늦은 채 실행하면, 목록이 도착해도 입력칸은 방금 실행한 조건이다', async () => {
+    let releaseFuels: () => void = () => {}
+    const fuels = new Promise<void>((resolve) => {
+      releaseFuels = resolve
+    })
+    const fetchImpl = stubLast((payload) => {
+      payload.data.sensitivity_analysis.fuel_cf_alternative = {
+        projected_cii: '4.7',
+        rating_change: 'C→C',
+        alternative_fuel: 'LNG',
+      }
+    }, { fuels })
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+
+    // 목록이 없는 동안 실행한다 — 요청에는 대체 연료가 실리지 않는다.
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
+    expect(submittedBody(fetchImpl as never)).not.toHaveProperty('alternative_fuel')
+
+    await act(async () => {
+      releaseFuels()
+    })
+    await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
+    expect(altFuel().value).toBe('')
+  })
+
+  it('실행을 누르면 응답이 오기 전에 어시스턴트가 읽는 실행이 비워진다', async () => {
+    let releasePost: () => void = () => {}
+    const post = new Promise<void>((resolve) => {
+      releasePost = resolve
+    })
+    stubLast(() => {}, { post })
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(currentScreenResult()).toBe('run-sim-last')
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await waitFor(() => expect(currentScreenResult()).toBeUndefined())
+
+    await act(async () => {
+      releasePost()
+    })
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
+    expect(currentScreenResult()).toBe('run-sim-1')
+  })
+
+  it('연도를 바꾸면 비워진다', async () => {
+    const fetchImpl = stubLast()
+    const base = fetchImpl.getMockImplementation()!
+    fetchImpl.mockImplementation(async (input: unknown, init?: RequestInit) =>
+      String(input).includes('/parameters/regulation-years')
+        ? jsonResponse({ data: [{ year: 2025 }, { year: 2026 }] })
+        : base(input, init),
+    )
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+    expect(currentScreenResult()).toBe('run-sim-last')
+
+    fireEvent.change(screen.getByLabelText(/기준연도/), { target: { value: '2025' } })
+    await waitFor(() => expect(screen.queryByTestId('annual-sim-last-run')).toBeNull())
+    expect(currentScreenResult()).toBeUndefined()
   })
 })

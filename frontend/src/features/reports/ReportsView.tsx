@@ -121,7 +121,12 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   )
   const [busy, setBusy] = useState<null | 'preview' | DownloadFormat>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [saved, setSaved] = useState<string | null>(null)
+  /*
+   * 내려받기 완료 안내 (#2125). **내려받은 조건의 키를 함께 쥔다** — 안내는 지금 고른 조건이
+   * 그때의 것일 때만 보인다. 조건이 바뀌면 안내가 말하는 파일은 지금 보는 문서가 아니다.
+   * 판정은 미리보기를 따라가는 효과(#1768)와 같은 `targetKey`다 — 기준을 두 벌 두지 않는다.
+   */
+  const [saved, setSaved] = useState<{ name: string; key: string } | null>(null)
 
   /*
    * 선택된 연도를 목록 안으로 맞춘다 (`#635`).
@@ -308,7 +313,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     setFailure(null)
     setSaved(null)
     try {
-      setSaved(await api.download(target, action))
+      setSaved({ name: await api.download(target, action), key: targetKey(target) })
     } catch (error) {
       // 서버 문구를 그대로 쓴다 — 「완료되지 않은 항차는…」은 화면이 다시 쓸 수 없다.
       setFailure(
@@ -595,9 +600,9 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
           {failure ? (
             <ErrorState level="region" size="compact" message={failure} />
           ) : null}
-          {saved ? (
+          {saved && typeof currentTarget !== 'string' && saved.key === targetKey(currentTarget) ? (
             <p className="rp__ok" role="status">
-              내려받았습니다 — <b>{saved}</b>
+              내려받았습니다 — <b>{saved.name}</b>
             </p>
           ) : null}
         </section>

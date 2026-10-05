@@ -576,3 +576,58 @@ describe('선박을 고르기 전 연도 칸 (#2048)', () => {
     expect(texts, '선박을 골랐는데 자리표시가 남아 있습니다').not.toContain(SELECT_VESSEL_FIRST)
   })
 })
+
+/**
+ * 내려받기 완료 안내는 **내려받은 조건**의 것이다 (#2125). 안내가 말하는 파일은 그 조건의
+ * 문서이므로, 조건이 바뀌면 지금 보는 문서의 안내가 아니다. 문구가 아니라 안내의 유무를 본다.
+ */
+describe('내려받기 완료 안내는 조건을 따라간다 (#2125)', () => {
+  /** 안내는 `role=status`로 읽힌다 — 클래스가 아니라 역할로 찾는다. */
+  const notice = () => screen.queryByRole('status')
+  /** 안내가 말하는 파일명이 화면 어디에든 보이는가. */
+  const showsFile = (name: string) => screen.queryByText(name) !== null
+
+  /** 조건(항차)마다 다른 파일명을 준다 — 어느 조건의 파일인지 안내가 말해야 한다. */
+  const named = () =>
+    stub({
+      listVoyages: vi.fn(async () => [voyage('a-1', 'A-2026-01'), voyage('a-2', 'A-2026-02')]),
+      download: vi.fn(async (target) => `report-${(target as { voyageId: string }).voyageId}.pdf`),
+    })
+
+  async function downloadFirstVoyage(provider: ReportsProvider) {
+    renderInShell(provider, { vesselId: 'v-a' })
+    await chooseVoyageKind()
+    await screen.findByRole('option', { name: /A-2026-01/ })
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    fireEvent.click(screen.getByTestId('pdf-button'))
+    await waitFor(() => expect(notice()).not.toBeNull())
+  }
+
+  it('조건을 바꾸면 안내가 사라진다', async () => {
+    await downloadFirstVoyage(named())
+    expect(notice()?.textContent).toContain('report-a-1.pdf')
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
+
+    expect(notice()).toBeNull()
+    expect(showsFile('report-a-1.pdf')).toBe(false)
+  })
+
+  it('조건을 바꿨다가 되돌리면 다시 지금 조건의 안내다', async () => {
+    await downloadFirstVoyage(named())
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
+    expect(notice()).toBeNull()
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    expect(notice()?.textContent).toContain('report-a-1.pdf')
+  })
+
+  it('조건이 그대로인 동안은 남는다', async () => {
+    await downloadFirstVoyage(named())
+
+    // 같은 값을 다시 고른다 — 조건은 그대로다.
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+
+    expect(notice()?.textContent).toContain('report-a-1.pdf')
+  })
+})
