@@ -345,6 +345,47 @@ def test_create_with_unknown_source_is_422(voyage_app):
     assert resp.json()["error"]["details"][0]["field_label"] == "계획 거리 출처"
 
 
+# --- 연료 기록 출처 (#2089) ---------------------------------------------------------
+
+#: 클라이언트가 적으면 안 되는 값 — 앞의 셋은 DB가 받는 값이지만 **서버 경로만** 적는다
+#: (채택 · CSV 가져오기 · 시드). 마지막은 DB도 받지 않는 값이다.
+_SERVER_ONLY_OR_UNKNOWN_FUEL_SOURCES = ["MODEL_ESTIMATE", "IMPORT", "SAMPLE", "FOO"]
+
+
+@pytest.mark.parametrize("source", _SERVER_ONLY_OR_UNKNOWN_FUEL_SOURCES)
+def test_create_rejects_a_fuel_source_the_client_may_not_write(voyage_app, source):
+    """`fuel_uses[].source`는 `USER_INPUT`만 받는다 — 나머지는 422다 (#2089).
+
+    종전에는 자유 문자열이라 `MODEL_ESTIMATE`·`SAMPLE`이 그대로 저장돼 리포트에 출처로
+    인쇄됐고, 넷 밖의 값은 DB 트리거까지 가서 거부됐다.
+    """
+    resp = voyage_app.post(
+        CREATE_URL,
+        json={
+            **PAYLOAD,
+            "fuel_uses": [{"fuel_type": "HFO", "planned_fuel_ton": 800.0, "source": source}],
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    error = resp.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["details"][0]["field"] == "fuel_uses[0].source"
+    assert error["details"][0]["field_label"] == "연료 기록 출처"
+
+
+def test_create_accepts_user_input_and_defaults_to_it(voyage_app):
+    """`USER_INPUT`은 그대로 받고 생략하면 그 값이다 — 좁힌 것이 정상 요청을 막지 않는다."""
+    explicit = voyage_app.post(
+        CREATE_URL,
+        json={
+            **PAYLOAD,
+            "fuel_uses": [{"fuel_type": "HFO", "planned_fuel_ton": 800.0, "source": "USER_INPUT"}],
+        },
+    )
+    assert explicit.status_code == 201, explicit.text
+    assert voyage_app.post(CREATE_URL, json=PAYLOAD).status_code == 201
+
+
 # --- 상태 전환 policy (#310) · PATCH null 의미론 (#312) ------------------------------
 
 
@@ -775,6 +816,22 @@ class TestActualsRoute:
         client.put(f"/api/v1/voyages/{voyage_id}/actuals", json={"actual_distance_nm": 1100.0})
 
         assert store[voyage_id].status == "COMPLETED"
+
+    @pytest.mark.parametrize("source", _SERVER_ONLY_OR_UNKNOWN_FUEL_SOURCES)
+    def test_fuel_source_the_client_may_not_write_is_422(self, actuals_app, source):
+        """실적 입력도 같다 — `USER_INPUT` 밖의 출처는 422다 (#2089)."""
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        resp = client.put(
+            f"/api/v1/voyages/{voyage_id}/actuals",
+            json={"fuel_uses": [{"fuel_type": "HFO", "actual_fuel_ton": 850.0, "source": source}]},
+        )
+
+        assert resp.status_code == 422, resp.text
+        error = resp.json()["error"]
+        assert error["code"] == "VALIDATION_ERROR"
+        assert error["details"][0]["field"] == "fuel_uses[0].source"
 
     def test_unknown_field_is_rejected(self, actuals_app):
         """`extra="forbid"` — 오타 필드가 조용히 무시되면 사용자는 입력이 반영된 줄 안다."""

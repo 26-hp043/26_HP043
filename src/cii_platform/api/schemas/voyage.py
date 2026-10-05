@@ -27,6 +27,17 @@ DistanceSource = Literal["USER_INPUT", "COORDINATE_ESTIMATE"]
 #: 059의 트리거가 허용하는 값과 같은 집합 — 마이그레이션 쪽이 정본이고 여기서 갈리면 500이다.
 DISTANCE_SOURCES: tuple[str, ...] = get_args(DistanceSource)
 
+#: 연료 기록(``fuel_uses[].source``)의 출처 가운데 **요청이 적을 수 있는 값** (#2089).
+#:
+#: DB(``chk_fuel_source`` · 048)가 받는 값은 넷이다 — ``USER_INPUT`` · ``MODEL_ESTIMATE`` ·
+#: ``IMPORT`` · ``SAMPLE``. 뒤의 셋은 **서버 경로만** 적는다: 시나리오 채택
+#: (``services/scenario_adopt``) · CSV 가져오기(``services/voyage_import``) · 데모 시드.
+#: 종전에는 자유 문자열이라 클라이언트가 「모델 추정」·「샘플」을 스스로 적을 수 있었고,
+#: 리포트와 CSV 내보내기가 그 값을 출처로 인쇄했다. 넷 밖의 문자열은 스키마를 지나
+#: 트리거에서 거부됐다. 시각 출처(``ClientTimeSource``)와 같은 판단이다 — 서버가 확인할 수
+#: 없는 출처를 클라이언트의 주장으로 받지 않는다.
+ClientFuelSource = Literal["USER_INPUT"]
+
 #: 실제 출항·도착 시각과 정박 구간 시작·끝 시각의 출처 (#1923 · `DB_SCHEMA §2.2`·`§2.17`).
 #:
 #: `USER_INPUT`은 사람이 넣은 값, `PUBLIC_RECORD`는 공적 재항 기록에서 「이 값으로 채우기」로
@@ -59,7 +70,7 @@ class VoyageFuelUseCreateRequest(BaseModel):
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # VAL-002: > 0. 상·하한은 DB 저장 범위 `NUMERIC(12,4)`에서 온다 (#1086 · `schemas/bounds.py`).
     planned_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
-    source: Annotated[str, Field(default="USER_INPUT", max_length=30)]
+    source: ClientFuelSource = "USER_INPUT"
 
 
 class VoyageCreateRequest(BaseModel):
@@ -146,7 +157,8 @@ class VoyageFuelActualRequest(BaseModel):
     #: `chk_actual_fuel_positive` — DB도 같은 조건을 건다. 0을 「안 썼다」로 쓰려면
     #: 그 행을 넣지 않는 것이 맞다.
     actual_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
-    source: Annotated[str | None, Field(default=None, max_length=30)] = None
+    #: 생략은 「변경 없음」이다 — 기존 행의 출처를 그대로 둔다(``services/voyage``).
+    source: ClientFuelSource | None = None
 
 
 class VoyageActualsRequest(BaseModel):
