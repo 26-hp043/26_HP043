@@ -227,6 +227,57 @@ def test_extract_normalizes_thousands_separator():
     assert extract_numbers("12,345.60 톤") == ["12345.6"]
 
 
+# ── #2099 — 날짜 지우기 패턴의 경계 ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # 날짜·연-월·시각은 계속 수로 세지 않는다.
+        ("2026-09-18", []),
+        ("2026-09-18.", []),
+        ("2026-09", []),
+        ("16:30", []),
+        # 연도 범위 — 두 연도 모두 연도 목록(2019~2040)이라 대조에서 빠진다.
+        ("2024-2026년", []),
+        ("2024~2026", []),
+        ("2024–2026", []),
+        # 연도 목록 밖의 연도는 여전히 잡힌다 (구멍이 나지 않는다).
+        ("2018-2026", ["2018"]),
+        # 하이픈으로 이은 소수 — 조각이 아니라 두 수로 뽑는다.
+        ("5.0451-4.9824", ["5.0451", "4.9824"]),
+        ("3-5척", []),
+        ("12-15척", ["12", "15"]),
+        # 진짜 음수는 부호를 유지한다.
+        ("값은 -0.5입니다", ["-0.5"]),
+    ],
+)
+def test_extract_numbers_date_boundary_and_ranges(text, expected):
+    """`#2099` — 경계를 둔 뒤의 표기별 추출. 수정 전에는 ``2024-2026``이 ``['26']``이었다."""
+    assert extract_numbers(text) == expected
+
+
+def test_range_and_hyphenated_decimals_pass_the_guard():
+    """`#2099` 완료 기준 — 연도 범위·하이픈 소수가 든 정상 답을 폐기하지 않는다."""
+    verify_numbers("2024-2026년 평가 결과입니다. attained는 4.98입니다.", ['{"v": "4.98"}'])
+    verify_numbers(
+        "required 5.0451-attained 4.9824 순으로 봅니다.", ['{"a": "5.0451", "b": "4.9824"}']
+    )
+
+
+def test_guard_still_catches_numbers_next_to_ranges_and_dates():
+    """`#2099` — 경계가 가드를 느슨하게 하지 않는다. 도구 응답에 없는 수는 계속 잡힌다."""
+    # 문장 끝 마침표 바로 뒤의 음수는 부호를 지킨다 — 도구는 0.5를 줬는데 -0.5라고 쓴 답이다.
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("4.98.-0.5", ['{"a": "4.98", "b": "0.5"}'])
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("5.0451-4.9824 입니다.", ['{"a": "5.0451"}'])
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("2026-09-18에 12척입니다.", ['{"v": "4.98"}'])
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("2024-2026년 기간 동안 77입니다.", ['{"v": "4.98"}'])
+
+
 def test_api_key_env_constant_matches_the_literal_that_is_read():
     """IT-CHAT-005 보조 — 문서용 상수와 **실제로 읽는 리터럴**이 같다.
 

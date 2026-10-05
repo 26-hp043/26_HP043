@@ -501,6 +501,30 @@ async def test_search_with_two_matches_asks_the_screen(session, vessel_id):
     assert outcome.resolved_vessel_id is None
 
 
+async def test_search_with_six_matches_does_not_claim_five(session, vessel_id):
+    """`#2099` — 한 쪽(5건)으로 자른 길이를 척수로 말하지 않는다. 6척이면 「5척」이 아니다."""
+    for n in range(5):
+        await session.execute(
+            text(
+                "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+                "VALUES (:id, :imo, :name, 'BULK_CARRIER', 30000)"
+            ),
+            {
+                "id": uuid4(),
+                "imo": f"9{uuid4().int % 1000000:06d}",
+                "name": f"{VESSEL_NAME} {n}",
+            },
+        )
+    outcome = await chat_tools.run_tool(
+        session, name="search_vessel", arguments={"name": VESSEL_NAME}, vessel_id=None
+    )
+    body = json.loads(outcome.envelope)
+    assert body["ok"] is False
+    assert "5척 이상이 일치합니다" in body["error"]
+    assert "5척이 일치" not in body["error"]
+    assert outcome.resolved_vessel_id is None
+
+
 # ── #1533 화면의 결과를 읽는 도구 ────────────────────────────────────────────────
 
 _HASH = "sha256:" + "0" * 64
@@ -658,6 +682,37 @@ async def test_missing_screen_run_never_echoes_the_id(session, vessel_id):
     body = _parsed(raw)
     assert body["ok"] is False, body
     assert str(ghost) not in _flat(body)
+
+
+async def test_screen_result_outcome_carries_the_run_id_only_when_read(session, vessel_id):
+    """`#2099` — 감사 로그에 싣는 실행 id는 **결과를 실제로 준 호출**에만 있다."""
+    run_id = await _voyage_run(session, vessel_id)
+    read = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=vessel_id,
+        screen_run_id=run_id,
+    )
+    assert read.calculation_run_id == run_id
+    # 선박이 달라 오류 봉투를 낸 호출은 인용한 실행이 없다.
+    refused = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=uuid4(),
+        screen_run_id=run_id,
+    )
+    assert refused.calculation_run_id is None
+    # 계산 도구는 실행을 저장하지 않으므로(#1334) 채울 값이 없다.
+    calc = await chat_tools.run_tool(
+        session,
+        name="calc_voyage_cii",
+        arguments={"distance_nm": 1000, "speed_kn": 12, "fuel_ton": 100, "fuel_type": "HFO"},
+        vessel_id=vessel_id,
+        screen_run_id=run_id,
+    )
+    assert calc.calculation_run_id is None
 
 
 # ── #1703 규제 기준값 표 도구 ───────────────────────────────────────────────────

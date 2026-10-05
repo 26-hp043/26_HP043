@@ -450,6 +450,9 @@ class ToolOutcome:
 
     envelope: str
     resolved_vessel_id: UUID | None = None
+    #: 이 도구가 **실제로 읽어 모델에게 준** 저장된 계산 실행의 id (`#2099`) — 감사 로그
+    #: ``CHAT_TOOL_CALL``이 ``calculation_run_id``로 싣는다. 읽지 않은 도구는 ``None``.
+    calculation_run_id: UUID | None = None
 
 
 async def run_tool(
@@ -491,7 +494,10 @@ async def run_tool(
                 vessel_locked=vessel_locked,
             )
         if name == TOOL_EXPLAIN_SCREEN_RESULT:
-            return ToolOutcome(await _explain_screen_result(session, screen_run_id, vessel_id))
+            explained = await _explain_screen_result(session, screen_run_id, vessel_id)
+            # `#2099` — 결과를 실제로 모델에게 준 경우(`ok`)에만 그 실행을 인용한 것으로 남긴다.
+            cited = screen_run_id if json.loads(explained).get("ok") else None
+            return ToolOutcome(explained, calculation_run_id=cited)
         if name == TOOL_LOOKUP_REGULATION:
             # 선박 없이도 돈다 — 선종을 말하면 표를 읽는 데 선박은 필요 없다.
             return ToolOutcome(await _lookup_regulation(session, arguments, vessel_id))
@@ -511,6 +517,10 @@ async def run_tool(
     ) as exc:
         # ⚠️ **원문을 넘기지 않는다.** 아래 `_ERROR_TEXT` 주석 참조.
         return ToolOutcome(envelope(name, error=_error_text(exc)))
+
+
+#: `search_vessel`이 한 번에 조회하는 건수. 넘치면 척수를 단정하지 않는다 (`#2099`).
+_SEARCH_VESSEL_LIMIT = 5
 
 
 async def _search_vessel(
@@ -537,12 +547,17 @@ async def _search_vessel(
     keyword = str(arguments.get("name") or "").strip()
     if not keyword:
         return ToolOutcome(envelope(TOOL_SEARCH_VESSEL, error="찾을 이름을 알려 주세요."))
-    rows, _ = await vessel_service.list_vessels(session, search=keyword, limit=5)
+    rows, page_meta = await vessel_service.list_vessels(
+        session, search=keyword, limit=_SEARCH_VESSEL_LIMIT
+    )
     if len(rows) >= 2:
+        # `#2099` — `len(rows)`는 한 쪽(5건)으로 자른 길이다. 더 있으면(`has_more`) 정확한
+        # 척수를 모르므로 「5척」이라 말하지 않고 「5척 이상」이라 말한다.
+        count = f"{len(rows)}척 이상" if page_meta.get("has_more") else f"{len(rows)}척"
         return ToolOutcome(
             envelope(
                 TOOL_SEARCH_VESSEL,
-                error=f"{len(rows)}척이 일치합니다. 화면에서 선박을 고른 뒤 다시 물어봐 주세요.",
+                error=f"{count}이 일치합니다. 화면에서 선박을 고른 뒤 다시 물어봐 주세요.",
             )
         )
     resolved = UUID(str(rows[0]["id"])) if len(rows) == 1 and not vessel_locked else None
