@@ -60,6 +60,58 @@ describe('면책이 버린 답과 같은 면을 쓰지 않는다 (§8.5 · #1818
 })
 
 /**
+ * 빈 대화에서 입력칸이 패널 밖으로 밀려나지 않는다 (#2158).
+ *
+ * 패널 높이는 굳어 있고 빈 대화의 내용물은 그보다 길다. 소개 그림이 줄지 못하면 넘친
+ * 만큼 맨 아래 입력 줄이 화면 밖으로 나간다 — 패널은 열렸는데 물어볼 칸이 없다
+ * (실측 1440×900: 패널 바닥 876, 입력 줄 926~959).
+ *
+ * 세 선언이 그것을 막는다. 하나를 되돌려도 jsdom 검사는 전부 통과한다.
+ */
+describe('빈 대화에서 입력 줄이 패널 안에 남는다 (#2158)', () => {
+  function rule(selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\>]/g, '\\$&')
+    const match = new RegExp(`(^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(CSS)
+    expect(match, `${selector} 규칙이 없습니다`).not.toBeNull()
+    return match![2]
+  }
+
+  it('소개 그림이 줄 수 있다 — 높이를 굳히지 않고 flex-basis로만 준다', () => {
+    const art = rule('.assistant__intro-art')
+    expect(/(^|[\s;])height\s*:/.test(art), '`height`를 적으면 그림이 줄지 않습니다.').toBe(false)
+    expect(/flex\s*:\s*0\s+1\s+var\(--assistant-intro-art-height\)/.test(art)).toBe(true)
+  })
+
+  it('소개 그림의 바닥이 제 높이보다 낮다', () => {
+    const px = (name: string): number => {
+      const match = new RegExp(`${name}\\s*:\\s*(\\d+)px`).exec(CSS)
+      expect(match, `${name} 선언이 없습니다`).not.toBeNull()
+      return Number(match![1])
+    }
+    expect(/min-height\s*:\s*var\(--assistant-intro-art-min-height\)/.test(rule('.assistant__intro-art'))).toBe(true)
+    expect(px('--assistant-intro-art-min-height')).toBeLessThan(px('--assistant-intro-art-height'))
+  })
+
+  it('머리줄과 입력 줄 사이가 스크롤된다 — min-height: 0 + overflow-y: auto', () => {
+    const body = rule('.assistant__body')
+    expect(/min-height\s*:\s*0\s*;/.test(body), '없으면 이 영역이 줄지 않아 패널이 넘칩니다.').toBe(true)
+    expect(/overflow-y\s*:\s*auto/.test(body)).toBe(true)
+    expect(/flex\s*:\s*1\s*;/.test(body)).toBe(true)
+  })
+
+  it('대화 영역 최소 높이는 120 그대로다 — 빈 대화에서만 내용 높이를 쓴다', () => {
+    expect(/min-height\s*:\s*120px/.test(rule('.assistant__log'))).toBe(true)
+    const empty = rule('.assistant__log:has(> .assistant__empty)')
+    expect(/flex\s*:\s*none/.test(empty)).toBe(true)
+    expect(/min-height\s*:\s*0\s*;/.test(empty)).toBe(true)
+  })
+
+  it('남는 폭을 받는 것은 입력을 감싼 .field다', () => {
+    expect(/flex\s*:\s*1\s*;/.test(rule('.assistant__form > .field'))).toBe(true)
+  })
+})
+
+/**
  * 패널이 본문을 덮지 않는 폭이 **선박 관리 목록을 담을 만큼** 남기는지 (#1818 · #1788 · #2018).
  *
  * 종전 값 `1366`은 본문에 `650px`만 남겼다 — 당시 목록 최소 폭 `890`에 한참 못 미친다.
