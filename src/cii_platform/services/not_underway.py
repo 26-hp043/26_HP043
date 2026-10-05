@@ -96,7 +96,8 @@ def _iso(value) -> str | None:
 def _kst_text(value: datetime) -> str:
     """오류 문구에 넣는 시각 — KST로 옮기고 시간대를 함께 적는다 (`#2122`).
 
-    시간대 없는 값은 UTC로 읽는다(저장 기준 · ``_utc_year``와 같다).
+    스키마(``AwareDatetime``)와 CSV 파서가 시간대 없는 값을 막으므로 그런 값은 오지 않는다.
+    오더라도 저장 기준인 UTC로 읽는다.
     """
     aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
     return aware.astimezone(_MESSAGE_TIMEZONE).strftime("%Y-%m-%d %H:%M KST")

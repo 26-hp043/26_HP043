@@ -842,14 +842,14 @@ async def build_annual_report(
                         "잔여 계획 거리 (nm)",
                         _display(assumptions["planned_distance_nm"], "distance_nm"),
                     ),
-                    ("잔여 계획 CO₂ (tCO₂)", _display(assumptions["planned_co2_ton"], "fuel_ton")),
+                    ("잔여 계획 CO₂ (tCO₂)", _display(assumptions["planned_co2_ton"], "co2_ton")),
                     (
                         "확정 실적 거리 (nm)",
                         _display(assumptions["completed_distance_nm"], "distance_nm"),
                     ),
                     (
                         "확정 실적 CO₂ (tCO₂)",
-                        _display(assumptions["completed_co2_ton"], "fuel_ton"),
+                        _display(assumptions["completed_co2_ton"], "co2_ton"),
                     ),
                 ],
                 note="가정이 바뀌면 값이 바뀝니다. 확정값이 아닙니다.",

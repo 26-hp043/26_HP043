@@ -333,6 +333,8 @@ describe('제원 표시 자릿수·단위 (#822)', () => {
     expect(state).not.toBe(row('기본 연료')?.querySelector('dd')?.textContent)
     // 대시보드·선박 관리가 쓰는 말과 같다.
     expect(state).toBe(underwayStateText({ underwayState: null }))
+    // 미기록을 정박으로 적지 않는다 (`AGENTS §4.6`의 예시 성질).
+    expect(state).not.toBe(underwayStateText({ underwayState: 'NOT_UNDER_WAY' }))
   })
 
   it('값이 없으면 「—」다 — 포매터가 빈 문자열을 만들지 않는다', async () => {
