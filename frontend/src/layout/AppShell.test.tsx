@@ -333,24 +333,22 @@ describe('상단바 항차 셀렉트가 조회 실패를 「없음」으로 말�
   })
 })
 
-describe('상단바 알림 버튼 — 알림 체계가 없는 동안은 준비 중이다 (#771 ⑽)', () => {
-  it('누를 수 없고, 「읽지 않음 없음」이라고 단정하지 않는다', async () => {
+describe('상단바 알림 버튼 — 지금 걸려 있는 상태 목록 (#2204)', () => {
+  it('누를 수 있고 상단바에 있다 — 종전의 「준비 중」이 아니다', async () => {
     /*
-     * 종전에는 `onClick`이 없는 살아 있는 버튼이었다 — 시연에서 누르면 아무 일도
-     * 없고, `aria-label` 「읽지 않음 없음」은 셀 것이 없는 상태를 「없다」로 말했다.
-     * `DESIGN_SYSTEM §7.2`의 자리(선박 · 항차 · 알림 · 계정)는 그대로 둔다.
+     * 종전에는 알림 체계가 없어 `disabled` + 「준비 중」이었다(`#771` ⑽). `§16` 항목 10이
+     * 닫히며(`#2204`) 살아났다. 목록 · 개수 · 링크는 `NotificationBell.test.tsx`가 본다.
      */
     stubServer()
     renderShell()
     await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
 
-    const bell = screen.getByRole('button', { name: /알림/ }) as HTMLButtonElement
-    expect(bell.disabled).toBe(true)
-    expect(bell.getAttribute('aria-label')).toContain('준비 중')
-    expect(bell.getAttribute('aria-label')).not.toContain('읽지 않음')
-    // §7.2 배치 — 항차 셀렉트 뒤, 상단바 끝이다(계정은 #2203부터 사이드바).
-    const topbar = bell.closest('.app-shell__topbar')
-    expect(topbar).not.toBeNull()
+    const bell = screen.getByTestId('notification-trigger') as HTMLButtonElement
+    expect(bell.disabled).toBe(false)
+    expect(bell.getAttribute('aria-label')).toContain('알림')
+    expect(bell.getAttribute('aria-label')).not.toContain('준비 중')
+    // §7.2 배치 — 항차 셀렉트 뒤, 상단바 끝이다.
+    expect(bell.closest('.app-shell__topbar')).not.toBeNull()
   })
 })
 

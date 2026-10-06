@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.51 |
+| 버전 | v1.52 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-10-06 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -2174,6 +2174,91 @@ GET /api/v1/vessels/{vessel_id}/cii/ytd-series?year=2026&as_of=2026-09-26T00:00:
 | 422 | `VALIDATION_ERROR` | `year`가 2019~2100 밖 |
 
 > **실적이 없는 것은 오류가 아니다.** `ytd_available: false` + 실적 점 없음으로 200을 반환한다. 잔여 계획만 있으면 `PLAN` 점은 낸다 — `§2.14` ⑶이 확정 실적 없이도 값을 내는 것과 같다.
+
+
+### 2.19 알림 — 지금 걸려 있는 상태 목록 (#2204)
+
+```http
+GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
+```
+
+상단바 종 버튼(`DESIGN_SYSTEM §7.2` · `§16` 항목 10)의 본체다. **발생 기록이 아니다** — 서버가 이미 판정한 상태를 모아 내고, 해결되면 다음 조회에서 사라진다. 읽음 · 안 읽음 · 발생 시각을 저장하지 않으며 새 테이블이 없다(2026-10-06 `rlatnals4114` 결정 · `#2204`). **역할 가드가 없다** — 두 출처(`§2.8` · `§2.16`)가 모두 세 역할에 열려 있다.
+
+| 쿼리 | 필수 | 설명 |
+|---|---|---|
+| `regulation_year` | N | 대상 규제연도(2000~2100). 미지정이면 `as_of` 연도 |
+| `as_of` | N | 기준 시각(ISO 8601 UTC). 미지정이면 서버가 확정 — `§2.8`과 같은 `as_of` 계약 |
+
+> **판정을 새로 만들지 않는다.** 넷 다 다른 경로가 이미 내는 판정을 그대로 옮긴다 — 여기서 다시 판정하면 대시보드와 종 버튼의 수가 갈린다. 선대 요약과 같은 계산 함수(`fleet_summary.compute_fleet_rows`)를 쓴다.
+>
+> | `kind` | `level` | 출처 · 조건 |
+> |---|---|---|
+> | `CORRECTIVE_ACTION` 시정조치계획 대상 | `RISK` | `§2.8` `actions[]` 한 행마다 — `reason`은 `E_THIS_YEAR` · `D_THIRD_YEAR`(`PRD §3.3.7`) |
+> | `D_ENTRY_SOON` D등급 진입 임박 | `RISK` | `§2.8` `days_to_d`가 있는 선박 — 값이 있으면 **올해 안에** 진입한다(연말을 넘으면 `NOT_THIS_YEAR`로 `null`). 새 기준 일수를 두지 않는다. 남은 일수가 짧은 순 |
+> | `UNCONFIRMED_VOYAGE` 실적 확정 전 항차 | `CHECK` | `§2.16` `issues[]`의 `UNCONFIRMED` — 항차마다 한 행 |
+> | `ESTIMATED_VALUES` 실측이 아닌 값이 든 선박 | `CHECK` | `§2.16` `issues[]`의 `SUBSTITUTED` · `UNAVAILABLE` · `ANOMALY` — **선박마다 한 행**, `count`는 그 행 수. `PUBLIC_RECORD`는 계산에 들어간 값이 아니라 대조 결과라 넣지 않는다 |
+>
+> 순서는 `level`(`RISK` → `CHECK`) → 위 표의 종류 순 → 출처가 준 순서다. **화면은 다시 정렬하지 않는다.** 문구는 화면이 만든다 — 서버는 종류와 재료만 준다.
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "as_of": "2026-10-06T00:00:00+00:00",
+    "regulation_year": 2026,
+    "counts": { "risk": 2, "check": 1, "total": 3 },
+    "items": [
+      {
+        "kind": "CORRECTIVE_ACTION",
+        "level": "RISK",
+        "vessel_id": "…",
+        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "reason": "E_THIS_YEAR",
+        "days": null,
+        "voyage_id": null,
+        "voyage_no": null,
+        "count": null
+      },
+      {
+        "kind": "D_ENTRY_SOON",
+        "level": "RISK",
+        "vessel_id": "…",
+        "vessel_name": "샘플 벌크선 (30,000 DWT)",
+        "reason": null,
+        "days": 39,
+        "voyage_id": null,
+        "voyage_no": null,
+        "count": null
+      },
+      {
+        "kind": "UNCONFIRMED_VOYAGE",
+        "level": "CHECK",
+        "vessel_id": "…",
+        "vessel_name": "샘플 벌크선 (30,000 DWT)",
+        "reason": null,
+        "days": null,
+        "voyage_id": "…",
+        "voyage_no": "2026-07",
+        "count": null
+      }
+    ]
+  },
+  "meta": { "request_id": "…", "timestamp": "…", "as_of": "2026-10-06T00:00:00+00:00" }
+}
+```
+
+> **필드는 종류마다 일부만 찬다** — `reason`은 `CORRECTIVE_ACTION`, `days`는 `D_ENTRY_SOON`, `voyage_id` · `voyage_no`는 `UNCONFIRMED_VOYAGE`, `count`는 `ESTIMATED_VALUES`만. 나머지는 `null`이다. 키 집합은 늘 같다 — 종류마다 키를 바꾸면 화면이 키 유무로 종류를 추측하게 된다.
+
+#### 오류
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 401 | `UNAUTHORIZED` | 세션 없음 |
+| 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 — `§2.8`과 같다 |
+| 422 | `VALIDATION_ERROR` | `regulation_year`가 2000~2100 밖 · `as_of` 형식 오류 |
+
+> **선박이 0척인 것은 오류가 아니다.** `counts` 전부 0 · `items: []`로 200을 반환한다(`§2.8`과 같은 이유).
 
 ---
 
@@ -4527,6 +4612,7 @@ GET /api/v1/health
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | GET | `/api/v1/fleet/data-quality` | 데이터 점검 (#513) | `UIFLOW 2-11` · §17.4 |
+| GET | `/api/v1/fleet/notifications` | 알림 — 지금 걸려 있는 상태 목록 (#2204) | §2.19 · `DESIGN_SYSTEM §16` 항목 10 |
 | POST | `/api/v1/fleet/reduction-plans/evaluate` | 함대 감축 계획 계산 (#513) | `UIFLOW 2-10` · §12.3.2 |
 | POST | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 저장 (#513) | `UIFLOW 2-10` · §12.3.2 |
 | GET | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 목록 (#513) | `UIFLOW 2-10` |
@@ -5144,3 +5230,4 @@ POST /api/v1/chat
 | 2026-10-06 | `#2197` | **§1.2 인증 엔드포인트 표 네 행 · §1.2.1 `display_name`과 `[#2109]` 각주** (#2109). ⑴ `POST /auth/verify-email/confirm` · `POST /auth/password-reset/confirm`은 활성 계정만 확정한다 — 종전에는 탈퇴한 계정의 링크로도 200이 났다. 거부 응답은 없는 · 만료된 토큰과 같다 ⑵ `DELETE /auth/me`는 그 계정의 미사용 토큰을 무효화한다 ⑶ `POST /auth/tour-login`에 409 — 둘러보기 계정의 주소가 다른 계정에 선점돼 있을 때다. 종전에는 500이었다 ⑷ 둘러보기 · 개발 스텁의 예약 주소로는 가입할 수 없다(가입 제한과 같은 422) ⑸ 가입의 `display_name`은 `PATCH /auth/me`와 같이 앞뒤 공백을 떼고 빈 값은 `null`로 접는다. `AGENTS §4.3`상 행·각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2213` | **§8.3 문서 구성 「시나리오 사후 비교」 행과 각주** (#2092). `PRD §25.2.1`은 직항·우회·감속 3종과 실적을 나란히 요구하는데 종전 서술은 「저장된 값을 그대로 인용」뿐이었고 구현은 채택된 한 행만 실었다. 어느 비교를 싣는가(지금 채택된 행이 속한 한 묶음 — 형제 두 행은 계산 이력 `result_json.scenarios[]`에서) · 경우별 표지(섹션 생략 · `이력 없음` · `—` · `계산 불가`) · 실적 행의 정의와 분모 용량 · 각주 규칙(「CII 기여도」와 같은 `COR-1` 문구 · 용량 숫자 · 2026-10-06 결정 1·2) · 유종 일부만 실적이 있을 때 연료 칸도 `계산 불가` · 옛 모양의 이력은 그 종류만 내려간다 · 수치 열은 표지가 섞여도 오른쪽 정렬. `AGENTS §4.3`상 행·각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2227` | **v1.51 — `GET /auth/me` 응답에 `is_tour` 추가**(§1.2 경로 표 · §1.2.5a 각주 · #2203). 둘러보기 계정은 `ADMIN`이라 화면이 `role`만 보면 「관리자」로 적는다 — 사이드바 계정 카드가 역할 자리에 「둘러보기」를 적을 근거다. 판정은 고정 PK(`TOUR_USER_ID`)이며 화면이 예약 이메일을 비교하지 않게 한다. 사용자 표현(`_user_payload`)이라 가입 · 로그인 · 이름 변경 응답에도 실린다. 응답 필드 추가라 버전을 올린다(`AGENTS §4.3`) |
+| 2026-10-06 | `#___` | **v1.52 — §2.19 「알림 — 지금 걸려 있는 상태 목록」 신설**(`GET /fleet/notifications` · #2204). 상단바 종 버튼의 본체다. 발생 기록이 아니라 서버가 이미 판정한 상태의 모음이다 — 저장 · 읽음 상태 없음. 종류 넷(시정조치계획 대상 · D등급 진입 임박 · 실적 확정 전 항차 · 실측이 아닌 값이 든 선박)을 `§2.8` · `§2.16`의 판정에서 그대로 옮기고 `RISK` · `CHECK` 두 단계로 나눈다. 선대 요약과 같은 계산 함수를 써 대시보드와 수가 갈리지 않게 한다. §12 요약표 행. 절 신설이라 버전을 올린다(`AGENTS §4.3`) |

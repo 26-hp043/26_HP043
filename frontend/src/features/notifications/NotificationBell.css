@@ -1,0 +1,132 @@
+/*
+ * 상단바 종 버튼 · 알림 목록 (`DESIGN_SYSTEM §7.2` 「알림」 · #2204).
+ *
+ * 버튼 모양은 상단바 아이콘 버튼(`.app-shell__iconbtn`)이 갖는다 — 여기는 숫자 배지와
+ * 펼친 목록만.
+ */
+.notification-bell {
+  /* 목록이 이 상자를 기준으로 뜬다. 상단바는 넘침을 자르지 않는다. */
+  position: relative;
+}
+
+.notification-bell__trigger {
+  position: relative;
+}
+
+/*
+ * 개수 — **중립색**이다(`§2.3` 경고색은 한 자리에 한 번). 위험인지 확인 필요인지는 목록 안
+ * 단계 글자가 말한다. 아이콘 오른쪽 위에 걸친다.
+ */
+.notification-bell__count {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  min-inline-size: 16px;
+  block-size: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill);
+  background: var(--text-secondary);
+  color: var(--surface-card);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-strong);
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 펼친 목록 — `§5` 떠 있는 면(테두리 + 오버레이 그림자). 상단바가 우측 정렬이라 오른쪽 끝을
+ * 버튼에 맞춰 왼쪽으로 연다. 목록이 길면 안에서 스크롤한다.
+ */
+.notification-bell__panel {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-8));
+  inset-inline-end: 0;
+  z-index: 20;
+  inline-size: min(360px, calc(100vw - 32px));
+  max-block-size: 60vh;
+  overflow-y: auto;
+  padding: var(--space-16);
+  background: var(--surface-popover);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+}
+
+.notification-bell__panel[hidden] {
+  display: none;
+}
+
+.notification-bell__title {
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+.notification-bell__note {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.notification-bell__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * 항목 하나 = 단계 · 선박 · 한 줄 사실 · 행동 링크. 면을 칠하지 않고 선으로 가른다 —
+ * 칠하면 위험 줄이 목록에서 가장 큰 면이 되고, 단계는 글자가 이미 말한다.
+ */
+.notification-bell__item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-8);
+  padding-block: var(--space-8);
+  border-block-start: var(--borderWidth-default) solid var(--border-default);
+  font-size: var(--font-size-label);
+}
+
+.notification-bell__item:first-child {
+  border-block-start: 0;
+}
+
+/* 단계 — 글자 + 색. 색만으로 말하지 않는다(`§14`). 글자색 토큰을 쓴다(`§0.2` 제약 1). */
+.notification-bell__level {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-strong);
+  white-space: nowrap;
+}
+
+.notification-bell__level--risk {
+  color: var(--color-danger-text);
+}
+
+.notification-bell__level--check {
+  color: var(--color-warning-text);
+}
+
+.notification-bell__vessel {
+  min-inline-size: 0;
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-bell__fact {
+  grid-column: 2;
+  color: var(--text-secondary);
+}
+
+/* 행동 링크 — 갈 곳의 이름. 글자 링크다(`§8` 결과 카드 「다음 행동」과 같은 규칙). */
+.notification-bell__action {
+  grid-column: 2;
+  justify-self: start;
+  font-weight: var(--font-weight-strong);
+}
