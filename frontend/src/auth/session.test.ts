@@ -185,8 +185,19 @@ describe('probeCurrentUser', () => {
       role: 'FIELD',
       emailVerifiedAt: null,
       hasAvatar: false,
+      // `is_tour`가 없으면 둘러보기가 아니다 (#2203)
+      isTour: false,
     })
     expect(getCachedUser()).not.toBeNull()
+  })
+
+  it('is_tour가 참이면 둘러보기 계정이다 — 역할(ADMIN)과 따로 온다 (#2203)', async () => {
+    const tour = jsonResponse({
+      data: { id: 't', email: 'tour@bluelog.local', display_name: '둘러보기', role: 'ADMIN', is_tour: true },
+    })
+    const user = await probeCurrentUser(async () => tour)
+    expect(user?.role).toBe('ADMIN')
+    expect(user?.isTour).toBe(true)
   })
 
   it('role이 ADMIN이면 그대로 ADMIN이다 — FIELD로 뭉개지지 않는다 (#1301)', async () => {

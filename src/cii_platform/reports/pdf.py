@@ -53,16 +53,32 @@
 
 WeasyPrint는 import 시점에 Pango를 연다. 이 모듈이 최상단에서 import하면 라이브러리가
 없는 환경에서 **앱 전체가 뜨지 않고** CSV 내보내기까지 막힌다. 함수 안에서 import해
-PDF 요청 하나만 실패시키고, 그 실패에 설치 안내를 담는다.
+PDF 요청 하나만 실패시킨다 — 응답은 CSV 안내뿐이고 설치 안내는 로그로 간다 (`#2112`).
 """
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 import anyio.to_thread
 
 from cii_platform.errors import AppError
+
+_log = logging.getLogger(__name__)
+
+#: 렌더러(WeasyPrint/Pango)를 불러올 수 없을 때 사용자에게 나가는 문구 (`#2112`).
+#:
+#: **import 예외 원문은 싣지 않는다** — 그것은 배포 환경의 진단이지 사용자가 읽을 말이
+#: 아니고(`api/error_handlers.py`의 「예외 내용을 응답에 넣지 않는다」와 같은 원칙), 라이브러리
+#: 경로·모듈 이름이 응답으로 나간다. 원문은 :func:`_render`가 로그에 남긴다.
+RENDERER_UNAVAILABLE_MESSAGE = "PDF 생성기를 사용할 수 없습니다. CSV 형식으로 내려받아 주세요."
+
+#: 한국어 폰트가 없어 PDF를 거부할 때의 문구 (`#689` · `#2112`). 렌더러 부재와 같은 처리이되
+#: **무엇이 없는지**(폰트)는 말한다 — 사용자는 형식을 바꿔 같은 내용을 받는다.
+FONT_UNAVAILABLE_MESSAGE = (
+    "한국어 폰트가 설치돼 있지 않아 PDF를 만들 수 없습니다. CSV 형식으로 내려받아 주세요."
+)
 
 #: 동시에 도는 렌더링의 상한. **1이다** — 모듈 docstring의 실측 표 참조. 올리면 느려지고
 #: 메모리만 더 쓴다. 전용 한도를 두는 이유는 기본 스레드풀(40)을 공유하지 않기 위해서이기도
@@ -77,13 +93,13 @@ class PdfUnavailableError(AppError):
 
     **사용자 입력의 문제가 아니라 배포 환경의 문제**다. 요청을 고쳐도 해결되지
     않으므로 4xx가 아니다. CSV로 안내해 사용자가 막히지 않게 한다.
+
+    ``message``는 **사용자에게 그대로 나가는 문구**다 — 예외 원문·설치 경로 같은 진단을
+    넣지 않는다 (`#2112`). 진단은 던지는 자리에서 로그로 남긴다.
     """
 
-    def __init__(self, detail: str) -> None:
-        super().__init__(
-            "INTERNAL_ERROR",
-            f"PDF 생성기를 사용할 수 없습니다. CSV 형식으로 내려받아 주세요. (원인: {detail})",
-        )
+    def __init__(self, message: str) -> None:
+        super().__init__("INTERNAL_ERROR", message)
 
 
 def is_available() -> bool:
@@ -167,18 +183,21 @@ def render_pdf(html: str) -> bytes:
 
     검사 순서를 ``is_available()`` 먼저로 둔다. 렌더러가 없으면 :func:`has_korean_font`도
     ``False``를 돌려주므로, 순서를 바꾸면 **Pango가 없는 환경에 폰트 문제라고 말하게
-    된다.** 그 경우는 :func:`_render`가 실제 import 오류를 그대로 담아 낸다.
+    된다.** 그 경우는 :func:`_render`가 고정 문구(:data:`RENDERER_UNAVAILABLE_MESSAGE`)로
+    끊고 실제 import 오류는 로그에 남긴다 (`#2112`).
 
     ``base_url``을 주지 않는다. 스타일은 문서에 인라인돼 있고 외부 자원이 없으므로
     상대 경로를 해석할 일이 없다 — 주면 오히려 렌더러가 로컬 파일을 읽을 수 있는
     경로가 열린다.
     """
     if is_available() and not korean_font_available():
-        raise PdfUnavailableError(
-            "한국어 폰트가 설치돼 있지 않아 한글이 □로 렌더링됩니다. "
-            "서버에 fonts-nanum을 설치한 뒤 다시 시작하십시오 "
-            "(sudo apt-get install -y fonts-nanum && fc-cache -f)."
+        # 설치 명령은 운영자의 것이라 로그에 — 사용자에게는 무엇이 없고 무엇을 하면
+        # 되는지만 (`#2112`). 종전 문구는 `sudo apt-get install …`을 그대로 실었다.
+        _log.error(
+            "한국어 폰트가 없어 PDF를 거부한다 — 서버에 fonts-nanum을 설치한 뒤 다시 시작"
+            " (sudo apt-get install -y fonts-nanum && fc-cache -f)"
         )
+        raise PdfUnavailableError(FONT_UNAVAILABLE_MESSAGE)
     return _render(html)
 
 
@@ -193,8 +212,10 @@ def _render(html: str) -> bytes:
     """
     try:
         from weasyprint import HTML
-    except Exception as exc:  # pragma: no cover - 환경 의존
-        raise PdfUnavailableError(str(exc)) from exc
+    except Exception as exc:
+        # 원문(모듈 경로 · 공유 라이브러리 이름)은 로그에만 — 응답에는 고정 문구 (`#2112`).
+        _log.error("PDF 렌더러를 불러올 수 없다: %s", exc)
+        raise PdfUnavailableError(RENDERER_UNAVAILABLE_MESSAGE) from exc
 
     return HTML(string=html).write_pdf()
 

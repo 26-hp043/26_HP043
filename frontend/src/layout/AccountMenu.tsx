@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Avatar } from '../components/Avatar'
 import { Link, useLocation } from 'react-router'
 import { SCREEN_BY_ID } from '../screens'
@@ -10,9 +10,30 @@ import { Icon } from '../components/Icon'
 import { useI18n, useTextLang } from '../i18n/core'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { LanguageToggle } from '../i18n/LanguageToggle'
+import { roleKey } from './accountRole'
 
 /**
- * 상단바 계정 영역 (#717).
+ * 계정 영역 — 사이드바 로고 아래 사용자 카드 (#717 · #2203).
+ *
+ * ## 사이드바로 옮겼다 (#2203 · `DESIGN_SYSTEM §7.2`)
+ *
+ * 종전에는 상단바 오른쪽 끝에 아바타 · 이름 버튼과 로그아웃이 있었다. 누구의 화면인지,
+ * 어떤 역할로 보고 있는지가 그 작은 버튼에만 나왔다. 이제 **카드가 표시이자 메뉴 트리거**
+ * 다 — 카드(아바타 · 이름 · 역할)를 누르면 이 패널이 열린다. 「카드는 표시만 + 상단바
+ * 메뉴 유지」는 같은 이름 · 사진이 두 자리에 생겨 택하지 않았다(rlatnals4114 결정).
+ *
+ * - 역할은 계정의 `role`(현장직 · 사무직 · 관리자)이다. **둘러보기 계정은 「둘러보기」**
+ *   다 — 둘러보기는 서비스를 다 보이려고 `ADMIN`이라, 「관리자」로 적으면 심사위원이
+ *   자기 권한으로 읽는다(`isTour` · `API_SPEC §1.2.5a`)
+ * - 로그아웃은 **패널 안 맨 아래**다. 종전에는 시연에서 한 번에 누르려고 밖에 따로 두었다
+ * - 사이드바가 축소(64)되면 아바타만 보이고 이름 · 역할은 **시각적으로만** 감춘다 —
+ *   버튼의 이름이 그 글자에서 나오므로 지우면 낭독할 이름이 없어진다(`§7.2` 축소 규칙)
+ *
+ * ## 패널은 화면 기준으로 띄운다(`position: fixed`)
+ *
+ * 사이드바는 세로로 넘치면 스스로 스크롤한다(`overflow-y: auto`). 그 안에서 절대 위치로
+ * 띄우면 패널이 사이드바 상자에 **잘린다** — 특히 축소(64) 상태에서는 패널 대부분이
+ * 사이드바 밖이다. 그래서 열 때 카드의 위치를 재서 화면 좌표로 놓는다.
  *
  * ## 왜 disclosure이고 `role="menu"`가 아닌가
  *
@@ -22,11 +43,9 @@ import { LanguageToggle } from '../i18n/LanguageToggle'
  * 그래서 버튼 하나가 패널 하나를 여닫는 **disclosure**로 둔다 —
  * `aria-expanded` + `aria-controls`. Tab 이동만으로 충분히 닿는다.
  *
- * ⚠️ **`#1422`로 담기는 것이 링크 하나에서 셋으로 늘었지만 판단은 그대로다.**
- * 종전 주석은 이유를 「조작이 하나뿐」이라 적었는데, 그 이유는 이제 사실이
- * 아니다. 진짜 이유는 **여기 담긴 것이 메뉴 항목이 아니라는 것**이다 — 테마·언어는
- * 누르면 닫히는 명령이 아니라 **그 자리에 머무르는 선택**(`radiogroup`)이고,
- * `role="menu"` 안의 `radiogroup`은 화살표 키의 소유자가 둘이 된다.
+ * 진짜 이유는 **여기 담긴 것이 메뉴 항목이 아니라는 것**이다 — 테마·언어는 누르면
+ * 닫히는 명령이 아니라 **그 자리에 머무르는 선택**(`radiogroup`)이고, `role="menu"` 안의
+ * `radiogroup`은 화살표 키의 소유자가 둘이 된다.
  *
  * ## 패널을 항상 렌더하고 `hidden`으로 감춘다
  *
@@ -36,11 +55,20 @@ import { LanguageToggle } from '../i18n/LanguageToggle'
  * ## 편집은 넣지 않는다
  *
  * 표시 이름·비밀번호 폼은 설정 화면의 `AccountPanel`이 소유한다. 여기에 같은 폼을
- * 두면 **입력 규칙이 두 벌**이 되고, 한쪽만 고쳐 갈린다 — 이 저장소가 카드 규격과
- * 셸 여백에서 이미 겪은 형태다. 여기는 **요약과 진입로**만 맡는다.
+ * 두면 **입력 규칙이 두 벌**이 되고, 한쪽만 고쳐 갈린다. 여기는 **요약과 진입로**만 맡는다.
  */
 
-export function AccountMenu({ user }: { user: CurrentUser }) {
+export function AccountMenu({
+  user,
+  onLogout,
+  logoutFailure,
+}: {
+  user: CurrentUser
+  /** 로그아웃 — 셸이 소유한다(실패 문구 · 이동). 여기는 버튼 자리만 맡는다. */
+  onLogout: () => void
+  /** 로그아웃이 **서버에서** 실패했을 때의 문구 (`#825` ⑵). 없으면 `null`. */
+  logoutFailure: string | null
+}) {
   const { t } = useI18n()
   const textLang = useTextLang()
   const [open, setOpen] = useState(false)
@@ -57,6 +85,26 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
    */
   const trigger = useRef<HTMLButtonElement>(null)
   const { pathname } = useLocation()
+  /** 패널의 화면 좌표 — 열 때와 창이 바뀔 때 카드 아래로 맞춘다. */
+  const [place, setPlace] = useState<{ top: number; left: number } | null>(null)
+
+  const measure = useCallback(() => {
+    const rect = trigger.current?.getBoundingClientRect()
+    if (!rect) return
+    setPlace({ top: rect.bottom + 8, left: rect.left })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    measure()
+    // 사이드바가 스스로 스크롤하거나 창 크기가 바뀌면 카드가 움직인다 — 따라간다.
+    window.addEventListener('resize', measure)
+    window.addEventListener('scroll', measure, true)
+    return () => {
+      window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', measure, true)
+    }
+  }, [open, measure])
 
   /*
    * 경로가 바뀌면 닫는다. 「설정」을 누른 뒤에도 패널이 남아 있으면 **막 도착한
@@ -112,7 +160,13 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
           어긋난다.
         */}
         <Avatar className="account-menu__avatar" hasAvatar={user.hasAvatar} name={label} />
-        <span className="account-menu__name">{label}</span>
+        <span className="account-menu__who">
+          <span className="account-menu__name">{label}</span>
+          {/* 역할 — 둘러보기 계정이면 「둘러보기」 (#2203). 축소(64)에서는 시각적으로만 감춘다. */}
+          <span className="account-menu__role" lang={textLang}>
+            {t(roleKey(user))}
+          </span>
+        </span>
         {/* 여닫힘 표시. 장식이므로 라벨을 주지 않는다 — 이름은 버튼이 이미 맡는다 (§14). */}
         <Icon glyph={ChevronDown} className="account-menu__chevron" size="inline" />
       </button>
@@ -121,6 +175,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         className="account-menu__panel"
         id={panelId}
         hidden={!open}
+        style={place === null ? undefined : { top: place.top, left: place.left }}
         data-testid="account-panel"
       >
         {/*
@@ -182,6 +237,29 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
             {t('account.settingsSub')}
           </span>
         </Link>
+
+        {/*
+          로그아웃 — 패널 맨 아래 (#2203 결정). 종전에는 상단바에서 한 번에 누르려고 메뉴
+          밖에 따로 두었다(`#717`). 무게는 텍스트 버튼 그대로다(`#1266`).
+        */}
+        <button
+          type="button"
+          className="account-menu__logout"
+          lang={textLang}
+          onClick={onLogout}
+          data-testid="logout-button"
+        >
+          {t('shell.logout')}
+        </button>
+        {/*
+          로그아웃이 **서버에서** 실패했음을 알린다 (`#825` ⑵). 실패하면 이동하지 않으므로
+          패널이 열린 채로 남고, 버튼 바로 아래에서 다시 누를 수 있다.
+        */}
+        {logoutFailure !== null ? (
+          <p className="account-menu__logout-failure" role="alert">
+            {logoutFailure}
+          </p>
+        ) : null}
       </div>
     </div>
   )

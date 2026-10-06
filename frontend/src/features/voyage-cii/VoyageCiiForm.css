@@ -156,43 +156,12 @@
  * 라디오 셋. `fieldset`의 기본 테두리·여백을 걷고 폼의 다른 칸과 같은 간격에 둔다 —
  * 면을 하나 더 띄우지 않는다(`DESIGN_SYSTEM §5`).
  */
-.voyage-cii-form__modes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4) var(--space-16);
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.voyage-cii-form__modes > legend {
-  padding: 0;
-  margin-bottom: var(--space-4);
-}
-
-.voyage-cii-form__mode {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-  font-size: var(--font-size-label);
-  color: var(--color-text);
-}
-
-.voyage-cii-form__mode input:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: 2px;
-}
-
-/* 고를 수 없는 방식 — 비활성 글자색, 사유는 아래 줄이 말한다 (`§14` · #1784). */
-.voyage-cii-form__mode--disabled {
-  color: var(--color-text-disabled);
-  cursor: not-allowed;
-}
-
-/* 비활성 사유 — 라디오 줄 아래 한 줄. 라디오의 `aria-describedby`가 이 요소를 가리킨다. */
+/*
+ * 비활성 사유 — 선택 카드 아래 한 줄(#2201). 라디오의 `aria-describedby`가 이 요소를
+ * 가리킨다. 카드 · 라디오 모양은 공용 부품 `components/ChoiceCards.css`가 갖는다.
+ */
 .voyage-cii-form__mode-reason {
-  flex-basis: 100%;
-  margin: 0;
+  margin: var(--space-4) 0 0;
   font-size: var(--font-size-caption);
   line-height: var(--line-height-caption);
   color: var(--color-text-muted);

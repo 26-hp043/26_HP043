@@ -22,8 +22,10 @@ export const en: Record<MessageKey, string> = {
   'shell.voyage.none': 'No voyages',
   'shell.voyage.unselected': 'No voyage selected',
 
-  'shell.notification.aria': 'Notifications (coming soon)',
-  'shell.notification.title': 'Notifications — coming soon',
+  'shell.notification.aria': 'Notifications ({count})',
+  'shell.notification.title': 'Notifications',
+  'shell.notification.empty': 'Nothing needs attention right now',
+  'shell.notification.failed': "Couldn't load notifications",
 
   'shell.navTag': 'Coming soon',
   'shell.navTagOffice': 'Office only',
@@ -37,6 +39,10 @@ export const en: Record<MessageKey, string> = {
   'account.language': 'Language',
   'account.settings': 'Settings',
   'account.settingsSub': 'Account · Password',
+  'account.role.OFFICE': 'Office',
+  'account.role.FIELD': 'Field',
+  'account.role.ADMIN': 'Admin',
+  'account.role.tour': 'Tour',
 
   'theme.groupLabel': 'Theme',
   'theme.light': 'Light',

@@ -33,7 +33,7 @@ from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
-def _load_migration():
+def _load_migration(pattern: str = "*_restore_constraints_as_triggers.py"):
     """제약 복원 마이그레이션을 모듈로 읽는다.
 
     ``alembic/versions``는 패키지가 아니라 일반 import가 안 된다 — 파일 경로로 적재한다
@@ -42,11 +42,11 @@ def _load_migration():
     그 죽음은 실패 더미에 묻힌다(`#1058`에서 실제로 겪었다).
     """
     versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
-    hits = sorted(versions.glob("*_restore_constraints_as_triggers.py"))
-    assert hits, f"제약 복원 마이그레이션을 찾지 못했습니다: {versions}"
+    hits = sorted(versions.glob(pattern))
+    assert hits, f"마이그레이션을 찾지 못했습니다({pattern}): {versions}"
     assert len(hits) == 1, f"후보가 둘 이상입니다: {[h.name for h in hits]}"
 
-    spec = importlib.util.spec_from_file_location("migration_constraints", hits[0])
+    spec = importlib.util.spec_from_file_location(f"migration_{hits[0].stem}", hits[0])
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -116,6 +116,35 @@ async def _insert_run(
     return run_id
 
 
+async def _insert_snapshot(
+    conn: AsyncConnection,
+    *,
+    input_hash: str = VALID_HASH,
+    parameter_hash: str = VALID_HASH,
+) -> str:
+    """``simulation_snapshot``에도 해시 열 둘이 있고 트리거가 따로 걸려 있다."""
+    snap_id = uuid.uuid4().hex
+    await conn.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, input_hash, parameter_hash, "
+            " created_at) VALUES (:id, :vid, 2026, '[]', :ih, :ph, :ts)"
+        ),
+        {
+            "id": snap_id,
+            "vid": await _a_vessel_id(conn),
+            "ih": input_hash,
+            "ph": parameter_hash,
+            "ts": datetime.now(UTC),
+        },
+    )
+    return snap_id
+
+
+#: 표마다 INSERT 헬퍼 — 네 트리거를 (표, 열)로 돌 때 쓴다.
+_INSERTERS = {"calculation_run": _insert_run, "simulation_snapshot": _insert_snapshot}
+
+
 # ---------------------------------------------------------------------------
 # 0. 트리거가 실재하는가
 # ---------------------------------------------------------------------------
@@ -138,7 +167,20 @@ async def test_every_trigger_exists(conn: AsyncConnection):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad", ["not-a-hash", "sha256:" + "0" * 63, "sha256:" + "G" * 64, ""])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-hash",
+        "sha256:" + "0" * 63,
+        "sha256:" + "G" * 64,
+        "",
+        # 대소문자 — 정본 `[S-7]`의 `~`는 대소문자를 구분하는데 CUBRID `REGEXP`는 기본이
+        # 무시라 `066` 전에는 셋 다 통과했다(`#2103`).
+        "SHA256:" + "A" * 64,
+        "sha256:" + "A" * 64,
+        "SHA256:" + "0" * 64,
+    ],
+)
 async def test_broken_input_hash_is_rejected(conn: AsyncConnection, bad: str):
     """형식이 깨진 ``input_hash``는 들어가지 않는다."""
     with pytest.raises(DatabaseError):
@@ -146,16 +188,45 @@ async def test_broken_input_hash_is_rejected(conn: AsyncConnection, bad: str):
 
 
 @pytest.mark.asyncio
-async def test_broken_parameter_hash_is_rejected(conn: AsyncConnection):
+@pytest.mark.parametrize("bad", ["not-a-hash", "sha256:" + "A" * 64])
+async def test_broken_parameter_hash_is_rejected(conn: AsyncConnection, bad: str):
     """``parameter_hash``도 같은 형식이다 — 열마다 트리거가 따로 있다."""
     with pytest.raises(DatabaseError):
-        await _insert_run(conn, parameter_hash="not-a-hash")
+        await _insert_run(conn, parameter_hash=bad)
 
 
 @pytest.mark.asyncio
 async def test_valid_hash_passes(conn: AsyncConnection):
     """올바른 해시는 통과한다 — 막기만 하고 통과를 안 보면 「전부 거부」도 통과한다."""
     assert await _insert_run(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("table", "column"), [(t, c) for _n, t, c in HASH_TRIGGERS])
+async def test_hash_case_is_significant_in_every_trigger(
+    conn: AsyncConnection, table: str, column: str
+):
+    """네 트리거 모두 ``'SHA256:' || REPEAT('A', 64)``를 거부한다 (`#2103` 완료 기준).
+
+    소문자 hex를 바이트 단위로 대조해야 하는 자리다 — ``calc/hash.py``는 소문자만 내므로
+    대문자가 들어왔다면 그것은 **다른 곳에서 만든 값**이고, 재현 대조에서 같은 입력이
+    다른 키로 갈린다. ``SHA256:``·``A…``가 통과하던 것이 `066`이 ``REGEXP BINARY``로
+    바꾼 이유다(`050`·`058`과 같은 방식).
+    """
+    # `066`은 트리거 이름과 패턴을 사본으로 갖는다 — 원본과 어긋나면 없는 이름을 교체하려다
+    # 트리거가 늘어난다(검토 지적). 사본이 원본과 같은지 여기서 잠근다.
+    m066 = _load_migration("*_hash_trigger_binary.py")
+    assert m066.HASH_TRIGGERS == HASH_TRIGGERS
+    assert m066.HASH_PATTERN == _MIGRATION.HASH_PATTERN
+    with pytest.raises(DatabaseError):
+        await _INSERTERS[table](conn, **{column: "SHA256:" + "A" * 64})
+
+
+@pytest.mark.asyncio
+async def test_lowercase_hash_passes_every_trigger(conn: AsyncConnection):
+    """``BINARY``로 좁혀도 소문자 정상 해시는 두 표 모두 통과한다."""
+    assert await _insert_run(conn)
+    assert await _insert_snapshot(conn)
 
 
 # ---------------------------------------------------------------------------

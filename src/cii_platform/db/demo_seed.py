@@ -211,13 +211,28 @@ def _utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> dat
 _ANCHOR_FALLBACK = _utc(2026, 8, 25)
 
 #: `regulation_year: 2026` 시나리오라 상대 시각이 2026년을 벗어나면 안 된다.
-#: 가장 이른 것이 `-15d`(컨테이너 출항), 가장 늦은 것이 `+18d`(PLANNED 도착 예정)이다.
-_ANCHOR_MIN = _utc(2026, 1, 16)
-_ANCHOR_MAX = _utc(2026, 12, 13)
+#:
+#: 이 파일의 `_rel()` 호출 가운데 가장 이른 것이 `-15d`(컨테이너 출항), 가장 늦은 것이
+#: `+76d`(벌크선 계획 항차 `2026-06`의 도착 예정)이다. 기준일 창은 **이 두 값에서
+#: 유도한다** — `_ANCHOR_MIN + (-15d)`가 1월 1일, `_ANCHOR_MAX + 76d`가 12월 31일이다.
+#:
+#: `#2106` — 종전에는 상한이 `12-13`으로 박혀 있었다. `#1052`가 계획 항차를 `+76d`까지
+#: 넣었는데 상한은 `+18d` 시절 그대로여서, 10-17부터 `regulation_year: 2026` 항차의
+#: 도착 예정이 2027년으로 넘어갔다. 상대 일수를 더 넓히면 **이 두 상수를 함께 고친다** —
+#: `tests/test_demo_seed_anchor.py`가 실제 호출과 대조한다.
+_EARLIEST_REL_DAYS = -15
+_LATEST_REL_DAYS = 76
+_ANCHOR_MIN = _utc(2026, 1, 1) - timedelta(days=_EARLIEST_REL_DAYS)
+_ANCHOR_MAX = _utc(2026, 12, 31) - timedelta(days=_LATEST_REL_DAYS)
+
+#: `_rel()`이 실제로 받은 일수. 창 상수가 실제 호출과 어긋나지 않는지 테스트가 본다 (`#2106`).
+_REL_DAYS_IN_USE: set[float] = set()
 
 
-def _resolve_anchor() -> datetime:
+def _resolve_anchor(today: datetime | None = None) -> datetime:
     """시드가 「오늘」로 삼을 시각 — UTC 자정으로 자른다 (`#792`).
+
+    ``today``는 테스트가 날짜를 주입하는 자리다(`#2106`). 운영 경로는 넘기지 않는다.
 
     종전에는 이 값이 **코드에 박힌 2026-08-25**였고, 진행 중 항차·열린 정박 구간·
     현재 위치가 전부 그 날짜 기준 절대 시각이었다. 그 결과 **2026-09-02에
@@ -227,12 +242,14 @@ def _resolve_anchor() -> datetime:
     자정으로 자르는 이유는 **하루 안에서는 값이 고정되게** 하기 위해서다. 적재
     시각을 그대로 쓰면 같은 날 두 번 적재한 시드가 서로 다른 값을 낸다.
 
-    연도를 벗어나면 폴백한다 — 이 시나리오는 ``regulation_year: 2026``이고
+    창(``_ANCHOR_MIN`` ~ ``_ANCHOR_MAX``)을 벗어나면 폴백한다. 상한이 10-16인 것은 가장
+    늦은 상대 시각(``+76d``)이 연말을 넘지 않게 하기 위해서다(`#2106`) — 그 뒤에 적재하면
+    계획 항차의 도착 예정이 2027년으로 넘어간다. 이 시나리오는 ``regulation_year: 2026``이고
     2025↔2026 등급 서사(``test_bulk_vessel_deteriorates_2025_to_2026``)가 거기
     걸려 있다. 2027년에 적재하면 진행 중 항차만 2027년으로 가서 **연간 집계에서
     빠진다** — 그때는 조용히 틀리는 대신 2026년 고정 기준으로 떨어진다.
     """
-    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = (today or datetime.now(UTC)).replace(hour=0, minute=0, second=0, microsecond=0)
     if today < _ANCHOR_MIN or today > _ANCHOR_MAX:
         return _ANCHOR_FALLBACK
     return today
@@ -248,6 +265,7 @@ def _rel(days: float, hour: int = 0, minute: int = 0) -> datetime:
     ``days``는 자정 기준 일수, ``hour``·``minute``은 그날의 시각이다 —
     ``_rel(-15, 6)``은 「15일 전 06:00」이다.
     """
+    _REL_DAYS_IN_USE.add(days)
     return DEMO_ANCHOR + timedelta(days=days, hours=hour, minutes=minute)
 
 
@@ -750,8 +768,9 @@ SEED_VOYAGES: list[dict[str, object]] = [
     # 관찰선 `0.0670`. 거리를 배마다 흔들어 둔 것은 분포에 폭을 주기 위해서다.
     #
     # 출항 예정은 전부 **미래**다 (#792) — 진행 중 항차의 도착 예정(`+8d`)과
-    # `V1_PLANNED`(`+11d`) 뒤인 `+20d`부터 `+76d` 사이에 둔다. 연말을 넘지 않아
-    # `regulation_year = 2026`과 어긋나지 않는다.
+    # `V1_PLANNED`(`+11d`) 뒤인 `+20d`부터 `+76d` 사이에 둔다. 연말을 넘지 않는 것은
+    # 기준일 상한(`_ANCHOR_MAX` = 12-31 − 76d)이 그렇게 잡혀 있어서다 — 그 뒤로는
+    # `_ANCHOR_FALLBACK`으로 떨어지므로 `regulation_year = 2026`과 어긋나지 않는다 (#2106).
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000141"),
         "vessel_id": VESSEL_ID_BULK,

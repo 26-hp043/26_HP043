@@ -24,7 +24,8 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
 import { useI18n, useTextLang } from '../i18n/core'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
-import { BellGlyph, LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { NotificationBell } from '../features/notifications/NotificationBell'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
 
@@ -298,88 +299,110 @@ export function AppShell() {
         본문으로 건너뛰기
       </a>
 
-      <nav className="app-shell__sidebar" aria-label="주요 화면">
+      {/*
+        사이드바 — 브랜드 · 계정 카드 · 주 네비게이션 (`DESIGN_SYSTEM §7.2`).
+
+        감싸는 상자가 `nav`가 아니라 `div`인 이유 (#2203) — 계정 카드는 화면으로 가는 길이
+        아니다. `nav` 랜드마크 안에 두면 낭독기가 「주요 화면」 목록에 계정 메뉴를 섞어 읽는다.
+        랜드마크는 화면 목록(`ul`)만 감싼다.
+      */}
+      <div className="app-shell__sidebar">
         <p className="app-shell__brand">
           <BrandLogo />
           <span className="app-shell__brand-sub">선대 CII 상시 관리</span>
         </p>
 
-        <ul className="app-shell__nav">
-          {NAV_SCREENS.map((item) => {
-            /*
-             * 두 가지 이유로 비활성이 된다 — **미구현**(「준비 중」)과 **사무직 전용**
-             * (「사무직 전용」 · `#672`). 둘 다 숨기지 않고 자리를 남긴다. 숨기면 현장직은
-             * 「이 제품에는 보고서가 없다」로 읽고, 사무직에게 요청할 생각을 못 한다.
-             *
-             * `isOffice(user)`가 ADMIN도 참으로 보므로(`#1301`) 관리자는 이 뱃지를 보지
-             * 않는다 — 잠기는 것은 현장직뿐이다.
-             *
-             * 사용자를 **아직 모르면**(`null`) 잠그지 않는다 — 셸은 `RequireAuth` 안에서만
-             * 그려지므로 실제 앱에서는 이 순간이 없고, 잠그면 사무직 화면이 한 프레임
-             * 「사무직 전용」으로 깜빡인다. 주소로 직접 들어오는 경우는 `RequireOffice`가
-             * `null`을 현장직과 같게 막는다 — 그쪽이 fail-closed의 자리다.
-             */
-            const lockedTag = !item.implemented
-              ? t('shell.navTag')
-              : item.officeOnly && user !== null && !isOffice(user)
-                ? t('shell.navTagOffice')
-                : null
-            // 좁은 창(1100 이하)에서는 라벨이 시각적으로 감춰져 아이콘만 남는다(#1885).
-            // 마우스를 올리면 이름이 보이게 한다 — 낭독 이름은 감춘 라벨이 그대로 맡는다.
-            const label = language === 'en' ? item.labelEn : item.label
-            return lockedTag === null ? (
-              <li key={item.id}>
-                <NavLink
-                  to={item.path}
-                  title={label}
-                  className={({ isActive }) =>
-                    isActive
-                      ? 'app-shell__nav-link app-shell__nav-link--active'
-                      : 'app-shell__nav-link'
-                  }
-                >
-                  <NavIcon id={item.id} />
-                  <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label" lang={textLang}>
-                      {label}
-                    </span>
-                  </span>
-                </NavLink>
-              </li>
-            ) : (
+        {/*
+          계정 — 로고 바로 아래 사용자 카드 (#2203 · `§7.2` 개정). 종전에는 상단바 오른쪽
+          끝(`#278` · `#717`)이었다. 카드를 누르면 계정 메뉴가 열리고, 로그아웃은 그 안이다.
+          누구의 화면인지 · 어떤 역할로 보는지가 메뉴 앞에 먼저 보인다.
+        */}
+        {user ? (
+          <AccountMenu
+            user={user}
+            onLogout={() => void runLogout()}
+            logoutFailure={logoutFailure}
+          />
+        ) : null}
+
+        <nav aria-label="주요 화면">
+          <ul className="app-shell__nav">
+            {NAV_SCREENS.map((item) => {
               /*
-               * 비활성 항목. `NavLink`로 두고 CSS로만 막지 않는 이유 — 링크로 남기면
-               * 키보드·스크린리더에는 이동 가능한 것으로 계속 노출된다.
-               * 이동 대상이 아니므로 링크가 아닌 요소로 렌더한다.
+               * 두 가지 이유로 비활성이 된다 — **미구현**(「준비 중」)과 **사무직 전용**
+               * (「사무직 전용」 · `#672`). 둘 다 숨기지 않고 자리를 남긴다. 숨기면 현장직은
+               * 「이 제품에는 보고서가 없다」로 읽고, 사무직에게 요청할 생각을 못 한다.
+               *
+               * `isOffice(user)`가 ADMIN도 참으로 보므로(`#1301`) 관리자는 이 뱃지를 보지
+               * 않는다 — 잠기는 것은 현장직뿐이다.
+               *
+               * 사용자를 **아직 모르면**(`null`) 잠그지 않는다 — 셸은 `RequireAuth` 안에서만
+               * 그려지므로 실제 앱에서는 이 순간이 없고, 잠그면 사무직 화면이 한 프레임
+               * 「사무직 전용」으로 깜빡인다. 주소로 직접 들어오는 경우는 `RequireOffice`가
+               * `null`을 현장직과 같게 막는다 — 그쪽이 fail-closed의 자리다.
                */
-              <li key={item.id}>
-                <span
-                  className="app-shell__nav-link app-shell__nav-link--disabled"
-                  aria-disabled="true"
-                  title={`${label} · ${lockedTag}`}
-                >
-                  {/*
-                   * 아이콘과 자물쇠를 한 상자에 묶는다 — 배지는 이 상자 기준으로 앉는다.
-                   * 활성 항목에는 상자도 배지도 두지 않는다(`#1978`).
-                   */}
-                  <span className="app-shell__nav-iconwrap">
+              const lockedTag = !item.implemented
+                ? t('shell.navTag')
+                : item.officeOnly && user !== null && !isOffice(user)
+                  ? t('shell.navTagOffice')
+                  : null
+              // 좁은 창(1100 이하)에서는 라벨이 시각적으로 감춰져 아이콘만 남는다(#1885).
+              // 마우스를 올리면 이름이 보이게 한다 — 낭독 이름은 감춘 라벨이 그대로 맡는다.
+              const label = language === 'en' ? item.labelEn : item.label
+              return lockedTag === null ? (
+                <li key={item.id}>
+                  <NavLink
+                    to={item.path}
+                    title={label}
+                    className={({ isActive }) =>
+                      isActive
+                        ? 'app-shell__nav-link app-shell__nav-link--active'
+                        : 'app-shell__nav-link'
+                    }
+                  >
                     <NavIcon id={item.id} />
-                    <LockBadge />
-                  </span>
-                  <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label" lang={textLang}>
-                      {label}
+                    <span className="app-shell__nav-text">
+                      <span className="app-shell__nav-label" lang={textLang}>
+                        {label}
+                      </span>
+                    </span>
+                  </NavLink>
+                </li>
+              ) : (
+                /*
+                 * 비활성 항목. `NavLink`로 두고 CSS로만 막지 않는 이유 — 링크로 남기면
+                 * 키보드·스크린리더에는 이동 가능한 것으로 계속 노출된다.
+                 * 이동 대상이 아니므로 링크가 아닌 요소로 렌더한다.
+                 */
+                <li key={item.id}>
+                  <span
+                    className="app-shell__nav-link app-shell__nav-link--disabled"
+                    aria-disabled="true"
+                    title={`${label} · ${lockedTag}`}
+                  >
+                    {/*
+                     * 아이콘과 자물쇠를 한 상자에 묶는다 — 배지는 이 상자 기준으로 앉는다.
+                     * 활성 항목에는 상자도 배지도 두지 않는다(`#1978`).
+                     */}
+                    <span className="app-shell__nav-iconwrap">
+                      <NavIcon id={item.id} />
+                      <LockBadge />
+                    </span>
+                    <span className="app-shell__nav-text">
+                      <span className="app-shell__nav-label" lang={textLang}>
+                        {label}
+                      </span>
+                    </span>
+                    <span className="app-shell__nav-tag" lang={textLang}>
+                      {lockedTag}
                     </span>
                   </span>
-                  <span className="app-shell__nav-tag" lang={textLang}>
-                    {lockedTag}
-                  </span>
-                </span>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+      </div>
 
       <div className={`app-shell__stack app-shell__stack--${width}`}>
         {/* 이메일 미인증 안내 — 인증 전에도 이용은 허용한다(PRD §7.10). */}
@@ -475,81 +498,15 @@ export function AppShell() {
             </select>
           </span>
           {/*
-            알림 — **알림 체계가 아직 없다** (`DESIGN_SYSTEM §16` 항목 10 · `#771` ⑽).
-            자리는 `§7.2`가 정한 대로 두되(선박 · 항차 · 알림 · 계정) **누를 수 없게**
-            한다. 종전에는 `onClick`이 없는 살아 있는 버튼이었다 — 누르게 생겼는데
-            아무 일도 없고, `aria-label`은 「읽지 않음 없음」이라 **셀 것이 없는 상태**를
-            「없다」로 단정했다. 사이드바의 비활성 항목과 같은 판단이다 — 자리가
-            사라지면 「이 제품에는 그런 기능이 없다」로 읽히고, 살아 있으면 동작을
-            기대한다. 알림 체계가 정해지면(PO) 이 `disabled`와 문구만 걷어낸다.
+            알림 — 지금 걸려 있는 상태 목록 (#2204 · `DESIGN_SYSTEM §7.2` 「알림」 · `§16` 항목 10).
+            종전에는 알림 체계가 없어 `disabled` + 「준비 중」이었다(`#771` ⑽).
           */}
-          <button
-            type="button"
-            className="app-shell__iconbtn"
-            lang={textLang}
-            aria-label={t('shell.notification.aria')}
-            title={t('shell.notification.title')}
-            disabled
-          >
-            <BellGlyph />
-          </button>
+          <NotificationBell />
           {/*
-            테마·한/EN 토글은 **계정 메뉴 안으로 들어갔다** (`#1422`).
-
-            `DESIGN_SYSTEM §7.2` 🔒이 상단바를 「전역 컨텍스트(선박·항차) · 알림 ·
-            계정」으로 닫아 두었는데 둘은 그 밖이었다. 자리를 지키려고 규격을 늘리는
-            대신 **이미 있는 계정 메뉴**에 담는다 — 테마·언어는 어느 화면에서나
-            같은 자리에서 바꾸게 되는 것이고, 계정 메뉴가 바로 그 자리다.
-
-            로그아웃은 **여기 남는다** — 안으로 넣으면 시연에서 한 번 더 눌러야
-            한다(`#717`)는 판단이 그대로다.
+            계정 · 로그아웃은 **사이드바로 옮겼다** (#2203 · `DESIGN_SYSTEM §7.2` 개정). 상단바는
+            전역 컨텍스트(선박 · 항차)와 알림만 둔다. 테마 · 한/EN 토글은 그 전부터 계정
+            메뉴 안이다(`#1422`).
           */}
-          {/*
-            계정 — `#278` 현재 사용자 표시 + 로그아웃, `#717` 요약 팝오버.
-
-            **로그아웃은 팝오버 밖에 남는다.** 안으로 넣으면 시연에서 그 동작을
-            보이려고 한 번 더 눌러야 한다.
-
-            **다만 채움 버튼은 아니다** (`#1266`). 채움이면 9개 화면 전부에서
-            대비가 가장 높은 요소가 되어 그 화면의 주 동작과 경쟁한다. 자리는
-            `#717`대로 두고 무게만 텍스트 버튼으로 낮춘다 — 규격은
-            `AppShell.css`의 `.app-shell__logout`에 적혀 있다.
-
-            감싸는 것이 `div`인 이유 — `AccountMenu`가 패널을 띄우려고 `div`를
-            쓰므로 `span`으로 감싸면 문단 내용(phrasing content)이 아닌 것을
-            담게 된다.
-          */}
-          {user ? (
-            <div className="app-shell__account">
-              <AccountMenu user={user} />
-              <button
-                type="button"
-                className="app-shell__logout"
-                lang={textLang}
-                onClick={() => void runLogout()}
-                data-testid="logout-button"
-              >
-                {t('shell.logout')}
-              </button>
-              {/*
-                로그아웃이 **서버에서** 실패했음을 알린다 (`#825` ⑵).
-
-                종전에는 `logout()`이 HTTP 상태를 보지 않아 403·500에도 **로그아웃한
-                척**하고 로그인 화면으로 갔다 — `sid`는 살아 있고
-                `user_session.revoked_at`도 `NULL`이라, 백엔드가 돌아온 뒤 다시
-                들어가면 **재로그인 없이 진입**된다. 공용 PC에서 문제가 된다.
-
-                실패하면 **이동하지 않는다.** 이동하면 전체 페이지가 다시 로드되어
-                이 문구가 사라지고, 사용자는 로그아웃됐다고 믿는다. 버튼은 그대로
-                남아 다시 누를 수 있다 — 「로그아웃 버튼에 갇힌다」가 아니다.
-              */}
-              {logoutFailure !== null ? (
-                <span className="app-shell__logout-failure" role="alert">
-                  {logoutFailure}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
         </header>
 
         <main className="app-shell__main" id={MAIN_ID} tabIndex={-1}>

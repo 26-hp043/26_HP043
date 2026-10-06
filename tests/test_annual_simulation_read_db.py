@@ -1017,9 +1017,13 @@ async def test_reproduce_refuses_runs_made_before_the_spec_snapshot(session, exe
     with pytest.raises(NotFoundError) as exc:
         await reproduce_annual_simulation(session, simulation_id)
 
-    assert "#493" in str(exc.value)
+    message = str(exc.value)
+    # 무엇이 없는지(제원 스냅샷)를 말한다 — 결과 본문이 없는 경우와 같은 말로 뭉개지 않는다.
+    assert "제원" in message
     # 「관리자에게 문의」가 아니라 **다시 실행하라**고 말한다 — 사용자가 할 수 있는 일이다.
-    assert "다시 실행" in str(exc.value)
+    assert "다시 실행" in message
+    # 내부 이슈 번호는 사용자가 읽을 말이 아니다 (`#2112` — 종전 문구는 「전(#493)에」였다).
+    assert "#" not in message
 
 
 @pytest.mark.asyncio

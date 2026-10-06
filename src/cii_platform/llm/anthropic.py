@@ -32,6 +32,7 @@ SDK를 쓰면 얻는 것(재시도·스트리밍·타입)이 있지만, ⑴ 재�
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -51,6 +52,13 @@ from cii_platform.llm.provider import (
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+_log = logging.getLogger(__name__)
+
+#: 호출 실패가 ``LLMError``로 올라갈 때의 문구 (`#2112`). **HTTP 상태 코드는 싣지 않는다** —
+#: 사용자에게 나가는 답은 ``services/chat.py``의 ``PROVIDER_ERROR_MESSAGE``(`PRD §6.3`)이고,
+#: 상태 코드·연결 오류 종류는 아래 로그 한 줄에만 남는다.
+FAILURE_MESSAGE = "챗봇 응답을 받지 못했습니다."
 
 #: Messages API 경로. 기준 주소(``LLM_BASE_URL`` · 기본 Anthropic)에 붙인다 (`#1535`).
 MESSAGES_PATH = "/v1/messages"
@@ -225,8 +233,10 @@ class AnthropicProvider:
             return _parse(response.json())
         except httpx.HTTPStatusError as exc:
             # 상태 코드만 남긴다 — 본문에 요청이 그대로 실려 오는 경우가 있어
-            # 로그에 넣으면 전송 금지 값이 로그로 샐 수 있다.
-            status = exc.response.status_code
-            raise LLMError(f"챗봇 응답을 받지 못했습니다 (HTTP {status}).") from exc
+            # 로그에 넣으면 전송 금지 값이 로그로 샐 수 있다. 상태 코드도 **로그에만** —
+            # 종전에는 문구에 `(HTTP 529)`가 붙어 사용자 답으로 나갔다 (`#2112`).
+            _log.warning("챗봇 공급자 호출 실패 (HTTP %s)", exc.response.status_code)
+            raise LLMError(FAILURE_MESSAGE) from exc
         except (httpx.HTTPError, ValueError, KeyError) as exc:
-            raise LLMError("챗봇 응답을 받지 못했습니다.") from exc
+            _log.warning("챗봇 공급자 호출 실패 (%s)", type(exc).__name__)
+            raise LLMError(FAILURE_MESSAGE) from exc

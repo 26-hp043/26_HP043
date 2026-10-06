@@ -14,6 +14,7 @@ DB 스키마, 경험식은 함께 바뀌지 않는다.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from cii_platform.weather.open_meteo import WeatherObservation, WeatherProvider
+
+_log = logging.getLogger(__name__)
 
 #: ``API_SPEC §4.1`` weather_model enum.
 MODEL_NONE = "NONE"
@@ -184,8 +187,11 @@ async def resolve_weather_factor(
                 block_coefficient=block_coefficient,
             )
         except ValueError as exc:
+            # 엔진의 영문 진단(BN · ΔV/V 값)은 로그로 — 문구는 `TECH_SPEC §12.1` 원문
+            # 그대로 (`#2112`). 종전에는 `({exc})`가 뒤에 붙어 나갔다.
+            _log.warning("기상 보정 모델 적용 불가: %s", exc)
             raise ModelBreakdownError(
-                f"기상 조건이 너무 가혹하여 모델을 적용할 수 없습니다. ({exc})"
+                "기상 조건이 너무 가혹하여 모델을 적용할 수 없습니다."
             ) from exc
 
     raise ModelBreakdownError(f"알 수 없는 기상 모델입니다: {model}")

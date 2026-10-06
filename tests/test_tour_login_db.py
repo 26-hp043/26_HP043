@@ -260,6 +260,8 @@ async def test_tour_login_succeeds_and_issues_admin_session(client, monkeypatch)
         data = resp.json()["data"]
         assert data["email"] == _TOUR_EMAIL
         assert data["role"] == "ADMIN"
+        # `#2203` — 화면이 역할 자리에 「관리자」 대신 「둘러보기」를 적는 근거
+        assert data["is_tour"] is True
         assert data["email_verified_at"] is not None
         assert SESSION_COOKIE_NAME in client.cookies
         assert CSRF_COOKIE_NAME in client.cookies

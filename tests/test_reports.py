@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import logging
 import re
 import threading
 import time
@@ -500,20 +501,43 @@ def test_missing_korean_font_is_detected_not_ignored():
     assert isinstance(pdf_module.has_korean_font(), bool)
 
 
-def test_pdf_error_names_the_cause_and_offers_csv():
-    """렌더러가 없을 때 사용자를 막다른 길에 두지 않는다."""
-    from cii_platform.reports.pdf import PdfUnavailableError
+def test_pdf_error_offers_csv_and_keeps_the_cause_in_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    """렌더러가 없을 때 사용자를 막다른 길에 두지 않되, **원인은 로그에만** 남긴다 (`#2112`).
 
-    error = PdfUnavailableError("libpango not found")
+    종전에는 import 예외 원문(「(원인: libpango-1.0-0 not found)」)이 응답 문구에 붙었다 —
+    공유 라이브러리 이름·모듈 경로는 배포 환경의 진단이지 사용자가 읽을 말이 아니다.
+    """
+    import sys
+
+    from cii_platform.reports import pdf as pdf_module
+
+    # `sys.modules`에 `None`을 두면 `import weasyprint`가 ImportError를 낸다 — 실제 부재와 같은
+    # 경로다.
+    monkeypatch.setitem(sys.modules, "weasyprint", None)
+
+    with (
+        caplog.at_level(logging.ERROR, logger=pdf_module.__name__),
+        pytest.raises(pdf_module.PdfUnavailableError) as caught,
+    ):
+        pdf_module._render("<html><body>x</body></html>")
+
+    error = caught.value
     assert error.http_status == 500  # 배포 환경 문제이지 요청 문제가 아니다
+    assert error.message == pdf_module.RENDERER_UNAVAILABLE_MESSAGE
     assert "CSV" in error.message
-    assert "libpango" in error.message
+    assert "weasyprint" not in error.message and "원인" not in error.message
+    # 원인은 사라지지 않는다 — 로그가 들고 있다.
+    assert any("weasyprint" in record.getMessage() for record in caplog.records)
 
 
 # --- 폰트가 없으면 PDF를 내주지 않는다 (#689) --------------------------------------
 
 
-def test_pdf_is_refused_when_korean_font_is_missing(monkeypatch: pytest.MonkeyPatch):
+def test_pdf_is_refused_when_korean_font_is_missing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
     """폰트가 없는 서버는 PDF를 만들지 않는다 — 종전에는 □ 문서가 200으로 나갔다.
 
     **이것이 `#689`의 본체다.** 렌더링은 성공하고 한글만 tofu(□)가 되므로 HTTP 상태도
@@ -528,14 +552,19 @@ def test_pdf_is_refused_when_korean_font_is_missing(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(pdf_module, "is_available", lambda: True)
     monkeypatch.setattr(pdf_module, "korean_font_available", lambda: False)
 
-    with pytest.raises(pdf_module.PdfUnavailableError) as caught:
+    with (
+        caplog.at_level(logging.ERROR, logger=pdf_module.__name__),
+        pytest.raises(pdf_module.PdfUnavailableError) as caught,
+    ):
         pdf_module.render_pdf(render_html(_document()))
 
     message = caught.value.message
     # 무엇이 없는지와 무엇을 하면 되는지를 함께 말한다 — 둘 중 하나만 있으면 막힌다.
     assert "폰트" in message
-    assert "fonts-nanum" in message
     assert "CSV" in message
+    # 설치 명령은 운영자의 것 — 응답이 아니라 로그에 (`#2112`).
+    assert "fonts-nanum" not in message
+    assert any("fonts-nanum" in record.getMessage() for record in caplog.records)
 
 
 def test_missing_renderer_is_not_reported_as_a_font_problem(monkeypatch: pytest.MonkeyPatch):
@@ -551,14 +580,14 @@ def test_missing_renderer_is_not_reported_as_a_font_problem(monkeypatch: pytest.
     monkeypatch.setattr(pdf_module, "korean_font_available", lambda: False)
 
     def _no_renderer(_html: str) -> bytes:
-        raise pdf_module.PdfUnavailableError("libpango-1.0-0 not found")
+        raise pdf_module.PdfUnavailableError(pdf_module.RENDERER_UNAVAILABLE_MESSAGE)
 
     monkeypatch.setattr(pdf_module, "_render", _no_renderer)
 
     with pytest.raises(pdf_module.PdfUnavailableError) as caught:
         pdf_module.render_pdf("<html><body>x</body></html>")
 
-    assert "libpango" in caught.value.message
+    assert caught.value.message == pdf_module.RENDERER_UNAVAILABLE_MESSAGE
     assert "fonts-nanum" not in caught.value.message
 
 
@@ -1464,6 +1493,52 @@ def test_the_missing_marker_matches_the_document_side():
     from cii_platform.services.report import _display
 
     assert _display(None, "cii") == MISSING_VALUE
+
+
+def test_a_server_marker_does_not_flip_a_numeric_column():
+    """「이력 없음」·「계산 불가」 하나가 수치 열을 왼쪽으로 뒤집지 않는다 (`#2092`).
+
+    사후 비교 표는 「저장된 비교에 없다」·「낼 수 없다」를 `—`와 다른 말로 적는데, 그 말이
+    들어간 열이 **미리보기·PDF에서 통째로 왼쪽**이 됐다 — `#2004`가 `—`만 세지 않았기
+    때문이다. 서버가 정한 표지는 닫힌 집합이라 `—`처럼 세지 않을 수 있다. 사용자 입력이
+    섞이는 「집계 중」 같은 글자는 여전히 열을 뒤집는다(바로 위 검사).
+    """
+    from cii_platform.reports.document import ABSENT_MARKERS
+
+    section = TableSection(
+        title="시나리오 사후 비교",
+        headers=["구분", "연료 (t)", "CII"],
+        rows=[
+            ["직항", "250.0", "5.190"],
+            ["우회", "이력 없음", "이력 없음"],
+            ["실적", "계산 불가", "계산 불가"],
+        ],
+    )
+    header, rows = _alignment(section)
+    assert header == [False, True, True]
+    assert [row[1:] for row in rows] == [[True, True]] * 3
+    # 표지만 있는 열은 수치 열이 아니다 — 세지 않는 값뿐이면 판정할 근거가 없다.
+    only_markers = TableSection(title="표", headers=["CII"], rows=[[m] for m in ABSENT_MARKERS])
+    assert _alignment(only_markers)[0] == [False]
+
+
+def test_the_absent_markers_are_the_ones_the_document_uses():
+    """렌더러가 세지 않는 표지와 서비스가 쓰는 표지가 **같은 상수**인가.
+
+    갈리면 한쪽에서 바꾼 문구가 다른 쪽에서 값으로 세어져 열이 조용히 뒤집힌다 — 그래서
+    상수는 문서 모델(`reports/document.py`) 한 곳에 있고 서비스가 가져다 쓴다.
+    """
+    from cii_platform.reports.document import ABSENT_MARKERS
+    from cii_platform.reports.html import _looks_numeric
+    from cii_platform.services import report as report_service
+
+    assert {
+        report_service.SCENARIO_NOT_STORED,
+        report_service.ACTUAL_CII_NOT_COMPUTABLE,
+        report_service.ACTUAL_RATING_NOT_RATED,
+    } == ABSENT_MARKERS
+    assert MISSING_VALUE not in ABSENT_MARKERS, "`—`는 따로 센다 — 두 번 적지 않는다"
+    assert not any(_looks_numeric(marker) for marker in ABSENT_MARKERS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

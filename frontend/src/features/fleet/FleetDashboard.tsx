@@ -30,6 +30,7 @@ import {
 } from '../parameters/referenceApiProvider'
 import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
 import {
+  actionsSummaryText,
   daysToDText,
   daysValueText,
   showsDaysToD,
@@ -675,21 +676,18 @@ export function FleetDashboard() {
           <div className="fleet__panel-body" hidden={!panelOpen}>
           {snapshot.actions.length > 0 ? (
             <section id={ACTIONS_ID} aria-label="조치 필요">
+              {/*
+                결과 카드 순서 (#2200 · `DESIGN_SYSTEM §8` 결과 카드) — 제목 → 결론 한 줄 →
+                근거(목록) → 단서 → 다음 행동. 종전에는 이동 링크 둘이 **머리줄**에 있어
+                무엇이 문제인지 읽기도 전에 「어디로 갈지」가 먼저 보였다. 머리줄에는
+                규정 표기(메타)만 남긴다.
+              */}
               <div className="card__head">
                 <h2 className="card__title">조치 필요</h2>
                 <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
-                {/* `UIFLOW 2-10` 진입 조건 — 위험 선박을 선대 단위 감속안으로 이어 준다 (#513). */}
-                <Link className="card__meta" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
-                  함대 감축 계획 세우기
-                </Link>
-                {/*
-                  `UIFLOW 2-11` 진입 조건 — 조치 항목의 등급이 **실측이 아닌 값으로 계산됐는지**
-                  확인하러 가는 길 (#1082). 사이드바로만 들어갈 수 있었다.
-                */}
-                <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
-                  {SCREEN_BY_ID.DATA_QUALITY.label}
-                </Link>
               </div>
+              {/* 대시보드에는 결론 띠(`§8.6`)가 없어 카드가 자기 결론을 적는다. */}
+              <p className="result-card__lead">{actionsSummaryText(snapshot.actions)}</p>
               <ul className="actions">
                 {snapshot.actions.map((action) => (
                   <li
@@ -704,6 +702,22 @@ export function FleetDashboard() {
                   </li>
                 ))}
               </ul>
+              {/*
+                단서 — `UIFLOW 2-11` 진입 조건. 조치 항목의 등급이 **실측이 아닌 값으로
+                계산됐는지** 확인하러 가는 길 (#1082). 근거에 붙는 확인이라 주 행동이 아니다.
+              */}
+              <p className="result-card__note">
+                등급이 실측이 아닌 값으로 계산됐는지는{' '}
+                <Link to={SCREEN_BY_ID.DATA_QUALITY.path}>{SCREEN_BY_ID.DATA_QUALITY.label}</Link>
+                에서 확인합니다.
+              </p>
+              {/*
+                다음 행동 — 카드 맨 아래 한 줄, 하나만. `UIFLOW 2-10` 진입 조건 — 위험 선박을
+                선대 단위 감속안으로 이어 준다 (#513). 문구는 확정(`#1052` ⑺)이라 바꾸지 않는다.
+              */}
+              <p className="result-card__next">
+                <Link to={SCREEN_BY_ID.FLEET_REDUCTION.path}>함대 감축 계획 세우기</Link>
+              </p>
             </section>
           ) : null}
 

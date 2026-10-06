@@ -23,9 +23,11 @@ export const ko = {
   'shell.voyage.none': '항차 없음',
   'shell.voyage.unselected': '항차 선택 안 함',
 
-  /** 상단바 — 알림 자리(체계 미정의 · `DESIGN_SYSTEM §16` 항목 10) */
-  'shell.notification.aria': '알림 (준비 중)',
-  'shell.notification.title': '알림 — 준비 중',
+  /** 상단바 — 알림 (#2204 · `DESIGN_SYSTEM §7.2` 「알림」). 개수는 `{count}`로 넣는다 */
+  'shell.notification.aria': '알림 {count}건',
+  'shell.notification.title': '알림',
+  'shell.notification.empty': '지금 걸려 있는 알림이 없습니다',
+  'shell.notification.failed': '알림을 불러오지 못했습니다',
 
   /** 사이드바 — 미구현·사무직 전용 항목에 붙는 꼬리표 */
   'shell.navTag': '준비 중',
@@ -42,6 +44,11 @@ export const ko = {
   'account.language': '언어',
   'account.settings': '설정',
   'account.settingsSub': '계정 정보 · 비밀번호',
+  /** 계정 카드의 역할 자리 (#2203) — 글자는 `authRules.ROLE_LABEL`과 같다(`accountRole.test`가 대조) */
+  'account.role.OFFICE': '사무직',
+  'account.role.FIELD': '현장직',
+  'account.role.ADMIN': '관리자',
+  'account.role.tour': '둘러보기',
 
   /** 테마 선택 칸(#1525) — 아이콘만 있는 칸의 낭독 이름. 안내는 현재 언어로 읽힌다 */
   'theme.groupLabel': '화면 테마',

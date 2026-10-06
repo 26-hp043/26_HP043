@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
 
+from cii_platform.llm import anthropic as anthropic_module
 from cii_platform.llm.anthropic import (
     API_VERSION,
     AnthropicProvider,
@@ -193,11 +195,14 @@ def test_block_contents_are_not_merged_across_messages() -> None:
     assert isinstance(merged[1]["content"], list)
 
 
-async def test_http_failure_becomes_an_llm_error_without_the_body() -> None:
+async def test_http_failure_becomes_an_llm_error_without_the_body(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """IT-CHAT-038 — 실패는 ``LLMError``다. **본문을 문구에 싣지 않는다.**
 
     오류 본문에 요청이 그대로 실려 오는 경우가 있어, 그것을 로그에 넣으면 전송
-    금지 값이 로그로 샌다(``PRD §16.3.1``).
+    금지 값이 로그로 샌다(``PRD §16.3.1``). **상태 코드는 로그에만 남는다** (`#2112`) —
+    종전에는 문구에 `(HTTP 400)`이 붙어 그대로 챗봇 답이 됐다.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -205,11 +210,18 @@ async def test_http_failure_becomes_an_llm_error_without_the_body() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = AnthropicProvider(key="test-key", client=client)
-        with pytest.raises(LLMError) as caught:
+        with (
+            caplog.at_level(logging.WARNING, logger=anthropic_module.__name__),
+            pytest.raises(LLMError) as caught,
+        ):
             await provider.complete(messages=[{"role": "user", "content": "질문"}])
 
     assert "DEMO-1" not in str(caught.value)
-    assert "400" in str(caught.value)
+    assert "400" not in str(caught.value)
+    assert str(caught.value) == anthropic_module.FAILURE_MESSAGE
+    log_lines = [record.getMessage() for record in caplog.records]
+    assert any("400" in line for line in log_lines), log_lines
+    assert not any("DEMO-1" in line for line in log_lines)
 
 
 @pytest.mark.parametrize("status", [429, 503, 529])
@@ -234,7 +246,9 @@ async def test_overload_is_retried_once_and_then_answers(status: int) -> None:
     assert len(calls) == 2
 
 
-async def test_overload_twice_fails_after_exactly_two_calls() -> None:
+async def test_overload_twice_fails_after_exactly_two_calls(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """IT-CHAT-067 — 재시도는 **1회로 못 박는다.** 두 번째도 과부하면 그대로 실패한다.
 
     횟수가 늘면 비용 상한(`PRD §16.1`)이 뜻을 잃는다 — 최악이 호출 두 번이어야 한다.
@@ -247,10 +261,15 @@ async def test_overload_twice_fails_after_exactly_two_calls() -> None:
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = AnthropicProvider(key="test-key", client=client, retry_delay=0)
-        with pytest.raises(LLMError) as caught:
+        with (
+            caplog.at_level(logging.WARNING, logger=anthropic_module.__name__),
+            pytest.raises(LLMError) as caught,
+        ):
             await provider.complete(messages=[{"role": "user", "content": "질문"}])
 
-    assert "529" in str(caught.value)
+    # 상태 코드는 문구가 아니라 로그에 (`#2112`).
+    assert "529" not in str(caught.value)
+    assert any("529" in record.getMessage() for record in caplog.records)
     assert len(calls) == 2
 
 

@@ -238,6 +238,38 @@ describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
 })
 
 
+describe('조치 필요 — 결과 카드 순서 (#2200)', () => {
+  it('결론 한 줄 → 목록 → 단서 → 다음 행동 순서이고 머리줄에는 링크가 없다', async () => {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    body.data.actions = [
+      { vessel_id: 'v1', vessel_name: '가선', reason: 'E_THIS_YEAR', severity: 'critical', message: 'E등급' },
+      { vessel_id: 'v2', vessel_name: '나선', reason: 'D_THIRD_YEAR', severity: 'warning', message: 'D등급' },
+    ] as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const card = await screen.findByLabelText('조치 필요')
+    const head = card.querySelector('.card__head') as HTMLElement
+    expect(within(head).queryAllByRole('link')).toHaveLength(0)
+
+    const lead = within(card).getByText('조치가 필요한 선박 2척 — E등급 1년차 1척 · D등급 3년 연속 1척')
+    const list = card.querySelector('.actions') as HTMLElement
+    const next = within(card).getByRole('link', { name: '함대 감축 계획 세우기' })
+    expect(next.getAttribute('href')).toBe('/fleet-reduction')
+    // 문서 순서: 결론 → 목록 → 다음 행동
+    expect(lead.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(list.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 다음 행동이 카드의 마지막 요소다
+    expect(card.lastElementChild?.contains(next)).toBe(true)
+  })
+})
+
 describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {
   /**
    * 규칙은 `fleetRules.test.ts`·`daysReason.sync.test.ts`가 잠근다. 여기서는 **화면이

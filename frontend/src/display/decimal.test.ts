@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addFixed, compareFixed, subtractFixed } from './decimal'
+import { addFixed, compareFixed, shareOfMax, subtractFixed } from './decimal'
 import { formatDecimalString } from './format'
 
 /**
@@ -83,5 +83,27 @@ describe('compareFixed — 표시값의 대소', () => {
 
   it('인자를 바꾸면 부호가 뒤집힌다', () => {
     expect(Math.sign(compareFixed('1.2', '3.4', 1))).toBe(-Math.sign(compareFixed('3.4', '1.2', 1)))
+  })
+})
+
+describe('shareOfMax — 막대 길이 비율 (#2202)', () => {
+  it('최댓값을 100으로 두고 나머지를 표시값 기준 비율로 낸다', () => {
+    expect(shareOfMax(['100.0', '50.0', '25.0'], 1)).toEqual([100, 50, 25])
+  })
+
+  it('표시 자릿수로 맞춘 뒤 나눈다 — 막대 옆 글자와 같은 숫자에서 나온다', () => {
+    // 6.6144 → 6.614 · 6.6136 → 6.614 (3자리) → 둘 다 100
+    expect(shareOfMax(['6.6144', '6.6136'], 3)).toEqual([100, 100])
+  })
+
+  it('0에서 시작한다 — 차이가 작으면 막대도 비슷하다(축을 자르지 않는다)', () => {
+    const [a, b] = shareOfMax(['6.614', '6.500'], 3)
+    expect(a).toBe(100)
+    expect(b).toBeGreaterThan(98)
+  })
+
+  it('최댓값이 0이면 전부 0이고, 음수는 0으로 둔다', () => {
+    expect(shareOfMax(['0', '0.0'], 1)).toEqual([0, 0])
+    expect(shareOfMax(['-5.0', '10.0'], 1)).toEqual([0, 100])
   })
 })

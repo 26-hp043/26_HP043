@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 import '../test/renderSetup'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { AccountMenu } from './AccountMenu'
 import { SCREEN_BY_ID } from '../screens'
 import type { CurrentUser } from '../auth/session'
+import { ROLE_LABEL } from '../features/auth/authRules'
+import { ko } from '../i18n/ko'
 
 /**
- * 상단바 계정 팝오버 (#717).
+ * 계정 팝오버 (#717) — #2203부터 사이드바 로고 아래 사용자 카드다.
  *
  * ## 무엇을 잠그나
  *
@@ -31,10 +33,14 @@ const USER: CurrentUser = {
   hasAvatar: false,
 }
 
-function renderMenu(user: CurrentUser = USER, path = '/dashboard') {
+function renderMenu(
+  user: CurrentUser = USER,
+  path = '/dashboard',
+  { onLogout = () => {}, logoutFailure = null }: { onLogout?: () => void; logoutFailure?: string | null } = {},
+) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <AccountMenu user={user} />
+      <AccountMenu user={user} onLogout={onLogout} logoutFailure={logoutFailure} />
     </MemoryRouter>,
   )
 }
@@ -155,5 +161,52 @@ describe('계정 팝오버 — 인증 상태 (#717)', () => {
     expect(trigger().textContent).toContain(USER.email)
     fireEvent.click(trigger())
     expect(screen.getByText('표시 이름 없음')).toBeDefined()
+  })
+})
+
+describe('사이드바 사용자 카드 — 역할 · 둘러보기 · 로그아웃 (#2203)', () => {
+  it('카드에 이름과 역할이 함께 보이고, 둘 다 버튼 이름에 든다', () => {
+    renderMenu()
+    expect(trigger().textContent).toContain('시연용')
+    expect(trigger().textContent).toContain('사무직')
+  })
+
+  it.each([
+    ['FIELD', '현장직'],
+    ['OFFICE', '사무직'],
+    ['ADMIN', '관리자'],
+  ] as const)('역할 %s는 「%s」다', (role, text) => {
+    renderMenu({ ...USER, role })
+    expect(trigger().textContent).toContain(text)
+  })
+
+  it('둘러보기 계정은 ADMIN이어도 「관리자」가 아니라 「둘러보기」다', () => {
+    renderMenu({ ...USER, role: 'ADMIN', isTour: true })
+    expect(trigger().textContent).toContain('둘러보기')
+    expect(trigger().textContent).not.toContain('관리자')
+  })
+
+  it('역할 글자는 `ROLE_LABEL`과 같다 — 계정 관리 화면과 갈리지 않는다', () => {
+    expect(ko['account.role.OFFICE']).toBe(ROLE_LABEL.OFFICE)
+    expect(ko['account.role.FIELD']).toBe(ROLE_LABEL.FIELD)
+    expect(ko['account.role.ADMIN']).toBe(ROLE_LABEL.ADMIN)
+  })
+
+  it('로그아웃은 패널 안에 있고, 누르면 셸에 알린다', () => {
+    const onLogout = vi.fn()
+    renderMenu(USER, '/dashboard', { onLogout })
+    const panel = screen.getByTestId('account-panel')
+    const button = screen.getByTestId('logout-button')
+    expect(panel.contains(button)).toBe(true)
+    fireEvent.click(trigger())
+    fireEvent.click(button)
+    expect(onLogout).toHaveBeenCalledTimes(1)
+  })
+
+  it('로그아웃이 서버에서 실패하면 버튼 아래에 알린다 — 버튼은 남는다 (#825 ⑵)', () => {
+    renderMenu(USER, '/dashboard', { logoutFailure: '로그아웃하지 못했습니다.' })
+    fireEvent.click(trigger())
+    expect(screen.getByRole('alert').textContent).toBe('로그아웃하지 못했습니다.')
+    expect(screen.getByTestId('logout-button')).toBeDefined()
   })
 })

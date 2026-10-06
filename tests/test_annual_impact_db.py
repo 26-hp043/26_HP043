@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -42,6 +43,20 @@ from cii_platform.services.voyage_cii import (
 YEAR = 2026
 BULK = UUID(demo_seed.VESSEL_ID_BULK)
 CONTAINER = UUID(demo_seed.VESSEL_ID_CONTAINER)
+
+#: 시드의 「오늘」 + 3일 (`#2106` · `test_cii_ytd_series_db.DEMO_AS_OF`와 같은 값).
+#: `_annual_impact`는 설계상 `as_of`를 입력으로 받지 않고 서버 시각을 확정한다
+#: (아래 `test_the_as_of_is_not_an_input`). 그래서 **시계를 고정한다** — 벽시계를 두면
+#: 2027년부터 `YEAR=2026`의 「남은 날」이 음수가 되고 실시간 CII와의 대조가 깨진다.
+AS_OF = demo_seed.DEMO_ANCHOR + timedelta(days=3)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``voyage_cii``가 확정하는 「현재 시각」을 시드 기준으로 고정한다 (`#2106`)."""
+    from cii_platform.services import voyage_cii
+
+    monkeypatch.setattr(voyage_cii, "resolve_as_of", lambda as_of: AS_OF)
 
 
 @pytest_asyncio.fixture
@@ -150,7 +165,8 @@ async def test_before_matches_the_realtime_year_end(session) -> None:
     from cii_platform.services.cii_current import get_current_cii
 
     impact = (await _estimate(session, BULK))["data"]["annual_impact"]
-    current, _ = await get_current_cii(session, BULK, year=YEAR)
+    # 같은 시각으로 묻는다 — `_fixed_clock`이 `_annual_impact`에 준 값과 같아야 같은 숫자다.
+    current, _ = await get_current_cii(session, BULK, year=YEAR, as_of=AS_OF)
     year_end = current["year_end_projection"]
 
     assert year_end["data_available"] is True
