@@ -28,7 +28,7 @@ import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { ManagedVoyage } from '../voyage-management/types'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
-import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
@@ -501,7 +501,7 @@ export function VoyageCiiForm({
           <StaticField
             label="규제연도"
             labelEn="Year"
-            value={state.regulationYear || '등록된 규제연도가 없습니다'}
+            value={state.regulationYear || YEAR_STATE_COPY.empty}
           />
         )}
 
