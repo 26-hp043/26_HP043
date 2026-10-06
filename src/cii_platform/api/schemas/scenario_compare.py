@@ -62,6 +62,10 @@ class ScenarioCompareRequest(BaseModel):
     # 기본 NONE. #61(기상 연동) 전까지 NONE이 아닌 값은 fallback warning과 함께
     # NONE으로 계산한다 (API_SPEC §1.6 WEATHER_NONE_FALLBACK).
     weather_model: WeatherModel | None = None
+    #: 이 비교가 **어느 항차를 두고 한 것인가** (`#2217` · 선택). 계획 단계 항차면 계산
+    #: 이력이 그 항차에 붙어, 채택 없이 끝난 항차의 리포트가 이 비교를 인용한다
+    #: (`PRD §25.2.1`). 결과에는 영향이 없다 — ``input_hash``에 넣지 않는다(기능①과 같다).
+    voyage_id: UUID | None = None
 
 
 class ScenarioAdoptRequest(BaseModel):

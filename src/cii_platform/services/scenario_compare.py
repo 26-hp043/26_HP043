@@ -42,9 +42,11 @@ from cii_platform.calc.rating_engine import DVector, select_rating_boundary
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.db.repositories import voyage_scenario as scenario_repo
 from cii_platform.errors import NotFoundError, ParameterError, ValidationError
 from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
+from cii_platform.services.voyage import PLANNING_STATUSES
 from cii_platform.services.voyage_cii import (
     DISCLAIMER,
     _build_warnings,
@@ -120,6 +122,8 @@ class ScenarioCompareInput:
     # 우회 경유지 (`#1300` · PRD §11.3). 둘 다 있을 때만 DETOUR 거리를 구간 합으로 낸다.
     detour_waypoint_lat: Decimal | None = None
     detour_waypoint_lon: Decimal | None = None
+    # 이 비교가 두고 한 항차 (`#2217` · 선택). 계산 재료가 아니다 — 해시에 넣지 않는다.
+    voyage_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +236,7 @@ async def compare_scenarios(
     started = time.perf_counter()
 
     vessel = await _load_vessel(session, payload.vessel_id)
+    attributed_voyage_id = await _resolve_attributed_voyage(session, payload, persist=persist)
     regulation = await _load_regulation_year(session, payload.regulation_year)
     reference_line = await _select_reference_line(session, vessel)
     rating_boundary = await _select_rating_boundary(session, vessel)
@@ -365,6 +370,10 @@ async def compare_scenarios(
     data = {
         "scenarios": scenarios_json,
         "summary": _build_summary(computed),
+        # 이 비교가 **붙은** 항차 (`#2217`). 요청이 밝히지 않았거나, 밝혔어도 계획 단계가
+        # 아니었거나, 저장하지 않는 경로면 ``None``이다 — 키는 늘 있다. 호출부가 「붙었는가」를
+        # 키의 유무가 아니라 값으로 읽게 하려는 것이다.
+        "voyage_id": None if attributed_voyage_id is None else str(attributed_voyage_id),
     }
 
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))
@@ -386,6 +395,7 @@ async def compare_scenarios(
             warnings=warnings,
             duration_ms=duration_ms,
             weather_snapshot_id=weather.snapshot_id,
+            voyage_id=attributed_voyage_id,
         )
 
     return {
@@ -418,6 +428,36 @@ async def _persist_scenario_run(session: AsyncSession, *, commit: bool = True, *
 
 
 # --- 조회 + 입력 확정 ----------------------------------------------------------------
+
+
+async def _resolve_attributed_voyage(
+    session: AsyncSession, payload: ScenarioCompareInput, *, persist: bool
+) -> UUID | None:
+    """이 비교의 계산 이력을 붙일 항차를 정한다 (`#2217`). 붙이지 않으면 ``None``.
+
+    요청이 항차를 밝히면 **이 선박의 살아 있는 항차**인지 먼저 본다 — 없으면 404, 다른
+    선박의 항차면 422다(기능①의 ``voyage_id``와 같은 검사 · `#817`).
+
+    붙이는 것은 **계획 단계 항차**(``DRAFT`` · ``PLANNED``)뿐이다. ``PRD §25.2.1``이 리포트에
+    싣는 것을 「항차 착수 전 저장된」 비교로 정했기 때문이다 — 떠났거나 끝난 항차를 골라 둔
+    채 돌린 비교가 붙으면 리포트가 사후의 비교를 착수 전 근거로 인용한다. 그때 요청을
+    거부하지는 않는다: 비교는 선박 단위로 성립하고, 화면은 상단에 고른 항차를 그대로 실어
+    보낸다. 붙지 않았다는 것은 응답 ``data.voyage_id``가 ``None``인 것으로 드러난다.
+
+    저장하지 않는 경로(``persist=False``)는 붙일 이력이 없으므로 ``None``이다.
+    """
+    if payload.voyage_id is None:
+        return None
+    voyage = await voyage_repo.get_by_id(session, payload.voyage_id)
+    if voyage is None or voyage.is_deleted:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {payload.voyage_id}")
+    if voyage.vessel_id != payload.vessel_id:
+        raise ValidationError(
+            "이 선박의 항차가 아닙니다.", field="voyage_id", field_label="대상 항차"
+        )
+    if not persist or voyage.status not in PLANNING_STATUSES:
+        return None
+    return voyage.id
 
 
 async def _load_vessel(session, vessel_id: UUID):

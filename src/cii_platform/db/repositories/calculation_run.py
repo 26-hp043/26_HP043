@@ -192,8 +192,13 @@ async def insert_scenario(
     warnings: list[str],
     duration_ms: int,
     weather_snapshot_id: UUID | None = None,
+    voyage_id: UUID | None = None,
 ) -> CalculationRun:
     """기능② 시나리오 비교 계산 이력 1건을 저장하고 flush 한다 (#57).
+
+    ``voyage_id``는 **이 비교가 두고 한 항차**다 (`#2217`). 요청이 밝혔고 그 항차가 계획
+    단계일 때만 서비스가 넘긴다 — 그 밖에는 ``None``이다. 이 표는 고칠 수 없으므로(immutable)
+    나중에 붙일 길이 없고, 저장할 때 적어야 한다.
 
     ``insert_voyage_estimate``와 같은 규약 — commit은 서비스가 정하고, flush는
     응답에 실을 PK 확보를 위해 한다. ``calculation_type``만 ``SCENARIO``로
@@ -208,7 +213,7 @@ async def insert_scenario(
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_SCENARIO,
         vessel_id=vessel_id,
-        voyage_id=None,
+        voyage_id=voyage_id,
         weather_snapshot_id=weather_snapshot_id,
         input_hash=input_hash,
         parameter_hash=parameter_hash,
@@ -256,6 +261,33 @@ async def find_scenario_run(
         ):
             return run
     return None
+
+
+async def find_latest_scenario_run_of_voyage(
+    session: AsyncSession, *, vessel_id: UUID, voyage_id: UUID
+) -> CalculationRun | None:
+    """그 항차를 두고 한 비교(``SCENARIO``) 이력 중 가장 최근 것 (`#2217`).
+
+    채택이 없는 항차의 리포트가 쓴다. 채택이 있으면 :func:`find_scenario_run`이 기준이다 —
+    채택 행이 속한 비교가 「반영된 판단」이기 때문이다.
+
+    ``voyage_id``가 붙은 이력만 본다. 항차를 밝히지 않은 비교(``NULL``)는 같은 선박의 것이라도
+    잡히지 않는다 — 선박의 다른 비교를 이 항차의 것으로 끌어오지 않는다.
+
+    정렬은 ``list_runs``와 같다(``created_at desc, id desc``). ``created_at``이 같은 두 이력의
+    선후는 id로 갈려 정해지지 않는다.
+    """
+    stmt = (
+        select(CalculationRun)
+        .where(
+            CalculationRun.vessel_id == vessel_id,
+            CalculationRun.voyage_id == voyage_id,
+            CalculationRun.calculation_type == CALCULATION_TYPE_SCENARIO,
+        )
+        .order_by(CalculationRun.created_at.desc(), CalculationRun.id.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()
 
 
 async def list_runs(

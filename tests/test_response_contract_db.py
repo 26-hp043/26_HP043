@@ -792,6 +792,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.summary.lowest_cii_scenarios",
             "data.summary.lowest_fuel_scenarios",
             "data.summary.shortest_duration_scenarios",
+            # `#2217` — 이 비교가 붙은 항차. 붙지 않았으면 `null`이고 키는 늘 있다.
+            "data.voyage_id",
             "disclaimer",
             "input_hash",
             "meta",

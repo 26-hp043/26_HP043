@@ -1026,6 +1026,32 @@ describe('계획에 반영 (#580)', () => {
     expect(select.value).toBe('')
   })
 
+  /*
+   * #2217 — 비교가 **어느 항차를 두고 한 것인지** 요청에 실린다. 실리지 않으면 채택 없이 끝난
+   * 항차의 리포트가 이 비교를 찾을 길이 없다. 화면에서 요청 본문까지의 배선을 직접 판다.
+   */
+  function sentCompareBody(fetchImpl: ReturnType<typeof stubAdoptServer>): string {
+    const call = fetchImpl.mock.calls.find(([input]) => String(input).includes('/scenarios/compare'))
+    return (call?.[1] as RequestInit).body as string
+  }
+
+  it('상단바에서 고른 항차를 비교 요청에 싣는다 (#2217)', async () => {
+    const fetchImpl = stubAdoptServer()
+    renderScreen({ voyageId: 'v-planned' })
+    await openPanel()
+
+    expect(JSON.parse(sentCompareBody(fetchImpl)).voyage_id).toBe('v-planned')
+  })
+
+  it('항차를 고르지 않았으면 비교 요청에 항차 키가 없다 (#2217)', async () => {
+    const fetchImpl = stubAdoptServer()
+    renderScreen()
+    await openPanel()
+
+    // `"voyage_id":null`도 아니다 — 서버는 키가 없는 것을 「밝히지 않음」으로 읽는다.
+    expect(sentCompareBody(fetchImpl)).not.toContain('voyage_id')
+  })
+
   it('반영 전에 되돌릴 수 없음을 확인받는다 — 거절하면 요청을 보내지 않는다', async () => {
     const fetchImpl = stubAdoptServer()
     const confirm = vi.fn(() => false)

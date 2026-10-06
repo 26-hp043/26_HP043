@@ -117,6 +117,13 @@ export interface ScenarioComparisonRequest {
    * 추가할 때 두 화면 중 하나만 따라간다. `§4.1`과 `§5.1`의 enum이 같은 집합이다.
    */
   weather_model?: WeatherModel
+  /**
+   * 이 비교가 **어느 항차를 두고 한 것인가** (`#2217` · `API_SPEC §5.1`). 상단바에 고른 항차다.
+   *
+   * 계획 단계 항차면 서버가 계산 이력을 그 항차에 붙이고, 채택 없이 끝난 항차의 리포트가 이
+   * 비교를 싣는다. 폼의 입력이 아니라 **화면의 문맥**이라 `toRequest`가 아니라 화면이 싣는다.
+   */
+  voyage_id?: string
 }
 
 /** 시나리오 비교 응답. */

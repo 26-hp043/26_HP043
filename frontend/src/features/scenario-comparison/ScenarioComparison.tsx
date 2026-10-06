@@ -524,7 +524,14 @@ export function ScenarioComparison({
       inputs: form,
     }
     setState({ status: 'loading' })
-    provider.compare(toRequest(form, fuels)).then(
+    /*
+     * 상단바에 고른 항차를 함께 보낸다 (`#2217`) — 그 항차를 두고 한 비교로 남아야, 채택 없이
+     * 끝난 항차의 리포트가 이 비교를 싣는다. **폼의 배가 상단바의 배와 같을 때만**이다: 폼에서
+     * 배를 바꿨으면 상단바의 항차는 다른 배의 것이고, 서버가 그 조합을 422로 거부한다.
+     */
+    const voyageId = form.vesselId === shell.vesselId ? shell.voyageId : null
+    const request = toRequest(form, fuels)
+    provider.compare(voyageId === null ? request : { ...request, voyage_id: voyageId }).then(
       (response) => {
         // #1533 — 챗봇이 「이 결과」를 저장된 실행에서 읽게 한다.
         publishScreenResult(response.calculation_run_id)

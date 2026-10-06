@@ -200,6 +200,7 @@ export function createApiScenarioProvider(
             detour_waypoint_lat: request.detour_waypoint_lat,
             detour_waypoint_lon: request.detour_waypoint_lon,
             weather_model: request.weather_model,
+            voyage_id: request.voyage_id,
           }),
         })
       } catch (cause) {
