@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import {
   SEVERITIES,
   type CompletenessBreakdown,
@@ -199,7 +199,7 @@ export function createApiDataQualityProvider(
       }
       if (!response.ok) {
         throw new DataQualityUnavailableError(
-          `데이터 점검 결과를 불러오지 못했습니다 (HTTP ${response.status}).`,
+          fallbackMessage('데이터 점검 결과를 불러오지 못했습니다.', response.status),
         )
       }
       // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구가 화면에 나가지 않게 한다 (#2126).
@@ -274,7 +274,7 @@ export function createApiDataQualityProvider(
       }
       if (!response.ok) {
         throw new DataQualityUnavailableError(
-          (await errorMessage(response)) ?? `공적 기록으로 채우지 못했습니다 (HTTP ${response.status}).`,
+          (await errorMessage(response)) ?? fallbackMessage('공적 기록으로 채우지 못했습니다.', response.status),
         )
       }
       const data = ((await response.json().catch(() => null)) as {

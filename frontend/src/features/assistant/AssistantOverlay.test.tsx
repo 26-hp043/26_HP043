@@ -617,7 +617,7 @@ describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` ·
 
   it('조회가 실패하면 입력을 막지 않는다 — 모르는 상태를 「쓸 수 없음」으로 그리지 않는다', async () => {
     const status = vi.fn(async () => {
-      throw new AssistantError('상태를 확인하지 못했습니다 (HTTP 500).')
+      throw new AssistantError('상태를 확인하지 못했습니다.')
     })
     setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
     open()

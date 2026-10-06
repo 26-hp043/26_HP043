@@ -27,12 +27,18 @@ function respond(data: unknown[], meta: Record<string, unknown>) {
 }
 
 /** 조회 실패 — `fetchCalculationPage`가 `!response.ok`에서 던진다. */
-/*
- * ⚠️ 문구를 찾을 때 **`(HTTP 500)`까지** 적는다. `ErrorState`는 제목과 본문 두
- * 곳에 같은 문장을 그려, 앞부분만으로 찾으면 두 노드가 잡혀 질의가 실패한다.
- */
 function fail() {
   return { ok: false, status: 500, json: async () => ({}) } as Response
+}
+
+/*
+ * 실패 표시의 본문. ⚠️ **문구로 찾지 않는다** — `ErrorState`는 제목과 본문 두 곳에 같은
+ * 문장을 그려 두 노드가 잡힌다. 종전에는 본문에만 있던 `(HTTP 500)`으로 갈랐는데, 그
+ * 숫자가 화면에 나가지 않는 것이 이제 지킬 성질이다(`#2221`).
+ */
+async function failureMessage(): Promise<string> {
+  const alert = await screen.findByRole('alert')
+  return alert.querySelector('.error-state__message')?.textContent ?? ''
 }
 
 describe('계산 이력 (#992)', () => {
@@ -119,7 +125,10 @@ describe('「더 보기」가 실패해도 받은 행을 버리지 않는다 (#1
 
     fireEvent.click(await screen.findByRole('button', { name: '이전 계산 더 보기' }))
 
-    expect(await screen.findByText(/계산 이력을 불러오지 못했습니다 \(HTTP 500\)/)).toBeTruthy()
+    const message = await failureMessage()
+    expect(message).not.toBe('')
+    // 조회가 500으로 실패했다 — 그 숫자는 화면에 나가지 않는다 (`#2221`).
+    expect(message).not.toMatch(/HTTP|\d{3}/)
     // 표가 그대로다 — 종전에는 여기서 `ErrorState` 하나만 남았다.
     expect(screen.getByText('CII 예측')).toBeTruthy()
     // 실패를 「계산이 없다」로 바꿔 말하지도 않는다.
@@ -137,20 +146,20 @@ describe('「더 보기」가 실패해도 받은 행을 버리지 않는다 (#1
     render(<CalculationHistory vesselId="v1" fetchImpl={fetchImpl as unknown as typeof fetch} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '이전 계산 더 보기' }))
-    await screen.findByText(/계산 이력을 불러오지 못했습니다 \(HTTP 500\)/)
+    await screen.findByRole('alert')
 
     fireEvent.click(await screen.findByRole('button', { name: '다시 시도' }))
 
     expect(await screen.findByText('재계산 필요 1건')).toBeTruthy()
     expect(screen.getAllByText('CII 예측')).toHaveLength(2)
-    expect(screen.queryByText(/계산 이력을 불러오지 못했습니다 \(HTTP 500\)/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('첫 페이지가 실패하면 「계산이 없습니다」로 말하지 않는다', async () => {
     const fetchImpl = vi.fn(async () => fail())
     render(<CalculationHistory vesselId="v1" fetchImpl={fetchImpl as unknown as typeof fetch} />)
 
-    expect(await screen.findByText(/계산 이력을 불러오지 못했습니다 \(HTTP 500\)/)).toBeTruthy()
+    expect(await failureMessage()).not.toMatch(/HTTP|\d{3}/)
     expect(screen.queryByText('이 선박으로 실행한 계산이 없습니다.')).toBeNull()
   })
 

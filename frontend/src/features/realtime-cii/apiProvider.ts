@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type {
   CapacityBasis,
   RealtimeCii,
@@ -287,7 +287,7 @@ export function createApiRealtimeCiiProvider(
 
       if (!response.ok) {
         throw new RealtimeCiiError(
-          body?.error?.message ?? `불러오지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('불러오지 못했습니다.', response.status),
         )
       }
 
@@ -367,7 +367,7 @@ export function createApiRealtimeCiiProvider(
       // 422는 주소의 항차 조각이 id 꼴이 아닐 때다 — 그런 항차는 없다.
       if (response.status === 404 || response.status === 422) return { found: false }
       if (!response.ok) {
-        throw new RealtimeCiiError(`불러오지 못했습니다 (HTTP ${response.status}).`)
+        throw new RealtimeCiiError(fallbackMessage('불러오지 못했습니다.', response.status))
       }
       const body = (await response.json().catch(() => null)) as {
         data?: { status?: unknown; vessel_id?: unknown }
@@ -441,7 +441,7 @@ export function createApiRealtimeCiiProvider(
 
       if (!response.ok) {
         throw new RealtimeCiiError(
-          body?.error?.message ?? `추이를 불러오지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('추이를 불러오지 못했습니다.', response.status),
         )
       }
 

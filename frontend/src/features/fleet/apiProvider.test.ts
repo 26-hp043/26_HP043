@@ -282,9 +282,11 @@ describe('실패 경로', () => {
     )
   })
 
-  it('5xx는 상태 코드를 남긴다', async () => {
+  it('5xx는 던진다 — 빈 선대로 바꾸지 않는다', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503))
-    await expect(createApiFleetProvider(fetchImpl).load()).rejects.toThrow(/503/)
+    await expect(createApiFleetProvider(fetchImpl).load()).rejects.toThrow()
+    warn.mockRestore()
   })
 
   it('as_of가 없으면 형식 오류다 — 기준 시각 없이는 화면을 그릴 수 없다', async () => {
@@ -344,10 +346,17 @@ describe('오류 문구 (#1103)', () => {
     await expect(failure).rejects.not.toThrow(/Unexpected token|SyntaxError|JSON/)
   })
 
-  it('사유가 없는 5xx는 상태 코드를 남긴다 — 그 숫자가 남은 유일한 단서다', async () => {
-    // 이 이슈가 고치려는 것은 「사유가 있는데 숫자가 그것을 덮는 것」이지, 사유가 없을
-    // 때까지 숫자를 지우는 것이 아니다. 지우면 문의할 때 넘길 것이 사라진다.
+  it('사유가 없는 5xx의 문구에 상태 코드를 싣지 않는다 — 숫자는 콘솔에 남긴다 (#2221)', async () => {
+    // `#1103`은 이 숫자를 「남은 유일한 단서」로 보고 문구에 남겼다. 단서는 콘솔로 옮겼다.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503))
-    await expect(createApiFleetProvider(fetchImpl).load()).rejects.toThrow(/503/)
+
+    const failure = await createApiFleetProvider(fetchImpl)
+      .load()
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('503')
+    warn.mockRestore()
   })
 })

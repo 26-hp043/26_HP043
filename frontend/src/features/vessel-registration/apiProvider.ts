@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import {
   VesselRegistrationError,
   type VesselRegistrationErrorCode,
@@ -62,7 +62,7 @@ export function toVesselRegistrationError(
   if (!error || typeof error.code !== 'string') {
     return new VesselRegistrationError(
       'REGISTRATION_ERROR',
-      `${MALFORMED_ERROR_MESSAGE} (HTTP ${status})`,
+      fallbackMessage(MALFORMED_ERROR_MESSAGE, status),
     )
   }
   return new VesselRegistrationError(

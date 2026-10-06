@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type {
   Adjustment,
   EvaluateRequest,
@@ -145,7 +145,7 @@ export function createApiFleetReductionProvider(
     }
     if (!response.ok) {
       throw new FleetReductionError(
-        payload.error?.message ?? `요청을 처리하지 못했습니다 (HTTP ${response.status}).`,
+        payload.error?.message ?? fallbackMessage('요청을 처리하지 못했습니다.', response.status),
       )
     }
     return payload as Json

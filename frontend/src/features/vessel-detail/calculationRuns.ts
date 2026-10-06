@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, redirectToLogin } from '../../auth/session'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 
 /**
  * 선박 상세의 **계산 이력** (#992 · `API_SPEC §1.9` · `PRD §8.4` 「재계산 필요 표시」).
@@ -96,7 +96,7 @@ export async function fetchCalculationPage(
     redirectToLogin()
     throw new Error(SESSION_EXPIRED_MESSAGE)
   }
-  if (!response.ok) throw new Error(`계산 이력을 불러오지 못했습니다 (HTTP ${response.status}).`)
+  if (!response.ok) throw new Error(fallbackMessage('계산 이력을 불러오지 못했습니다.', response.status))
   // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구(`SyntaxError`)가 화면에 나가지 않게 한다 (#2126).
   const body = (await response.json().catch(() => null)) as {
     data?: unknown

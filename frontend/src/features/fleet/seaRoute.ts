@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import {
   createRouteGeometry,
   getKnownRouteSource,
@@ -110,7 +110,7 @@ export async function fetchSeaRoute(
     headers: { Accept: 'application/json' },
   })
   const body = (await response.json().catch(() => null)) as unknown
-  if (!response.ok) throw new Error(`해상 경로 조회 실패 (HTTP ${response.status})`)
+  if (!response.ok) throw new Error(fallbackMessage('해상 경로 조회 실패', response.status))
   const line = toLine(body)
   if (line === null) throw new Error('해상 경로 응답이 계약과 다릅니다.')
   return line

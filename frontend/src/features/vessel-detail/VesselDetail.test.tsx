@@ -778,7 +778,7 @@ describe('첫 조회 실패 (#2126)', () => {
   }
 
   it('「다시 시도」는 화면 안에서 다시 조회하고, 성공하면 상세가 나온다', async () => {
-    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다 (HTTP 500).'), DETAIL)
+    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다.'), DETAIL)
     renderAt(provider)
 
     const retry = await screen.findByRole('button', { name: '다시 시도' })
@@ -791,7 +791,7 @@ describe('첫 조회 실패 (#2126)', () => {
   })
 
   it('다시 시도가 또 실패하면 같은 실패 화면과 「다시 시도」로 돌아온다', async () => {
-    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다 (HTTP 500).'))
+    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다.'))
     renderAt(provider)
 
     fireEvent.click(await screen.findByRole('button', { name: '다시 시도' }))
@@ -805,7 +805,7 @@ describe('첫 조회 실패 (#2126)', () => {
     for (const [name, error] of [
       ['notFound', new VesselDetailError('선박을 찾을 수 없습니다.', { notFound: true })],
       ['invalid', new VesselDetailError('선박 형식이 올바르지 않습니다.', { notFound: true })],
-      ['server', new VesselDetailError('불러오지 못했습니다 (HTTP 500).')],
+      ['server', new VesselDetailError('불러오지 못했습니다.')],
     ] as const) {
       const view = renderAt(failedProvider(error))
       await screen.findByRole('alert')

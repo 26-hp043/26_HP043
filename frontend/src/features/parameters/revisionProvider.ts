@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { readPageMeta } from '../../api/base'
+import { fallbackMessage, readPageMeta } from '../../api/base'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type {
   ParameterImportResult,
@@ -98,7 +98,7 @@ export function createApiParameterRevisionProvider(
     }
     const body = (await response.json().catch(() => null)) as ServerError | null
     throw new RevisionError(
-      body?.error?.message ?? `요청을 처리하지 못했습니다 (HTTP ${response.status}).`,
+      body?.error?.message ?? fallbackMessage('요청을 처리하지 못했습니다.', response.status),
       { forbidden: response.status === 403 },
     )
   }
