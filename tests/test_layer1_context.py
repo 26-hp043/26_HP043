@@ -36,6 +36,7 @@ from cii_platform.calc.precision import (
     LAYER1_ROUNDING,
     LAYER1_WORKING_PRECISION,
     layer1_context,
+    validate_layer1_result,
 )
 
 TRAPPED_SIGNALS = (DivisionByZero, InvalidOperation, Overflow)
@@ -669,3 +670,28 @@ def test_other_services_convert_co2_grams_inside_the_layer1_context(grams_raw, n
 
     assert fuel_rows[0]["co2_ton"] == expected
     assert ytd_block["not_underway_co2_ton"] == expected
+
+
+# --- Layer 1 출력 가드 (`TECH_SPEC §1.2.5` · #2144) ----------------------------------
+# CI 커버리지에서 `precision.py`의 거부 줄이 한 번도 실행되지 않았다 — 가드가
+# `is_nan()`만 보도록 좁아져 무한대가 저장 단계까지 흘러가도 어느 검사도 깨지지 않았다.
+
+
+@pytest.mark.parametrize("bad", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_non_finite_layer1_result_is_refused(bad):
+    """`[ORACLE-MISS-2]` — 유한하지 않은 값은 저장·전달 전에 막는다. 이름이 문구에 실린다."""
+    with pytest.raises(ValueError, match="attained_cii"):
+        validate_layer1_result(Decimal(bad), "attained_cii")
+
+
+@pytest.mark.parametrize(
+    "ok", ["0", "-1.5", "4.9824", "1E+40", "1.234567890123456789012345678901234567890"]
+)
+def test_finite_layer1_result_passes_through_unchanged(ok):
+    """유한하면 **그 값 그대로** 돌려준다 — 0도 음수도 가드의 대상이 아니다.
+
+    같은 객체를 돌려주는지 본다. 가드가 값을 다시 만들면(`+value`) 호출 스레드의
+    컨텍스트(기본 28자리)로 반올림되어 40자리 값이 깎인다.
+    """
+    value = Decimal(ok)
+    assert validate_layer1_result(value, "x") is value

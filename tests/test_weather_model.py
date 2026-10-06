@@ -18,6 +18,7 @@ DB도 네트워크도 쓰지 않는다. **경험식이 정본과 같은 값을 �
 from __future__ import annotations
 
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -158,6 +159,58 @@ def test_above_the_beaufort_limit_the_model_stops():
         _bulk(9.0)
 
 
+def test_the_beaufort_limit_itself_is_still_inside_the_model():
+    """BN 8은 **허용 상한**이다 — 거부는 8을 **넘을 때**다 (`TECH_SPEC §3.5` `if bn > 8`) (#2144).
+
+    `BN = round(3.5 × √Hs)`이고 반올림이 짝수 쪽이라 BN 9는 `3.5 × √Hs > 8.5`,
+    곧 `Hs > (17/7)² = 289/49`(≈ 5.898 m)에서 처음 나온다. 그 바로 아래 5.89 m는 BN 8이다.
+
+        CU = 0.5 × 8 + 0.5 = 4.5 · Cβ(0°) = 1 · Cform(BULK) = 0.9 → ΔV/V = 4.05%
+        factor = 1 / (1 − 0.0405) = 10000/9595
+    """
+    assert Fraction("5.89") < Fraction(289, 49)
+    assert beaufort_number(5.89) == MAX_BEAUFORT_NUMBER == 8
+
+    factor = _bulk(5.89)
+
+    # 28자리 Decimal 나눗셈이라 마지막 자리만 어긋난다.
+    assert abs(Fraction(factor) - Fraction(10000, 9595)) < Fraction(1, 10**25)
+
+
+def test_the_first_beaufort_number_above_the_limit_is_refused():
+    """BN 9 — 상한을 **한 단계** 넘은 첫 값에서 멈춘다 (`TECH_SPEC §3.3.2` 적용 한계) (#2144).
+
+    종전 검사는 Hs 9 m(BN 10)만 넣어, 거부가 한 단계 늦어져도(`bn > 9`) 통과했다.
+    5.90 m는 `289/49`를 넘는 첫 0.01 m 눈금이다.
+    """
+    assert Fraction("5.90") > Fraction(289, 49)
+    assert beaufort_number(5.90) == MAX_BEAUFORT_NUMBER + 1
+
+    with pytest.raises(ValueError, match="BN=9"):
+        _bulk(5.90)
+
+
+def test_speed_loss_of_exactly_100_percent_is_refused():
+    """ΔV/V가 **정확히 100%**면 거부한다 (`TECH_SPEC §3.5` `if delta_v_pct >= 100`) (#2144).
+
+    분모 `1 − ΔV/100`이 정확히 0이 되는 자리다. 가드가 `>`이면 `ValueError`가 아니라
+    0으로 나누기가 올라온다. `LNG_CARRIER`는 Cform이 1.00이라 CU = 100이면 정확히 100%다.
+    """
+    with pytest.raises(ValueError, match="100"):
+        townsin_kwon_weather_factor(
+            hs_m=0.0, ship_type="LNG_CARRIER", cu_a=Decimal("0"), cu_b=Decimal("100")
+        )
+
+
+def test_speed_loss_just_under_100_percent_still_computes():
+    """99.999%는 계산한다 — factor = 1 / (1 − 0.99999) = 100000 (#2144)."""
+    factor = townsin_kwon_weather_factor(
+        hs_m=0.0, ship_type="LNG_CARRIER", cu_a=Decimal("0"), cu_b=Decimal("99.999")
+    )
+
+    assert Fraction(factor) == 1 / (1 - Fraction(99999, 100000))
+
+
 def test_unsupported_ship_type_is_refused():
     """계수가 정의된 것은 5종뿐이다. 없는 선종에 다른 값을 빌려 쓰지 않는다."""
     assert "CRUISE_PASSENGER" not in CFORM
@@ -188,6 +241,16 @@ def test_cb_range_is_reported_not_enforced():
     assert cform_applies("BULK_CARRIER", Decimal("0.60")) is False
     # 범위 밖이어도 예외가 아니다.
     assert _bulk(1.0, block_coefficient=Decimal("0.60")) > NEUTRAL_FACTOR
+
+
+def test_cb_range_never_applies_to_a_ship_type_without_coefficients():
+    """`TECH_SPEC §3.3.3` 표에 없는 선종은 「범위 안」이 될 수 없다 (#2144).
+
+    CB를 줘도, 안 줘도 같다. 참이 되면 계수가 없는 선종의 결과가 「표의 조건 안」으로 읽힌다.
+    """
+    assert "CRUISE_PASSENGER" not in CFORM
+    assert cform_applies("CRUISE_PASSENGER", None) is False
+    assert cform_applies("CRUISE_PASSENGER", Decimal("0.80")) is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -121,6 +122,32 @@ def test_implied_speed_at_one_and_a_half_times_reference_is_not_an_anomaly():
 def test_recorded_and_implied_speed_must_agree(hours, anomalous):
     result = judge_anomaly(_with(sailing_hours=Decimal(hours)))
 
+    assert (ANOMALY_SPEED_MISMATCH in result.codes) is anomalous
+
+
+@pytest.mark.parametrize(
+    ("distance", "anomalous"),
+    [
+        # 240시간 고정. 기록 12kn의 30% = 3.6kn → 시각으로 낸 속력 8.4kn·15.6kn이 경계다.
+        ("2016", True),  # 8.4kn — 차이가 **정확히** 30%
+        ("2018.4", False),  # 8.41kn — 차이 3.59kn
+        ("3744", True),  # 15.6kn — 위쪽으로 정확히 30%
+        ("3741.6", False),  # 15.59kn
+    ],
+)
+def test_speed_mismatch_boundary_is_inclusive(distance, anomalous):
+    """`PRD §17.4.1` ⑶ — 차이가 기록 속력의 **30% 이상**이면 이상치다. 경계를 포함한다 (#2144).
+
+    ⑴(0.6·1.4 정확히는 정상)·⑵(1.5배 **초과**)와 방향이 반대라 옮겨 적다 뒤집히기 쉽다.
+    거리를 바꿔 속력을 만든다 — 시간을 바꾸면 나눗셈이 유한 소수로 떨어지지 않는다.
+    """
+    hours = 240
+    implied = Fraction(distance) / hours
+    assert (abs(implied - 12) >= Fraction(12) * Fraction(30, 100)) is anomalous
+
+    result = judge_anomaly(_with(distance_nm=Decimal(distance), sailing_hours=Decimal(hours)))
+
+    assert Fraction(result.implied_speed_kn) == implied
     assert (ANOMALY_SPEED_MISMATCH in result.codes) is anomalous
 
 

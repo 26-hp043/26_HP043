@@ -46,6 +46,7 @@ from cii_platform.calc.annual_simulation import (
     backsolve_required_cut,
     feedback_factor,
     fuel_cf_alternative_projection,
+    profile_from_rows,
     project_deterministic,
     rate_against_future_year,
     rng_metadata,
@@ -209,6 +210,17 @@ def test_monte_carlo_rejects_non_positive_plan_values_before_sampling():
     """결정론과 같은 가드가 Monte Carlo에도 걸린다 — 두 경로가 다른 입력을 받으면 안 된다."""
     with pytest.raises(ValueError, match=r"잔여 항차 0의 계획값이 0 이하"):
         _simulate(remaining=[_voyage_without_specs(distance_nm=0.0)])
+
+
+def test_monte_carlo_stops_when_there_is_no_distance_at_all():
+    """`PRD §12.8` — `completed_W + planned_W = 0`이면 **계산 중단**이다 (#2144).
+
+    결정론 경로의 같은 가드는 검사가 있었고 Monte Carlo 쪽 줄은 CI에서 실행된 적이 없다.
+    가드가 빠지면 0으로 나눈 `nan`이 등급 확률로 집계된다.
+    """
+    nothing = CompletedTotals(co2_g=0.0, distance_nm=0.0)
+    with pytest.raises(ValueError, match=r"completed_W \+ planned_W = 0"):
+        _simulate(completed=nothing, remaining=[])
 
 
 def test_degenerate_band_still_returns_the_plan_value():
@@ -534,6 +546,22 @@ def test_sensitivity_covers_the_prd_levers():
     entries, _ = _sens()
     variables = {e.variable for e in entries}
     assert {"fuel", "distance", "speed", "voyage_count"} <= variables
+
+
+def test_sensitivity_has_no_voyage_count_lever_without_remaining_voyages():
+    """`PRD §12.6` 「잔여 항차 1개 취소/추가」는 **항차가 있을 때만** 성립한다 (#2144).
+
+    잔여 항차가 없으면 뺄 항차도, 복제할 항차도 없다 — 나머지 지렛대는 그대로 낸다.
+    """
+    entries, _ = analyze_sensitivity(
+        completed=COMPLETED,
+        remaining=[],
+        transport_capacity=CAPACITY,
+        required_cii=REQUIRED,
+        d_vector=D_VECTOR,
+    )
+
+    assert {e.variable for e in entries} == {"fuel", "distance", "speed"}
 
 
 def test_sensitivity_fuel_direction():
@@ -1452,3 +1480,27 @@ def test_reproduce_compares_the_future_years_block_only_when_the_original_has_it
             {**base, "future_years_outlook": outlook},
             {**base, "future_years_outlook": [{**outlook[0], "projected_rating": "C"}]},
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 분포 프로파일 조립 — `profile_from_rows` (#2144)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_non_factor_row_does_not_become_a_distance_or_fuel_band():
+    """`bound_type`이 `FACTOR`가 아닌 거리·연료 행은 **기본값으로 남긴다**.
+
+    `TriangularBand`는 계획값의 **배수**다. 덧셈 폭(`DELTA` −1 ~ +1)을 배수로 읽으면
+    거리가 계획의 −1배 ~ +1배로 뽑힌다. 이 줄은 CI에서 실행된 적이 없다.
+    """
+    delta = SimpleNamespace(
+        variable="DISTANCE", bound_type="DELTA", min_value=-1.0, mode_value=0.0, max_value=1.0
+    )
+    factor = SimpleNamespace(
+        variable="FUEL", bound_type="FACTOR", min_value=0.8, mode_value=1.0, max_value=1.3
+    )
+
+    profile = profile_from_rows([delta, factor])
+
+    assert profile.distance == DEFAULT_PROFILE.distance
+    assert profile.fuel == TriangularBand(min_factor=0.8, max_factor=1.3, mode_factor=1.0)
