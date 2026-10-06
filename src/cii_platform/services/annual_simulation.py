@@ -2072,8 +2072,7 @@ def _stored_payload(row) -> dict:
     # 같은 이유로 조회가 아니라 재실행이 된다. 화면이 블록의 부재를 다룬다.
     if "deterministic" not in payload:
         raise NotFoundError(
-            "이 실행은 결과 본문을 저장하기 전(#443)에 만들어져 조회할 수 없습니다. "
-            "다시 실행해 주세요."
+            "이 실행은 결과 본문을 저장하기 전에 만들어져 조회할 수 없습니다. 다시 실행해 주세요."
         )
     return payload
 
@@ -2254,7 +2253,7 @@ async def reproduce_annual_simulation(
     seed = _seed_from_metadata((stored.get("monte_carlo") or {}).get("rng_metadata") or {})
     if seed is None:
         raise NotFoundError(
-            "이 실행은 난수 시드(seed)가 기록되지 않아 재현할 수 없습니다(#443 이전 실행)."
+            "이 실행은 난수 시드(seed)가 기록되지 않아 재현할 수 없습니다. 다시 실행해 주세요."
         )
 
     # **제원은 스냅샷에서 읽는다** (`#493`). 살아 있는 행을 읽으면 그 사이의 제원
@@ -2481,7 +2480,7 @@ async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
 
     if payload is None:
         raise NotFoundError(
-            "이 실행은 선박 제원을 스냅샷하기 전(#493)에 만들어져 재현할 수 없습니다. "
+            "이 실행은 선박 제원을 스냅샷하기 전에 만들어져 재현할 수 없습니다. "
             "다시 실행하면 지금 제원 기준의 결과를 얻을 수 있습니다."
         )
     return payload

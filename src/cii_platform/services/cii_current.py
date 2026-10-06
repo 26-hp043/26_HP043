@@ -66,6 +66,7 @@ from cii_platform.services.annual_simulation import (
     collect_annual_inputs,
     load_projection_context,
 )
+from cii_platform.services.calc_errors import log_calculation_failure
 from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.simulation_clock import (
     NotUnderwayWindow,
@@ -944,7 +945,8 @@ async def resolve_ytd_at(
             in_progress=state.contribution,
         )
     except ValueError as exc:  # pragma: no cover - 방어
-        raise CalculationError(str(exc)) from exc
+        # 엔진의 영문 진단은 로그로, 사용자에게는 정본 문구(`API_SPEC §11` VAL-008 · `#2112`).
+        raise CalculationError(log_calculation_failure("실시간 CII", exc)) from exc
     return state, ytd
 
 
