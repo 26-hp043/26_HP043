@@ -652,30 +652,6 @@ jobs:
           echo "[app-01] backend 컨테이너 시작"
           docker compose -f docker-compose.prod.app.yml up -d backend </dev/null
           docker compose -f docker-compose.prod.app.yml ps backend </dev/null || true
-
-          # 옛 백엔드 이미지 정리 (#2041) — 배포마다 새 태그가 쌓여 2026-09-29에
-          # 루트 디스크가 100%(45G)까지 찼다(`bluelog-backend` 253개 · 36G).
-          #
-          # 실행 중 이미지 + 최근 KEEP_IMAGES개만 남긴다. 롤백은 GHCR에서 태그로 다시
-          # 받으므로(OPERATIONS §3.6.2 · ops.yml rollback-drill) 여기 없어도 된다.
-          # `docker image prune -a`·`system prune`은 쓰지 않는다 — 같은 VM의 our-tax
-          # 이미지까지 지우고, `--volumes`는 §9.2의 복구 가능성을 없앤다.
-          # 정리는 배포의 일부가 아니다 — 실패해도 배포를 실패시키지 않는다.
-          KEEP_IMAGES=3
-          running_image="$(docker inspect cii-backend --format '{{.Config.Image}}' 2>/dev/null || true)"
-          if [ -n "${running_image}" ]; then
-            image_repo="${running_image%:*}"
-            docker images "${image_repo}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
-              | sort -r | cut -f2 | grep -vxF "${running_image}" | grep -v ':<none>$' \
-              | tail -n +"$((KEEP_IMAGES + 1))" > /tmp/bluelog-stale-images || true
-            stale_count="$(wc -l < /tmp/bluelog-stale-images)"
-            echo "[app-01] 옛 이미지 정리: ${image_repo} ${stale_count}개 (실행 중 ${running_image##*:} + 최근 ${KEEP_IMAGES}개 보존)"
-            xargs -r docker rmi < /tmp/bluelog-stale-images >/dev/null || echo "::warning::옛 이미지 일부를 지우지 못했다 (#2041)"
-            rm -f /tmp/bluelog-stale-images
-          else
-            echo "::warning::cii-backend 이미지를 읽지 못해 옛 이미지 정리를 건너뛴다 (#2041)"
-          fi
-          df -h / | tail -1 | awk '{print "[app-01] 루트 디스크 " $3 " / " $2 " (" $5 ")"}'
           echo "[app-01] === END $(date -u +%FT%TZ) ==="
           ENDSSH
 
