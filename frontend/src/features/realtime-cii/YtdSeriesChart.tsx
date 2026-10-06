@@ -299,9 +299,10 @@ function SeriesTable({ series, unit }: { series: YtdSeries; unit: string }) {
           </tr>
         </thead>
         <tbody>
-          {series.points.map((p) => (
+          {series.points.map((p, index) => (
             // 종류까지 넣는다 (#2128) — 진행 중 점과 계획 점이 같은 시각·같은 항차로 온다.
-            <tr key={`${p.at}-${p.kind}-${p.voyageId ?? ''}`}>
+            // 항차 id가 없는 계획 점은 순번으로 가른다 — 같은 시각에 둘이 올 수 있다.
+            <tr key={`${p.at}-${p.kind}-${p.voyageId ?? index}`}>
               <td>{formatTimestamp(p.at) ?? NO_TIMESTAMP_TEXT}</td>
               <td>{kindText(p.kind)}</td>
               <td className="num">

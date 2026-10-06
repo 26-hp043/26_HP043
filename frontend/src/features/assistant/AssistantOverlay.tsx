@@ -274,13 +274,20 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
      * `body`에 남아 패널의 Escape가 닿지 않았다. 패널은 `tabindex="-1"`인 프로그램적
      * 초점 대상이다(`DESIGN_SYSTEM §14` — 링을 그리지 않는다).
      *
-     * 패널 안의 **살아 있는** 요소에 초점이 있으면 건드리지 않는다 — 닫기 버튼에 가 있는
-     * 사람의 자리를 빼앗지 않는다.
+     * 초점이 **떨어진 경우에만** 옮긴다 — `body`에 있거나, 패널 안의 닫힌 입력에 남아 있을
+     * 때다. 패널 안의 살아 있는 요소(닫기 버튼)나 패널 밖 본문을 조작하는 사람의 자리는
+     * 빼앗지 않는다. 패널은 모달이 아니라서, 질문을 보내고 본문으로 나간 뒤에 응답이
+     * 「쓸 수 없음」으로 돌아올 수 있다.
      */
     if (!open || !stopped) return
     const panel = panelRef.current
     const active = document.activeElement
-    if (panel && (!panel.contains(active) || active?.matches(':disabled'))) panel.focus()
+    if (!panel) return
+    const dropped =
+      active === null ||
+      active === document.body ||
+      (panel.contains(active) && active.matches(':disabled'))
+    if (dropped) panel.focus()
   }, [open, stopped])
 
   useEffect(() => {
