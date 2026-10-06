@@ -26,7 +26,7 @@ from sqlalchemy import select
 
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
-from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.precision import LAYER1_ROUNDING, layer1_context
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import not_underway as not_underway_repo
@@ -221,6 +221,48 @@ def _scenario_row(name: str, values: dict[str, object] | None, *, adopted: bool)
     ]
 
 
+@layer1_context
+def _elapsed_hours(start: datetime, end: datetime) -> Decimal:
+    """두 시각 사이의 시간(h). **적용 지점 안에서** 나눈다 (`#2254` · `TECH_SPEC §1.2.1`).
+
+    리포트를 조립하는 자리는 적용 지점 밖이라, 거기서 바로 나누면 호출 스레드의 기본
+    정밀도(28자리)로 계산된다.
+    """
+    return Decimal(str((end - start).total_seconds())) / Decimal(3600)
+
+
+@layer1_context
+def _voyage_co2_ton(fuel_uses) -> Decimal:
+    """항차 CO₂(t) — 실적이 있으면 실적, 없으면 계획 연료에 CF snapshot을 곱해 더한다.
+
+    합과 g → t 나눗셈을 **적용 지점 안에서** 한다 (`#2254` · `TECH_SPEC §1.2.1`).
+    :func:`build_voyage_report`는 코루틴이라 데코레이터를 달 수 없다 — 컨텍스트가 코루틴
+    객체를 만드는 동안에만 걸리고 본문이 도는 동안에는 풀려 있다.
+    """
+    grams = sum(
+        (
+            (fu.actual_fuel_ton or fu.planned_fuel_ton or Decimal(0))
+            * Decimal(1_000_000)
+            * Decimal(fu.cf_used)
+            for fu in fuel_uses
+        ),
+        Decimal(0),
+    )
+    return grams / Decimal(1_000_000)
+
+
+@layer1_context
+def _share_percent(part: Decimal, whole: Decimal) -> Decimal:
+    """``part``가 ``whole``에서 차지한 비중(%) — 소수 1자리.
+
+    나눗셈을 **적용 지점 안에서** 한다 (`#2254` · `TECH_SPEC §1.2.1`). 자릿수와 반올림은
+    :func:`_display`와 같은 표시 규칙이다 — 백분율 1자리(`DESIGN_SYSTEM §4.2` 「비율」) ·
+    표시 시점의 반올림(같은 절 「반올림」 · `TECH_SPEC §1.2.1`이 보고서 표시 단계를
+    ``ROUND_HALF_UP``으로 둔다). 종전에는 모드를 적지 않아 호출 스레드의 기본 모드에 기댔다.
+    """
+    return (part / whole * 100).quantize(Decimal("0.1"), rounding=LAYER1_ROUNDING)
+
+
 def _actual_row(voyage, fuel_uses, transport_capacity: Decimal | None) -> list[str]:
     """실적 행 — 항차와 연료 기록에 **적힌 값**을 옮긴다.
 
@@ -235,8 +277,7 @@ def _actual_row(voyage, fuel_uses, transport_capacity: Decimal | None) -> list[s
     """
     hours: Decimal | None = None
     if voyage.actual_departure_at is not None and voyage.actual_arrival_at is not None:
-        seconds = (voyage.actual_arrival_at - voyage.actual_departure_at).total_seconds()
-        hours = Decimal(str(seconds)) / Decimal(3600)
+        hours = _elapsed_hours(voyage.actual_departure_at, voyage.actual_arrival_at)
 
     recorded = [fu for fu in fuel_uses if fu.actual_fuel_ton is not None]
     complete = bool(fuel_uses) and len(recorded) == len(fuel_uses)
@@ -484,16 +525,7 @@ async def build_voyage_report(
         in_progress=in_progress,
     )
 
-    voyage_co2_g = sum(
-        (
-            (fu.actual_fuel_ton or fu.planned_fuel_ton or Decimal(0))
-            * Decimal(1_000_000)
-            * Decimal(fu.cf_used)
-            for fu in fuel_uses
-        ),
-        Decimal(0),
-    )
-    voyage_co2_t = voyage_co2_g / Decimal(1_000_000)
+    voyage_co2_t = _voyage_co2_ton(fuel_uses)
 
     #
     # **집계에 실제로 들어간 항차일 때만 비중을 낸다** (`#1090`).
@@ -527,7 +559,7 @@ async def build_voyage_report(
     #
     share = f"— ({inclusion_policy_label(voyage.annual_inclusion_policy)})"
     if counted_in_ytd and ytd.total_co2_t and ytd.total_co2_t > 0:
-        share = f"{(voyage_co2_t / ytd.total_co2_t * 100).quantize(Decimal('0.1'))}%"
+        share = f"{_share_percent(voyage_co2_t, ytd.total_co2_t)}%"
     elif counted_in_ytd:
         # 집계에는 들었는데 분모가 0이다 — 정책 탓이 아니므로 사유를 붙이지 않는다.
         share = "—"

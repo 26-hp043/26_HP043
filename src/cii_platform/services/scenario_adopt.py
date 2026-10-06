@@ -46,6 +46,7 @@ from uuid import UUID
 from sqlalchemy import select, update
 
 from cii_platform.api.schemas.bounds import VOYAGE_FUEL
+from cii_platform.calc.precision import layer1_context
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -225,6 +226,32 @@ async def adopt_scenario(
     }
 
 
+@layer1_context
+def _fuel_shares(total: Decimal, weights: list[Decimal]) -> dict[int, Decimal]:
+    """시나리오 총량을 비중대로 나눈 **행 번호 → 몫**. 비중이 0인 행은 들어 있지 않다.
+
+    규칙은 :func:`_apply_scenario_fuel`의 「0을 넣지 않는다」·「총량을 정확히 보존한다」다.
+
+    몫은 **나눗셈으로 새로 만들어 저장하는 값**이라 Layer 1 컨텍스트 안에서 낸다
+    (`#2254` · `TECH_SPEC §1.2.1`). :func:`_apply_scenario_fuel`은 코루틴이라 데코레이터를
+    달 수 없다 — 컨텍스트가 코루틴 객체를 만드는 동안에만 걸리고 본문이 도는 동안에는
+    풀려 있다.
+    """
+    weight_sum = sum(weights)
+    positive = [index for index, weight in enumerate(weights) if weight > 0]
+    shares: dict[int, Decimal] = {}
+    for index in positive:
+        share = (total * weights[index] / weight_sum).quantize(_FUEL_STEP, rounding=ROUND_HALF_UP)
+        shares[index] = max(share, _FUEL_STEP)
+
+    # 잔차는 비중이 가장 큰 행이 흡수한다.
+    anchor = max(positive, key=lambda index: (weights[index], -index))
+    shares[anchor] += total - sum(shares.values())
+    if shares[anchor] < _FUEL_STEP:  # pragma: no cover - 행이 극단적으로 많을 때만
+        shares[anchor] = _FUEL_STEP
+    return shares
+
+
 async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
     """채택한 시나리오의 연료량을 항차의 **계획 연료**로 옮긴다 (#1072).
 
@@ -292,20 +319,7 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
         # 비중이 될 값이 하나도 없다 — 기존 혼합이 **없으므로** 균등이 중립적인 선택이다.
         weights = [Decimal(1)] * len(rows)
 
-    weight_sum = sum(weights)
-    positive = [index for index, weight in enumerate(weights) if weight > 0]
-    shares: dict[int, Decimal] = {}
-    for index in positive:
-        share = (total * weights[index] / weight_sum).quantize(_FUEL_STEP, rounding=ROUND_HALF_UP)
-        shares[index] = max(share, _FUEL_STEP)
-
-    # 잔차는 비중이 가장 큰 행이 흡수한다.
-    anchor = max(positive, key=lambda index: (weights[index], -index))
-    shares[anchor] += total - sum(shares.values())
-    if shares[anchor] < _FUEL_STEP:  # pragma: no cover - 행이 극단적으로 많을 때만
-        shares[anchor] = _FUEL_STEP
-
-    for index, share in shares.items():
+    for index, share in _fuel_shares(total, weights).items():
         rows[index].planned_fuel_ton = share
         rows[index].source = SOURCE_MODEL_ESTIMATE
     return True

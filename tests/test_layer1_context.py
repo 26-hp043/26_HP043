@@ -12,7 +12,7 @@ TECH_SPEC §1.2.1(작업 정밀도 = 정본 자릿수 + 최소 20 · ROUND_HALF_
 
 import itertools
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import (
     ROUND_DOWN,
     ROUND_HALF_EVEN,
@@ -695,3 +695,412 @@ def test_finite_layer1_result_passes_through_unchanged(ok):
     """
     value = Decimal(ok)
     assert validate_layer1_result(value, "x") is value
+
+
+# ─── #2254 — 서비스 계층에 남아 있던 컨텍스트 밖 산술 ────────────────────────────
+
+
+def _half_up_significant(exact: Fraction, digits: int) -> Decimal:
+    """양의 분수를 유효숫자 ``digits``자리로 ``ROUND_HALF_UP``한 값. 정수 나눗셈만 쓴다."""
+    assert exact > 0
+    adjusted = len(str(exact.numerator)) - len(str(exact.denominator))
+    if Fraction(10) ** adjusted > exact:
+        adjusted -= 1
+    shift = digits - 1 - adjusted
+    scaled = exact * Fraction(10) ** shift
+    quotient, remainder = divmod(scaled.numerator, scaled.denominator)
+    if 2 * remainder >= scaled.denominator:
+        quotient += 1
+    # 문자열로 만든다 — ``scaleb``는 호출 컨텍스트의 정밀도로 다시 깎는다.
+    return Decimal(f"{quotient}E{-shift}")
+
+
+def _half_up(exact: Fraction, digits: int) -> str:
+    """양의 분수를 소수 ``digits``자리로 ``ROUND_HALF_UP``한 문자열. 정수 나눗셈만 쓴다."""
+    assert exact >= 0
+    scaled = (2 * exact.numerator * 10**digits + exact.denominator) // (2 * exact.denominator)
+    return f"{scaled // 10**digits}.{scaled % 10**digits:0{digits}d}"
+
+
+#: 1초 — ``1/3600`` h · ``1/86400`` 일은 나누어떨어지지 않아 28자리와 50자리가 반드시 갈린다.
+_ONE_SECOND = (datetime(2026, 12, 31, 23, 59, 59, tzinfo=UTC), datetime(2027, 1, 1, tzinfo=UTC))
+
+
+def test_remaining_days_are_divided_inside_the_layer1_context():
+    """⚠️ #2254 — 연말 예상의 잔여 일수(초 ÷ 86400)가 작업 정밀도에서 나온다.
+
+    ``_remaining_days``는 코루틴 ``_project_year_end``가 부른다 — 데코레이터가 없으면 호출
+    스레드의 기본 28자리로 나눈 값이 「해가 끝났는가」 판정과 ``assumptions.remaining_days``로
+    간다.
+    """
+    from cii_platform.services import cii_current
+
+    start, _end = _ONE_SECOND
+    exact = Fraction(1, 86400)
+    expected = _half_up_significant(exact, LAYER1_WORKING_PRECISION)
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        narrowed = Decimal(1) / Decimal(86400)
+        assert narrowed != expected, "28자리로도 같은 값이 나오는 입력이면 아무것도 잠그지 않는다"
+        days = cii_current._remaining_days(as_of=start, regulation_year=2026)
+
+    assert days == expected
+
+
+def test_data_quality_sailing_hours_are_divided_inside_the_layer1_context():
+    """⚠️ #2254 — 이상치 판정의 분모(출항~도착 시간)가 작업 정밀도에서 나온다.
+
+    ``judge_anomaly``는 적용 지점 안이지만 인자 ``sailing_hours``는 그 밖에서 먼저 만들어졌다.
+    """
+    from cii_platform.services import data_quality
+
+    start, end = _ONE_SECOND
+    expected = _half_up_significant(Fraction(1, 3600), LAYER1_WORKING_PRECISION)
+    voyage = SimpleNamespace(actual_departure_at=start, actual_arrival_at=end)
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        assert Decimal(1) / Decimal(3600) != expected
+        hours = data_quality._sailing_hours(voyage)
+
+    assert hours == expected
+
+
+def test_report_elapsed_hours_are_divided_inside_the_layer1_context():
+    """⚠️ #2254 — 항차 리포트 실적 행의 소요 시간(초 ÷ 3600)이 작업 정밀도에서 나온다."""
+    from cii_platform.services import report
+
+    start, end = _ONE_SECOND
+    expected = _half_up_significant(Fraction(1, 3600), LAYER1_WORKING_PRECISION)
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        assert Decimal(1) / Decimal(3600) != expected
+        hours = report._elapsed_hours(start, end)
+
+    assert hours == expected
+
+
+def test_report_voyage_co2_is_summed_inside_the_layer1_context():
+    """⚠️ #2254 — 항차 리포트의 「항차 CO₂ 배출량」이 참값의 표시 반올림과 같다.
+
+    ``build_voyage_report``는 코루틴이라 그 안의 ``Σ(t × 10⁶ × CF) ÷ 10⁶``이 기본 28자리에서
+    돌았다. 참값 `12.3499…94` t는 1자리 표시가 `12.3`인데, 28자리로 먼저 깎이면 `12.35`가
+    되어 `12.4`로 찍힌다.
+    """
+    from cii_platform.services import report
+
+    ton = Decimal("12.3499999999999999999999999994")
+    rows = [SimpleNamespace(actual_fuel_ton=ton, planned_fuel_ton=None, cf_used=Decimal(1))]
+    exact = Fraction(ton)
+    assert _significant_digits(exact) == 30
+    expected = _half_up(exact, 1)
+    assert expected == "12.3"
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        narrowed = ton * Decimal(1_000_000) * Decimal(1) / Decimal(1_000_000)
+        assert report._display(narrowed, "co2_ton") == "12.4"
+        shown = report._display(report._voyage_co2_ton(rows), "co2_ton")
+
+    assert shown == expected
+
+
+def test_report_share_is_divided_inside_the_layer1_context():
+    """⚠️ #2254 — 「연간 누적에서 차지한 비중」이 참값의 1자리 표시 반올림과 같다.
+
+    참값 `49.9499…9`%는 `49.9`인데, 28자리 나눗셈은 `0.4995`로 올려 `50.0`을 낸다.
+    """
+    from cii_platform.services import report
+
+    part = Decimal("499499999999999999999999999999")
+    whole = Decimal(10**30)
+    exact = Fraction(part) / Fraction(whole) * 100
+    assert _significant_digits(exact) == 30
+    expected = _half_up(exact, 1)
+    assert expected == "49.9"
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        narrowed = (part / whole * 100).quantize(Decimal("0.1"))
+        assert str(narrowed) == "50.0", "28자리로도 같은 값이면 아무것도 잠그지 않는다"
+        share = report._share_percent(part, whole)
+
+    assert str(share) == expected
+
+
+def test_report_share_rounds_half_up_whatever_the_caller_context():
+    """비중의 반올림은 호출 스레드의 모드가 아니라 표시 규칙(``ROUND_HALF_UP``)이다 (`#2254`).
+
+    종전에는 ``quantize``에 모드를 적지 않아 호출 스레드의 기본 모드에 기댔다. 은행가
+    반올림이면 `0.25`%가 `0.2`로 찍힌다(`DESIGN_SYSTEM §4.2` — 절사가 아니라 반올림).
+    """
+    from cii_platform.services import report
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_EVEN):
+        assert str((Decimal(1) / Decimal(400) * 100).quantize(Decimal("0.1"))) == "0.2"
+        share = report._share_percent(Decimal(1), Decimal(400))
+
+    assert str(share) == _half_up(Fraction(1, 400) * 100, 1) == "0.3"
+
+
+async def test_scenario_adopt_fuel_shares_are_divided_inside_the_layer1_context(monkeypatch):
+    """⚠️ #2254 — 채택이 **저장하는** 유종별 계획 연료가 참값의 4자리 반올림과 같다.
+
+    ``_apply_scenario_fuel``은 코루틴이라 ``총량 × 비중 ÷ 비중 합``이 기본 28자리에서 돌았다.
+    참값 `0.49994999…9`는 `0.4999`인데 28자리로는 `0.49995`가 되어 `0.5000`이 저장된다 —
+    잔차를 흡수하는 행까지 함께 달라진다.
+    """
+    from cii_platform.services import scenario_adopt
+
+    weights = [
+        Decimal("499949999999999999999999999999"),
+        Decimal("500050000000000000000000000001"),
+    ]
+    total = Decimal(1)
+    exact = [Fraction(total) * Fraction(w) / Fraction(sum(map(Fraction, weights))) for w in weights]
+    assert all(_significant_digits(share) == 30 for share in exact)
+    expected = [_half_up(share, 4) for share in exact]
+    assert expected == ["0.4999", "0.5001"]
+    assert sum(map(Fraction, expected)) == total, "잔차가 없어야 기대값이 곧 저장값이다"
+
+    rows = [SimpleNamespace(planned_fuel_ton=w, source="MANUAL") for w in weights]
+
+    async def _list_fuel_uses(_session, _voyage_id):
+        return rows
+
+    monkeypatch.setattr(scenario_adopt.voyage_repo, "list_fuel_uses", _list_fuel_uses)
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        narrowed = (total * weights[0] / sum(weights)).quantize(Decimal("0.0001"))
+        assert str(narrowed) != expected[0], "28자리로도 같은 값이면 아무것도 잠그지 않는다"
+        changed = await scenario_adopt._apply_scenario_fuel(
+            None, SimpleNamespace(id=1), SimpleNamespace(fuel_ton=total)
+        )
+
+    assert changed is True
+    assert [str(row.planned_fuel_ton) for row in rows] == expected
+
+
+def test_scenario_detour_distance_is_multiplied_inside_the_layer1_context():
+    """⚠️ #2254 — 우회 거리 기본값(``직항 × 1.05``)이 참값과 같다.
+
+    곱셈은 두 피연산자의 자릿수 합이 28을 넘을 때만 깎인다 — 30자리 직항 거리로 그 경우를 만든다.
+    """
+    from cii_platform.services import scenario_compare
+
+    direct = Decimal("1234567890123456789012345678.99")
+    exact = Fraction(direct) * Fraction(105, 100)
+    assert _significant_digits(exact) <= LAYER1_WORKING_PRECISION
+    payload = SimpleNamespace(detour_distance_nm=None)
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        assert Fraction(direct * scenario_compare.DETOUR_DISTANCE_RATIO) != exact
+        detour = scenario_compare._resolve_detour_distance(payload, direct, None)
+
+    assert Fraction(detour) == exact
+
+
+def test_simulation_clock_computes_progress_inside_the_layer1_context():
+    """⚠️ #2254 — 시계가 내는 경과 시간과 거리가 작업 정밀도에서 나온다.
+
+    ``compute_progress``의 산출물은 그대로 Layer 1 계산의 입력이다. 경과 시간은 나눗셈
+    한 번이라 참값의 50자리 반올림과 정확히 같고, 거리(``속도 × 시간``)는 연산이 둘이라
+    참값과 **48자리까지** 같음을 본다 — 28자리 계산은 그 안에 들지 못한다.
+    """
+    from cii_platform.services.simulation_clock import compute_progress
+
+    start, end = _ONE_SECOND
+    speed = Decimal(7)
+    exact_hours = Fraction(1, 3600)
+    exact_distance = Fraction(speed) * exact_hours
+    tolerance = exact_distance / 10**48
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        narrowed = speed * (Decimal(1) / Decimal(3600))
+        assert abs(Fraction(narrowed) - exact_distance) > tolerance
+        progress = compute_progress(
+            as_of=end, departure_at=start, arrival_at=None, speed_kn=speed, daily_foc_ton=None
+        )
+
+    assert progress.underway_hours == _half_up_significant(exact_hours, LAYER1_WORKING_PRECISION)
+    assert abs(Fraction(progress.distance_nm) - exact_distance) <= tolerance
+
+
+# (속력 kn · 경과 초) — 진행 거리의 참값이 전송 자릿수(2자리) 경계에 정확히 놓이는 입력.
+_PROGRESS_BOUNDARY_CASES = [
+    pytest.param("4.14", 3_768_200, id="4.14kn-3768200s"),
+    pytest.param("24.00", 4_862_928, id="24.00kn-4862928s"),
+]
+
+
+@pytest.mark.parametrize(("speed_raw", "seconds"), _PROGRESS_BOUNDARY_CASES)
+def test_progress_distance_at_a_transport_boundary_is_sent_as_the_exact_value(speed_raw, seconds):
+    """⚠️ #2254 — 진행 거리의 참값이 전송 자릿수 경계에 놓여도 전송값이 참값이다.
+
+    실제 저장 범위의 입력이다(속력 2자리 · 경과 시간 초 단위). ``초 ÷ 3600``을 28자리에서
+    끊고 속력을 곱하면 ``…29999…``(28자리)가 되고, 30자리 공표 확정은 28자리에서 이미 잃은
+    꼬리를 되돌리지 못해 전송값이 한 단위 아래로 나갔다(`#2184` 유형). 직렬화는 실시간 CII
+    응답의 ``current_voyage.distance_nm``이 지나는 ``cii_current._publish``를 그대로 부른다.
+    """
+    from cii_platform.services import cii_current
+    from cii_platform.services.simulation_clock import compute_progress
+
+    speed = Decimal(speed_raw)
+    departure = datetime(2026, 1, 1, tzinfo=UTC)
+    exact = Fraction(speed_raw) * Fraction(seconds, 3600)
+    assert exact * 100 == int(exact * 100), "참값이 전송 자릿수 경계에 놓인 입력이어야 한다"
+    expected = _truncated(exact, 2)
+    one_unit_below = _truncated(exact - Fraction(1, 100), 2)
+    arguments = {
+        "as_of": departure + timedelta(seconds=seconds),
+        "departure_at": departure,
+        "arrival_at": None,
+        "speed_kn": speed,
+        "daily_foc_ton": None,
+    }
+
+    # 데코레이터가 감싼 본문 — 데코레이터가 사라지면 함수 자신이 그 본문이다.
+    body = getattr(compute_progress, "__wrapped__", compute_progress)
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        narrowed = body(**arguments)
+        assert cii_current._publish(narrowed.distance_nm, "distance_nm") == one_unit_below, (
+            "28자리 본문도 참값을 내면 이 입력은 아무것도 잠그지 않는다"
+        )
+        progress = compute_progress(**arguments)
+
+    assert cii_current._publish(progress.distance_nm, "distance_nm") == expected
+
+
+# ── YTD 누적이 진행분의 50자리 값을 28자리로 깎지 않는다 (`#2254`) ────────────────
+#
+# `ytd_cii._aggregate`는 코루틴이라 호출 스레드의 기본 정밀도(28자리)로 돈다. 시계와
+# `_split_fuel`이 50자리로 낸 진행분을 거기서 바로 더하면 `_compute_layer1`의 입력이
+# 28자리에서 시작한다.
+
+
+def _stub_ytd_reads(monkeypatch, *, voyages=(), fuel_rows=None, cf=_SEGMENT_CF):
+    """`_aggregate`의 조회 다섯을 고정값으로 바꾼다 — 덧셈만 실제 코드가 한다."""
+    from cii_platform.services import ytd_cii
+
+    answers = {
+        "annual_inclusions": list(voyages),
+        "fuel_uses_by_voyages": fuel_rows or {},
+        "not_underway_fuel": [],
+        "not_underway_distance": Decimal(0),
+    }
+
+    async def _cached(_session, key, _load):
+        if key[0] == "fuel_types":
+            return {code: SimpleNamespace(cf=cf) for code in key[1]}
+        return answers[key[0]]
+
+    monkeypatch.setattr(ytd_cii, "cached", _cached)
+
+
+async def _aggregate_with(contribution):
+    from cii_platform.services import ytd_cii
+
+    return await ytd_cii._aggregate(
+        None, vessel_id="vessel", regulation_year=2026, as_of=None, in_progress=contribution
+    )
+
+
+async def test_ytd_aggregate_adds_the_in_progress_share_at_working_precision(monkeypatch):
+    """⚠️ #2254 — 완료 항차의 합에 진행분을 더한 값이 참값과 같다.
+
+    진행분을 소수 39자리로 둔다 — 합의 유효숫자가 44자리(거리) · 43자리(연료)라 작업
+    정밀도에서는 정확하고 28자리에서는 깎인다. 연료는 같은 유종 두 몫으로 넣어 「몫끼리
+    모으는 덧셈」과 「완료 항차 묶음에 얹는 덧셈」을 둘 다 지나게 한다.
+    """
+    from cii_platform.services.ytd_cii import InProgressContribution
+
+    base_distance, base_fuel = Decimal("12345.67"), Decimal("987.6543")
+    tail = Decimal("0.123456789012345678901234567890123456789")
+    exact_distance = Fraction(base_distance) + Fraction(tail)
+    exact_fuel = Fraction(base_fuel) + 2 * Fraction(tail)
+    assert _significant_digits(exact_distance) <= LAYER1_WORKING_PRECISION
+    assert _significant_digits(exact_fuel) <= LAYER1_WORKING_PRECISION
+    _stub_ytd_reads(
+        monkeypatch,
+        voyages=[SimpleNamespace(id=1, actual_distance_nm=base_distance)],
+        fuel_rows={
+            1: [SimpleNamespace(actual_fuel_ton=base_fuel, fuel_type="HFO", cf_used=_SEGMENT_CF)]
+        },
+    )
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        assert Fraction(base_distance + tail) != exact_distance, "28자리로도 같으면 잠그지 않는다"
+        assert Fraction(tail + tail) != 2 * Fraction(tail)
+        assert Fraction(base_fuel + tail) != Fraction(base_fuel) + Fraction(tail)
+        aggregated = await _aggregate_with(
+            InProgressContribution(distance_nm=tail, fuel_uses=(("HFO", tail), ("HFO", tail)))
+        )
+
+    assert Fraction(aggregated.underway_distance_nm) == exact_distance
+    assert {key: Fraction(ton) for key, ton in aggregated.underway_fuel.items()} == {
+        ("HFO", _SEGMENT_CF): exact_fuel
+    }
+
+
+async def test_ytd_cii_at_a_transport_boundary_survives_the_in_progress_sum(monkeypatch):
+    """⚠️ #2254 — 진행분만 있는 해의 누적 CII가 전송 자릿수 경계에서 참값으로 나간다.
+
+    실제 저장 범위의 입력이다: 8 kn(기준 속도와 같다) · 일일 25 t · 출항 864,004초 뒤 ·
+    capacity 50,000 · CF 3.114. 구간 CII는 시간이 약분돼 ``519/64 = 8.109375``인데, 거리와
+    연료를 각각 28자리로 깎으면 그 약분이 깨져 ``8.10937499…``(28번째 자리)가 되고 30자리
+    공표 확정이 되돌리지 못한다. 시계 → ``_split_fuel`` → ``_aggregate`` → ``_compute_layer1``
+    → ``cii_current._publish``를 그대로 지난다.
+    """
+    from cii_platform.calc.rating_engine import DVector
+    from cii_platform.services import cii_current, ytd_cii
+    from cii_platform.services.simulation_clock import compute_progress
+
+    speed, daily_foc, seconds = Decimal("8"), Decimal("25"), 864_004
+    hours = Fraction(seconds, 3600)
+    exact = (
+        (Fraction(daily_foc) * hours / 24)
+        * Fraction(_SEGMENT_CF)
+        * 10**6
+        / (Fraction(_SEGMENT_CAPACITY) * Fraction(speed) * hours)
+    )
+    assert exact == Fraction(519, 64)
+    assert (exact * 10**6).denominator == 1, "경계가 아니면 결함이 있어도 통과한다"
+    departure = datetime(2026, 1, 1, tzinfo=UTC)
+    progress = compute_progress(
+        as_of=departure + timedelta(seconds=seconds),
+        departure_at=departure,
+        arrival_at=None,
+        speed_kn=speed,
+        daily_foc_ton=daily_foc,
+        reference_speed_kn=speed,
+    )
+    fuel_uses = cii_current._split_fuel(progress.fuel_ton, (("HFO", Decimal(1)),))
+    _stub_ytd_reads(monkeypatch)
+
+    def _sent(distance: Decimal, fuel_ton: Decimal) -> str:
+        layer1 = ytd_cii._compute_layer1(
+            underway_fuel_uses=[FuelUse(fuel_code="HFO", fuel_ton=fuel_ton, cf_value=_SEGMENT_CF)],
+            not_underway_fuel_uses=[],
+            transport_capacity=_SEGMENT_CAPACITY,
+            reference_capacity=_SEGMENT_CAPACITY,
+            underway_distance_nm=distance,
+            not_underway_distance_nm=Decimal(0),
+            a_decimal=Decimal("4745"),
+            c=Decimal("0.622"),
+            z_factor_percent=Decimal("11"),
+            d_vector=DVector(
+                d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18")
+            ),
+        )
+        return cii_current._publish(layer1.ytd.attained_cii, "cii")
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        # 단항 ``+``는 그 문맥의 정밀도로 반올림한다 — 28자리 덧셈(``0 + 값``)이 내던 값이다.
+        narrowed = _sent(+progress.distance_nm, +fuel_uses[0][1])
+        assert narrowed == _truncated_6(exact - Fraction(1, 10**6)), (
+            "28자리 누적도 참값을 내면 이 입력은 아무것도 잠그지 않는다"
+        )
+        aggregated = await _aggregate_with(
+            ytd_cii.InProgressContribution(distance_nm=progress.distance_nm, fuel_uses=fuel_uses)
+        )
+
+    (fuel_ton,) = aggregated.underway_fuel.values()
+    assert _sent(aggregated.underway_distance_nm, fuel_ton) == _truncated_6(exact) == "8.109375"
