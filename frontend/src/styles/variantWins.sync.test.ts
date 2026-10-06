@@ -184,84 +184,122 @@ function demands(compound: string): { required: string[]; excluded: string[] } {
  * **고친 자리가 고쳐지지 않은 것으로** 보인다.
  */
 function reaches(selector: string, element: Element): boolean {
-  if (/[#[]|::/.test(selector)) return false
-  const parts = compounds(selector)
-  const tail = parts.at(-1) ?? ''
-  const tailTag = /^[a-z][\w-]*/.exec(tail)
-  if (tailTag !== null && tailTag[0] !== element.tag) return false
-  const { required, excluded } = demands(tail)
-  if (required.some((cls) => !element.classes.has(cls))) return false
-  if (excluded.some((cls) => element.classes.has(cls))) return false
-  for (const part of parts.slice(0, -1)) {
-    for (const cls of demands(part).required) {
-      if (!element.ancestors.has(cls)) return false
+  const need = needsOf(selector)
+  if (need === null) return false
+  if (need.tag !== null && need.tag !== element.tag) return false
+  if (need.required.some((cls) => !element.classes.has(cls))) return false
+  if (need.excluded.some((cls) => element.classes.has(cls))) return false
+  return need.ancestors.every((cls) => element.ancestors.has(cls))
+}
+
+/** 선택자가 요소에 요구하는 것. 추적하지 않는 선택자(`#id`·`::`·`[attr]`)는 `null`. */
+type Needs = { tag: string | null; required: string[]; excluded: string[]; ancestors: string[] }
+
+/*
+ * 선택자를 푸는 일은 **선택자마다 한 번**이면 된다 (`#2250`). 종전에는 `reaches`가 불릴
+ * 때마다 — 요소 수 × 규칙 수만큼 — 같은 선택자를 다시 쪼개고 정규식을 다시 돌렸다.
+ * 답은 선택자 문자열에만 달려 있으므로 기억해 두어도 판정이 달라지지 않는다.
+ */
+const needsCache = new Map<string, Needs | null>()
+
+function needsOf(selector: string): Needs | null {
+  const cached = needsCache.get(selector)
+  if (cached !== undefined) return cached
+  let need: Needs | null = null
+  if (!/[#[]|::/.test(selector)) {
+    const parts = compounds(selector)
+    const tail = parts.at(-1) ?? ''
+    const { required, excluded } = demands(tail)
+    need = {
+      tag: /^[a-z][\w-]*/.exec(tail)?.[0] ?? null,
+      required,
+      excluded,
+      ancestors: parts.slice(0, -1).flatMap((part) => demands(part).required),
     }
   }
-  return true
+  needsCache.set(selector, need)
+  return need
 }
+
+/*
+ * 아래 세 검사가 **같은 훑기**를 나눠 쓴다 (`#2250`).
+ *
+ * 종전에는 「지는 짝이 없다」와 「예외 목록에 죽은 항목이 없다」가 각각 `src/`의 모든
+ * `.tsx`를 읽고 요소 × 규칙 짝을 처음부터 다시 견줬다 — 두 검사가 모으는 것은 **같은
+ * 열쇠 집합**인데도. CI에서 각각 3.0~3.6초 · 3.1~5.2초가 걸렸고, 뒤의 것이 기본 시한
+ * 5초를 넘겨 `frontend` 잡이 붉어졌다(실행 37502647298).
+ *
+ * 한 번 계산해 기억한다. 검사 파일은 실행마다 새로 불려 오므로 이 기억이 **다음
+ * 실행으로 넘어가지 않는다** — 소스를 고친 뒤 낡은 답을 볼 일이 없다.
+ */
+let elementsMemo: Element[] | undefined
+
+function allElements(): Element[] {
+  elementsMemo ??= walk(SRC, /\.tsx$/, true).flatMap((p) => elementsOf(readFileSync(p, 'utf8')))
+  return elementsMemo
+}
+
+let losingPairsMemo: Map<string, string> | undefined
+
+/**
+ * 같은 요소에 닿는 짝 중 **변종이 지는** 것 — 열쇠는 `파일|바탕|변종`, 값은 부딪친 속성.
+ *
+ * 한 번 계산한 답을 기억한다. 기억된 뒤에는 `rules` 인자를 다시 보지 않으므로, 이 파일의
+ * 규칙 표 하나로만 부른다 — 다른 규칙 집합을 넘기면 낡은 답이 돌아온다.
+ */
+function losingPairs(rules: Rule[]): Map<string, string> {
+  if (losingPairsMemo !== undefined) return losingPairsMemo
+  const losers = new Map<string, string>()
+  for (const element of allElements()) {
+    const hit = rules.filter((r) => reaches(r.selector, element))
+    for (const base of hit) {
+      for (const variant of hit) {
+        if (base.selector === variant.selector) continue
+        // 변종은 **바른 클래스 하나**다 — 그것이 문맥을 갖지 않는다는 뜻이다.
+        if (!BARE_CLASS.test(variant.selector)) continue
+        if (state(base.selector) !== state(variant.selector)) continue
+        // `.문맥 .변종` — 변종 자신을 문맥으로 한정한 것은 **의도된** 재정의다.
+        const variantClass = /^\.([\w-]+)/.exec(variant.selector)?.[1] ?? ''
+        const baseTail = compounds(base.selector).at(-1) ?? ''
+        if ((baseTail.match(/\.[\w-]+/g) ?? []).some((c) => c.slice(1) === variantClass)) continue
+        // 같은 값을 다시 적는 것은 해가 없다.
+        const clash = [...variant.decls.keys()].filter(
+          (k) => base.decls.has(k) && base.decls.get(k) !== variant.decls.get(k),
+        )
+        if (clash.length === 0) continue
+        if (!stronger(specificity(base.selector), specificity(variant.selector))) continue
+        losers.set(`${variant.file}|${base.selector}|${variant.selector}`, clash.join(','))
+      }
+    }
+  }
+  losingPairsMemo = losers
+  return losers
+}
+
+/*
+ * 기본 5초를 쓰지 않는다 (`#2250`). 훑기를 한 번으로 줄인 뒤에도 그 한 번은 요소 × 규칙
+ * 짝을 견주는 계산이라 **트리가 커지는 만큼** 늘고, 다른 240여 검사 파일과 코어를 나눠
+ * 쓰는 CI에서는 흔들린다(같은 커밋의 두 실행이 3.1초 · 5.2초였다). 30초는 그 폭을
+ * 덮고도 **진짜 멈춤은 여전히 드러내는** 값이다 — 전역 시한은 올리지 않는다. 셋 중
+ * 어느 검사가 먼저 돌아도 그 검사가 훑기 값을 치르므로 셋 모두에 준다.
+ */
+const SCAN_TIMEOUT_MS = 30_000
 
 describe('변종 클래스가 기본 규칙에 특이도로 지지 않는다 (#2047)', () => {
   const rules = cssRules()
 
-  it('규칙과 요소를 실제로 읽었다 — 파서가 조용히 0건을 내지 않게', () => {
+  it('규칙과 요소를 실제로 읽었다 — 파서가 조용히 0건을 내지 않게', { timeout: SCAN_TIMEOUT_MS }, () => {
     expect(rules.length).toBeGreaterThan(500)
-    const elements = walk(SRC, /\.tsx$/, true).flatMap((p) => elementsOf(readFileSync(p, 'utf8')))
-    expect(elements.length).toBeGreaterThan(300)
+    expect(allElements().length).toBeGreaterThan(300)
   })
 
-  it('같은 요소에 닿는 짝 중 변종이 지는 것이 없다', () => {
-    const losers = new Map<string, string>()
-    for (const path of walk(SRC, /\.tsx$/, true)) {
-      for (const element of elementsOf(readFileSync(path, 'utf8'))) {
-        const hit = rules.filter((r) => reaches(r.selector, element))
-        for (const base of hit) {
-          for (const variant of hit) {
-            if (base.selector === variant.selector) continue
-            // 변종은 **바른 클래스 하나**다 — 그것이 문맥을 갖지 않는다는 뜻이다.
-            if (!BARE_CLASS.test(variant.selector)) continue
-            if (state(base.selector) !== state(variant.selector)) continue
-            // `.문맥 .변종` — 변종 자신을 문맥으로 한정한 것은 **의도된** 재정의다.
-            const variantClass = /^\.([\w-]+)/.exec(variant.selector)?.[1] ?? ''
-            const baseTail = compounds(base.selector).at(-1) ?? ''
-            if ((baseTail.match(/\.[\w-]+/g) ?? []).some((c) => c.slice(1) === variantClass)) continue
-            // 같은 값을 다시 적는 것은 해가 없다.
-            const clash = [...variant.decls.keys()].filter(
-              (k) => base.decls.has(k) && base.decls.get(k) !== variant.decls.get(k),
-            )
-            if (clash.length === 0) continue
-            if (!stronger(specificity(base.selector), specificity(variant.selector))) continue
-            losers.set(`${variant.file}|${base.selector}|${variant.selector}`, clash.join(','))
-          }
-        }
-      }
-    }
-    const unexplained = [...losers.keys()].filter((key) => EXEMPT[key] === undefined)
+  it('같은 요소에 닿는 짝 중 변종이 지는 것이 없다', { timeout: SCAN_TIMEOUT_MS }, () => {
+    const unexplained = [...losingPairs(rules).keys()].filter((key) => EXEMPT[key] === undefined)
     expect(unexplained).toEqual([])
   })
 
-  it('예외 목록에 죽은 항목이 없다 — 고쳤으면 지운다', () => {
-    const live = new Set<string>()
-    for (const path of walk(SRC, /\.tsx$/, true)) {
-      for (const element of elementsOf(readFileSync(path, 'utf8'))) {
-        const hit = rules.filter((r) => reaches(r.selector, element))
-        for (const base of hit) {
-          for (const variant of hit) {
-            if (base.selector === variant.selector) continue
-            if (!BARE_CLASS.test(variant.selector)) continue
-            if (state(base.selector) !== state(variant.selector)) continue
-            const variantClass = /^\.([\w-]+)/.exec(variant.selector)?.[1] ?? ''
-            const baseTail = compounds(base.selector).at(-1) ?? ''
-            if ((baseTail.match(/\.[\w-]+/g) ?? []).some((c) => c.slice(1) === variantClass)) continue
-            const clash = [...variant.decls.keys()].some(
-              (k) => base.decls.has(k) && base.decls.get(k) !== variant.decls.get(k),
-            )
-            if (!clash) continue
-            if (!stronger(specificity(base.selector), specificity(variant.selector))) continue
-            live.add(`${variant.file}|${base.selector}|${variant.selector}`)
-          }
-        }
-      }
-    }
+  it('예외 목록에 죽은 항목이 없다 — 고쳤으면 지운다', { timeout: SCAN_TIMEOUT_MS }, () => {
+    const live = new Set(losingPairs(rules).keys())
     expect(Object.keys(EXEMPT).filter((key) => !live.has(key))).toEqual([])
   })
 

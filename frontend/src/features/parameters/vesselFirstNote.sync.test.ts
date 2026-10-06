@@ -72,11 +72,30 @@ const ONE_SOURCE: readonly { readonly text: string; readonly name: string }[] = 
   { text: YEAR_STATE_COPY.empty, name: 'YEAR_STATE_COPY.empty' },
 ]
 
+/*
+ * 훑기는 **한 번만** 한다 (`#2250`). 아래 검사는 문구마다 한 번씩 도는데, 종전에는 돌
+ * 때마다 `src/`의 모든 소스를 다시 읽고 주석을 다시 걷었다 — 문구가 달라도 읽는 대상은
+ * 같다. 검사 파일은 실행마다 새로 불려 오므로 이 기억이 다음 실행으로 넘어가지 않는다.
+ */
+let scanned: readonly { readonly file: string; readonly code: string }[] | undefined
+
+function scannedSources(): readonly { readonly file: string; readonly code: string }[] {
+  scanned ??= sourceFiles(SRC).map((file) => ({ file, code: code(file) }))
+  return scanned
+}
+
+/*
+ * 기본 5초를 쓰지 않는다 (`#2250`). `src/` 전체를 읽는 값은 디스크가 정한다 — CI에서는
+ * 0.1초 안쪽이지만, 저장소가 느린 파일 시스템 위에 있고 다른 작업이 함께 돌면 한 번
+ * 읽는 데 3~4초가 걸려 5초에 닿았다. 20초는 `deadCss.test.ts`가 같은 훑기에 준 값이다.
+ */
+const SCAN_TIMEOUT_MS = 20_000
+
 describe('선행 선택 안내 문구는 한 곳에서 나온다 (#2048 · `PRD §6.4`)', () => {
-  it.each(ONE_SOURCE)('$name — 문장이 화면 소스에 직접 적혀 있지 않다', ({ text, name }) => {
-    const found = sourceFiles(SRC)
-      .filter((file) => code(file).includes(text))
-      .map((file) => relative(SRC, file))
+  it.each(ONE_SOURCE)('$name — 문장이 화면 소스에 직접 적혀 있지 않다', { timeout: SCAN_TIMEOUT_MS }, ({ text, name }) => {
+    const found = scannedSources()
+      .filter((source) => source.code.includes(text))
+      .map((source) => relative(SRC, source.file))
     expect(found, `문장을 직접 적은 파일이 있습니다 — \`${name}\`을 쓰세요`).toEqual([HOME])
   })
 

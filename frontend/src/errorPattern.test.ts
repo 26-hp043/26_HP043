@@ -18,6 +18,28 @@ function sources(dir: string): string[] {
   })
 }
 
+/*
+ * 파일은 **한 번만** 읽는다 (`#2250`). 아래 두 검사가 같은 `.tsx`를 각자 다시 읽고
+ * 있었다. 검사 파일은 실행마다 새로 불려 오므로 이 기억이 다음 실행으로 넘어가지 않는다.
+ */
+const texts = new Map<string, string>()
+
+function text(path: string): string {
+  let found = texts.get(path)
+  if (found === undefined) {
+    found = readFileSync(path, 'utf8')
+    texts.set(path, found)
+  }
+  return found
+}
+
+/*
+ * 기본 5초를 쓰지 않는다 (`#2250`). `src/` 전체를 읽는 값은 디스크가 정한다 — CI에서는
+ * 0.1초 안쪽이지만, 저장소가 느린 파일 시스템 위에 있고 다른 작업이 함께 돌면 한 번
+ * 읽는 데 1~3초가 걸려 5초에 닿았다. 20초는 `deadCss.test.ts`가 같은 훑기에 준 값이다.
+ */
+const SCAN_TIMEOUT_MS = 20_000
+
 describe('에러 표현 규격 가드 (#694)', () => {
   const files = sources(SRC)
 
@@ -31,7 +53,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
    * 같은 함정이라, 선언이 가리키는 사슬을 전부 따라가 `--cii-*`에 닿는지 본다.
    */
   const cssFiles = files.filter((f) => f.endsWith('.css'))
-  const stripped = (file: string) => readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+  const stripped = (file: string) => text(file).replace(/\/\*[\s\S]*?\*\//g, '')
 
   // 모든 CSS의 커스텀 프로퍼티 선언 — 테마 블록마다 값이 다를 수 있어 **전부** 모은다.
   const graph = new Map<string, string[]>()
@@ -100,7 +122,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('실패 표시가 전역 클래스를 확장하지 않는다', () => {
+  it('실패 표시가 전역 클래스를 확장하지 않는다', { timeout: SCAN_TIMEOUT_MS }, () => {
     /*
      * `.empty--error`는 전역 `.empty`를 확장한 것이었다. 그러면 실패 표시를 고칠
      * 때마다 빈 상태가 함께 흔들린다 — CSS 구조 개편이 규격을 막지 않도록 갈랐다.
@@ -113,7 +135,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
     const offenders = files
       .filter((f) => (f.endsWith('.css') || f.endsWith('.tsx')) && !f.includes('.test.'))
       .filter((f) =>
-        readFileSync(f, 'utf8')
+        text(f)
           .replace(/\/\*[\s\S]*?\*\//g, '')
           .replace(/(^|[^:])\/\/.*$/gm, '$1')
           .includes('empty--error'),
@@ -122,7 +144,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
     expect(offenders).toEqual([])
   })
 
-  it('재시도 문구는 「다시 시도」 하나다 — 공용 컴포넌트 밖에서도', () => {
+  it('재시도 문구는 「다시 시도」 하나다 — 공용 컴포넌트 밖에서도', { timeout: SCAN_TIMEOUT_MS }, () => {
     /*
      * `ErrorState`는 문구를 인자로 받지 않아 호출부가 바꿀 수 없다. 그런데 **컴포넌트를
      * 거치지 않는 화면**은 그 보호를 받지 못한다 — 로그인 실패 화면이 「다시 시도하기」를
@@ -133,7 +155,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
       .filter((f) => (f.endsWith('.tsx') || f.endsWith('.ts')) && !f.includes('.test.'))
       .filter((f) =>
         VARIANTS.test(
-          readFileSync(f, 'utf8')
+          text(f)
             .replace(/\/\*[\s\S]*?\*\//g, '')
             .replace(/(^|[^:])\/\/.*$/gm, '$1'),
         ),
