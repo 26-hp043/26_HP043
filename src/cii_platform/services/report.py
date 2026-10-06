@@ -302,7 +302,8 @@ def _scenario_note(transport_capacity: Decimal | None, capacity_basis: str | Non
         )
     return (
         "항차 착수 전 저장된 비교 이력을 그대로 인용했습니다(재계산하지 않음). "
-        "시스템은 수치만 비교하며 최종 운항 판단은 사용자에게 있습니다. "
+        # 정본 문구 (PRD §6.3 「자동 결정 금지」) — 바꾸려면 PRD 개정이 먼저다.
+        "시스템은 시나리오별 수치만 비교하며, 최종 운항 판단은 사용자에게 있습니다. "
         f"실적 행은 이 항차에 기록된 실적값입니다. {capacity} "
         f"{VOYAGE_CII_NOTE} 실적 행의 등급은 산출하지 않습니다. "
         f"「{SCENARIO_NOT_STORED}」은 그 시나리오가 저장된 비교에 없다는 뜻이고, "
@@ -400,11 +401,15 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
             basis = item.get("calculation_basis")
             basis = basis if isinstance(basis, dict) else {}
             if transport_capacity is None and basis.get("transport_capacity") is not None:
+                # 읽을 수 없거나 양의 유한값이 아니면 용량을 모르는 것으로 둔다 — 실적 CII는
+                # 「용량을 알 수 없어 내지 않았습니다」가 된다.
                 try:
-                    transport_capacity = Decimal(str(basis["transport_capacity"]))
+                    parsed = Decimal(str(basis["transport_capacity"]))
                 except InvalidOperation:
-                    continue
-                capacity_basis = basis.get("transport_capacity_basis")
+                    parsed = None
+                if parsed is not None and parsed.is_finite() and parsed > 0:
+                    transport_capacity = parsed
+                    capacity_basis = basis.get("transport_capacity_basis")
 
     rows = []
     for scenario_type in _SCENARIO_ORDER:

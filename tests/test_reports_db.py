@@ -408,6 +408,9 @@ async def test_scenario_note_reuses_the_cor1_wording_and_names_the_capacity(sess
     # 정본 문구 (PRD §25.2 · COR-1) — 「CII 기여도」 절과 **같은 상수**다.
     assert VOYAGE_CII_NOTE in section.note
     assert _section(document, "CII 기여도").note == VOYAGE_CII_NOTE
+    # 정본 문구 (PRD §6.3 「자동 결정 금지」) — 바꾸려면 PRD 개정이 먼저다.
+    no_auto_decision = "시스템은 시나리오별 수치만 비교하며, 최종 운항 판단은 사용자에게 있습니다."
+    assert no_auto_decision in section.note
     # 비교가 쓴 용량 50,000 DWT — 실적 CII 5.223이 이 분모로 나온 값이다.
     assert "50,000 DWT" in section.note
     assert section.rows[3][5] == "5.223"
@@ -464,7 +467,9 @@ async def test_a_malformed_comparison_run_does_not_break_the_report(session, ves
         direct = {**direct, "calculation_basis": "DWT 50000"}
         # 채택 행의 id는 남긴다 — 이력을 찾는 키다. 나머지 키는 전부 없다.
         slow = {"scenario_id": slow["scenario_id"], "scenario_type": "SLOW_STEAMING"}
-        return [direct, detour, slow, "garbage"]
+        # 깨진 항목을 **맨 앞**에 둔다 — 뒤에 두면 저장소의 채택 항목 탐색(`any`)이 그 앞에서
+        # 끝나 dict 가드를 지나지 않는다(검토 돌연변이로 확인).
+        return ["garbage", direct, detour, slow]
 
     voyage_id = await _make_voyage(session, vessel_id)
     ids = await _compare(session, vessel_id, mutate=_old_shape)
