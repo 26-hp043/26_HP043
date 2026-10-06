@@ -8,7 +8,7 @@ React · Vite · TypeScript로 만든 프론트엔드입니다. 백엔드(`src/c
 | 항목 | 최소 버전 |
 |---|---|
 | Node.js | **22.22.0** |
-| React · ReactDOM | **19.2.7** |
+| React | **19.2.8** |
 
 설치는 `package-lock.json` 기준 `npm ci`로 합니다.
 
@@ -33,15 +33,23 @@ frontend/
 │   ├── main.tsx            ← 진입점. 토큰·전역 CSS 로드
 │   ├── App.tsx             ← 라우트 정의 (UIFLOW §1·§2 화면)
 │   ├── screens.ts          ← 화면 메타 (ID → 메타 · 사이드바 순서 · 폭 정책)
+│   ├── api/                ← API 기준 주소·응답 필드 처리
 │   ├── auth/               ← 세션·라우트 가드
 │   ├── layout/             ← 공통 셸 (좌측 사이드바 + 상단바)
 │   ├── components/         ← 공통 컴포넌트 (면책 배너, 준비 중, 등급 패턴 defs)
+│   ├── design/tokens/      ← Figma 내보내기 토큰(JSON) — `npm run build:tokens`의 입력
 │   ├── display/            ← DESIGN_SYSTEM §4 구현 (자릿수 · 구분자 · 단위) [#392]
-│   ├── features/           ← 기능 단위 (voyage-cii · scenario-comparison · annual-simulation)
+│   ├── download/           ← 파일 내려받기
+│   ├── features/           ← 기능 단위 (fleet · vessel-detail · voyage-cii · scenario-comparison · annual-simulation 등)
+│   ├── i18n/               ← 한국어·영어 문구와 언어 전환
 │   ├── pages/              ← 화면별 컴포넌트
+│   ├── theme/              ← 라이트·다크 모드 상태와 전환 토글
+│   ├── test/               ← 테스트 공용 도구
 │   └── styles/
-│       ├── tokens.css      ← DESIGN_SYSTEM.md §15 토큰
-│       └── global.css      ← reset · 타이포그래피 기본
+│       ├── tokens.css          ← DESIGN_SYSTEM.md §15 토큰 (별칭)
+│       ├── tokens.generated.css ← `design/tokens/*.json`에서 생성한 토큰
+│       └── global.css          ← reset · 타이포그래피 기본
+├── e2e/ · functions/ · scripts/   ← Playwright 검사 · Pages Function · 빌드·검사 스크립트
 └── public/
 ```
 
@@ -68,7 +76,9 @@ frontend/
 - **스타일링은 순수 CSS 파일만 사용합니다** — Tailwind · styled-components 등을 도입하지 않습니다.
 - **색·간격·반경 값은 `styles/tokens.css`의 커스텀 프로퍼티로만 참조합니다.**
   하드코딩 hex는 금지입니다(`DESIGN_SYSTEM.md` §15).
-- 데스크톱 1920 · Light Mode 기준입니다. 반응형·다크모드는 범위 밖입니다.
+- 라이트·다크 두 모드를 모두 지원합니다. 색 토큰은 두 값을 함께 정의하고(`DESIGN_SYSTEM.md` §0.2 · §2.2),
+  모드 전환은 `src/theme/`가 맡습니다. 레이아웃은 1920 프레임 기준이며, 주·부 영역이 좁은 폭에서
+  스스로 한 단으로 접는 화면이 있습니다(`DESIGN_SYSTEM.md` §7.1).
 
 ## 참조 문서
 

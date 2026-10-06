@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-10-07 (§3.1 자동 배포 경로에 서버에서 도는 스크립트 둘 · preflight 필수 시크릿 9 → 10종(`INITIAL_ADMIN_EMAILS`) · §5.1 각주 개수 정정 · #2117 · §8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-10-07 (§3.5.4·§4.6·§4.5·§8.1 따라 하면 실패하던 `:8001` curl 다섯 곳을 터널 주소 또는 app-01 안 루프백으로 · §4.4 「레포가 private」 정정 — 레포는 public, GHCR 패키지 공개 범위는 확인 못 함 · #2141 · §3.1 자동 배포 경로에 서버에서 도는 스크립트 둘 · preflight 필수 시크릿 9 → 10종(`INITIAL_ADMIN_EMAILS`) · §5.1 각주 개수 정정 · #2117 · §8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -363,7 +363,7 @@ cp .env.app.example .env
 #     비면 새 DB는 관리자 0명이고 역할을 올려 줄 사람이 없다. §4.5 참고, #672 · #1301)
 #     ⚠️ 옛 이름 INITIAL_OFFICE_EMAILS는 읽히지 않는다 — 남아 있으면 기동 실패 (#1301)
 
-# GHCR 로그인 (private repo, 또는 로컬 빌드 시 불필요)
+# GHCR 로그인 (이미지 pull이 거부될 때만 필요 · 로컬 빌드 시 불필요 — §4.4)
 echo "ghp_..." | docker login ghcr.io -u USERNAME --password-stdin
 docker compose -f docker-compose.prod.app.yml pull backend
 
@@ -530,7 +530,8 @@ DNS는 Cloudflare에 CNAME으로 만든다 — `<이름>` → `26dac387-2f05-49a
 ```bash
 curl -i https://bluelog-bx7.pages.dev/api/v1/health   # 200 → 성공
 curl -i https://bluelog-api.kpubdata.com/api/v1/health # 터널만 검증 (Pages를 건너뛴다)
-curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (터널을 건너뛴다)
+# app-01 안에서(SSH 접속 후) — 백엔드만 검증 (터널을 건너뛴다). 공인 IP `:8001`은 닫혀 있다(#786)
+curl -i http://127.0.0.1:8001/api/v1/health
 ```
 
 | 증상 | 원인 |
@@ -542,7 +543,7 @@ curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (�
 
 #### 3.5.5 되돌리기
 
-**`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
+터널을 처음 붙일 때는 **`:8001`을 먼저 닫지 않는 것**이 요점이었다 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남겼다. 지금은 공인 `:8001`이 닫혀 있다(`#786`). 터널을 되돌린 뒤 백엔드만 따로 확인하려면 app-01에 접속해 루프백으로 부른다(§3.5.4의 마지막 명령).
 
 | 단계 | 되돌리는 법 |
 |---|---|
@@ -872,8 +873,10 @@ docker exec cii-cubrid cubrid server acl reload cii
 
 ### 4.4 GHCR 인증
 
-레포가 private이므로 OCI VM에서 이미지 pull 시 GHCR 로그인 필요.
-deploy 워크플로는 `GITHUB_TOKEN`으로 자동 인증한다.
+레포는 public이다(`gh repo view` → `PUBLIC`). 그러나 **GHCR 패키지의 공개 범위는 레포와 따로 정해지며**
+(패키지 설정), 이 문서를 고치는 시점에 패키지 쪽은 확인하지 못했다(권한 부족 — `read:packages`).
+pull이 거부되면 아래처럼 로그인한다. deploy 워크플로는 패키지 공개 여부와 무관하게 매번
+`GITHUB_TOKEN`으로 로그인한 뒤 pull한다(`deploy.yml` 「GHCR 로그인」).
 
 수동 로그인:
 ```bash
@@ -911,8 +914,8 @@ echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
 > **배포 확인 명령** — 세 줄이 모두 이래야 한다.
 >
 > ```bash
-> curl -s -o /dev/null -w '%{http_code}\n' -X POST http://<호스트>:8001/api/v1/auth/dev-login   # 401
-> curl -s -o /dev/null -w '%{http_code}\n'      http://<호스트>:8001/docs                        # 401
+> curl -s -o /dev/null -w '%{http_code}\n' -X POST https://bluelog-api.kpubdata.com/api/v1/auth/dev-login   # 401
+> curl -s -o /dev/null -w '%{http_code}\n'      https://bluelog-api.kpubdata.com/docs                        # 401
 > docker compose -f docker-compose.prod.app.yml run --rm backend \
 >   python -c "from cii_platform.config import _ENV, exposes_dev_surfaces; print(_ENV, exposes_dev_surfaces(_ENV))"
 > ```
@@ -966,7 +969,7 @@ CORS가 가장 바깥이어야 preflight(OPTIONS)가 auth/rate_limit에 막히�
 curl -sS -X OPTIONS \
   -H "Origin: https://bluelog-bx7.pages.dev" \
   -H "Access-Control-Request-Method: GET" \
-  -D - -o /dev/null http://131.186.22.10:8001/api/v1/health
+  -D - -o /dev/null https://bluelog-api.kpubdata.com/api/v1/health
 
 # 응답에 포함되어야 하는 헤더:
 #   access-control-allow-origin: https://bluelog-bx7.pages.dev
@@ -1161,8 +1164,8 @@ wrangler pages project add-domain bluelog <도메인>
 ### 8.1 헬스 체크
 
 ```bash
-# 외부에서 (브라우저 / curl)
-curl http://131.186.22.10:8001/api/v1/health
+# 외부에서 (브라우저 / curl) — 터널 주소. 공인 IP `:8001`은 닫혀 있다(#786)
+curl https://bluelog-api.kpubdata.com/api/v1/health
 # → {"data":{"status":"ok","version":"0.1.0",...}}
 
 # app-01 내부에서
