@@ -842,3 +842,61 @@ describe('마크다운 기호 (`#2064`)', () => {
     expect(screen.getByText('**이것은 내가 친 별표다**')).toBeTruthy()
   })
 })
+
+describe('범이 첫 방문 안내 (#2205)', () => {
+  const HINT = /CII가 처음이라면 범이에게 물어보세요/
+
+  function reset() {
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+  }
+
+  it('처음 들어오면 런처 위에 말풍선이 뜨고, 초점을 가져가지 않는다', () => {
+    reset()
+    setup()
+    const hint = screen.getByRole('status')
+    expect(hint.textContent).toMatch(HINT)
+    expect(screen.getByRole('button', { name: /AI 어시스턴트 열기/ })).toBeTruthy()
+    expect(document.activeElement).toBe(document.body)
+  })
+
+  it('운항 행동을 제안하지 않는다 — 기능만 안내한다 (UIFLOW 2-7 No-Advice)', () => {
+    reset()
+    setup()
+    expect(screen.getByRole('status').textContent).not.toMatch(/하세요|낮추|감속|최적|추천/)
+  })
+
+  it('「다시 보지 않기」를 누르면 사라지고, 다시 그려도 뜨지 않는다', () => {
+    reset()
+    const { unmount } = render(<AssistantOverlay provider={{ ask: vi.fn() }} />)
+    fireEvent.click(screen.getByRole('button', { name: '다시 보지 않기' }))
+    expect(screen.queryByText(HINT)).toBeNull()
+    unmount()
+    window.sessionStorage.clear()
+    render(<AssistantOverlay provider={{ ask: vi.fn() }} />)
+    expect(screen.queryByText(HINT)).toBeNull()
+  })
+
+  it('「닫기」는 이 탭에서만 — 새 탭(탭 저장소가 빈 상태)에서는 다시 뜬다', () => {
+    reset()
+    const { unmount } = render(<AssistantOverlay provider={{ ask: vi.fn() }} />)
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    expect(screen.queryByText(HINT)).toBeNull()
+    unmount()
+    const again = render(<AssistantOverlay provider={{ ask: vi.fn() }} />)
+    expect(screen.queryByText(HINT)).toBeNull()
+    again.unmount()
+    window.sessionStorage.clear()
+    render(<AssistantOverlay provider={{ ask: vi.fn() }} />)
+    expect(screen.getByText(HINT)).toBeTruthy()
+  })
+
+  it('패널을 한 번 열면 안내를 다시 띄우지 않는다', () => {
+    reset()
+    setup()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
+    expect(screen.queryByText(HINT)).toBeNull()
+    expect(window.localStorage.getItem('bluelog.assistant.introHintDismissed')).toBe('true')
+  })
+})
