@@ -792,7 +792,7 @@ async def test_the_compare_tool_leaves_no_scenario_rows_after_the_route_commits(
 
     라우트는 답변 뒤 세션을 **커밋한다.** 도구가 flush만 해 둔 행도 그 커밋으로 확정되므로,
     「저장하지 않는 경로」가 남긴 3행이 호출마다 그 선박에 쌓였다. 도구 수준 검사
-    (``test_chat_tools_db``의 IT-CHATDB-008)는 같은 세션 안을 보고, 이 검사는 **커밋된 뒤**를
+    (``test_chat_tools_db``의 IT-CHATDB-012)는 같은 세션 안을 보고, 이 검사는 **커밋된 뒤**를
     다른 세션으로 센다.
     """
     from cii_platform.db.session import get_sessionmaker

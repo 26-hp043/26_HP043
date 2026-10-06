@@ -25,7 +25,9 @@ PR `#463`)에서 들어왔다** — 제목이 `Update`이고 본문이 비어 �
 ## 코드 주석까지 보는 이유
 
 `frontend/src/screens.ts`도 *「`UIFLOW §2.2` 매핑 표에 SCR-002 행이 없다」*로
-같은 참조를 쓰고 있었다. `.md`만 스캔하면 이것을 놓친다.
+같은 참조를 쓰고 있었다. `.md`만 스캔하면 이것을 놓친다. 백엔드 구현(`src/**/*.py`)과
+운영 문서(`docs/*.md`), 테스트(`tests/**/*.py`)도 본다 (`#2138`). 테스트 가운데 **이 파일
+하나만** 뺀다 — `_TESTS` 주석을 보라.
 
 ## 표기 규칙 (`AGENTS §4.7`, `#602`)
 
@@ -76,6 +78,23 @@ TARGETS: dict[str, str] = {
 #: 스캔 대상. 문서뿐 아니라 코드 주석도 같은 참조를 쓴다.
 _MD = sorted(_ROOT.glob("*.md"))
 _SRC = sorted(p for ext in ("*.ts", "*.tsx") for p in (_ROOT / "frontend" / "src").rglob(ext))
+#: 백엔드 구현의 주석·독스트링과 운영 문서도 같은 참조를 쓴다 (`#2138`). 넓히자마자
+#: `src/`에서 `AGENTS §4.7` 위반 둘(화면 번호에 `§`)이 나왔다.
+_BACKEND = sorted((_ROOT / "src").rglob("*.py"))
+_DOCS = sorted((_ROOT / "docs").glob("*.md"))
+#: 테스트의 독스트링·주석도 같은 참조를 쓴다 (`#2138`). 넓히자마자 없는 절
+#: (`AGENTS`의 3장 셋째 하위 절)을 근거로 든 독스트링 한 곳이 나왔다.
+#:
+#: ⚠️ **이 파일 자신은 뺀다.** 무엇을 막는지 설명하려고 끊긴 참조와 금지 표기를 **그대로
+#: 인용**한다(모듈 독스트링의 없는 절 여섯 · 오류 문구의 고치는 예시). 마크다운은 그런
+#: 예시를 코드펜스로 비켜 가지만 파이썬 소스에는 펜스가 없어 파일 단위로 뺄 수밖에 없다.
+#: 다른 테스트 파일은 하나도 빼지 않는다.
+#:
+#: 이 스캔은 주석과 문자열을 가리지 않고 줄 전체를 본다. 다른 테스트가 가짜 문서 조각이나
+#: 단언 메시지에 없는 절을 예시로 적으면 여기서 걸린다 — 그때는 그 자리에서 문서명과 절
+#: 번호를 한 문자열로 붙여 쓰지 말거나, 이 파일처럼 사유를 적어 파일 단위로 뺀다.
+_SELF = Path(__file__).resolve()
+_TESTS = sorted(p for p in (_ROOT / "tests").rglob("*.py") if p.resolve() != _SELF)
 
 #: ``UIFLOW §2.2`` · ``DESIGN_SYSTEM §4.1`` — 절 참조. 점으로 잇는다.
 _SECTION_REF = re.compile(
@@ -157,7 +176,7 @@ def _prose_lines(path: Path):
 def _scan(pattern: re.Pattern[str], *, follow: bool = False) -> list[tuple[str, int, str, str]]:
     """``(파일, 행, 대상문서, 번호)``. 대상 문서가 자기 자신을 가리키는 것은 뺀다."""
     hits = []
-    for path in [*_MD, *_SRC]:
+    for path in [*_MD, *_DOCS, *_SRC, *_BACKEND, *_TESTS]:
         name = path.relative_to(_ROOT).as_posix()
         for number, line in _prose_lines(path):
             for matched in pattern.finditer(line):
@@ -173,7 +192,7 @@ def _scan(pattern: re.Pattern[str], *, follow: bool = False) -> list[tuple[str, 
 def violations() -> list[str]:
     """`AGENTS §4.7` 위반 — 화면 번호에 `§`를 붙인 곳."""
     found = []
-    for path in [*_MD, *_SRC]:
+    for path in [*_MD, *_DOCS, *_SRC, *_BACKEND, *_TESTS]:
         name = path.relative_to(_ROOT).as_posix()
         for number, line in _prose_lines(path):
             for matched in _SCREEN_REF.finditer(line):
@@ -186,6 +205,10 @@ def test_스캔_대상을_읽을_수_있다() -> None:
     """추출기가 깨지면 아래 검사들이 조용히 통과한다 — 그 상태를 먼저 막는다."""
     assert len(_MD) >= 7, f"정본 마크다운을 찾지 못했습니다: {[p.name for p in _MD]}"
     assert _SRC, "frontend/src에서 .ts/.tsx를 찾지 못했습니다."
+    assert _BACKEND, "src에서 .py를 찾지 못했습니다."
+    # 2026-10-07 기준 244개(이 파일 제외). 경로가 어긋나 몇 개만 잡히는 상태도 막는다.
+    assert len(_TESTS) >= 200, f"tests에서 찾은 .py가 {len(_TESTS)}개뿐입니다."
+    assert _SELF not in [p.resolve() for p in _TESTS], "이 파일 자신은 스캔 대상이 아닙니다."
     assert _scan(_SECTION_REF), "절 참조를 하나도 찾지 못했습니다 — 표기가 바뀌었는지 확인하세요."
     # 이어 쓴 참조 추적이 죽으면 `#583`이 놓친 것과 같은 형태를 다시 놓친다.
     assert _continued("`UIFLOW §2`·`§3` 참조", len("`UIFLOW §2")) == ["3"], (

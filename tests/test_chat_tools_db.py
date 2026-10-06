@@ -1,4 +1,4 @@
-"""챗봇 도구 5종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~009 · `#1533`).
+"""챗봇 도구 5종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~012 · `#1533`).
 
 ## 왜 필요한가
 
@@ -224,7 +224,7 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
 
 
 async def test_scenario_comparison_tool_stores_no_scenario_rows(session, vessel_id):
-    """IT-CHATDB-008 — ⚠️ **비교 도구는 ``voyage_scenario``에 아무것도 남기지 않는다** (#2088).
+    """IT-CHATDB-012 — ⚠️ **비교 도구는 ``voyage_scenario``에 아무것도 남기지 않는다** (#2088).
 
     ``persist=False``는 「저장하지 않는 경로」인데 ``calculation_run``만 건너뛰고 시나리오
     3행은 넣고 있었다. 챗봇 라우트가 답변 뒤 같은 세션을 커밋하므로, 도구가 불릴 때마다
