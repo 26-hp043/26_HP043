@@ -80,7 +80,8 @@ FROM python:3.12-slim AS prod
 
 # APP_ENV=production — config.py 프로덕션 가드(#118) 발동 (#231).
 # 미설정 시 development로 떨어져 DATABASE_URL 누락에도 개발용 기본값으로 폴백한다.
-# ENV는 빌드 시점에 굳어 compose 환경보다 우선한다.
+# 이 ENV는 이미지의 기본값이다. 컨테이너를 띄울 때 주입한 환경(compose의 environment:)이
+# 이 값을 덮는다 (#810 · #2118) — compose가 APP_ENV를 넘기지 않을 때만 이 값이 쓰인다.
 ENV APP_ENV=production
 
 # CUBRID Python 드라이버는 순수 Python이라 libpq가 불필요하다.
