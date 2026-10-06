@@ -22,7 +22,8 @@ import { describe, expect, it } from 'vitest'
  *
  * 위험색 토큰을 **그대로** 면에 까는 것만 막는다. `color-mix(… 8%, surface)`처럼
  * **옅게 섞은** 배경은 통과한다 — 그것은 이미 중립에 가까운 면이고, `--*-soft` 계열이
- * 하는 일과 같다(`FleetDashboard.css`의 배너가 그 자리다). 「면은 중립」이 금지하는 것은
+ * 하는 일과 같다(종전 `FleetDashboard.css`의 배너가 그 자리였다 — `#2206`에서 배너도 면을
+ * 걷고 왼쪽 띠로 바꿨다). 「면은 중립」이 금지하는 것은
  * **위험색 자체를 면으로 쓰는 것**이다.
  */
 const CSS_ROOT = join(import.meta.dirname, '..')

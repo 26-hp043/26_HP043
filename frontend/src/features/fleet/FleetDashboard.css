@@ -671,16 +671,28 @@
 
 /* ── 경고 배너 — PRD §6.3 확정 문구 (#352) ──────────────────────── */
 
+/*
+ * 경고 배너 — **면을 칠하지 않는다** (#2206).
+ *
+ * `§2.3` 「경고색은 한 자리에 한 번」이 면은 중립으로 두고 위험색은 아이콘과 문구에만
+ * 쓰라고 정했는데, 배너만 옅은 Danger 면(8%) + 사방 테두리로 남아 있었다. 첫 시선이
+ * 문장보다 **빨간 면**에 먼저 가고, 바로 아래 요약 행(「D등급 진입 임박 N일」)보다
+ * 세게 보였다.
+ *
+ * 남기는 채널은 셋이다 — ⑴ 왼쪽 띠 ⑵ 경고 아이콘 ⑶ Danger 글자. 의미는 ⑵⑶과
+ * `role="alert"`가 전달하고, 띠는 `§14` 갈래 표의 「안내문 좌측 띠」(장식)라 대비 기준
+ * 대상이 아니다. 카드 면을 걷어 바닥 위에 바로 놓는다(`§5` 카드 예산 — 안내문은
+ * 바닥 위). 문구 · 링크 · 표시 조건은 그대로다(#352 · #1569 · #1593).
+ *
+ * §0.2 제약 2 — 등급 색은 A~E 문자와만 (#748). 선대 경고는 시맨틱 Danger 색을 쓴다.
+ */
 .warn {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px var(--spacing-md);
   align-items: center;
-  padding: var(--spacing-md) var(--spacing-lg);
-  border-radius: var(--radius-card);
-  /* §0.2 제약 2 — 등급 색은 A~E 문자와만 (#748). 선대 경고는 시맨틱 Danger 색을 쓴다. */
-  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
-  border: var(--borderWidth-default) solid var(--color-danger);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-inline-start: 4px solid var(--color-danger);
   color: var(--color-danger-text);
 }
 
