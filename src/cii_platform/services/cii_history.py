@@ -40,6 +40,7 @@ from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.precision import (
     LAYER1_ROUNDING,
     SERIALIZATION_ROUNDING,
+    layer1_context,
     publish_layer1_canonical,
 )
 from cii_platform.db.repositories import parameters as param_repo
@@ -143,11 +144,15 @@ def _validate_window(start: int, end: int) -> None:
         )
 
 
+@layer1_context
 def _fuel_rows(
     ton_breakdown: dict[str, Decimal],
     co2_breakdown_g: dict[str, Decimal] | None,
 ) -> list[dict[str, object]]:
     """연료축 한 해치 — 유종별 투입 톤·CO₂·비중 (`#769`).
+
+    g → t 환산과 비중 나눗셈이 여기서 일어나므로 **적용 지점 안에서 돈다** (`#2212` ·
+    `TECH_SPEC §1.2.1`). 밖이면 호출 스레드의 기본 정밀도(28자리)로 먼저 깎인다.
 
     ``PRD §21`` 「통계 분석」의 **연료별** 축이다. 선박축은 이미 이 엔드포인트가
     연도로 열고 있고, 항로축은 항만명이 자유 텍스트라 집계가 성립하지 않는다.
