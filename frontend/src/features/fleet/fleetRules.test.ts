@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  actionsSummaryText,
   daysToDText,
   unconfirmedVoyages,
   daysValueText,
@@ -432,5 +433,33 @@ describe('plottedCount — 지도에 그려지는 척수 (#2121)', () => {
 
   it('빈 목록은 0이다', () => {
     expect(plottedCount([])).toBe(0)
+  })
+})
+
+describe('「조치 필요」 결론 한 줄 (#2200)', () => {
+  it('선박은 한 번만 세고 사유별 수를 함께 적는다', () => {
+    expect(
+      actionsSummaryText([
+        { vesselId: 'v1', reason: 'E_THIS_YEAR' },
+        { vesselId: 'v2', reason: 'D_THIRD_YEAR' },
+        { vesselId: 'v3', reason: 'D_THIRD_YEAR' },
+        { vesselId: 'v3', reason: 'E_THIS_YEAR' },
+      ]),
+    ).toBe('조치가 필요한 선박 3척 — E등급 1년차 2척 · D등급 3년 연속 2척')
+  })
+
+  it('없는 사유는 적지 않는다', () => {
+    expect(actionsSummaryText([{ vesselId: 'v1', reason: 'D_THIRD_YEAR' }])).toBe(
+      '조치가 필요한 선박 1척 — D등급 3년 연속 1척',
+    )
+  })
+
+  it('항목이 없으면 빈 문자열이다', () => {
+    expect(actionsSummaryText([])).toBe('')
+  })
+
+  it('권고형 어미를 쓰지 않는다 (`DESIGN_SYSTEM §11`)', () => {
+    const text = actionsSummaryText([{ vesselId: 'v1', reason: 'E_THIS_YEAR' }])
+    expect(text).not.toMatch(/하세요|필요합니다|권장|추천/)
   })
 })

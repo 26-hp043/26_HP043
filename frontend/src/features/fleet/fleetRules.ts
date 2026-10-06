@@ -45,6 +45,31 @@ export function riskReasonText(reason: RiskReason): string {
 }
 
 /**
+ * 「조치 필요」 카드의 결론 한 줄 (#2200 · `DESIGN_SYSTEM §8` 결과 카드).
+ *
+ * 대시보드에는 결론 띠(`§8.6`)가 없어 카드가 자기 결론을 첫 줄에 적는다. **세기만 하고
+ * 판정하지 않는다** — 사유는 서버가 준 `reason` 그대로다. 한 선박에 사유가 둘이면 선박은
+ * 한 척으로 세고 사유별 수에는 각각 들어간다. 문구는 서술이다(「~하세요」 없음 · `§11`).
+ *
+ * 사유 이름은 목록의 문구(`riskReasonText`)에서 「—」 앞부분만 쓴다 — 두 자리가 같은
+ * 말을 하게 하려는 것이다. 항목이 없으면 카드를 그리지 않으므로 빈 문자열이다.
+ */
+export function actionsSummaryText(
+  actions: readonly { vesselId: string; reason: RiskReason }[],
+): string {
+  if (actions.length === 0) return ''
+  const vessels = new Set(actions.map((a) => a.vesselId))
+  const order: readonly RiskReason[] = ['E_THIS_YEAR', 'D_THIRD_YEAR']
+  const parts = order
+    .map((reason) => {
+      const n = new Set(actions.filter((a) => a.reason === reason).map((a) => a.vesselId)).size
+      return n > 0 ? `${riskReasonText(reason).split(' — ')[0]} ${n}척` : null
+    })
+    .filter((part): part is string => part !== null)
+  return `조치가 필요한 선박 ${vessels.size}척 — ${parts.join(' · ')}`
+}
+
+/**
  * 남은 일수만 — `36일` (#1569). 자릿수·단위는 `§4.2`가 소유한다.
  *
  * 대시보드 요약 행의 「D등급 진입 임박」 칸이 쓴다. 칸 라벨이 이미 「D등급」을 말하므로
