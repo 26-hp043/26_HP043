@@ -90,6 +90,81 @@ def test_error_code_is_raised_without_echoing_the_payload():
     assert "SECRET" not in str(caught.value)
 
 
+# --- 형식이 달라진 응답 (#2113) --------------------------------------------------
+#
+# 읽을 수 없는 항목은 **그 응답의 실패**다(`PortCallApiError` · 코드 ``FORMAT``). 수집기는 이
+# 예외를 (선박, 항만청) 한 쌍의 실패로 적는다. 버리고 넘어가면 「기록 없음」과 구분되지 않는다.
+
+
+def _altered(old: bytes, new: bytes) -> bytes:
+    assert _V7UJ2.count(old) >= 1
+    return _V7UJ2.replace(old, new, 1)
+
+
+def test_report_time_without_timezone_is_a_format_failure():
+    """시간대 없는 시각은 읽지 않는다 — 저장되면 대조의 뺄셈이 ``TypeError``다."""
+    payload = _altered(b"2026-08-08T14:20:00+09:00", b"2026-08-08 14:20:00")
+    with pytest.raises(PortCallApiError) as caught:
+        parse_response(payload)
+    assert caught.value.code == "FORMAT"
+    # 어느 필드인지는 남기고 값은 옮기지 않는다.
+    assert "etryptDt" in str(caught.value)
+    assert "14:20" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "field"),
+    [
+        (b"2026-08-08T14:20:00+09:00", b"08/08/2026 14:20", "etryptDt"),
+        (b"<etryptYear>2026</etryptYear>", b"<etryptYear>abc</etryptYear>", "etryptYear"),
+        (b"<etryptYear>2026</etryptYear>", b"", "etryptYear"),
+        (b"<etryptCo>014</etryptCo>", b"<etryptCo> </etryptCo>", "etryptCo"),
+        (b"<etryptCo>014</etryptCo>", b"", "etryptCo"),
+        (b"<totalCount>2</totalCount>", b"<totalCount>many</totalCount>", "totalCount"),
+    ],
+)
+def test_unreadable_item_is_a_format_failure_not_a_value_error(old, new, field):
+    """형식이 다른 시각 · 숫자가 아닌 연도 · 빠진 연도 · 빈 차수 — ``ValueError``로 새지 않는다.
+
+    빈 차수를 ``""``로 받으면 유일 키에서 같은 항만청·연도의 그런 기항이 한 행으로 합쳐진다.
+    """
+    with pytest.raises(PortCallApiError) as caught:
+        parse_response(_altered(old, new))
+    assert caught.value.code == "FORMAT"
+    assert field in str(caught.value)
+
+
+def test_gateway_error_envelope_keeps_code_and_message():
+    """공공데이터포털 게이트웨이 오류 봉투(``cmmMsgHeader``) — 코드와 문구를 남긴다."""
+    payload = (
+        b"<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>SERVICE ERROR</errMsg>"
+        b"<returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg>"
+        b"<returnReasonCode>30</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>"
+    )
+    with pytest.raises(PortCallApiError) as caught:
+        parse_response(payload)
+    assert caught.value.code == "30"
+    assert "SERVICE_KEY_IS_NOT_REGISTERED_ERROR" in str(caught.value)
+
+
+def test_error_text_of_unknown_shape_is_not_carried():
+    """오류 문구는 바깥이 만든 문자열이다 — 알려진 모양(대문자 코드)이 아니면 옮기지 않는다."""
+    payload = (
+        b"<response><header><resultCode>30</resultCode>"
+        b"<resultMsg>serviceKey=abcDEF0123456789 is not registered</resultMsg></header></response>"
+    )
+    with pytest.raises(PortCallApiError) as caught:
+        parse_response(payload)
+    assert caught.value.code == "30"
+    assert "abcDEF0123456789" not in str(caught.value)
+    # 코드 자리도 같다.
+    with pytest.raises(PortCallApiError) as caught:
+        parse_response(
+            b"<response><header><resultCode>key abcDEF0123456789</resultCode></header></response>"
+        )
+    assert "abcDEF0123456789" not in str(caught.value)
+
+
 # --- 한 기항의 규칙 --------------------------------------------------------------
 
 
