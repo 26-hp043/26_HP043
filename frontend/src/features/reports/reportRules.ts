@@ -1,7 +1,7 @@
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
 import { portDisplayName, type SamplePort } from '../ports/samplePorts'
-import { YEAR_STATE_COPY } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY } from '../parameters/yearCatalog'
 import type { ReportTarget, VoyageOption } from './types'
 
 /**
@@ -99,7 +99,13 @@ export function targetOf(
     if (selection.year === null) return YEAR_STATE_COPY.empty
     return { kind: 'ANNUAL', vesselId: selection.vesselId, year: selection.year }
   }
-  if (!selection.vesselId) return '선박을 먼저 선택해 주세요.'
+  /*
+   * **같은 자리에 두 문구가 들어온다** (`#2155`). 이 사유는 `ReportsView`의 `resolve`가
+   * 연도 칸 상태 문구(`YEAR_STATE_COPY` · 마침표 없음)와 **번갈아** 내보내는 값이다 —
+   * 종전에는 여기만 마침표가 있어, 화면의 **한 자리**에서 같은 성격의 두 안내가 서로
+   * 다른 꼴로 나왔다. 공용 상수를 그대로 쓴다(`PRD §6.4` 관례 ②).
+   */
+  if (!selection.vesselId) return SELECT_VESSEL_FIRST
   if (!selection.voyageId) return '항차를 선택해 주세요.'
   return { kind: 'VOYAGE', voyageId: selection.voyageId }
 }
