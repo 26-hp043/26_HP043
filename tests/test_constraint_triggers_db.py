@@ -116,6 +116,35 @@ async def _insert_run(
     return run_id
 
 
+async def _insert_snapshot(
+    conn: AsyncConnection,
+    *,
+    input_hash: str = VALID_HASH,
+    parameter_hash: str = VALID_HASH,
+) -> str:
+    """``simulation_snapshot``에도 해시 열 둘이 있고 트리거가 따로 걸려 있다."""
+    snap_id = uuid.uuid4().hex
+    await conn.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, input_hash, parameter_hash, "
+            " created_at) VALUES (:id, :vid, 2026, '[]', :ih, :ph, :ts)"
+        ),
+        {
+            "id": snap_id,
+            "vid": await _a_vessel_id(conn),
+            "ih": input_hash,
+            "ph": parameter_hash,
+            "ts": datetime.now(UTC),
+        },
+    )
+    return snap_id
+
+
+#: 표마다 INSERT 헬퍼 — 네 트리거를 (표, 열)로 돌 때 쓴다.
+_INSERTERS = {"calculation_run": _insert_run, "simulation_snapshot": _insert_snapshot}
+
+
 # ---------------------------------------------------------------------------
 # 0. 트리거가 실재하는가
 # ---------------------------------------------------------------------------
@@ -138,7 +167,20 @@ async def test_every_trigger_exists(conn: AsyncConnection):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad", ["not-a-hash", "sha256:" + "0" * 63, "sha256:" + "G" * 64, ""])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "not-a-hash",
+        "sha256:" + "0" * 63,
+        "sha256:" + "G" * 64,
+        "",
+        # 대소문자 — 정본 `[S-7]`의 `~`는 대소문자를 구분하는데 CUBRID `REGEXP`는 기본이
+        # 무시라 `066` 전에는 셋 다 통과했다(`#2103`).
+        "SHA256:" + "A" * 64,
+        "sha256:" + "A" * 64,
+        "SHA256:" + "0" * 64,
+    ],
+)
 async def test_broken_input_hash_is_rejected(conn: AsyncConnection, bad: str):
     """형식이 깨진 ``input_hash``는 들어가지 않는다."""
     with pytest.raises(DatabaseError):
@@ -146,16 +188,40 @@ async def test_broken_input_hash_is_rejected(conn: AsyncConnection, bad: str):
 
 
 @pytest.mark.asyncio
-async def test_broken_parameter_hash_is_rejected(conn: AsyncConnection):
+@pytest.mark.parametrize("bad", ["not-a-hash", "sha256:" + "A" * 64])
+async def test_broken_parameter_hash_is_rejected(conn: AsyncConnection, bad: str):
     """``parameter_hash``도 같은 형식이다 — 열마다 트리거가 따로 있다."""
     with pytest.raises(DatabaseError):
-        await _insert_run(conn, parameter_hash="not-a-hash")
+        await _insert_run(conn, parameter_hash=bad)
 
 
 @pytest.mark.asyncio
 async def test_valid_hash_passes(conn: AsyncConnection):
     """올바른 해시는 통과한다 — 막기만 하고 통과를 안 보면 「전부 거부」도 통과한다."""
     assert await _insert_run(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("table", "column"), [(t, c) for _n, t, c in HASH_TRIGGERS])
+async def test_hash_case_is_significant_in_every_trigger(
+    conn: AsyncConnection, table: str, column: str
+):
+    """네 트리거 모두 ``'SHA256:' || REPEAT('A', 64)``를 거부한다 (`#2103` 완료 기준).
+
+    소문자 hex를 바이트 단위로 대조해야 하는 자리다 — ``calc/hash.py``는 소문자만 내므로
+    대문자가 들어왔다면 그것은 **다른 곳에서 만든 값**이고, 재현 대조에서 같은 입력이
+    다른 키로 갈린다. ``SHA256:``·``A…``가 통과하던 것이 `066`이 ``REGEXP BINARY``로
+    바꾼 이유다(`050`·`058`과 같은 방식).
+    """
+    with pytest.raises(DatabaseError):
+        await _INSERTERS[table](conn, **{column: "SHA256:" + "A" * 64})
+
+
+@pytest.mark.asyncio
+async def test_lowercase_hash_passes_every_trigger(conn: AsyncConnection):
+    """``BINARY``로 좁혀도 소문자 정상 해시는 두 표 모두 통과한다."""
+    assert await _insert_run(conn)
+    assert await _insert_snapshot(conn)
 
 
 # ---------------------------------------------------------------------------
