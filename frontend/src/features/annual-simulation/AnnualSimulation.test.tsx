@@ -379,6 +379,23 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(line.textContent).not.toMatch(/하세요|최적|추천/)
   })
 
+  it('결과 맨 아래 다음 행동은 같은 배를 담은 항로 비교 하나다 (#2222)', async () => {
+    stubWith(
+      withSensitivity({
+        speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const next = document.querySelector('.result-card__next')
+    expect(next).not.toBeNull()
+    const links = next!.querySelectorAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toBe('항로 비교')
+    expect(links[0].getAttribute('href')).toBe(`/route-comparison?vessel_id=${VESSEL_ID}`)
+  })
+
   it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {
     stubWith(
       withSensitivity({
