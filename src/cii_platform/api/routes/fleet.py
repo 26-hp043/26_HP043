@@ -128,7 +128,7 @@ async def get_fleet_notifications_route(
 
 
 def _payload(body: ReductionPlanRequest) -> dict[str, object]:
-    """요청 모델 → 서비스 인자. 수치는 **문자열로** 넘긴다 — 저장본(JSONB)에 float가 섞이지 않게."""
+    """요청 모델 → 서비스 인자. 수치는 **문자열로** 넘긴다 — 저장본(JSON)에 float가 섞이지 않게."""
     return {
         "regulation_year": body.regulation_year,
         "target": body.target,

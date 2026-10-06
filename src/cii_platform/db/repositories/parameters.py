@@ -3,9 +3,11 @@
 ``regulation_year``(Z계수) · ``cii_reference_line``(기준선) · ``cii_rating_boundary``
 (d-vector) · ``fuel_type``(CF) 네 테이블을 읽는다.
 
-이 값들은 **``scripts/seed.py``가 적재**한다. 마이그레이션이 아니라 스크립트인 것은
-현재 상태이며, data migration 승격은 ``#127``이 다룬다. 따라서 **적재되지 않은 DB에서는
-여기가 빈 결과를 돌려주고, 그것을 오류로 바꾸는 것은 서비스 계층의 판단**이다.
+이 값들은 **data migration ``6c7496c4d122``가 적재**한다 — ``alembic upgrade head``에
+들어 있다(``DB_SCHEMA §8.1.1`` · ``#127``이 스크립트에서 마이그레이션으로 올렸다).
+``python -m cii_platform.db.seed``(:func:`cii_platform.db.seed.seed_all`)는 규제 개정 때
+값을 다시 넣는 경로다. 마이그레이션이 적용되지 않았거나 해당 선종·연도 행이 없는
+DB에서는 **여기가 빈 결과를 돌려주고, 그것을 오류로 바꾸는 것은 서비스 계층의 판단**이다.
 """
 
 from __future__ import annotations

@@ -1993,9 +1993,11 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
 
 # 적재 대상 테이블의 경량 선언. 실제 컬럼 정의는 각 스키마 마이그레이션이 소유한다.
 #
-# ⚠️ ``id``를 ``String``으로 두면 안 된다. 실제 컬럼은 ``uuid``이고 asyncpg는 서버 타입과
-# 파라미터 타입이 다르면 캐스팅하지 않고 거부한다 — 문자열로 값을 적더라도 **선언은 실제
-# 타입을 따라야** 한다.
+# ⚠️ ``id``를 ``String``으로 두면 안 된다. 실제 컬럼은 hex 32자를 담는 ``CHAR(32)``이고
+# (``UuidText`` — ``db/types.py``), 시드 상수는 대시가 든 36자 문자열이다. ``UuidText``로
+# 선언해야 그 문자열이 UUID로 파싱돼 컬럼 모양으로 묶인다 — 문자열로 값을 적더라도 **선언은
+# 실제 타입을 따라야** 한다. (PostgreSQL 시절의 이유는 달랐다 — 컬럼이 ``uuid``였고 asyncpg가
+# 서버 타입과 파라미터 타입이 다르면 캐스팅하지 않고 거부했다.)
 _vessel = sa.table(
     "vessel",
     sa.column("id", UuidText),

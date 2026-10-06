@@ -75,7 +75,8 @@ async def record_manual_position(
     입력을 여기에도 남겨야 「어디를 지나왔는가」가 생긴다 — AIS가 붙기 전에도
     항적은 쌓인다.
 
-    같은 시각을 두 번 눌러도 한 행이다(저장소가 ``ON CONFLICT DO NOTHING``).
+    같은 시각을 두 번 눌러도 한 행이다 — 저장소가 ``ON DUPLICATE KEY UPDATE``로 넣어
+    ``(vessel_id, source, observed_at)`` 유니크에 걸린 중복은 새 행이 되지 않는다.
     """
     return await snapshot_repo.insert_snapshot(
         session,

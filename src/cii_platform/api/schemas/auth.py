@@ -10,11 +10,14 @@
 
 ## 이메일 형식을 `EmailStr`로 보지 않는다
 
-`EmailStr`은 `email-validator` 의존성을 요구한다. 대신 **DB의
-`chk_app_user_email_format` CHECK 제약과 같은 정규식**을 쓴다 — 두 곳이 같은
-규칙을 보면 API를 통과한 값이 DB에서 거부되는 일이 없다. `VesselCreateRequest`가
-IMO 번호에 대해 *"형식은 여기서, DB CHK 제약과 이중 방어"* 라고 적은 것과 같은
-방식이다.
+`EmailStr`은 `email-validator` 의존성을 요구한다. 대신 정규식 하나(:data:`EMAIL_PATTERN`)로
+본다. 처음에는 **DB의 `chk_app_user_email_format` CHECK 제약과 같은 규칙**이라 API를
+통과한 값이 DB에서 거부되지 않게 맞춘 것이었다(`VesselCreateRequest`가 IMO 번호에 대해
+*"형식은 여기서, DB CHK 제약과 이중 방어"* 라고 적은 것과 같은 방식).
+
+**지금 스키마에 그 제약은 없다.** CUBRID 스키마(`alembic/versions/` · `db/trigger_ddl.py` ·
+`db/models/app_user.py`)에 `chk_app_user_email_format`도, 이메일 형식을 보는 트리거도 없다 —
+이메일 형식 검사는 이 정규식 한 곳뿐이다.
 """
 
 from __future__ import annotations
@@ -23,8 +26,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-#: DB `chk_app_user_email_format`과 같은 규칙.
-#: PostgreSQL의 `[^@[:space:]]`가 Python에서는 `[^@\s]`다.
+#: 종전 DB 제약 `chk_app_user_email_format`(PostgreSQL 시절)에서 옮긴 규칙 —
+#: 그쪽의 `[^@[:space:]]`가 Python에서는 `[^@\s]`다. 지금 스키마에 그 제약은 없다(모듈 docstring).
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+$"
 
 

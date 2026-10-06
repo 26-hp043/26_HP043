@@ -113,7 +113,7 @@ async def test_plaintext_password_is_not_stored(conn: AsyncConnection):
 
 @pytest.mark.asyncio
 async def test_reseeding_does_not_add_a_second_row(conn: AsyncConnection):
-    """다시 돌려도 늘지 않는다 — ``ON CONFLICT DO NOTHING``.
+    """다시 돌려도 늘지 않는다 — 이미 있는 행(PK·유니크 중복)은 건너뛴다.
 
     시연 중 ``demo_up.sh``를 여러 번 돌리는 것이 정상이다. 그때마다 행이 늘면
     이메일 UNIQUE에 걸려 **시드 전체가 실패한다.**
@@ -132,7 +132,7 @@ async def test_existing_row_is_not_overwritten(conn: AsyncConnection):
     """사람이 비밀번호를 바꿨으면 **그 변경이 살아남는다.**
 
     시드가 덮어쓰면 「고쳐 뒀는데 다시 돌아왔다」가 된다 — `#587`이 선박 제원에서
-    같은 원칙을 세웠다(``ON CONFLICT DO NOTHING``은 의도된 것이다).
+    같은 원칙을 세웠다(이미 있는 행을 건너뛰는 것은 의도된 것이다).
     """
     await seed_demo_user(conn)
     await conn.execute(
@@ -224,7 +224,7 @@ async def test_soft_deleted_account_counts_as_missing(conn: AsyncConnection):
 async def test_uuid_is_fixed(conn: AsyncConnection):
     """PK가 고정 상수다.
 
-    ``uuid4()``를 쓰면 시드를 다시 돌릴 때마다 PK가 달라져 ``ON CONFLICT``가 이메일
+    ``uuid4()``를 쓰면 시드를 다시 돌릴 때마다 PK가 달라져 재적재의 중복 판정이 이메일
     UNIQUE에서만 걸린다 — ``auth_dev.py``가 `#308`에서 같은 이유로 고정 UUID를 쓴다.
     """
     await seed_demo_user(conn)

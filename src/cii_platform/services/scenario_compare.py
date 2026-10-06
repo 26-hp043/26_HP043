@@ -323,7 +323,7 @@ async def compare_scenarios(
     parameter_hash = compute_parameter_hash(parameters_used)
     model_version = _model_version()
 
-    # 시나리오 행을 먼저 저장한다 — PK가 gen_random_uuid() server_default라 flush를
+    # 시나리오 행을 먼저 저장한다 — PK가 컬럼 기본값(`default=uuid.uuid4`)이라 flush를
     # 해야 id를 알 수 있고, 그 id가 응답 시나리오 객체와 result_json 양쪽에
     # 들어간다(§5.2 adopt가 이 id를 참조한다).
     #
