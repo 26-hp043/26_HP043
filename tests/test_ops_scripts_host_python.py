@@ -167,8 +167,8 @@ def test_host_scripts_trigger_a_deploy_when_they_change():
     """호스트 스크립트를 바꾼 머지가 **배포를 돌린다** (#2117 ⑴).
 
     서버의 저장소 사본은 ``deploy.yml``이 배포 커밋으로 맞출 때만 갱신된다. ``on.push.paths``에
-    스크립트 경로가 없으면 스크립트만 바꾼 머지는 서버에 닿지 않고, ``ops.yml``의 백업과
-    crontab이 **옛 판**으로 돈다 — 고쳤다고 믿는 동안 조용히.
+    스크립트 경로가 없으면 스크립트만 바꾼 머지는 서버에 닿지 않고, ``ops.yml``의 백업이
+    **옛 판**으로 돈다(crontab에 걸어 둔 스크립트가 있으면 그것도) — 고쳤다고 믿는 동안 조용히.
     """
     workflow = yaml.safe_load(
         (_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")

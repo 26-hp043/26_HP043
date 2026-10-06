@@ -174,7 +174,8 @@ def test_preflight_list_matches_the_operations_required_table():
     checked = _preflight_checked_names()
     assert backend == checked, (
         "OPERATIONS §5.1 필수 표(화면 배포 넷 제외)와 preflight 목록이 다르다 — "
-        f"표에만: {sorted(backend - checked)} · preflight에만: {sorted(checked - backend)}"
+        f"표에만: {sorted(backend - checked)} · preflight에만: {sorted(checked - backend)}. "
+        "화면 배포만 쓰는 시크릿을 표에 더한 것이면 `_FRONTEND_ONLY_SECRETS`에 넣는다."
     )
 
     counted = re.search(r"앞의 (\d+)종이 없으면", section)

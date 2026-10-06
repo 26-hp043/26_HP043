@@ -80,7 +80,9 @@ on:
       - 'ops/**'
       # 서버에서 실제로 도는 스크립트 둘만 넣는다 (#2117). 서버의 저장소 사본은 이 워크플로가
       # 배포 커밋으로 맞출 때만 갱신되므로, 여기 없으면 스크립트만 바꾼 머지는 서버에 닿지
-      # 않는다 — `ops.yml`의 백업·복구(db_backup.py)와 crontab(purge_expired.py)이 옛 판으로 돈다.
+      # 않는다 — `ops.yml`의 백업·복구(db_backup.py)가 옛 판으로 돌고, purge_expired.py를
+      # crontab에 걸어 두었다면 그것도 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체
+      # (이미지 빌드 · db-01 · app-01 · 화면)를 돌린다 — `ops/**`와 같은 성질이다.
       # `scripts/**` 전체를 넣지 않는 것은 로컬·CI 전용 스크립트 변경까지 운영 재배포를
       # 일으키기 때문이다. 서버에서 도는 스크립트가 늘면 여기와
       # `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.

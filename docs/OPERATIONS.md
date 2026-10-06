@@ -194,7 +194,7 @@ docker-compose.prod.*.yml  ops/  frontend/  .github/workflows/deploy.yml
 scripts/db_backup.py  scripts/purge_expired.py
 ```
 
-`scripts/`는 **서버에서 도는 둘만** 들어 있다(`#2117`). 서버의 저장소 사본은 배포 때만 갱신되므로, 이 둘이 목록에 없으면 스크립트만 고친 머지가 서버에 닿지 않아 §3.8의 백업·복구와 crontab이 옛 판으로 돈다. 그 밖의 스크립트만 바꾼 머지는 배포를 돌리지 않는다. 서버에서 도는 스크립트가 늘면 `deploy.yml`의 `paths`와 `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
+`scripts/`는 **서버에서 도는 둘만** 들어 있다(`#2117`). 서버의 저장소 사본은 배포 때만 갱신되므로, 이 둘이 목록에 없으면 스크립트만 고친 머지가 서버에 닿지 않아 §3.8의 백업·복구가 옛 판으로 돌고, `purge_expired.py`를 crontab에 걸어 두었다면 그것도 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체(이미지 빌드 · db-01 · app-01 · 화면)를 돌린다. 그 밖의 스크립트만 바꾼 머지는 배포를 돌리지 않는다. 서버에서 도는 스크립트가 늘면 `deploy.yml`의 `paths`와 `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
 
 워크플로 파일: `.github/workflows/deploy.yml`
 
