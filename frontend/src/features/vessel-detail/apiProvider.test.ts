@@ -219,11 +219,19 @@ describe('실패 경로', () => {
     ).rejects.toThrow(/연결하지 못했습니다/)
   })
 
-  it('5xx는 상태 코드를 남긴다', async () => {
+  it('5xx는 「찾지 못함」이 아닌 실패로 던지고, 문구에 상태 코드를 싣지 않는다 (#2221)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn(() => Promise.resolve(jsonResponse({}, 500)))
-    await expect(
-      createApiVesselDetailProvider(fetchImpl as never).load('v1'),
-    ).rejects.toThrow(/500/)
+
+    const failure = await createApiVesselDetailProvider(fetchImpl as never)
+      .load('v1')
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(VesselDetailError)
+    // 404·422와 갈리는 것은 숫자가 아니라 플래그다 — 화면은 이것으로 「다시 시도」를 준다.
+    expect((failure as VesselDetailError).notFound).toBe(false)
+    expect((failure as Error).message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 })
 

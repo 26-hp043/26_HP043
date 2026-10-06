@@ -187,9 +187,12 @@ describe('remove — DELETE /vessels/{id}', () => {
 })
 
 describe('toVesselManagementError — 알 수 없는 응답', () => {
-  it('오류 객체가 없으면 상태 코드를 문구에 남긴다', () => {
+  it('오류 객체가 없어도 예외를 만들고, 상태 코드는 문구가 아니라 콘솔에 남긴다 (#2221)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const error = toVesselManagementError(503, {})
     expect(error).toBeInstanceOf(VesselManagementError)
-    expect(error.message).toContain('503')
+    expect(error.message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('503')
+    warn.mockRestore()
   })
 })

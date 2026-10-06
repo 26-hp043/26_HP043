@@ -1,4 +1,4 @@
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { VoyageCiiError, type VoyageCiiErrorCode, type VoyageCiiProvider } from './provider'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
@@ -85,7 +85,7 @@ export function toVoyageCiiError(status: number, body: unknown): VoyageCiiError 
   if (!error || typeof error.code !== 'string') {
     return new VoyageCiiError(
       'CALCULATION_ERROR',
-      `${MALFORMED_ERROR_MESSAGE} (HTTP ${status})`,
+      fallbackMessage(MALFORMED_ERROR_MESSAGE, status),
     )
   }
 

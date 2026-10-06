@@ -126,10 +126,12 @@ describe('오류', () => {
     expect(error.field).toBe('target_rating')
   })
 
-  it('형태가 깨진 오류 응답도 상태 코드를 남긴다', () => {
+  it('형태가 깨진 오류 응답의 문구에 상태 코드를 싣지 않는다 — 콘솔에만 남긴다 (#2221)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const error = toAnnualSimulationError(500, {})
-    expect(error.message).toContain(MALFORMED_ERROR_MESSAGE)
-    expect(error.message).toContain('500')
+    expect(error.message).toBe(MALFORMED_ERROR_MESSAGE)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 
   it('data가 없으면 형식 오류다', async () => {

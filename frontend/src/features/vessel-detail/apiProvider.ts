@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type { CapacityBasis } from '../voyage-cii/types'
 import type { PositionPayload } from './positionRules'
 import type {
@@ -179,7 +179,7 @@ export function createApiVesselDetailProvider(
       throw new VesselDetailError(VESSEL_INVALID_ID_MESSAGE, { notFound: true })
     }
     if (!response.ok) {
-      throw new VesselDetailError(`불러오지 못했습니다 (HTTP ${response.status}).`)
+      throw new VesselDetailError(fallbackMessage('불러오지 못했습니다.', response.status))
     }
     // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구가 화면에 나가지 않게 한다 (#2126).
     const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
@@ -220,7 +220,7 @@ export function createApiVesselDetailProvider(
     if (!response.ok) {
       const detail = parsed?.error?.details?.[0]
       throw new VesselDetailError(
-        parsed?.error?.message ?? `저장하지 못했습니다 (HTTP ${response.status}).`,
+        parsed?.error?.message ?? fallbackMessage('저장하지 못했습니다.', response.status),
         { field: detail?.field },
       )
     }

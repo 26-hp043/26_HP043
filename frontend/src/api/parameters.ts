@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../auth/session'
-import { DEFAULT_API_BASE_URL } from './base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from './base'
 
 /**
  * 규제 파라미터 조회 — `API_SPEC §7.1~§7.4` (`#444`).
@@ -88,7 +88,7 @@ export function createApiParametersProvider(
         throw new ParametersError(SESSION_EXPIRED_MESSAGE)
       }
       if (!response.ok) {
-        throw new ParametersError(`연료 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
+        throw new ParametersError(fallbackMessage('연료 목록을 불러오지 못했습니다.', response.status))
       }
 
       const rows = (await readRows(response, '연료 목록')) as ServerFuelType[]
@@ -111,7 +111,7 @@ export function createApiParametersProvider(
         throw new ParametersError(SESSION_EXPIRED_MESSAGE)
       }
       if (!response.ok) {
-        throw new ParametersError(`규제연도 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
+        throw new ParametersError(fallbackMessage('규제연도 목록을 불러오지 못했습니다.', response.status))
       }
 
       const rows = (await readRows(response, '규제연도 목록')) as ServerRegulationYear[]

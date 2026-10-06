@@ -1,6 +1,6 @@
 import { csrfHeaders, redirectToLogin, SESSION_EXPIRED_MESSAGE } from '../../auth/session'
 import { filenameFrom, saveBlob } from '../../download/file'
-import { readPageMeta } from '../../api/base'
+import { fallbackMessage, readPageMeta } from '../../api/base'
 import { createApiParametersProvider } from '../../api/parameters'
 import { readNumberInput } from '../../display/numberInput'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
@@ -208,7 +208,7 @@ export async function fetchVoyage(
     redirectToLogin()
     throw new VoyageError(SESSION_EXPIRED_MESSAGE)
   }
-  if (!response.ok) throw new VoyageError(`항차를 불러오지 못했습니다 (HTTP ${response.status}).`)
+  if (!response.ok) throw new VoyageError(fallbackMessage('항차를 불러오지 못했습니다.', response.status))
   const body = (await response.json().catch(() => null)) as { data?: ServerVoyage } | null
   if (!body?.data) throw new VoyageError('응답 형식이 올바르지 않습니다.')
   return toVoyage(body.data)
@@ -355,7 +355,7 @@ export function createApiVoyageManagementProvider(
     if (!response.ok) {
       const detail = body?.error?.details?.[0]
       throw new VoyageError(
-        body?.error?.message ?? `요청에 실패했습니다 (HTTP ${response.status}).`,
+        body?.error?.message ?? fallbackMessage('요청에 실패했습니다.', response.status),
         { field: detail?.field },
       )
     }
@@ -542,7 +542,7 @@ export function createApiVoyageManagementProvider(
          */
         const detail = body?.error?.details?.[0]
         throw new VoyageError(
-          body?.error?.message ?? `가져오지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('가져오지 못했습니다.', response.status),
           { field: detail?.field },
         )
       }
@@ -582,7 +582,7 @@ export function createApiVoyageManagementProvider(
         const body = (await response.json().catch(() => null)) as ServerError | null
         const detail = body?.error?.details?.[0]
         throw new VoyageError(
-          body?.error?.message ?? `내보내지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('내보내지 못했습니다.', response.status),
           { field: detail?.field },
         )
       }
