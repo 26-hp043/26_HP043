@@ -18,13 +18,26 @@
   무관하게 지운다(OPERATIONS §9.5가 그 명령을 권하고 있었다).
 - **볼륨** — `--volumes` 는 §9.2의 고아 볼륨 복구 가능성을 없앤다(비가역).
 
+## 정리가 배포를 멈추지 않는가 (#2178)
+
+정리 블록 머리주석이 「실패해도 배포를 실패시키지 않는다」고 적는데, 고정 경로 임시 파일
+(`/tmp/bluelog-stale-images`)을 읽는 `wc`와 지우는 `rm`, 블록 끝의 `df` 줄은 실패를 삼키지
+않았다. 그 시점엔 새 컨테이너가 이미 떠 있어, 스크립트가 죽으면 **배포는 됐는데 실패로
+보고된다.** 블록을 `deploy.yml`에서 뽑아 가짜 `docker`를 깔고 `bash -euo pipefail`로 실제
+실행해, 명령을 하나씩 실패시켜도 0으로 끝나는지 본다.
+
 케이스: (`TEST_PLAN §14.5` 정의 없음 — 배포 배선 회귀 테스트)
 """
 
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import textwrap
 from pathlib import Path
+
+import pytest
 
 _DEPLOY = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deploy.yml"
 
@@ -84,3 +97,133 @@ def test_cleanup_failure_does_not_fail_deploy():
     script = _app_script()
     rmi_line = next(line for line in script.splitlines() if "docker rmi" in line)
     assert "||" in rmi_line, "docker rmi 실패가 set -e로 배포를 실패시킨다"
+
+
+# ── 정리 블록을 실제로 실행한다 (#2178) ─────────────────────────────────────
+
+_BASH = shutil.which("bash")
+requires_bash = pytest.mark.skipif(_BASH is None, reason="bash가 없다")
+
+#: 정리 블록이 부르는 외부 명령. `wc`·`rm`은 고정 경로 임시 파일을 쓰던 때의 두 줄이
+#: 불렀다 — 그 줄이 돌아오면 여기서 걸리도록 남긴다.
+_TOOLS = ("sort", "cut", "grep", "tail", "xargs", "awk", "wc", "rm")
+
+_REPO = "ghcr.io/acme/bluelog-backend"
+_RUNNING = f"{_REPO}:t4"
+
+#: 가짜 `docker` — 받은 인자를 `DOCKER_LOG`에 남기고, `DOCKER_FAIL`이 가리키는 하위 명령만
+#: 실패한다. 이미지 6개(순서를 섞었다)와 태그 없는 것 하나를 돌려준다.
+_FAKE_DOCKER = f"""#!{_BASH}
+echo "$*" >> "${{DOCKER_LOG}}"
+if [ "$1" = "${{DOCKER_FAIL:-}}" ]; then
+  echo "가짜 docker: $1 실패" >&2
+  exit 1
+fi
+case "$1" in
+  inspect) echo "{_RUNNING}" ;;
+  images)
+    printf '%s\\t%s\\n' \\
+      "2026-10-03 00:00:00 +0000 UTC" "{_REPO}:t3" \\
+      "2026-10-06 00:00:00 +0000 UTC" "{_REPO}:t6" \\
+      "2026-10-01 00:00:00 +0000 UTC" "{_REPO}:t1" \\
+      "2026-10-07 00:00:00 +0000 UTC" "{_REPO}:<none>" \\
+      "2026-10-04 00:00:00 +0000 UTC" "{_REPO}:t4" \\
+      "2026-10-05 00:00:00 +0000 UTC" "{_REPO}:t5" \\
+      "2026-10-02 00:00:00 +0000 UTC" "{_REPO}:t2"
+    ;;
+esac
+"""
+
+_FAKE_DF = f"""#!{_BASH}
+echo "Filesystem Size Used Avail Use% Mounted on"
+echo "/dev/sda1 45G 14G 31G 31% /"
+"""
+
+
+def _cleanup_block() -> str:
+    """`KEEP_IMAGES=`부터 `df` 줄까지 — 들여쓰기를 걷어 셸 원문으로."""
+    lines = _app_script().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip().startswith("KEEP_IMAGES="))
+    end = next(i for i in range(start, len(lines)) if lines[i].strip().startswith("df "))
+    return textwrap.dedent("\n".join(lines[start : end + 1])) + "\n"
+
+
+def _run_cleanup(
+    tmp_path: Path, *, docker_fail: str = "", broken_tool: str = ""
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """블록을 `bash -euo pipefail`로 돌려 ``(결과, 가짜 docker가 받은 인자 줄)``을 돌려준다.
+
+    `PATH`에는 이 디렉터리만 둔다 — 목록에 없는 명령을 블록이 새로 부르면 찾지 못한다.
+    """
+    assert _BASH is not None
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fakes = {"docker": _FAKE_DOCKER, "df": _FAKE_DF}
+    for tool in _TOOLS:
+        real = shutil.which(tool)
+        assert real, f"`{tool}`이 없다"
+        (bin_dir / tool).symlink_to(real)
+    if broken_tool:
+        (bin_dir / broken_tool).unlink(missing_ok=True)
+        fakes[broken_tool] = f"#!{_BASH}\nexit 1\n"
+    for name, body in fakes.items():
+        path = bin_dir / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o755)
+    log = tmp_path / "docker.log"
+    log.write_text("", encoding="utf-8")
+    result = subprocess.run(
+        [_BASH, "-euo", "pipefail", "-c", _cleanup_block()],
+        env={"PATH": str(bin_dir), "DOCKER_LOG": str(log), "DOCKER_FAIL": docker_fail},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result, log.read_text(encoding="utf-8").splitlines()
+
+
+def test_cleanup_uses_no_fixed_temp_path():
+    """지울 목록을 고정 경로 파일에 두지 않는다 — 쓰기만 실패하면 지난 실행의 목록을 읽는다."""
+    block = "\n".join(
+        line for line in _cleanup_block().splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "/tmp/" not in block, "정리 블록이 `/tmp/` 고정 경로에 기댄다 (#2178)"
+
+
+@requires_bash
+def test_cleanup_removes_only_stale_images(tmp_path: Path):
+    """이미지 6개 중 실행 중인 것과 최신 3개를 뺀 둘만 `docker rmi`에 넘어간다."""
+    result, calls = _run_cleanup(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert calls[0].startswith("inspect cii-backend"), calls
+    assert calls[1].startswith(f"images {_REPO} "), calls
+    assert calls[2:] == [f"rmi {_REPO}:t2 {_REPO}:t1"], calls
+    assert " 2개 " in result.stdout, result.stdout
+    assert "루트 디스크 14G / 45G (31%)" in result.stdout, result.stdout
+
+
+@requires_bash
+@pytest.mark.parametrize("subcommand", ["inspect", "images", "rmi"])
+def test_cleanup_survives_docker_failure(tmp_path: Path, subcommand: str):
+    """`docker` 하위 명령이 실패해도 블록은 0으로 끝나고, 지우지 못한 것은 경고로 남는다."""
+    result, calls = _run_cleanup(tmp_path, docker_fail=subcommand)
+    assert result.returncode == 0, f"docker {subcommand} 실패가 배포를 멈춘다\n{result.stderr}"
+    assert "루트 디스크" in result.stdout, "블록 끝까지 가지 못했다"
+    if subcommand == "inspect":
+        assert [c.split()[0] for c in calls] == ["inspect"], calls
+        assert "::warning::" in result.stdout
+    elif subcommand == "images":
+        assert not any(c.startswith("rmi") for c in calls), calls
+    else:
+        assert "::warning::" in result.stdout, "지우지 못한 것을 알리지 않는다"
+
+
+@requires_bash
+@pytest.mark.parametrize("tool", [*_TOOLS, "df"])
+def test_cleanup_survives_any_failing_command(tmp_path: Path, tool: str):
+    """블록이 부르는 명령 어느 하나가 실패해도 0으로 끝난다 — 정리는 배포의 일부가 아니다."""
+    result, calls = _run_cleanup(tmp_path, broken_tool=tool)
+    assert result.returncode == 0, f"`{tool}` 실패가 배포를 멈춘다 (#2178)\n{result.stderr}"
+    # 목록을 만드는 명령이 죽었으면 아무것도 지우지 않는다 — 걸러지지 않은 목록을 넘기지 않는다.
+    if tool in ("sort", "cut", "grep", "tail"):
+        assert not any(c.startswith("rmi") for c in calls), calls

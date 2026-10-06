@@ -623,7 +623,7 @@ jobs:
           # 마이그레이션 체인에 넣지 않고 필요할 때만 부른다」. 조건을 지우면
           # `tests/test_deploy_demo_seed.py`가 빨개진다.
           #
-          # 적재는 덮어쓰지 않으므로(IntegrityError를 삼킨다) 시각을 새로 잡으려면
+          # 적재는 덮어쓰지 않으므로(PK·유니크 중복을 건너뛴다) 시각을 새로 잡으려면
           # clear_demo를 함께 켠다. 시드 시각이 **적재일 기준 상대값**이라(`#792`)
           # 오래된 적재는 진행 중 항차가 도착 예정을 넘긴 상태로 보인다.
           if [ "${CLEAR_DEMO}" = "true" ]; then
@@ -665,17 +665,18 @@ jobs:
           running_image="$(docker inspect cii-backend --format '{{.Config.Image}}' 2>/dev/null || true)"
           if [ -n "${running_image}" ]; then
             image_repo="${running_image%:*}"
-            docker images "${image_repo}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+            # 지울 목록은 변수로 받는다 (#2178) — 고정 경로 임시 파일은 쓰거나 읽지 못하면
+            # 스크립트를 죽이고, 쓰기만 실패하면 지난 실행의 목록으로 지운다.
+            stale_images=$(docker images "${image_repo}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
               | sort -r | cut -f2 | grep -vxF "${running_image}" | grep -v ':<none>$' \
-              | tail -n +"$((KEEP_IMAGES + 1))" > /tmp/bluelog-stale-images || true
-            stale_count="$(wc -l < /tmp/bluelog-stale-images)"
-            echo "[app-01] 옛 이미지 정리: ${image_repo} ${stale_count}개 (실행 중 ${running_image##*:} + 최근 ${KEEP_IMAGES}개 보존)"
-            xargs -r docker rmi < /tmp/bluelog-stale-images >/dev/null || echo "::warning::옛 이미지 일부를 지우지 못했다 (#2041)"
-            rm -f /tmp/bluelog-stale-images
+              | tail -n +"$((KEEP_IMAGES + 1))" || true)
+            stale_count=$(printf '%s\n' "${stale_images}" | grep -c . || true)
+            echo "[app-01] 옛 이미지 정리: ${image_repo} ${stale_count:-0}개 (실행 중 ${running_image##*:} + 최근 ${KEEP_IMAGES}개 보존)"
+            printf '%s\n' "${stale_images}" | xargs -r docker rmi >/dev/null || echo "::warning::옛 이미지 일부를 지우지 못했다 (#2041)"
           else
             echo "::warning::cii-backend 이미지를 읽지 못해 옛 이미지 정리를 건너뛴다 (#2041)"
           fi
-          df -h / | tail -1 | awk '{print "[app-01] 루트 디스크 " $3 " / " $2 " (" $5 ")"}'
+          df -h / | tail -1 | awk '{print "[app-01] 루트 디스크 " $3 " / " $2 " (" $5 ")"}' || true
           echo "[app-01] === END $(date -u +%FT%TZ) ==="
           ENDSSH
 
