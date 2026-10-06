@@ -392,15 +392,22 @@ describe('redirectToLogin', () => {
 describe('deleteAccount (#754)', () => {
   it('DELETE /auth/me를 CSRF 헤더와 함께 부른다', async () => {
     await probeCurrentUser(async () => ME_OK)
+    // 제목이 말하는 것을 본다 — 종전에는 `credentials`만 단언해 헤더가 빠져도 통과했다 (`#2145`).
+    vi.stubGlobal('document', { cookie: 'sid=s; csrf=tok-delete-account' })
 
-    const fetchImpl = vi.fn(async () => jsonResponse({}, 204))
-    await deleteAccount(fetchImpl as unknown as typeof fetch)
+    try {
+      const fetchImpl = vi.fn(async () => jsonResponse({}, 204))
+      await deleteAccount(fetchImpl as unknown as typeof fetch)
 
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('/api/v1/auth/me')
-    expect(init.method).toBe('DELETE')
-    // `API_SPEC §1.2` — 상태를 바꾸는 요청은 CSRF 헤더가 필요하다.
-    expect(init.credentials).toBe('include')
+      const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toBe('/api/v1/auth/me')
+      expect(init.method).toBe('DELETE')
+      // `API_SPEC §1.2` — 상태를 바꾸는 요청은 CSRF 헤더가 필요하다.
+      expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('tok-delete-account')
+      expect(init.credentials).toBe('include')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('성공하면 캐시를 비운다 — 상단바에 옛 이름이 남지 않는다', async () => {
@@ -865,13 +872,21 @@ describe('프로필 이미지 — #2080', () => {
   })
 
   it('지우기는 본문을 보내지 않고 CSRF를 단다', async () => {
-    const fetchImpl = vi.fn(async () => okResponse(null, 204))
-    await deleteAvatar(fetchImpl as unknown as typeof globalThis.fetch).catch(() => {})
+    // 제목의 뒤 절반(「CSRF를 단다」)은 종전에 단언이 없었다 (`#2145`).
+    vi.stubGlobal('document', { cookie: 'sid=s; csrf=tok-delete-avatar' })
 
-    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toContain('/auth/me/avatar')
-    expect(init.method).toBe('DELETE')
-    expect(init.body).toBeUndefined()
+    try {
+      const fetchImpl = vi.fn(async () => okResponse(null, 204))
+      await deleteAvatar(fetchImpl as unknown as typeof globalThis.fetch).catch(() => {})
+
+      const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+      expect(url).toContain('/auth/me/avatar')
+      expect(init.method).toBe('DELETE')
+      expect(init.body).toBeUndefined()
+      expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('tok-delete-avatar')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('서버 문구를 그대로 올린다 — 413과 422가 다른 말을 한다', async () => {

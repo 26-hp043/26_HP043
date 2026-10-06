@@ -88,6 +88,32 @@ function blockAfter(marker: string): string {
 const rootBlock = blockAfter('\n:root {')
 const darkBlock = blockAfter(":root[data-theme='dark'] {")
 
+/**
+ * `@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme='light'])` 본문 (`#2145`).
+ *
+ * 다크 값은 **두 블록**에 적힌다 — OS가 다크인 사람은 이 블록을, 다크를 직접 고른 사람은
+ * `darkBlock`을 받는다. 종전 대조는 `darkBlock`만 보았고 이 블록은 「문자열이 있다」만
+ * 확인해, 한쪽만 어긋나면 **OS 다크 사용자에게만** 옛 색이 나가는데 아무것도 실패하지 않았다.
+ *
+ * 블록은 한 단 들여쓰여 있어 `blockAfter`(`\n}`에서 끊는다)로는 자를 수 없다. 머리말
+ * 주석에도 같은 `@media …` 글이 있으므로 **줄 머리**에서 찾는다.
+ */
+function mediaDarkBlockOf(text: string): string {
+  const media = text.indexOf('\n@media (prefers-color-scheme: dark) {')
+  expect(media, '@media (prefers-color-scheme: dark) 블록이 생성물에 없습니다').toBeGreaterThan(-1)
+  const selector = text.indexOf(":root:not([data-theme='light']) {", media)
+  expect(selector, "@media 안에 :root:not([data-theme='light'])가 없습니다").toBeGreaterThan(-1)
+  const open = text.indexOf('{', selector)
+  return text.slice(open, text.indexOf('\n  }', open))
+}
+
+const mediaDarkBlock = mediaDarkBlockOf(css)
+
+/** 블록 본문의 선언을 `이름: 값` 줄 목록으로. 두 블록을 통째로 견줄 때 쓴다. */
+function declarationLines(block: string): string[] {
+  return [...block.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => `${name}: ${value.trim()}`)
+}
+
 const REGENERATE = '`npm run build:tokens`를 실행하십시오.'
 
 /**
@@ -498,6 +524,48 @@ describe('디자인 토큰 — JSON과 생성 CSS가 일치한다', () => {
       mismatched,
       `Dark.tokens.json과 tokens.generated.css가 어긋납니다. ${REGENERATE}`,
     ).toEqual([])
+  })
+
+  it('다크 색 토큰이 @media (prefers-color-scheme: dark) 블록에도 모두 있다 (#2145)', () => {
+    const mismatched = Object.entries(dark)
+      .filter(([path, token]) => !mediaDarkBlock.includes(`${cssName(path)}: ${hexOf(token)};`))
+      .map(([path, token]) => `${cssName(path)}: ${hexOf(token)}`)
+
+    expect(
+      mismatched,
+      `Dark.tokens.json과 tokens.generated.css의 @media 블록이 어긋납니다. ${REGENERATE}`,
+    ).toEqual([])
+  })
+
+  it('생성물의 두 다크 블록이 같은 선언을 갖는다 — OS 다크와 명시 다크가 갈리지 않는다 (#2145)', () => {
+    // JSON에 없는 선언이 한쪽에만 끼어도 잡는다 — 위 대조는 JSON에 있는 이름만 본다.
+    expect(declarationLines(darkBlock).length).toBeGreaterThanOrEqual(Object.keys(dark).length)
+    expect(declarationLines(mediaDarkBlock)).toEqual(declarationLines(darkBlock))
+  })
+
+  it('@media 블록을 자르는 눈이 맞다 — 머리말 주석이 아니라 규칙을 읽는다 (#2145)', () => {
+    const sample = [
+      '/*',
+      ' *   @media (prefers-color-scheme: dark)   → 다크',
+      " *     :root:not([data-theme='light']) { --in-comment: #000000; }",
+      ' */',
+      ':root {',
+      '  --a: #ffffff;',
+      '}',
+      '',
+      '@media (prefers-color-scheme: dark) {',
+      "  :root:not([data-theme='light']) {",
+      '    --a: #111111;',
+      '    --b: #222222;',
+      '  }',
+      '}',
+      '',
+      ":root[data-theme='dark'] {",
+      '  --a: #333333;',
+      '}',
+    ].join('\n')
+    // 주석 속 선언도, 기본 블록도, 뒤의 명시 다크 블록도 끌어오지 않는다.
+    expect(declarationLines(mediaDarkBlockOf(sample))).toEqual(['--a: #111111', '--b: #222222'])
   })
 
   it('두 테마의 색 토큰 키 집합이 같다', () => {

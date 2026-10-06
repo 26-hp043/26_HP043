@@ -1474,7 +1474,15 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
     await act(async () => {
       release!(jsonResponse({ data: { lat: 51.9, lon: 4.5, source: 'ONLINE' } }))
     })
-    expect((screen.getByLabelText(/목적지 위도|도착 위도|위도/) as HTMLInputElement).value).toBe('')
+    /*
+     * 목적지 좌표에는 입력칸이 없다 — 종전 단언은 `/…|위도/`로 **「현재 위도」 칸**을 집어
+     * 그 값이 빈 것을 보았고, 그 칸은 이 검사에서 채워진 적이 없어 늦은 좌표를 받아들여도
+     * 통과했다 (`#2145`). 좌표가 붙었는지는 화면의 두 자리로 드러난다: 좌표가 없을 때만
+     * 그리는 「좌표 찾기」 버튼이 남아 있고, 목적항 칸 아래에 좌표 안내가 붙지 않았다.
+     */
+    const field = screen.getByLabelText(/목적항/).closest('.field')!
+    expect(field.querySelectorAll('.scenario-comparison__lookup')).toHaveLength(1)
+    expect(field.querySelectorAll('.scenario-comparison__field-hint')).toHaveLength(0)
   })
 
   it('⑶ 서버가 칸을 짚은 422는 그 입력칸에 붙는다', async () => {
