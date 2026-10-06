@@ -99,8 +99,6 @@ export const ANNUAL_COPY = {
   /** 마지막 실행 뒤 제원이 바뀌었다(`needs_recalc` · `API_SPEC §6.5`) (#1701) */
   lastRunNeedsRecalc: '제원이 바뀌어 다시 실행이 필요합니다.',
   targetRatingLabel: '목표 등급',
-  /** `PRD §12.8` — E는 목록에 두지 않는다. 「달성」이 의미를 잃는다 */
-  targetRatingHint: 'A~D 중에서 고릅니다.',
   runsLabel: '반복 횟수',
   runsHint: '1,000~10,000회. 많을수록 분포가 안정되고 오래 걸립니다.',
   /*

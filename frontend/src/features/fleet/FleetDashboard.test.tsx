@@ -1208,3 +1208,38 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
     }
   })
 })
+
+describe('요약 문장 한 줄 (#2199)', () => {
+  function renderWith(summary: Record<string, unknown>) {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    const withSummary = { ...body, data: { ...body.data, summary: { ...body.data.summary, ...summary } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => withSummary }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+  }
+
+  it('숫자 칸들 위에 문장으로 — 수치와 등급만 강조한다', async () => {
+    renderWith({
+      rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 2 },
+      soonest_d_entry: { vessel_id: 'v9', name: '임박선', days: 39 },
+    })
+    const line = await screen.findByTestId('fleet-summary')
+    expect(line.textContent).toMatch(/척 중 2척 E등급 · 1척은 39일 뒤 D등급 위험$/)
+    const strong = Array.from(line.querySelectorAll('b')).map((el) => el.textContent)
+    expect(strong).toEqual(['2', 'E', '1', '39일', 'D'])
+    const strip = screen.getByRole('region', { name: '선대 요약' })
+    expect(line.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('E등급도 올해 D 진입도 없으면 줄을 두지 않는다', async () => {
+    renderWith({ rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 0 }, soonest_d_entry: null })
+    await screen.findByRole('region', { name: '선대 요약' })
+    expect(screen.queryByTestId('fleet-summary')).toBeNull()
+  })
+})

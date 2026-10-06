@@ -1203,14 +1203,14 @@ describe('고급 설정을 접는다 (#1418)', () => {
 
   it('네 칸이 접힌 「고급 설정」 안에 있고, 목표 등급은 밖에 있다', async () => {
     openScreen()
-    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+    await screen.findByRole('group', { name: ANNUAL_COPY.targetRatingLabel })
 
     const details = advanced()
     expect(details.open).toBe(false)
     expect(details.contains(screen.getByLabelText(/반복 횟수/))).toBe(true)
     expect(details.contains(screen.getByLabelText(/seed/))).toBe(true)
     expect(details.contains(screen.getByLabelText(ANNUAL_COPY.feedbackToggle))).toBe(true)
-    expect(details.contains(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel))).toBe(false)
+    expect(details.contains(screen.getByRole('group', { name: ANNUAL_COPY.targetRatingLabel }))).toBe(false)
   })
 
   /*
@@ -1231,7 +1231,7 @@ describe('고급 설정을 접는다 (#1418)', () => {
 
   it('기본값 그대로면 「기본값으로 실행」, 바꾸면 그 수를 적는다', async () => {
     openScreen()
-    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+    await screen.findByRole('group', { name: ANNUAL_COPY.targetRatingLabel })
     expect(screen.getByText(new RegExp(ANNUAL_COPY.advancedDefault))).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText(/seed/), { target: { value: '42' } })
@@ -1285,7 +1285,7 @@ describe('재현 정보의 식별자를 접는다 (#1418)', () => {
  * 목표 등급은 C로 시작한다 (`#1453` · `PRD §12.2`).
  *
  * 종전에는 B였다. 첫 값을 바꾸지 않고 실행하는 사용자에게는 기본값이 곧 목표다 —
- * 요청 본문까지 C가 가는지를 본다. 셀렉트만 보면 화면과 전송이 갈릴 때 잡지 못한다.
+ * 요청 본문까지 C가 가는지를 본다. 카드만 보면 화면과 전송이 갈릴 때 잡지 못한다.
  */
 describe('목표 등급 기본값 (#1453)', () => {
   it('처음 고른 목표가 C이고, 바꾸지 않고 실행하면 C가 전송된다', async () => {
@@ -1293,8 +1293,8 @@ describe('목표 등급 기본값 (#1453)', () => {
     const fetchImpl = stubServer()
     renderScreen()
 
-    const select = (await screen.findByLabelText(/목표 등급/)) as HTMLSelectElement
-    expect(select.value).toBe('C')
+    await screen.findByRole('group', { name: /목표 등급/ })
+    expect((screen.getByRole('radio', { name: 'C' }) as HTMLInputElement).checked).toBe(true)
 
     await runOnce()
 
@@ -1358,7 +1358,7 @@ describe('대상 선박과 결과의 조건 (#1553)', () => {
     stubServer()
     renderScreen()
     await runOnce()
-    fireEvent.change(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel), { target: { value: 'A' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'A' }))
 
     const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
     expect(line.textContent).toContain('목표 등급 C')
@@ -1606,7 +1606,7 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     renderScreen()
 
     await screen.findByTestId('annual-sim-last-run')
-    expect((screen.getByLabelText(ANNUAL_COPY.targetRatingLabel) as HTMLSelectElement).value).toBe('B')
+    expect((screen.getByRole('radio', { name: 'B' }) as HTMLInputElement).checked).toBe(true)
     expect(
       (screen.getByLabelText(ANNUAL_COPY.runsLabel, { exact: false }) as HTMLInputElement).value,
     ).toBe('2000')

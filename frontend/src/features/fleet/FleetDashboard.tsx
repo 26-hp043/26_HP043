@@ -31,6 +31,7 @@ import {
 import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
 import {
   actionsSummaryText,
+  fleetSummaryParts,
   daysToDText,
   daysValueText,
   showsDaysToD,
@@ -398,6 +399,7 @@ export function FleetDashboard() {
   const soonest = counts.soonestDEntry
   const hasActions = snapshot.actions.length > 0
   const missingGt = counts.missingGrossTonnage
+  const summaryParts = fleetSummaryParts(counts)
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
   const remaining = sorted.length - visible.length
 
@@ -450,6 +452,25 @@ export function FleetDashboard() {
         요약은 **한 덩어리의 데이터가 아니라 서로 다른 여섯 값**이라 원래 카드가
         어울리는 내용도 아니었다 — `§5`가 말하는 「카드는 한 덩어리의 데이터에만」이다.
       */}
+      {/*
+        요약 문장 한 줄 (#2199) — 숫자 칸들 **위에** 답을 먼저 문장으로 적는다. 값은 아래 칸들과
+        같은 `counts`에서 온다(`fleetSummaryParts`). 강조는 수치와 등급만 — 색은 글자용
+        파생색(`--color-link`)이다. 경고 줄(배너)과 문구가 겹치지 않게 규제 용어 대신 등급과
+        일수로 말한다.
+      */}
+      {summaryParts !== null ? (
+        <p className="fleet__summary" data-testid="fleet-summary">
+          {summaryParts.map((part, index) =>
+            part.em ? (
+              <b key={index} className="fleet__em">
+                {part.text}
+              </b>
+            ) : (
+              part.text
+            ),
+          )}
+        </p>
+      ) : null}
       <section className="fleet__strip" aria-label="선대 요약">
         <div className="kpi">
           <p className="kpi__label">운항 상태</p>
