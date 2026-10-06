@@ -1827,7 +1827,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 | 되살린 것 | 원래 형태 | CUBRID에서 |
 |---|---|---|
-| 해시 형식 4 | `chk_input_hash_format`·`chk_param_hash_format`(두 표) | `BEFORE INSERT` + `REGEXP` — 트리거 4 |
+| 해시 형식 4 | `chk_input_hash_format`·`chk_param_hash_format`(두 표) | `BEFORE INSERT` + `REGEXP` — 트리거 4. **`066`부터 `REGEXP BINARY`**(#2103) — CUBRID `REGEXP`는 기본이 대소문자 무시라 `'SHA256:' \|\| REPEAT('A', 64)`가 통과하고 있었다. 정본 `[S-7]`의 `~`는 대소문자를 구분한다 |
 | 연료 코드 참조 3 | `fk_vessel_default_fuel_type` 등 FK | 자식 `BEFORE INSERT`·`BEFORE UPDATE` (부모 쪽은 아래) — 트리거 6 |
 | 불변성 2 | `trg_calcrun_immutable`·`trg_snapshot_immutable` | `BEFORE UPDATE`·`BEFORE DELETE` — 트리거 4 |
 
@@ -1851,6 +1851,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 | `046` | 값 범위 37 + `chk_gt_positive` 1 (ORM은 선언하는데 마이그레이션이 빠뜨렸다 — GT 기준 CII의 분모다) |
 | `048` | 열거형·정합 23 |
 | `050` | `chk_capacity_rule`을 정본 `[M-7]`에 맞게 좁혔다(`LIKE 'fixed %'` → `REGEXP BINARY`) |
+| `066` | 해시 형식 4(`trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`)를 `REGEXP` → `REGEXP BINARY`로 교체 — 대문자 hex·`SHA256:` 접두 거부(#2103). 이름·시점·개수는 그대로 |
 
 조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
 (불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
@@ -1997,7 +1998,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `065`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `066`** | 무엇 |
 |---|---|---|---|
 | `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
@@ -2006,7 +2007,8 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
-> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다). `SELECT count(*)
+> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다), `066`은 해시 형식 4를 지우고
+> 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 066 적용 후 176 실측). `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
@@ -2035,7 +2037,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2372,3 +2374,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-01 | `#2080` | **v1.39 — §2.15 `app_user`에 `avatar_image`(TEXT) · `avatar_etag`(VARCHAR(64)) 두 열과 `[#2080]` 각주 신설** (마이그레이션 065). 이 제품의 첫 「사용자가 올린 바이트」다. **BLOB을 쓰지 않는다** — `sqlalchemy-cubrid`가 자기 테스트 요건에 「CUBRID BLOB roundtrip has driver-level issues」라고 적고 그 검사를 꺼 두었다. `JSONText`(`#1058`)와 같은 모양으로 `TEXT`에 base64를 싣는다. `avatar_etag`는 조건부 요청에 **본문을 읽지 않고** 304를 내기 위한 것이고 두 열은 항상 함께 채워지고 함께 비워진다. 탈퇴 시 즉시 비운다 — 소프트 삭제로 행은 남아도 사진은 남기지 않는다. 열 신설이라 버전을 올린다 (#2081) |
 | 2026-10-01 | `#2080` | §8.1.0 리비전 그래프의 끝과 §7.4 트리거 표의 열 머리를 **head `065`**로 — v1.39가 등재한 마이그레이션 065가 그래프에 반영되지 않아 `tests/test_dbschema_head_sync.py`가 「그래프는 064에서 끝나는데 head는 065」로 잡았다. **1단계에서 빠뜨린 것을 2단계가 채운 것**이라 버전은 올리지 않는다(`AGENTS §4.3` — 새 규정이 아니다). 065의 downgrade는 `migration_guard.REGENERABLE`로 분류했다 — 열은 재생되고 잃는 것은 올린 사진뿐이며 다시 올리면 돌아온다 (#2082) |
 | 2026-10-06 | `#2194` | **§2.23 「계산 경로와 격리된다」 각주에 `details.calculation_run_id`를 싣는 조건 명시** (#2099). 각주는 「챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`)가 `calculation_run.id`로 가리킨다」고 적었는데 호출부가 그 값을 넘기지 않았다. 싣는 도구는 저장된 실행을 읽는 `explain_screen_result` 하나이고, 읽어서 결과를 모델에게 준 경우에만 싣는다(실행을 찾지 못했거나 선박이 달라 오류 봉투를 낸 호출은 비운다). 계산을 저장하지 않는 도구(`calc_voyage_cii` 등 · `#1334`)와 조회 도구는 인용할 실행이 없어 키 자체를 싣지 않는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
+| 2026-10-06 | `#2226` | §7.4 **해시 형식 트리거 4개를 `REGEXP BINARY`로** (마이그레이션 066 · #2103). `a7d3e9b14f26`이 건 `trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`의 조건이 `REGEXP`라 — CUBRID는 기본이 대소문자 무시(`050` 실측) — 정본 `[S-7]`의 `~`(대소문자 구분)보다 넓었고, `'SHA256:' \|\| REPEAT('A', 64)`가 두 표 네 열에 모두 들어갔다(2026-10-06 `cii_test` INSERT 8건 통과 실측). `050`·`058`과 같은 `REGEXP BINARY`로 교체하고(`replace_trigger` — 지우지 못하면 멈춘다), downgrade는 옛 조건으로 되돌린다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`066` 적용 후 176 실측). 운영 영향 없음 — 트리거는 `BEFORE INSERT`뿐이고 두 표는 해시 열 UPDATE가 막혀 있으며, 해시를 만드는 경로는 전부 `calc/hash.py`(`hexdigest` — 소문자)다. 되살린 것 표·리비전 표·트리거 표 머리(head `066`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2103) |
