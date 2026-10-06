@@ -5,7 +5,7 @@
 - 허용값 외 값이 거부됨 — ``underway_state`` 2값·``detail_status`` 7값·위경도 범위
 - 기존 선박 3척이 NULL 상태로 정상 조회됨 (018 seed)
 
-정합 규칙 (마이그레이션 026 CHECK — UIFLOW v2.0 §2-4 표):
+정합 규칙 (마이그레이션 026 CHECK — UIFLOW v2.0 2-4 표):
 - 상태 페어 — 둘 다 NULL 또는 ``SAILING``↔``UNDER_WAY``·나머지 6값↔``NOT_UNDER_WAY``
 - 위치 페어 — 위도·경도는 같이 있고, 위치가 있으면 ``position_updated_at`` 필수
 """
@@ -186,7 +186,7 @@ async def test_lat_lon_boundary_values_accepted(conn):
 
 @pytest.mark.asyncio
 async def test_position_requires_timestamp(conn):
-    """위치가 있는데 position_updated_at이 없으면 거부된다 (UIFLOW §2-8 표시 계약)."""
+    """위치가 있는데 position_updated_at이 없으면 거부된다 (UIFLOW 2-8 표시 계약)."""
     vessel_id = await _insert_vessel(conn)
 
     with pytest.raises(IntegrityError):

@@ -538,9 +538,9 @@ class TestPasswordReset:
 # **대부분은 커버리지 계측**이었다(`pyproject.toml`의 `concurrency` 참조). 다만 계측을
 # 고친 뒤에도 `auth_tokens.py`가 80%였고, 남은 구멍은 **진짜 미검사**였다.
 #
-#   136-150  인증 메일 재발송의 성공 경로와 메일 실패 502
+#   136-150  인증 메일 재발송의 성공 경로와 메일 실패(당시 502 · `#1326` 뒤로 500)
 #   166-176  인증 확인의 성공 경로
-#   206-207  재설정 메일 실패 502
+#   206-207  재설정 메일 실패(당시 502 · 지금 500)
 #   232-233  재설정 확인에서 토큰은 유효한데 사용자가 없는 경우
 #
 # 종전 검사는 **거부 경로만** 보고 있었다 — 위조 토큰·모르는 주소·약한 비밀번호.
@@ -666,7 +666,7 @@ class TestEmailVerificationSucceeds:
     async def test_mail_failure_is_reported_but_the_token_survives(
         self, client, monkeypatch: pytest.MonkeyPatch
     ):
-        """발송이 실패하면 502를 내되 **토큰은 되돌리지 않는다** (`#407` 경계).
+        """발송이 실패하면 500(`INTERNAL_ERROR`)을 내되 **토큰은 되돌리지 않는다** (`#407` 경계).
 
         되돌리면 사용자는 오류를 본 뒤 그 토큰으로 아무것도 할 수 없다. 라우트 주석이
         *「토큰은 이미 커밋됐다 — 되돌리지 않는다」*로 그 판단을 적어 두었다.
@@ -689,7 +689,7 @@ class TestEmailVerificationSucceeds:
 
 class TestPasswordResetEdges:
     async def test_mail_failure_is_reported(self, client, monkeypatch: pytest.MonkeyPatch):
-        """재설정 메일 발송 실패도 502다 — 조용히 성공한 척하지 않는다."""
+        """재설정 메일 발송 실패도 500이다 — 조용히 성공한 척하지 않는다."""
         from cii_platform.api.routes import auth_tokens as module
 
         email = "resetmail@example.com"
@@ -749,7 +749,7 @@ class TestPasswordResetEdges:
 # 백엔드(`mail/backends.py`)는 SMTP 예외를 `MailDeliveryError(..., cause=exc) from exc`로
 # 감싸 원인을 보존하는데, **소비자 세 곳이 전부 버리고 있었다** — 두 곳은 로그 0줄,
 # 한 곳은 `warning`이라 `__cause__`가 빠졌다. SMTP 비밀번호가 만료되면 모든 재설정
-# 요청이 502를 내는데 `535`가 어디에도 남지 않는다.
+# 요청이 실패 응답(당시 502 · 지금 500)을 내는데 `535`가 어디에도 남지 않는다.
 # ─────────────────────────────────────────────────────────────────────────────
 
 

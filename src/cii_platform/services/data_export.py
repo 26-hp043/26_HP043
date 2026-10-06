@@ -254,7 +254,7 @@ def _cell(value: object) -> str:
     if isinstance(value, datetime):
         return value.astimezone(_EXPORT_TIMEZONE).isoformat()
     if isinstance(value, (dict, list)):
-        # `model_version`·`warnings` 같은 JSONB 열. 한 셀에 담되 **원문 그대로**다.
+        # `model_version`·`warnings` 같은 JSON 열(`JSONText`). 한 셀에 담되 **원문 그대로**다.
         return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return str(value)
 

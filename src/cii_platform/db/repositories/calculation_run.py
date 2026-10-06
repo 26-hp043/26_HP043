@@ -58,8 +58,9 @@ class CalcRunCursor(NamedTuple):
     동시에 끝나면 같을 수 있어 ``id``를 2차 키로 둔다.
 
     값은 **네이티브 타입**(``datetime``·``UUID``)으로 가진다 — 문자열을 그대로
-    바인딩하면 PostgreSQL이 ``timestamptz < varchar`` 연산자를 못 찾아 쿼리가
-    실패한다. 직렬화는 encode/decode에서만 일어난다.
+    바인딩하면 시각 열을 문자열과 비교하게 된다(PostgreSQL 시절에는
+    ``timestamptz < varchar`` 연산자를 못 찾아 쿼리가 실패했다). 직렬화는
+    encode/decode에서만 일어난다.
     """
 
     created_at: datetime
@@ -134,9 +135,11 @@ async def insert_voyage_estimate(
     ``get_session`` docstring 참조).
 
     ``flush``는 하는 이유: 응답의 ``calculation_run_id``에 이 행의 PK가 필요한데,
-    PK가 ``gen_random_uuid()`` server_default라 **DB에 문장을 보내기 전에는 값이 없다.**
+    PK가 컬럼 기본값(``default=uuid.uuid4``)이라 **INSERT를 만드는 flush 전에는 값이 없다**
+    (CUBRID에는 ``gen_random_uuid()`` server_default가 없어 ORM이 넣을 때 만든다 · `#1058`).
 
-    ``warnings``를 ``warnings_json``에 넣을 때 리스트를 그대로 쓴다 — 컬럼이 JSONB이고
+    ``warnings``를 ``warnings_json``에 넣을 때 리스트를 그대로 쓴다 — 컬럼이
+    :class:`~cii_platform.db.types.JSONText`(TEXT에 JSON 직렬화)라 타입이 ``json.dumps``하고,
     TECH_SPEC §12.2 4항이 「모든 오류를 warnings_json에 기록」으로 규정한다.
     """
     run = CalculationRun(

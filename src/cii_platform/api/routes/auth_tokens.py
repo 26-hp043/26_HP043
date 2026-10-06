@@ -196,7 +196,7 @@ async def request_email_verification(
         )
     except MailDeliveryError:
         # 원인 예외(`__cause__` — SMTP 인증 실패 등)를 로그에 남긴다 (#819). 백엔드가
-        # `from exc`로 보존한 것을 여기서 버리면 502만 쌓이고 왜인지는 어디에도 없다.
+        # `from exc`로 보존한 것을 여기서 버리면 500만 쌓이고 왜인지는 어디에도 없다.
         # 주소는 남기지 않는다 — 식별은 user_id로 충분하다.
         _log.exception("인증 메일 재발송 실패: user_id=%s", user.id)
         # 토큰은 이미 커밋됐다 — 되돌리지 않는다(#407 경계).
