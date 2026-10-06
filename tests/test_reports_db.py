@@ -185,34 +185,362 @@ async def test_scenario_section_is_omitted_when_there_is_no_history(session, ves
     assert _section(document, "시나리오 사후 비교") is None
 
 
+# ── 시나리오 사후 비교 — 3종과 실적 (`PRD §25.2.1` · `#2092`) ──────────────────────
+
+#: 비교 한 번이 남기는 3종의 저장값. ``(종류, 이름, 거리, 속력, 소요, 연료, CII, 등급)``
+_COMPARED = [
+    ("DIRECT", "직항", "3000", "14", "214.29", "250.0000", "5.19000000", "C"),
+    ("DETOUR", "우회", "3360", "14", "240.00", "280.0000", "5.19000000", "C"),
+    ("SLOW_STEAMING", "감속", "3000", "11.9", "252.10", "180.6250", "3.74977500", "A"),
+]
+
+
+async def _compare(session, vessel_id, *, with_run=True, cii_shift="0", mutate=None):
+    """비교 한 번을 저장 형태 그대로 심는다 — 시나리오 3행(항차 연결 없음) + 이력 1건.
+
+    서비스(`scenario_compare`)를 부르지 않는 것은 값을 손으로 정해 두어야 **인용**을
+    대조할 수 있기 때문이다. ``cii_shift``는 두 번째 비교를 첫 번째와 구별하는 데 쓴다.
+    ``mutate``는 이력의 ``scenarios[]``를 저장 직전에 고치는 함수다 — 옛 모양을 흉내 낼 때 쓴다.
+    """
+    from cii_platform.db.repositories import calculation_run as calc_run_repo
+
+    ids = {}
+    scenarios = []
+    for kind, name, distance, speed, hours, fuel, cii, rating in _COMPARED:
+        scenario_id = uuid4()
+        ids[kind] = scenario_id
+        value = Decimal(cii) + Decimal(cii_shift)
+        await session.execute(
+            text(
+                "INSERT INTO voyage_scenario (id, vessel_id, scenario_type, scenario_name, "
+                "distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
+                "estimated_rating, risk_level) VALUES (:id, :vid, :kind, :name, :distance, "
+                ":speed, :hours, :fuel, :cii, :rating, 'MEDIUM')"
+            ),
+            {
+                "id": scenario_id,
+                "vid": vessel_id,
+                "kind": kind,
+                "name": name,
+                "distance": Decimal(distance),
+                "speed": Decimal(speed),
+                "hours": Decimal(hours),
+                "fuel": Decimal(fuel),
+                "cii": value,
+                "rating": rating,
+            },
+        )
+        scenarios.append(
+            {
+                "scenario_id": str(scenario_id),
+                "scenario_type": kind,
+                "scenario_name": name,
+                "distance_nm": float(distance),
+                "speed_kn": float(speed),
+                "duration_hours": hours,
+                "fuel_ton": fuel,
+                "attained_cii": str(value),
+                "estimated_rating": rating,
+                "calculation_basis": {
+                    "transport_capacity": "50000",
+                    "transport_capacity_basis": "DWT",
+                },
+            }
+        )
+    if with_run:
+        if mutate is not None:
+            scenarios = mutate(scenarios)
+        await calc_run_repo.insert_scenario(
+            session,
+            vessel_id=vessel_id,
+            input_hash="sha256:" + "a" * 64,
+            parameter_hash="sha256:" + "b" * 64,
+            model_version={"engine": "test"},
+            result_json={"scenarios": scenarios, "summary": {}},
+            parameters_used={},
+            warnings=[],
+            duration_ms=1,
+        )
+    return ids
+
+
+async def _adopt(session, scenario_id, voyage_id, *, adopted=True):
+    """채택이 남기는 것 — 그 행에 항차를 잇고 표시를 켠다(`services/scenario_adopt.py`)."""
+    await session.execute(
+        text("UPDATE voyage_scenario SET voyage_id = :yid, is_adopted = :flag WHERE id = :id"),
+        {"yid": voyage_id, "flag": 1 if adopted else 0, "id": scenario_id},
+    )
+
+
 @pytest.mark.asyncio
-async def test_scenario_section_quotes_stored_history(session, vessel_id):
-    """저장된 값을 **그대로 인용**한다 — 재계산하면 과거 비교 근거가 바뀐다."""
+async def test_scenario_section_puts_three_scenarios_beside_the_actual(session, vessel_id):
+    """`PRD §25.2.1` — 직항·우회·감속 3종과 실적을 나란히. 종전에는 채택된 한 행뿐이었다."""
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    assert isinstance(section, TableSection)
+    assert section.headers == [
+        "구분",
+        "거리 (nm)",
+        "속력 (kn)",
+        "소요 (h)",
+        "연료 (t)",
+        "CII",
+        "예상 등급",
+    ]
+    # 저장된 값 그대로 — 표시 자릿수(`DESIGN_SYSTEM §4.2`)만 입힌다 (#584).
+    assert section.rows[:3] == [
+        ["직항", "3,000", "14.0", "214.3", "250.0", "5.190", "C"],
+        ["우회", "3,360", "14.0", "240.0", "280.0", "5.190", "C"],
+        ["감속 (채택)", "3,000", "11.9", "252.1", "180.6", "3.750", "A"],
+    ]
+    # 실적 — 거리 3,100 nm · 3/1~3/10 = 216 h · 연료 260 t.
+    # CII = 260 × 3.114 × 1,000,000 ÷ (50,000 × 3,100) = 809,640,000 ÷ 155,000,000 = 5.2234…
+    assert section.rows[3] == ["실적", "3,100", "—", "216.0", "260.0", "5.223", "산출 안 함"]
+    assert "재계산하지 않음" in section.note
+
+
+@pytest.mark.asyncio
+async def test_scenario_section_marks_exactly_one_adopted_row(session, vessel_id):
+    """채택된 시나리오가 표에서 구분된다 — 표시 문구가 아니라 **한 행만 다르다**를 본다."""
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["DETOUR"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    names = [row[0] for row in section.rows[:3]]
+    marked = [
+        name for name, plain in zip(names, ["직항", "우회", "감속"], strict=True) if name != plain
+    ]
+    assert len(marked) == 1 and marked[0].startswith("우회")
+
+
+@pytest.mark.asyncio
+async def test_scenario_section_cites_only_the_adopted_comparison(session, vessel_id):
+    """비교를 여러 번 돌렸어도 **지금 채택된 행이 속한 한 묶음**만 싣는다.
+
+    옛 채택 행은 항차에 이어진 채 남는다(`_clear_previous_adoption`은 표시만 내린다).
+    그 행이 섞이면 3종보다 많은 행이 잡힌다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    first = await _compare(session, vessel_id)
+    second = await _compare(session, vessel_id, cii_shift="1")
+    await _adopt(session, first["DIRECT"], voyage_id, adopted=False)  # 옛 채택
+    await _adopt(session, second["SLOW_STEAMING"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    assert len(section.rows) == 4
+    # 두 번째 비교의 값(+1)만 있다.
+    assert [row[5] for row in section.rows[:3]] == ["6.190", "6.190", "4.750"]
+    assert [row[0] for row in section.rows[:3]] == ["직항", "우회", "감속 (채택)"]
+
+
+@pytest.mark.asyncio
+async def test_scenario_section_is_omitted_when_nothing_was_adopted(session, vessel_id):
+    """비교만 하고 채택하지 않았다 — 그 비교가 이 항차의 것인지 저장 구조가 말해 주지 않는다.
+
+    선박의 다른 비교를 끌어와 「이 항차의 비교」로 싣지 않는다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    await _compare(session, vessel_id)
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    assert _section(document, "시나리오 사후 비교") is None
+
+
+@pytest.mark.asyncio
+async def test_scenario_without_its_comparison_says_so(session, vessel_id):
+    """채택 행을 만든 이력이 없다(`#2088` 이전의 저장하지 않는 경로) — 일부만 저장된 경우다.
+
+    없는 두 종류는 **「—」가 아닌 다른 말**이다. 같은 기호면 「계산했는데 값이 없다」로
+    읽힌다. 실적 CII도 비교가 쓴 용량을 몰라 낼 수 없다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id, with_run=False)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    direct, detour, slow, actual = section.rows
+    assert slow == ["감속 (채택)", "3,000", "11.9", "252.1", "180.6", "3.750", "A"]
+    assert direct[0] == "직항" and detour[0] == "우회"
+    missing = direct[1]
+    assert missing not in ("—", "", "0")
+    assert set(direct[1:]) == set(detour[1:]) == {missing}
+    # 실적의 기록값은 그대로 있고, CII만 다른 말이다 — 「없음」 셋이 서로 구별된다.
+    assert actual[1] == "3,100" and actual[4] == "260.0"
+    assert actual[5] not in ("—", missing) and not actual[5][0].isdigit()
+    # 각주도 용량을 숫자로 적지 못한다 — 모른다고 적는다.
+    assert "용량을 알 수 없어" in section.note and "50,000" not in section.note
+
+
+@pytest.mark.asyncio
+async def test_scenario_note_reuses_the_cor1_wording_and_names_the_capacity(session, vessel_id):
+    """각주 — 2026-10-06 결정 1·2 (`#2092`).
+
+    ⑴ 「항차 단위 CII는 공식 등급 지표가 아니다」는 같은 문서의 「CII 기여도」 절이 쓰는
+    문구(``COR-1``)를 **그대로** 싣는다 — 두 절의 문구가 갈리면 한쪽만 고쳐진다.
+    ⑵ 실적 CII의 분모 용량을 **숫자로** 적는다 — 인용한 비교가 쓴 값이라, 비교 뒤 제원이
+    고쳐진 선박에서는 다른 화면의 값과 다를 수 있고 그 이유를 읽는 사람이 알 수 있어야 한다.
+    """
+    from cii_platform.reports.document import VOYAGE_CII_NOTE
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    section = _section(document, "시나리오 사후 비교")
+
+    # 정본 문구 (PRD §25.2 · COR-1) — 「CII 기여도」 절과 **같은 상수**다.
+    assert VOYAGE_CII_NOTE in section.note
+    assert _section(document, "CII 기여도").note == VOYAGE_CII_NOTE
+    # 정본 문구 (PRD §6.3 「자동 결정 금지」) — 바꾸려면 PRD 개정이 먼저다.
+    no_auto_decision = "시스템은 시나리오별 수치만 비교하며, 최종 운항 판단은 사용자에게 있습니다."
+    assert no_auto_decision in section.note
+    # 비교가 쓴 용량 50,000 DWT — 실적 CII 5.223이 이 분모로 나온 값이다.
+    assert "50,000 DWT" in section.note
+    assert section.rows[3][5] == "5.223"
+    # 표지 셋의 뜻이 각주에 있다.
+    for marker in ("이력 없음", "계산 불가", "—"):
+        assert f"「{marker}」" in section.note, marker
+
+
+@pytest.mark.asyncio
+async def test_partial_fuel_actuals_do_not_print_a_partial_sum(session, vessel_id):
+    """유종이 둘인데 하나만 실적이 있다 — 그 하나의 합을 표지 없이 싣지 않는다.
+
+    종전에는 「연료」 칸이 기록된 유종의 합(260.0)을 그대로 실어, 세 시나리오의 연료 옆에서
+    **이 항차의 연료 전체**로 읽혔다. CII는 이미 「계산 불가」였으므로 연료도 같은 표지다 —
+    같은 이유(모든 유종의 실적이 없다)로 낼 수 없는 값이다. 「—」가 아닌 것은 기록이 있기
+    때문이다 — 「—」는 아무것도 적히지 않은 칸의 말이다.
+    """
     voyage_id = await _make_voyage(session, vessel_id)
     await session.execute(
         text(
-            "INSERT INTO voyage_scenario (vessel_id, voyage_id, scenario_type, "
-            "scenario_name, distance_nm, speed_kn, duration_hours, fuel_ton, "
-            # risk_level은 chk_scenario_risk의 4값이다(마이그레이션 007) —
-            # `#354`의 WATCH 계열과 다른 어휘라 그대로 쓰면 IntegrityError가 난다.
-            "cii_value, estimated_rating, risk_level, is_adopted) VALUES "
-            "(:vid, :yid, 'SLOW_STEAMING', '감속', 3000, 11.8, 254.24, 210.5, "
-            "12.34567890, 'B', 'MEDIUM', true)"
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
+            "VALUES (:id, 'LNG', 40, 2.750, 'USER_INPUT')"
         ),
-        {"vid": vessel_id, "yid": voyage_id},
+        {"id": voyage_id},
     )
-    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
 
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    actual = _section(document, "시나리오 사후 비교").rows[3]
+
+    assert actual[1] == "3,100", "기록된 실적 거리는 그대로다"
+    assert actual[4] == report_service.ACTUAL_CII_NOT_COMPUTABLE, actual
+    assert actual[5] == report_service.ACTUAL_CII_NOT_COMPUTABLE, actual
+    assert "260" not in actual[4]
+    # 유종별 기록은 「연료 내역」에 그대로 남는다 — 지운 것이 아니라 합을 내지 않은 것이다.
+    fuel_rows = _section(document, "연료 내역").rows
+    assert sorted(row[2] for row in fuel_rows) == ["260.0", "—"]
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_comparison_run_does_not_break_the_report(session, vessel_id):
+    """키가 빠진 이력 항목은 그 **행만** 「이력 없음」이고 리포트는 산다.
+
+    종전에는 ``item["fuel_ton"]`` 같은 접근이 ``KeyError``로 올라가 **리포트 전체가 500**
+    이었다. 저장 경로(`services/scenario_compare.py`)는 `#373` 이후 이 키를 전부 써 왔지만,
+    이력 한 건의 모양이 문서 전체를 막아서는 안 된다. 네 모양을 한 번에 본다 — 키가 빠진
+    형제 항목 · 키가 빠진 **채택** 항목 · dict가 아닌 항목 · 문자열로 든 ``calculation_basis``.
+    """
+
+    def _old_shape(items):
+        direct, detour, slow = items
+        detour = {k: v for k, v in detour.items() if k not in ("fuel_ton", "attained_cii")}
+        direct = {**direct, "calculation_basis": "DWT 50000"}
+        # 채택 행의 id는 남긴다 — 이력을 찾는 키다. 나머지 키는 전부 없다.
+        slow = {"scenario_id": slow["scenario_id"], "scenario_type": "SLOW_STEAMING"}
+        # 깨진 항목을 **맨 앞**에 둔다 — 뒤에 두면 저장소의 채택 항목 탐색(`any`)이 그 앞에서
+        # 끝나 dict 가드를 지나지 않는다(검토 돌연변이로 확인).
+        return ["garbage", direct, detour, slow]
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id, mutate=_old_shape)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    direct, detour, slow, actual = section.rows
+    # 온전한 항목은 이력의 값으로.
+    assert direct == ["직항", "3,000", "14.0", "214.3", "250.0", "5.190", "C"]
+    # 키가 빠진 항목은 그 종류만 「이력 없음」 — 「—」(기록 없음)와 다른 말이다.
+    assert detour == ["우회", *[report_service.SCENARIO_NOT_STORED] * 6]
+    # 채택 행은 이력 항목이 깨져도 **제 행의 값**으로 남는다.
+    assert slow == ["감속 (채택)", "3,000", "11.9", "252.1", "180.6", "3.750", "A"]
+    # 용량을 읽을 수 있는 항목이 없으므로 실적 CII는 「계산 불가」, 각주도 그렇게 적는다.
+    assert actual[5] == report_service.ACTUAL_CII_NOT_COMPUTABLE
+    assert "용량을 알 수 없어" in section.note
+
+
+@pytest.mark.asyncio
+async def test_actual_row_does_not_borrow_planned_values(session, vessel_id):
+    """실적이 아직 없는 항차 — 계획값으로 메우지 않는다."""
+    voyage_id = await _make_voyage(session, vessel_id, status="COMPLETED", with_fuel=False)
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
+            "VALUES (:id, 'HFO', 250, 3.114, 'USER_INPUT')"
+        ),
+        {"id": voyage_id},
+    )
+    await session.execute(
+        text(
+            "UPDATE voyage SET actual_distance_nm = NULL, actual_departure_at = NULL, "
+            "actual_arrival_at = NULL WHERE id = :id"
+        ),
+        {"id": voyage_id},
+    )
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["DIRECT"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    actual = section.rows[3]
+    assert actual[:5] == ["실적", "—", "—", "—", "—"]
+    # 기록이 없는 것(「—」)과 낼 수 없는 것은 다른 말이다.
+    assert actual[5] != "—" and not actual[5][0].isdigit()
+    # 시나리오 3행은 영향받지 않는다.
+    assert section.rows[0][0] == "직항 (채택)" and section.rows[2][5] == "3.750"
+
+
+@pytest.mark.asyncio
+async def test_scenario_rows_are_the_same_in_preview_and_csv(session, vessel_id):
+    """미리보기(HTML — PDF도 이 HTML에서 나온다)와 CSV가 **같은 행**을 싣는다."""
+    from cii_platform.reports.html import render_html
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
     section = _section(document, "시나리오 사후 비교")
-    assert isinstance(section, TableSection)
-    assert section.rows[0][0] == "감속 (채택)"
-    # 저장된 값 그대로 — 재계산 흔적이 없어야 한다.
-    #
-    # ⚠️ **표시 반올림은 재계산이 아니다** (#584). 저장된 `12.345679`를 `§4.1` 🔒대로
-    # 3자리로 **보이는** 것이며, 값을 다시 만들지 않는다. 종전에는 6자리가 그대로
-    # 나가 「저장값을 인용했다」의 증거 역할을 겸했으나, 그 증거는 아래 note가 맡는다.
-    assert section.rows[0][5] == "12.346"
-    assert "재계산하지 않음" in section.note
+
+    html = render_html(document)
+    lines = list(csv.reader(io.StringIO(render_csv(document).lstrip("\ufeff"))))
+    start = next(i for i, line in enumerate(lines) if line and line[0] == "구분")
+    assert lines[start + 1 : start + 5] == section.rows
+    for row in section.rows:
+        assert f">{row[0]}<" in html, row[0]
 
 
 @pytest.mark.asyncio
@@ -578,7 +906,7 @@ async def _scenario_and_periods(session, vessel_id, voyage_id) -> None:
 
 @pytest.mark.asyncio
 async def test_every_report_table_declares_its_numeric_columns(session, vessel_id):
-    """수치를 싣는 표는 전부 선언이 있고, 선언한 열의 값은 숫자(또는 `—`)뿐이다.
+    """수치를 싣는 표는 전부 선언이 있고, 선언한 열의 값은 숫자(또는 「없음」 표지)뿐이다.
 
     표마다 **적어도 한 열**이 수치여야 한다 — 「제출 전 자체 점검」만 예외다(`3건`처럼
     단위가 붙어 문자열이 맞다). 수치 열에 `=감속` 같은 사용자 입력이 나오면 선언이
@@ -612,7 +940,15 @@ async def test_every_report_table_declares_its_numeric_columns(session, vessel_i
 
     cells = _numeric_declared_cells(voyage_doc) + _numeric_declared_cells(annual_doc)
     assert cells, "수치로 선언된 셀이 하나도 없다"
-    not_numbers = [c for c in cells if c[2] != "—" and not NUMERIC_CELL.fullmatch(c[2])]
+    # 숫자가 아닌 값은 **서버가 정한 「없음」 표지**뿐이다 (`#2092`). 사후 비교 표는 「저장된
+    # 비교에 없다」·「낼 수 없다」를 `—`(기록 없음)와 다른 말로 적는다 — 사용자 입력이 아니고,
+    # CSV에서는 숫자 문법에 안 맞아 문자열 규칙으로 되돌아간다.
+    absent = {
+        "—",
+        report_service.SCENARIO_NOT_STORED,
+        report_service.ACTUAL_CII_NOT_COMPUTABLE,
+    }
+    not_numbers = [c for c in cells if c[2] not in absent and not NUMERIC_CELL.fullmatch(c[2])]
     assert not_numbers == [], not_numbers
 
 
