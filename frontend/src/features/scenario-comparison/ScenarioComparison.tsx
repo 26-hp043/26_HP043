@@ -70,6 +70,7 @@ import {
   type ScenarioDelta,
 } from './comparisonRules'
 import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
+import { ScenarioBars } from './ScenarioBars'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
@@ -1314,6 +1315,12 @@ export function ScenarioComparison({
             direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
             unit={unit}
           />
+
+          {/*
+            항목별 미니 막대 (#2202) — 표의 한 항목을 길이로 한 번 더. 같은 면 안에 둔다
+            (`§5` 카드 예산 — 결과는 면 하나). 정렬 · 강조 없음(`ScenarioBars` 머리주석).
+          */}
+          <ScenarioBars scenarios={response.scenarios} ciiUnit={unit} />
 
           {/*
             PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
