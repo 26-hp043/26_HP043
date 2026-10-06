@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { knownServerField } from '../../api/serverField'
 import { detailStatusText } from '../fleet/fleetRules'
 import { VesselDetailError } from './apiProvider'
 import {
@@ -95,8 +96,9 @@ export function PositionForm({
        * 서버 문구를 그대로 쓴다. 화면 사본이 서버와 갈라졌을 때 사용자에게
        * 사실을 전하는 유일한 경로다 — `field`가 오면 그 칸 아래에 붙인다.
        */
-      if (error instanceof VesselDetailError && error.field) {
-        setErrors({ [fieldKey(error.field)]: error.message })
+      const key = error instanceof VesselDetailError ? fieldKey(error.field) : null
+      if (key !== null && error instanceof Error) {
+        setErrors({ [key]: error.message })
       } else {
         setFailure(error instanceof Error ? error.message : '저장하지 못했습니다.')
       }
@@ -247,16 +249,25 @@ function Coordinate({
   )
 }
 
-/** 서버 `field`(스네이크)를 폼 키로 옮긴다. 모르는 이름은 위치 칸에 붙이지 않는다. */
-function fieldKey(field: string): keyof PositionDraft {
-  switch (field) {
+const POSITION_SERVER_FIELDS: ReadonlySet<string> = new Set([
+  'underway_state',
+  'detail_status',
+  'current_lat',
+  'current_lon',
+])
+
+/** 서버 `field`(스네이크)를 폼 키로 옮긴다. 모르는 이름은 `null` — 어느 칸에도 붙이지 않는다 (#2126). */
+function fieldKey(field: string | undefined): keyof PositionDraft | null {
+  switch (knownServerField(field, POSITION_SERVER_FIELDS)) {
     case 'underway_state':
       return 'underwayState'
+    case 'detail_status':
+      return 'detailStatus'
     case 'current_lat':
       return 'lat'
     case 'current_lon':
       return 'lon'
     default:
-      return 'detailStatus'
+      return null
   }
 }

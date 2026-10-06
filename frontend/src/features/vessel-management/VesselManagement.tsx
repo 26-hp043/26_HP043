@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { knownServerField } from '../../api/serverField'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { PageHeader } from '../../components/PageHeader'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
-import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
+import {
+  FUEL_LIST_FAILED_HINT,
+  fuelOptionsWithCurrent,
+  useFuelOptions,
+  type FuelOption,
+} from '../parameters/fuelCatalog'
 // 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
 import { UnderwayChip } from '../fleet/UnderwayChip'
 import { toUnderwayState, unavailableText, ytdCiiText } from '../fleet/fleetRules'
@@ -31,6 +37,7 @@ import { fuelTypeText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
   EDIT_FIELD,
+  EDIT_FIELD_PATHS,
   clearAttemptNotice,
   isEmptyPatch,
   recalcNotice,
@@ -440,7 +447,7 @@ export function VesselManagement() {
     edit === null
       ? {}
       : failureInForm
-        ? { ...edit.errors, [saveFailure.field ?? EDIT_FIELD.form]: saveFailure.message }
+        ? { ...edit.errors, [knownServerField(saveFailure.field, EDIT_FIELD_PATHS) ?? EDIT_FIELD.form]: saveFailure.message }
         : edit.errors
   const shownActionError =
     actionError ??
@@ -1105,7 +1112,12 @@ function EditForm({
         )}
       </Field>
 
-      <Field id="vm-defaultFuelType" label="기본 연료" error={errors[EDIT_FIELD.defaultFuelType]}>
+      <Field
+        id="vm-defaultFuelType"
+        label="기본 연료"
+        hint={fuelsFailed ? FUEL_LIST_FAILED_HINT : undefined}
+        error={errors[EDIT_FIELD.defaultFuelType]}
+      >
         {(control) => (
           <select
             {...control}
@@ -1120,7 +1132,7 @@ function EditForm({
                   ? '연료 목록을 불러오지 못했습니다'
                   : '선택 안 함'}
             </option>
-            {fuels.map((fuel) => (
+            {fuelOptionsWithCurrent(fuels, state.defaultFuelType).map((fuel) => (
               <option key={fuel.code} value={fuel.code}>
                 {fuelTypeText(fuel.code)}
               </option>

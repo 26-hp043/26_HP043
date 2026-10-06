@@ -173,6 +173,29 @@ export function useFuelOptions(): FuelOptionsState {
 }
 
 /**
+ * 연료 목록을 받지 못했을 때 「기본 연료」 칸 곁에 적는 안내 (#2126).
+ *
+ * 필드 옆 주석 한 줄이라 `PRD §6.4`의 현행 관례 ②대로 마침표를 찍지 않는다. 실패했다는
+ * 사실은 셀렉트의 첫 옵션이 이미 말하므로 여기서는 「지금 값이 어떻게 되는가」만 말한다.
+ */
+export const FUEL_LIST_FAILED_HINT = '지금 값은 그대로 유지됩니다 — 다른 연료는 목록을 받은 뒤에 고를 수 있습니다'
+
+/**
+ * 셀렉트에 그릴 연료 선택지 — 목록에 없는 **현재 값**을 한 줄 덧붙인다 (#2126).
+ *
+ * 목록 조회가 실패하면 상태 값(예: `HFO`)에 맞는 `<option>`이 없어 브라우저가 첫 옵션을
+ * 골라 보인다 — 값은 그대로인데 화면은 다른 것을 말한다. 현재 값을 옵션으로 두면 화면이
+ * 실제 값을 말한다. 저장된 값을 바꾸지 않으며, 값이 비었으면 덧붙이지 않는다.
+ */
+export function fuelOptionsWithCurrent(
+  fuels: readonly FuelOption[],
+  current: string,
+): readonly FuelOption[] {
+  if (current === '' || isKnownFuel(current, fuels)) return fuels
+  return [...fuels, { code: current, displayName: current }]
+}
+
+/**
  * 선택지 목록에 그 코드가 있는가.
  *
  * 종전 `!FUEL_CF[code]` 동기 조회를 대신한다. **검증 함수가 목록을 인자로 받도록

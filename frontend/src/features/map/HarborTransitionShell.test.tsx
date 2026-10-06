@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MapRendererEvent } from './renderer'
 import { HarborTransitionShell } from './HarborTransitionShell'
+import { classifyMapFailure } from './mapFailure'
 
 const harbor = vi.hoisted(() => ({ mount: vi.fn(), destroy: vi.fn(), emit: null as ((event: MapRendererEvent) => void) | null }))
 vi.mock('./harborRenderer', () => ({
@@ -49,8 +50,10 @@ describe('globe-HarborScene 전환 shell', () => {
     const view = setup()
     view.emit({ type: 'selection', id: 'port:destination:SGSIN' })
     expect(await screen.findByRole('region', { name: '싱가포르 항만 상세 장면' })).toBeTruthy()
-    harbor.emit?.({ type: 'error', error: new Error('WebGL 실패') })
-    await vi.waitFor(() => expect(screen.getByRole('status').textContent).toContain('표시하지 못했습니다'))
+    harbor.emit?.({ type: 'error', error: new Error('WebGL 실패 raw-engine-detail') })
+    await vi.waitFor(() => expect(screen.getByRole('status').textContent).toContain(classifyMapFailure(new Error('webgl')).message))
+    // 엔진 예외 원문은 화면에 붙지 않는다 (#2126).
+    expect(screen.getByRole('status').textContent).not.toContain('raw-engine-detail')
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
     expect(harbor.destroy).toHaveBeenCalledOnce()
     expect(harbor.mount).toHaveBeenCalledTimes(2)

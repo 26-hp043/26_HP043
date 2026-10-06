@@ -25,8 +25,13 @@ import type {
  * `Decimal`로 지킨 정밀도가 사라진다.
  */
 
+/** 404 — 없는 선박. 실시간 CII가 같은 문구를 쓴다. */
+const VESSEL_NOT_FOUND_MESSAGE = '선박을 찾을 수 없습니다.'
+/** 422 — 주소의 선박 조각이 id 꼴이 아니다. 없는 선박과 같은 안내(재시도 없음)를 받는다. */
+const VESSEL_INVALID_ID_MESSAGE = '선박 형식이 올바르지 않습니다.'
+
 export class VesselDetailError extends Error {
-  /** 404 — 없는 선박. 화면이 「불러오기 실패」와 다르게 표시한다. */
+  /** 404·422 — 없는 선박이거나 주소가 틀렸다. 다시 불러도 같으므로 화면이 재시도를 주지 않는다. */
   readonly notFound: boolean
 
   /**
@@ -167,12 +172,19 @@ export function createApiVesselDetailProvider(
       throw new VesselDetailError(SESSION_EXPIRED_MESSAGE)
     }
     if (response.status === 404) {
-      throw new VesselDetailError('선박을 찾을 수 없습니다.', { notFound: true })
+      throw new VesselDetailError(VESSEL_NOT_FOUND_MESSAGE, { notFound: true })
+    }
+    // 422는 주소의 선박 조각이 id 꼴이 아닐 때다 — 다시 불러도 같다 (#2126).
+    if (response.status === 422) {
+      throw new VesselDetailError(VESSEL_INVALID_ID_MESSAGE, { notFound: true })
     }
     if (!response.ok) {
       throw new VesselDetailError(`불러오지 못했습니다 (HTTP ${response.status}).`)
     }
-    return (await response.json()) as Record<string, unknown>
+    // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구가 화면에 나가지 않게 한다 (#2126).
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null
+    if (body === null) throw new VesselDetailError('응답 형식이 올바르지 않습니다.')
+    return body
   }
 
   /** 변경 호출 — `credentials`·CSRF 배선을 `get`과 같게 둔다 (`#307` 선례). */
@@ -203,7 +215,7 @@ export function createApiVesselDetailProvider(
       | null
 
     if (response.status === 404) {
-      throw new VesselDetailError('선박을 찾을 수 없습니다.', { notFound: true })
+      throw new VesselDetailError(VESSEL_NOT_FOUND_MESSAGE, { notFound: true })
     }
     if (!response.ok) {
       const detail = parsed?.error?.details?.[0]

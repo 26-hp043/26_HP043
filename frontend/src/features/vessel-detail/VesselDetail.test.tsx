@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
+import { VesselDetailError } from './apiProvider'
 import { underwayStateText } from '../fleet/fleetRules'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
 import { VESSEL_TABS } from './vesselTabs'
@@ -758,5 +759,65 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
     }
 
     vi.unstubAllGlobals()
+  })
+})
+
+/**
+ * 첫 조회 실패 화면 (#2126).
+ *
+ * 문구는 리터럴로 단언하지 않는다 — 단언하는 것은 **무엇이 보이는가**다. 다시 해 볼 수
+ * 있는 실패(5xx)는 「다시 시도」를 주고 그것이 새로고침이 아니라 화면 안 재조회이며,
+ * 다시 해도 같은 실패(404·422)는 재시도 대신 나갈 길을 준다.
+ */
+describe('첫 조회 실패 (#2126)', () => {
+  function failedProvider(error: Error, then: Detail | null = null): VesselDetailProvider {
+    const load = vi.fn().mockRejectedValueOnce(error)
+    if (then !== null) load.mockResolvedValue(then)
+    else load.mockRejectedValue(error)
+    return stub({ load })
+  }
+
+  it('「다시 시도」는 화면 안에서 다시 조회하고, 성공하면 상세가 나온다', async () => {
+    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다 (HTTP 500).'), DETAIL)
+    renderAt(provider)
+
+    const retry = await screen.findByRole('button', { name: '다시 시도' })
+    expect(provider.load).toHaveBeenCalledTimes(1)
+    fireEvent.click(retry)
+
+    expect(await screen.findByRole('heading', { level: 1, name: /샘플 벌크선/ })).toBeTruthy()
+    expect(provider.load).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull()
+  })
+
+  it('다시 시도가 또 실패하면 같은 실패 화면과 「다시 시도」로 돌아온다', async () => {
+    const provider = failedProvider(new VesselDetailError('불러오지 못했습니다 (HTTP 500).'))
+    renderAt(provider)
+
+    fireEvent.click(await screen.findByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('button', { name: '다시 시도' })).toBeTruthy()
+    expect(screen.getByRole('alert')).toBeTruthy()
+  })
+
+  it('404·422는 「다시 시도」 없이 나갈 길을 주고, 5xx와 화면이 다르다', async () => {
+    const shown = new Map<string, string>()
+    for (const [name, error] of [
+      ['notFound', new VesselDetailError('선박을 찾을 수 없습니다.', { notFound: true })],
+      ['invalid', new VesselDetailError('선박 형식이 올바르지 않습니다.', { notFound: true })],
+      ['server', new VesselDetailError('불러오지 못했습니다 (HTTP 500).')],
+    ] as const) {
+      const view = renderAt(failedProvider(error))
+      await screen.findByRole('alert')
+      const retry = screen.queryByRole('button', { name: '다시 시도' })
+      if (name === 'server') expect(retry).not.toBeNull()
+      else {
+        expect(retry).toBeNull()
+        expect(within(screen.getByRole('alert')).getByRole('link', { name: /대시보드/ })).toBeTruthy()
+      }
+      shown.set(name, screen.getByRole('alert').textContent ?? '')
+      view.unmount()
+    }
+    expect(new Set(shown.values()).size).toBe(3)
   })
 })

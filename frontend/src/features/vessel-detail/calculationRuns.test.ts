@@ -94,4 +94,17 @@ describe('fetchCalculationPage', () => {
       fetchCalculationPage('v', null, fetchImpl as unknown as typeof fetch, '/api/v1'),
     ).rejects.toThrow()
   })
+
+  it('200과 함께 JSON이 아닌 본문이 와도 파서 문구를 올리지 않는다 (#2126)', async () => {
+    const fetchImpl = vi.fn(async () => new Response('<html>proxy</html>', { status: 200 }))
+    const failure = await fetchCalculationPage(
+      'v',
+      null,
+      fetchImpl as unknown as typeof fetch,
+      '/api/v1',
+    ).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).name).not.toBe('SyntaxError')
+    expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
+  })
 })

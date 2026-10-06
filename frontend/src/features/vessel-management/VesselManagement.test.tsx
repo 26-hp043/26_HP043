@@ -10,6 +10,7 @@ import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { unavailableHint, unavailableText, ytdCiiText } from '../fleet/fleetRules'
 import { MISSING } from './listRules'
+import { FUEL_LIST_FAILED_HINT } from '../parameters/fuelCatalog'
 import {
   GRADE_FAILED_LINE,
   GRADE_REFRESH_FAILED_TEXT,
@@ -1412,5 +1413,57 @@ describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119
     await screen.findByText('지울 수 없습니다.')
     expect(refreshVessels).not.toHaveBeenCalled()
     expect(selectVesselId).not.toHaveBeenCalled()
+  })
+})
+
+describe('서버 오류의 자리와 연료 목록 실패 (#2126)', () => {
+  it('폼에 없는 field의 422는 폼 상단 일반 오류로 보인다 — 문구가 사라지지 않는다', async () => {
+    stubFetch({
+      [`PATCH /vessels/${A.id}`]: jsonResponse(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'SERVER-SAID-THIS',
+            details: [{ field: 'not_a_form_field' }],
+          },
+        },
+        422,
+      ),
+    })
+    renderScreen()
+    await screen.findByText('알파호')
+
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), {
+      target: { value: '알파호 개명' },
+    })
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+
+    const alert = await within(rowOf('알파호')).findByRole('alert')
+    expect(alert.textContent).toContain('SERVER-SAID-THIS')
+    // 폼 밖에 같은 실패를 한 번 더 말하지 않는다.
+    expect(screen.queryByText(/알파호의 정보를 저장하지 못했습니다/)).toBeNull()
+  })
+
+  it('연료 목록을 받지 못해도 「기본 연료」 칸은 실제 값을 말하고 목록 실패를 함께 알린다', async () => {
+    const withFuel = { ...A, default_fuel_type: 'HFO' }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/fuel-types')) return jsonResponse({}, 500)
+        return jsonResponse({ data: [withFuel], meta: {} })
+      }),
+    )
+    renderScreen()
+    await screen.findByText('알파호')
+    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
+
+    const select = (await within(rowOf('알파호')).findByLabelText('기본 연료')) as HTMLSelectElement
+    // 상태 값(HFO)이 그대로이고, 화면이 고른 옵션도 그 값이다 — 첫 옵션(실패 안내)이 아니다.
+    expect(select.value).toBe('HFO')
+    expect(select.selectedOptions[0]?.value).toBe('HFO')
+    // 목록 실패는 칸 곁에 따로 적힌다.
+    await within(rowOf('알파호')).findByText(FUEL_LIST_FAILED_HINT)
   })
 })

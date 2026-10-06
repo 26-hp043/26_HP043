@@ -97,15 +97,16 @@ export async function fetchCalculationPage(
     throw new Error(SESSION_EXPIRED_MESSAGE)
   }
   if (!response.ok) throw new Error(`계산 이력을 불러오지 못했습니다 (HTTP ${response.status}).`)
-  const body = (await response.json()) as {
+  // 200과 함께 JSON이 아닌 본문이 올 수 있다 — 파서 문구(`SyntaxError`)가 화면에 나가지 않게 한다 (#2126).
+  const body = (await response.json().catch(() => null)) as {
     data?: unknown
     meta?: {
       next_cursor?: string | null
       has_more?: boolean
       needs_recalc_total?: unknown
     }
-  }
-  if (!Array.isArray(body.data)) throw new Error('계산 이력 응답 형식이 올바르지 않습니다.')
+  } | null
+  if (body === null || !Array.isArray(body.data)) throw new Error('계산 이력 응답 형식이 올바르지 않습니다.')
   const total = body.meta?.needs_recalc_total
   return {
     rows: (body.data as ServerRun[]).map(toCalculationRow),
