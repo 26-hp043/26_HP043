@@ -52,6 +52,8 @@ USER_KEYS = frozenset(
         "last_login_at",
         # `#2080` — **있다/없다만**이다. 바이트는 `GET /auth/me/avatar`가 따로 낸다.
         "has_avatar",
+        # `#2203` — 둘러보기 계정인가. 화면이 역할 대신 「둘러보기」를 적는다.
+        "is_tour",
     }
 )
 
@@ -242,7 +244,11 @@ async def test_new_signup_is_field_and_initial_admin_email_is_admin(client, monk
         assert await _role_in_db(field_email) == "FIELD"
 
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", " Role-Initial@example.com ")
-        assert _signup(client, admin_email)["role"] == "ADMIN"
+        admin = _signup(client, admin_email)
+        assert admin["role"] == "ADMIN"
+        # `#2203` — 사람 관리자는 둘러보기가 아니다. 화면은 이 값으로만 「관리자」와
+        # 「둘러보기」를 가른다(둘러보기 계정도 ADMIN이다)
+        assert admin["is_tour"] is False
         assert await _role_in_db(admin_email) == "ADMIN"
     finally:
         await _cleanup([field_email, admin_email])

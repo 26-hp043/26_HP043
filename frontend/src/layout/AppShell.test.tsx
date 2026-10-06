@@ -348,7 +348,7 @@ describe('상단바 알림 버튼 — 알림 체계가 없는 동안은 준비 �
     expect(bell.disabled).toBe(true)
     expect(bell.getAttribute('aria-label')).toContain('준비 중')
     expect(bell.getAttribute('aria-label')).not.toContain('읽지 않음')
-    // §7.2 배치 — 항차 셀렉트 뒤, 계정 앞에 그대로 있다.
+    // §7.2 배치 — 항차 셀렉트 뒤, 상단바 끝이다(계정은 #2203부터 사이드바).
     const topbar = bell.closest('.app-shell__topbar')
     expect(topbar).not.toBeNull()
   })
@@ -371,6 +371,45 @@ describe('상단바 알림 버튼 — 알림 체계가 없는 동안은 준비 �
  * 새 컨트롤이 같은 자리에 붙을 때 아무것도 걸리지 않는다 — `§16` 항목 17이 겹침
  * 순서에서 적은 구조다. 상단바에 **드러나 있는 선택 컨트롤이 하나도 없는지**를 본다.
  */
+/**
+ * 계정은 사이드바 로고 아래 카드다 (#2203 · `DESIGN_SYSTEM §7.2` 개정).
+ *
+ * 상단바에는 선박 · 항차 · 알림만 남는다. 카드는 `nav` 랜드마크 **밖**이다 — 화면 목록에
+ * 계정 메뉴가 섞여 읽히지 않게 한다.
+ */
+describe('계정 카드가 사이드바 로고 아래에 있다 (#2203)', () => {
+  function stubUser() {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u1',
+      email: 'a@b.c',
+      displayName: '테스터',
+      role: 'OFFICE',
+      emailVerifiedAt: null,
+      hasAvatar: false,
+    })
+  }
+
+  it('상단바에 계정 · 로그아웃이 없고, 사이드바에서 로고 다음 · 화면 목록 앞에 있다', async () => {
+    stubUser()
+    stubServer()
+    const { container } = renderShell()
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+
+    const topbar = container.querySelector('.app-shell__topbar')!
+    expect(topbar.querySelector('[data-testid="account-trigger"]')).toBeNull()
+    expect(topbar.querySelector('[data-testid="logout-button"]')).toBeNull()
+
+    const sidebar = container.querySelector('.app-shell__sidebar')!
+    const card = screen.getByTestId('account-trigger')
+    expect(sidebar.contains(card)).toBe(true)
+    const brand = sidebar.querySelector('.app-shell__brand')!
+    const nav = screen.getByRole('navigation', { name: '주요 화면' })
+    expect(brand.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(card.compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(nav.contains(card)).toBe(false)
+  })
+})
+
 describe('상단바가 §7.2 배치를 벗어나지 않는다 (#1422)', () => {
   /*
    * 셸은 캐시된 사용자만 읽으므로(프로브는 `RequireAuth`가 한다) 계정 영역을 보려면

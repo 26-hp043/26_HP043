@@ -12,7 +12,7 @@ import { join } from 'node:path'
  *
  * | 자리 | 높이를 정하는 것 |
  * |---|---|
- * | 상단바 — 로그아웃 · 계정 트리거 | `block-size` |
+ * | 계정 메뉴 패널 — 로그아웃(혼자 놓임 · #2203) | `block-size` = `--target-icon-button` |
  * | 항차 카드 — 텍스트 버튼 · 같은 줄 카드 버튼 | 위아래 여백 · 테두리 두께 · 글자 크기 |
  *
  * 종전 실측(폰트 적재 후 렌더링): 계정 트리거 40 · 로그아웃 32 · 카드 텍스트 버튼 24 · 카드 버튼 26.
@@ -52,14 +52,17 @@ function borderWidth(body: string): string {
 }
 
 describe('텍스트 버튼 높이 — 같은 줄의 컨트롤과 같다 (DESIGN_SYSTEM §8 · #1297)', () => {
-  it('상단바 — 로그아웃과 계정 트리거의 높이 선언이 같다', () => {
-    const logout = ruleOf(read('src/layout/AppShell.css'), '.app-shell__logout')
-    const trigger = ruleOf(read('src/layout/AccountMenu.css'), '.account-menu__trigger')
+  it('계정 메뉴 — 혼자 놓인 로그아웃은 `--target-icon-button`이다 (#2203)', () => {
+    /*
+     * 종전에는 상단바에서 계정 트리거와 나란히 놓여 「같은 줄의 이웃과 같다」를 대조했다.
+     * #2203에서 로그아웃이 계정 메뉴 패널 안으로 들어가 **혼자 놓인다** — 규칙의 다른 가지
+     * 「혼자 놓이면 `--target-icon-button`(32)」가 적용된다.
+     */
+    const logout = ruleOf(read('src/layout/AccountMenu.css'), '.account-menu__logout')
 
-    expect(decl(logout, 'block-size'), '로그아웃 높이 선언이 없습니다').not.toBeNull()
-    expect(decl(trigger, 'block-size')).toBe(decl(logout, 'block-size'))
+    expect(decl(logout, 'block-size')).toBe('var(--target-icon-button)')
     // 높이를 준 뒤 위아래 여백이 남으면 상자가 그만큼 커진다 — 여백은 0이어야 한다.
-    expect(paddingBlock(trigger)).toBe('0')
+    expect(paddingBlock(logout)).toBe('0')
   })
 
   it('항차 카드 — 텍스트 버튼이 같은 줄 카드 버튼과 같은 상자를 쓴다', () => {

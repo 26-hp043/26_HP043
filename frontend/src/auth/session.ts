@@ -69,6 +69,17 @@ export interface CurrentUser {
    * 하나씩 만든다.
    */
   hasAvatar: boolean
+  /**
+   * 둘러보기 계정인가 (`#2203` · `API_SPEC §1.2.5a`).
+   *
+   * 둘러보기 계정은 `ADMIN`이라 `role`만 보면 「관리자」로 적힌다. 사이드바 계정 카드가
+   * 이 값이 참이면 역할 자리에 「둘러보기」를 적는다. 판정은 서버가 고정 PK로 한다 —
+   * 화면이 예약 이메일을 비교하지 않는다.
+   *
+   * 선택 필드다 — 없으면 **아닌 쪽**이다. 둘러보기를 사람 계정으로 잘못 보면 「관리자」가
+   * 보일 뿐이고, 사람 계정을 둘러보기로 잘못 보는 쪽이 더 이상하다.
+   */
+  isTour?: boolean
 }
 
 /*
@@ -333,6 +344,7 @@ function toCurrentUser(body: unknown): CurrentUser | null {
     // 모르면 **없는 쪽**이다 — 없다고 보면 머리글자가 나오고, 있다고 잘못 보면
     // 깨진 이미지가 나온다.
     hasAvatar: data.has_avatar === true,
+    isTour: data.is_tour === true,
   }
 }
 

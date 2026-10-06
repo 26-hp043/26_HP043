@@ -466,7 +466,7 @@
  * 「다시 시도」 — `DESIGN_SYSTEM §8` **텍스트 버튼**. 투명 배경 · `--text-primary` · hover
  * `--surface-inset` · radius는 컨트롤 값 · 포커스 링은 `§5`. 같은 줄에 다른 컨트롤이 없어
  * 높이는 `--target-icon-button`(32px)이다(`§8` 〔확정〕 「혼자면 32px」 · `#1297`).
- * 상단바 `.app-shell__logout`과 같은 모양이다.
+ * 계정 메뉴의 `.account-menu__logout`과 같은 모양이다(#2203 전에는 상단바 로그아웃).
  */
 .vm__retry {
   display: inline-flex;

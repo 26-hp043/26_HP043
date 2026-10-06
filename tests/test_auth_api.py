@@ -361,6 +361,8 @@ USER_CONTRACT = frozenset(
         "data.id",
         # `#2080` — 바이트가 아니라 **있다/없다**다. 가입·로그인 직후에는 늘 거짓이다.
         "data.has_avatar",
+        # `#2203` — 둘러보기 계정인가. 화면이 역할 대신 「둘러보기」를 적는다
+        "data.is_tour",
         "data.last_login_at",
         # 사무직·현장직 (#672)
         "data.role",
