@@ -211,6 +211,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
   const launcherRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLElement | null>(null)
   /** 한 번이라도 열렸는지. 첫 렌더에서 초점을 빼앗지 않기 위한 표시다. */
   const openedOnceRef = useRef(false)
   const panelId = useId()
@@ -265,6 +266,29 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       launcherRef.current?.focus()
     }
   }, [open])
+
+  useEffect(() => {
+    /*
+     * 입력이 닫혀 있으면 **패널이 초점을 받는다** (#2128). 「쓸 수 없음」에서 입력은
+     * `disabled`라 초점을 받지 못하고, 이미 받은 뒤 닫히면 잃는다 — 어느 쪽이든 초점이
+     * `body`에 남아 패널의 Escape가 닿지 않았다. 패널은 `tabindex="-1"`인 프로그램적
+     * 초점 대상이다(`DESIGN_SYSTEM §14` — 링을 그리지 않는다).
+     *
+     * 초점이 **떨어진 경우에만** 옮긴다 — `body`에 있거나, 패널 안의 닫힌 입력에 남아 있을
+     * 때다. 패널 안의 살아 있는 요소(닫기 버튼)나 패널 밖 본문을 조작하는 사람의 자리는
+     * 빼앗지 않는다. 패널은 모달이 아니라서, 질문을 보내고 본문으로 나간 뒤에 응답이
+     * 「쓸 수 없음」으로 돌아올 수 있다.
+     */
+    if (!open || !stopped) return
+    const panel = panelRef.current
+    const active = document.activeElement
+    if (!panel) return
+    const dropped =
+      active === null ||
+      active === document.body ||
+      (panel.contains(active) && active.matches(':disabled'))
+    if (dropped) panel.focus()
+  }, [open, stopped])
 
   useEffect(() => {
     // 새 말풍선이 생기면 아래로 붙인다 — 사용자가 스크롤을 찾아 내려가지 않게.
@@ -405,6 +429,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
        * `body`로 떨어지면 위의 Escape가 닿지 않는다.
        */
       tabIndex={-1}
+      ref={panelRef}
     >
       <header className="assistant__head">
         {/*

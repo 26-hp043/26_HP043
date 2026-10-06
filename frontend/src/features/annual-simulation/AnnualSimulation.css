@@ -829,7 +829,7 @@
   box-shadow: var(--shadow-lv1);
 }
 
-.annual-sim__playback-map > [role='img'] {
+.annual-sim__playback-map > [role='group'] {
   width: 100%;
   min-height: 22rem;
 }
@@ -904,7 +904,7 @@
     grid-template-columns: 1fr;
   }
   .annual-sim__playback-map,
-  .annual-sim__playback-map > [role='img'] {
+  .annual-sim__playback-map > [role='group'] {
     min-height: 16rem;
   }
 }

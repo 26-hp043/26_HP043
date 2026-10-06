@@ -900,3 +900,55 @@ describe('범이 첫 방문 안내 (#2205)', () => {
     expect(window.localStorage.getItem('bluelog.assistant.introHintDismissed')).toBe('true')
   })
 })
+
+/*
+ * 쓸 수 없는 상태에서도 **초점이 패널 안에 있다** (#2128 ⑷).
+ *
+ * 여는 순간 초점은 입력으로 간다. 그런데 「쓸 수 없음」이면 입력이 `disabled`라 초점을
+ * 받지 못하고(이미 받았다면 잃고) `body`에 남는다. Escape는 **패널 안에서만** 받으므로
+ * (`#1101`) 키보드로 연 사람이 키보드로 닫을 수 없었다.
+ */
+describe('쓸 수 없는 상태의 초점 (#2128)', () => {
+  const inputClosed = () => (screen.getByLabelText('질문') as HTMLTextAreaElement).disabled
+  const focusIsUsable = () => {
+    const active = document.activeElement as HTMLElement
+    expect(active.closest('.assistant')).not.toBeNull()
+    expect(active.matches(':disabled')).toBe(false)
+  }
+
+  it('키보드로 열고 Escape로 닫을 수 있다 — 닫으면 여는 버튼으로 돌아간다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(inputClosed()).toBe(true))
+
+    focusIsUsable()
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+
+    const launcher = screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
+    expect(document.activeElement).toBe(launcher)
+  })
+
+  it('다시 열 때 — 입력이 처음부터 닫혀 있어도 초점이 패널 안에 놓인다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(inputClosed()).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
+
+    open()
+    // 상태 조회가 돌아오기 **전**이다 — 입력은 지난번에 닫힌 그대로다.
+    expect(inputClosed()).toBe(true)
+    focusIsUsable()
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2))
+    focusIsUsable()
+  })
+
+  it('쓸 수 있으면 종전대로 입력이 초점을 받는다', async () => {
+    const status = vi.fn(async () => ({ available: true }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(status).toHaveBeenCalled())
+    expect(document.activeElement).toBe(screen.getByLabelText('질문'))
+  })
+})

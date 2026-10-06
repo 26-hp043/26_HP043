@@ -9,6 +9,7 @@ import { useShellContext } from './shellContext'
 import { VESSEL_QUERY_KEY } from './globalContext'
 import { NAV_ORDER, SCREEN_BY_ID } from '../screens'
 import * as session from '../auth/session'
+import { LanguageProvider } from '../i18n/Provider'
 
 /**
  * 셸 → 화면 **전역 컨텍스트 배선** 검증 (#557).
@@ -739,5 +740,82 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
       expect(optionLabel).toContain(SAMPLE_PORTS[0].name_ko)
     })
     expect(voyageCalls).toHaveLength(1)
+  })
+})
+
+describe('제목 갱신과 초점 이동은 따로 돈다 (#2128 ⑴)', () => {
+  /*
+   * 종전에는 둘이 한 effect에 있었고 의존성에 `language`가 들어 있었다 — 제목이 언어를
+   * 따라야 해서다. 그 바람에 **계정 메뉴 안에서 언어를 바꾸면 초점이 `<main>`으로
+   * 뛰었다.** 키보드 사용자는 방금 누른 토글을 잃고 메뉴를 다시 찾아 들어가야 했다.
+   *
+   * 초점 이동은 **화면이 바뀌었다**는 알림이다(`DESIGN_SYSTEM §14` · `#829` ⑸c).
+   * 언어 전환은 화면 전환이 아니다.
+   */
+  function stubUser() {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u1',
+      email: 'a@b.c',
+      displayName: '테스터',
+      role: 'OFFICE',
+      emailVerifiedAt: null,
+      hasAvatar: false,
+    })
+  }
+
+  it('언어를 바꿔도 초점이 토글에 남는다 — 제목은 새 언어를 따른다', async () => {
+    stubUser()
+    stubServer()
+    // 언어가 실제로 바뀌려면 provider가 있어야 한다 — 없으면 기본 사전으로만 돈다.
+    render(
+      <LanguageProvider>
+        <MemoryRouter initialEntries={[FORECAST_PATH]}>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route path={FORECAST_PATH} element={<ContextProbe />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </LanguageProvider>,
+    )
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+
+    fireEvent.click(screen.getByTestId('account-trigger'))
+    const group = screen.getByRole('radiogroup', { name: /언어/ })
+    const other = [...group.querySelectorAll<HTMLElement>('[role="radio"]')].find(
+      (radio) => radio.getAttribute('aria-checked') === 'false',
+    )!
+    const titleBefore = document.title
+    other.focus()
+    fireEvent.click(other)
+
+    // 제목 쪽 effect는 살아 있다 — 언어가 바뀌면 제목이 바뀐다.
+    await waitFor(() => expect(document.title).not.toBe(titleBefore))
+    expect(other.getAttribute('aria-checked')).toBe('true')
+    expect(other.closest('[role="radiogroup"]')?.contains(document.activeElement)).toBe(true)
+    expect(document.activeElement).not.toBe(document.querySelector('main'))
+  })
+
+  it('화면을 옮기면 종전대로 본문이 초점을 받는다 — 지운 것은 언어 쪽뿐이다', async () => {
+    stubServer()
+    const target = SCREEN_BY_ID.VESSEL_MANAGEMENT
+    render(
+      <MemoryRouter initialEntries={[FORECAST_PATH]}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route path={FORECAST_PATH} element={<ContextProbe />} />
+            <Route path={target.path} element={<p>다른 화면</p>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+    // 첫 진입에서는 옮기지 않는다.
+    expect(document.activeElement).not.toBe(document.querySelector('main'))
+
+    fireEvent.click(screen.getByRole('link', { name: new RegExp(`^${target.label}`) }))
+
+    await waitFor(() => expect(screen.getByText('다른 화면')).toBeTruthy())
+    expect(document.activeElement).toBe(document.querySelector('main'))
   })
 })

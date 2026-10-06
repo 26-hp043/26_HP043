@@ -158,19 +158,26 @@ export function AppShell() {
    *
    * 첫 진입에서는 옮기지 않는다. 페이지를 열자마자 초점이 본문으로 뛰면 주소창에서
    * Tab으로 들어오는 흐름이 끊긴다.
+   *
+   * **두 effect로 나눈다** (#2128). 제목은 언어를 따라야 하지만 초점은 **화면이 바뀔
+   * 때만** 옮긴다 — 한 effect에 두면 계정 메뉴에서 언어를 바꾸는 순간 초점이 방금 누른
+   * 토글에서 본문으로 뛴다. 언어 전환은 화면 전환이 아니다.
    */
-  const firstRender = useRef(true)
   useEffect(() => {
     // 제목의 화면 이름은 현재 언어를 따른다(#1215) — 사이드바 라벨과 같은 값이다.
     document.title = screen
       ? `${language === 'en' ? screen.labelEn : screen.label} · ${APP_TITLE}`
       : APP_TITLE
+  }, [screen, language])
+
+  const firstRender = useRef(true)
+  useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false
       return
     }
     document.getElementById(MAIN_ID)?.focus()
-  }, [pathname, screen, language])
+  }, [pathname])
 
   // URL을 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
   useEffect(() => {
