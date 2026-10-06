@@ -52,7 +52,11 @@ from cii_platform.calc.data_quality import (
     completeness_ratio,
     judge_anomaly,
 )
-from cii_platform.calc.precision import SERIALIZATION_ROUNDING, layer1_context
+from cii_platform.calc.precision import (
+    SERIALIZATION_ROUNDING,
+    layer1_context,
+    publish_layer1_canonical,
+)
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import port_call as port_call_repo
@@ -201,10 +205,13 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
     **절사한다** (`#1600`). 완전성 비율은 4자리로 보내고 화면은 백분율 1자리(소수 3)로 다시
     반올림한다 — 여기서 반올림하면 두 번 반올림되어 약 5%가 끝자리 1이 틀렸다(20만 건 재현).
     반올림 모드를 명시한다 — ``f"{value:.4f}"``는 호출 스레드의 Decimal 컨텍스트를 따라 갈린다.
+
+    절사 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와 같은 두 단계).
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
+    canonical = publish_layer1_canonical(value)
+    return str(canonical.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
 
 
 def _publish_cii(value: Decimal | None) -> str | None:
@@ -212,10 +219,13 @@ def _publish_cii(value: Decimal | None) -> str | None:
 
     ``delta``는 음수일 수 있다 — ``ROUND_DOWN``은 0 방향 절사라 부호에 대칭이고, 절사 뒤
     화면의 3자리 반올림은 원값 직접 반올림과 같다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    절사 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와 같은 두 단계).
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
+    canonical = publish_layer1_canonical(value)
+    return str(canonical.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _publish_co2_ton(grams: Decimal) -> str:

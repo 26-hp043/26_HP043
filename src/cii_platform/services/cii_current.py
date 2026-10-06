@@ -49,6 +49,7 @@ from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
 from cii_platform.calc.precision import (
     SERIALIZATION_ROUNDING,
     layer1_context,
+    publish_layer1_canonical,
 )
 from cii_platform.calc.rating_engine import (
     calculate_deterministic_risk,
@@ -180,8 +181,16 @@ def _publish(value: Decimal | None, kind: str) -> str | None:
 
 def _truncate(value: Decimal, kind: str) -> Decimal:
     """종류별 전송 자릿수로 절사한 ``Decimal``. :func:`_publish`가 문자열로 만들기 직전의 값이며,
-    연말 예상 분해(`#1673`)가 **같은 절사**를 문자열이 아닌 수로 쓴다."""
-    return value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING)
+    연말 예상 분해(`#1673`)가 **같은 절사**를 문자열이 아닌 수로 쓴다.
+
+    **두 단계다** (`TECH_SPEC §1.2.1` · `#2184`). 먼저 30자리 공표 확정을 거치고, 그 다음
+    전송 자릿수로 줄인다 — ``voyage_cii._publish``와 같다. 종전에는 작업 정밀도(50자리)
+    값을 바로 절사해, 참값이 전송 자릿수 경계에 정확히 놓인 입력(``519/64 = 8.109375``)에서
+    ``…99998`` 꼴의 50자리 값이 ``8.109374``로 나갔다. 공표 확정이 그 꼬리를 참값으로
+    되돌리고, 절사는 그 뒤에 한다.
+    """
+    canonical = publish_layer1_canonical(value)
+    return canonical.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING)
 
 
 def _validate_year(year: int) -> None:

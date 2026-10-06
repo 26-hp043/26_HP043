@@ -38,7 +38,12 @@ from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
 from cii_platform.calc.distance import initial_bearing_deg
-from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING, layer1_context
+from cii_platform.calc.precision import (
+    LAYER1_ROUNDING,
+    SERIALIZATION_ROUNDING,
+    layer1_context,
+    publish_layer1_canonical,
+)
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -168,10 +173,14 @@ def _publish_cii(value: Decimal | None) -> str | None:
     4자리에서는 5.1%가 끝자리가 올라갔다 — 절사 뒤 반올림은 원값 직접 반올림과 언제나
     같다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). CII 필드는 :func:`_publish`가 아니라
     이 함수를 거친다.
+
+    절사 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와 같은 두
+    단계) — 작업 정밀도 값을 바로 절사하면 참값이 경계에 놓인 입력에서 끝자리가 하나 내려간다.
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
+    canonical = publish_layer1_canonical(value)
+    return str(canonical.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _route_of(voyage) -> dict[str, str] | None:
