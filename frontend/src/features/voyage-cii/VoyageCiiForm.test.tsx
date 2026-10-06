@@ -617,8 +617,10 @@ describe('연료 입력 방식 (#1718)', () => {
     expect((screen.getByLabelText('총량') as HTMLInputElement).disabled).toBe(false)
     expect((screen.getByLabelText('하루 × 항해일') as HTMLInputElement).disabled).toBe(false)
 
-    // 사유는 라디오가 가리키는 요소에 실제로 있고 비어 있지 않다
-    const reasonId = vesselMode.getAttribute('aria-describedby') as string
+    // 사유는 라디오가 가리키는 요소에 실제로 있고 비어 있지 않다.
+    // 선택 카드(#2201)는 풀이 id 뒤에 사유 id를 붙인다 — **마지막** id가 사유다.
+    const describedBy = (vesselMode.getAttribute('aria-describedby') ?? '').split(/\s+/)
+    const reasonId = describedBy[describedBy.length - 1]
     expect(reasonId).toBeTruthy()
     const reason = document.getElementById(reasonId) as HTMLElement
     expect(reason).not.toBeNull()
@@ -636,14 +638,18 @@ describe('연료 입력 방식 (#1718)', () => {
     )
   })
 
-  it('제원이 있는 선박이면 사유 요소가 없고 라디오도 잇지 않는다', async () => {
+  it('제원이 있는 선박이면 사유 요소가 없고 라디오는 풀이만 잇는다 (#2201)', async () => {
     stubServer()
     renderWithSpec('23.04')
     await ready()
 
     const vesselMode = screen.getByLabelText('선박 제원에서') as HTMLInputElement
     expect(vesselMode.disabled).toBe(false)
-    expect(vesselMode.getAttribute('aria-describedby')).toBeNull()
+    // 풀이(#2201)는 잇되 사유는 잇지 않는다 — 사유 요소가 아예 없다
+    const describedBy = (vesselMode.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    expect(describedBy).toHaveLength(1)
+    expect(document.getElementById(describedBy[0])?.textContent).toBeTruthy()
+    expect(document.querySelector('.voyage-cii-form__mode-reason')).toBeNull()
   })
 
   /**

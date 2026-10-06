@@ -33,6 +33,7 @@ import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
 import { Field } from '../../components/Field'
+import { ChoiceCards } from '../../components/ChoiceCards'
 import { useShowsLabelEn } from '../../i18n/core'
 import { publishScreenResult } from '../assistant/screenResult'
 
@@ -602,36 +603,25 @@ export function VoyageCiiForm({
           위 효과(`vesselDailyFocTon` 감시)가 `TOTAL`로 되돌린다(#1784 리뷰 LOW) — 라디오가
           `disabled`인 채로 `checked`만 남으면 입력칸이 없는 값 자리에 사유만 보이고
           사용자가 스스로 빠져나갈 길이 없다.
+
+          선택 카드로 둔다 (#2201) — 셋 중 하나이고 선택지마다 풀이 한 줄이 있다
+          (`DESIGN_SYSTEM §8.4` 사용 조건). 라디오 · 비활성 사유 배선은 그대로다.
         */}
-        <fieldset className="voyage-cii-form__modes">
-          <legend className="voyage-cii-form__label">연료 입력 방식</legend>
-          {FUEL_MODES.map((mode) => {
+        <ChoiceCards
+          name="fuel-mode"
+          legend="연료 입력 방식"
+          legendClassName="voyage-cii-form__label"
+          value={state.fuelMode}
+          onChange={(mode) => update('fuelMode', mode, FIELD.fuelTon)}
+          options={FUEL_MODES.map((mode) => {
             const blocked = mode.value === 'VESSEL' && vesselDailyFocTon === null
-            return (
-              <label
-                key={mode.value}
-                className={
-                  blocked ? 'voyage-cii-form__mode voyage-cii-form__mode--disabled' : 'voyage-cii-form__mode'
-                }
-              >
-                <input
-                  type="radio"
-                  name="fuel-mode"
-                  value={mode.value}
-                  checked={state.fuelMode === mode.value}
-                  disabled={blocked}
-                  aria-describedby={blocked ? VESSEL_MODE_REASON_ID : undefined}
-                  onChange={() => {
-                    // 실제 브라우저는 `disabled` 컨트롤에서 change를 내지 않는다. jsdom은
-                    // 그렇지 않아(`fireEvent.click`이 그대로 넘어온다) 여기서도 막는다.
-                    if (blocked) return
-                    update('fuelMode', mode.value, FIELD.fuelTon)
-                  }}
-                />
-                {mode.label}
-              </label>
-            )
+            return {
+              ...mode,
+              disabled: blocked,
+              reasonId: blocked ? VESSEL_MODE_REASON_ID : undefined,
+            }
           })}
+        >
           {vesselDailyFocTon === null ? (
             <p id={VESSEL_MODE_REASON_ID} className="voyage-cii-form__mode-reason">
               {state.vesselId === ''
@@ -639,7 +629,7 @@ export function VoyageCiiForm({
                 : '「선박 제원에서」는 이 선박에 기준 일일 연료소모량이 없어 고를 수 없습니다.'}
             </p>
           ) : null}
-        </fieldset>
+        </ChoiceCards>
 
         {state.fuelMode === 'TOTAL' ? (
           <Field
@@ -762,10 +752,15 @@ export function VoyageCiiForm({
 const VESSEL_MODE_REASON_ID = 'voyage-cii-fuel-mode-vessel-reason'
 
 /** 연료 입력 방식 셋 (#1718). 순서는 「아는 값이 무엇인가」의 흔한 순서다. */
-const FUEL_MODES: ReadonlyArray<{ value: FuelInputMode; label: string }> = [
-  { value: 'TOTAL', label: '총량' },
-  { value: 'DAILY', label: '하루 × 항해일' },
-  { value: 'VESSEL', label: '선박 제원에서' },
+/*
+ * 풀이는 **입력 방법**을 말한다 — 규제값이나 공식이 아니라 이 화면이 하는 일이므로
+ * 정본에서 옮길 값이 없다(`AGENTS §6`은 수치 · 공식 · 규제값에 걸린다). 셈은 `toRequest`가
+ * 한다 — 어느 방식이든 서버로 가는 것은 총량 하나다(#1718).
+ */
+const FUEL_MODES: ReadonlyArray<{ value: FuelInputMode; label: string; description: string }> = [
+  { value: 'TOTAL', label: '총량', description: '항차 전체에 쓴 연료를 그대로 넣습니다' },
+  { value: 'DAILY', label: '하루 × 항해일', description: '하루 사용량을 넣으면 항해일을 곱해 총량을 냅니다' },
+  { value: 'VESSEL', label: '선박 제원에서', description: '선박에 등록된 기준 일일 연료소모량을 씁니다' },
 ]
 
 interface StaticFieldProps {
