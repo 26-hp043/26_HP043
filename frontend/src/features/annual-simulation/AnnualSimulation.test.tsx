@@ -184,6 +184,9 @@ const WAITS_FOR_RESULT_MS = 15_000
  * 기다리는 쪽은 시한까지 아무것도 받지 못한다(연도 목록을 300ms 늦춰 그 시한 초과를 재현했다).
  * 그래서 `runOnce`와 같은 전제(연도 선택지 · effect 비우기)를 세운 뒤 누르고, 나가지 않았다면
  * 시한이 아니라 이 단언의 실패로 드러나게 한다.
+ *
+ * 기다리는 선택지는 `2026`이다 — 복원 스텁(`stubWithLast` · `stubLast`)이 주는 해이며 `runOnce`와
+ * 같은 전제다. 다른 해를 주는 스텁에서 쓰면 선택지를 못 찾아 5초 뒤 실패한다.
  */
 async function submitRestored(fetchImpl: { mock: { calls: unknown[][] } }): Promise<void> {
   await screen.findByRole('option', { name: '2026' }, { timeout: 5000 })
