@@ -50,19 +50,18 @@
 erDiagram
     VESSEL ||--o{ VOYAGE : has
     VESSEL ||--o{ VOYAGE_SCENARIO : standalone
-    VOYAGE ||--o{ VOYAGE_FUEL_USE : consumes
-    VOYAGE ||--o{ VOYAGE_SCENARIO : derived_from
-    VOYAGE ||--o{ CALCULATION_RUN : calculated_by
+    VESSEL ||--o{ CALCULATION_RUN : calculated_for
     VESSEL ||--o{ ANNUAL_SIMULATION_RUN : simulated_by
+    VESSEL ||--o{ SIMULATION_SNAPSHOT : captured_in
+    VOYAGE ||--o{ VOYAGE_FUEL_USE : consumes
+    VOYAGE |o--o{ VOYAGE_SCENARIO : derived_from
+    VOYAGE |o--o{ CALCULATION_RUN : calculated_by
+    CALCULATION_RUN ||--o{ ANNUAL_SIMULATION_RUN : referenced_by
     SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN : used_by
-    REGULATION_YEAR ||--o{ CALCULATION_RUN : used_by
+    WEATHER_SNAPSHOT |o--o{ VOYAGE_SCENARIO : used_by
+    WEATHER_SNAPSHOT |o--o{ CALCULATION_RUN : used_by
+    FUEL_TYPE |o--o{ VESSEL : default_fuel
     FUEL_TYPE ||--o{ VOYAGE_FUEL_USE : used_in
-    FUEL_TYPE ||--o{ VESSEL : default_fuel
-    CII_REFERENCE_LINE ||--o{ CALCULATION_RUN : referenced_by
-    CII_RATING_BOUNDARY ||--o{ CALCULATION_RUN : referenced_by
-    WEATHER_SNAPSHOT ||--o{ VOYAGE_SCENARIO : used_by
-    AUDIT_LOG }o--o| VESSEL : references
-    AUDIT_LOG }o--o| VOYAGE : references
     VESSEL ||--o{ NOT_UNDERWAY_PERIOD : idle_in
     VOYAGE |o--o{ NOT_UNDERWAY_PERIOD : context
     NOT_UNDERWAY_PERIOD ||--o{ NOT_UNDERWAY_FUEL_USE : consumes
@@ -76,11 +75,15 @@ erDiagram
     CHAT_SESSION ||--o{ CHAT_MESSAGE : contains
 ```
 
-> **[#1347] 관계 없는 표 넷은 그리지 않는다.** `weather_model_parameter`(`§2.12`) · `simulation_parameter`(`§2.19`) · `port_geocode`(`§2.20`) · `port_call_record`(`§2.25` · `#1197`)는 **FK가 하나도 없는 독립 표**다 — 차례로 기상 모델 계수, Monte Carlo 분포 파라미터, 항만명 → 좌표 캐시, 공적 재항 기록 사본이다. 선으로 이을 상대가 없는 노드를 넣으면 다이어그램이 **관계도가 아니라 목록**이 된다. 표 전체 목록은 `§2`가 갖는다 — **`§2`의 26개 중 이 넷을 뺀 22개**가 위에 있다.
+> **[#2140] 선 25개는 `§7.1` 총람의 25행과 같다 — 선 하나가 참조 하나다.** 모델의 FK 21건과 트리거로 지키는 참조 4건(연료 코드 참조 셋 · `annual_simulation_run.snapshot_id` — `§7.4` 1항·6항)이다. 왼쪽 기호는 자식 열의 NULL 허용에서 읽는다 — nullable이면 `|o`, `NOT NULL`이면 `||`다. nullable인 것은 여덟이다: FK 일곱(`voyage_scenario.voyage_id`·`weather_snapshot_id`, `calculation_run.voyage_id`·`weather_snapshot_id`, `not_underway_period.voyage_id`, `chat_session.vessel_id`, `fleet_reduction_plan.created_by`)과 트리거 참조인 `vessel.default_fuel_type`. 오른쪽이 `o|`인 것은 `snapshot_id` 하나다(유니크 인덱스 `idx_sim_snapshot_unique` · `§2.6 [S-6]`).
 >
-> 위 일곱 줄은 `#1347`에서 더했다 — **종전 다이어그램은 15개만** 담고 있었고, 인증(`app_user`·`user_session`·`user_token`)·챗봇(`chat_session`·`chat_message`)·위치 이력·감축 계획이 통째로 빠져 있었다. **카디널리티는 실제 FK에서 읽었다** — `fleet_reduction_plan.created_by`와 `chat_session.vessel_id`는 nullable(`ON DELETE SET NULL`)이라 `|o`, 나머지는 `NOT NULL`이다.
+> **종전 다이어그램에는 FK가 아닌 선 다섯이 있었고 FK인 선 넷이 없었다.** `REGULATION_YEAR`·`CII_REFERENCE_LINE`·`CII_RATING_BOUNDARY` → `CALCULATION_RUN`과 `AUDIT_LOG` → `VESSEL`·`VOYAGE`를 지웠다 — 앞의 셋은 계산이 값을 `parameters_used`(`§2.5`)에 **사본으로** 담을 뿐 행을 가리키지 않고, `audit_log`는 `entity_type` + `entity_id`(`§2.14`)로 대상을 적을 뿐 FK가 없다. `VESSEL` → `CALCULATION_RUN`·`SIMULATION_SNAPSHOT`, `CALCULATION_RUN` → `ANNUAL_SIMULATION_RUN`, `WEATHER_SNAPSHOT` → `CALCULATION_RUN`을 더했다. 카디널리티 넷도 고쳤다 — nullable인데 `||`로 그려져 있던 것들이다.
+>
+> **[#1347] 관계 없는 표는 그리지 않는다 — 여덟이다.** `weather_model_parameter`(`§2.12`) · `simulation_parameter`(`§2.19`) · `port_geocode`(`§2.20`) · `port_call_record`(`§2.25` · `#1197`)는 **FK가 하나도 없는 독립 표**다 — 차례로 기상 모델 계수, Monte Carlo 분포 파라미터, 항만명 → 좌표 캐시, 공적 재항 기록 사본이다. `regulation_year`(`§2.8`) · `cii_reference_line`(`§2.10`) · `cii_rating_boundary`(`§2.11`) · `audit_log`(`§2.14`)도 FK를 갖지 않고 다른 표의 FK가 가리키지도 않는다(위 `[#2140]`). 선으로 이을 상대가 없는 노드를 넣으면 다이어그램이 **관계도가 아니라 목록**이 된다. 표 전체 목록은 `§2`가 갖는다 — **`§2`의 26개 중 이 여덟을 뺀 18개**가 위에 있다.
+>
+> 다이어그램의 마지막 일곱 줄은 `#1347`에서 더했다 — **종전 다이어그램은 15개만** 담고 있었고, 인증(`app_user`·`user_session`·`user_token`)·챗봇(`chat_session`·`chat_message`)·위치 이력·감축 계획이 통째로 빠져 있었다.
 
-> **[S-6 수정]** `SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN` (1:1 또는 1:0..1)으로 변경. 시뮬레이션 실행 1건당 스냅샷 1건이 생성되며, 스냅샷이 부모이다. `AUDIT_LOG`의 카디널리티도 `}o--o|`로 수정 (entity_id가 NULL 허용).
+> **[S-6 수정]** `SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN` (1:1 또는 1:0..1)으로 변경. 시뮬레이션 실행 1건당 스냅샷 1건이 생성되며, 스냅샷이 부모이다. `AUDIT_LOG`의 카디널리티도 `}o--o|`로 수정 (entity_id가 NULL 허용) — 그 `AUDIT_LOG` 선 둘은 `#2140`에서 지웠다(위).
 
 ---
 
@@ -395,7 +398,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `calculation_type` | VARCHAR(30) | NOT NULL | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [DB-C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
-| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. **[#904]** 기상 보정을 적용하는 기능②(`SCENARIO`)만 채운다 — 2026-09-12 이전에는 삽입 경로가 `None`으로 고정돼 **보정한 계산도 NULL**이다(아래 `[#102]` 각주). ⚠️ 실물 컬럼·FK는 #103(013 `weather_snapshot`) 생성 후 **016+ 후속 마이그레이션**에서 추가 |
+| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. **[#904]** 기상 보정을 적용하는 기능②(`SCENARIO`)만 채운다 — 2026-09-12 이전에는 삽입 경로가 `None`으로 고정돼 **보정한 계산도 NULL**이다(아래 `[#102]` 각주). 실물 컬럼·FK는 `016_calc_run_weather_snapshot`(`#115` · PR `#128`)이 추가했고, CUBRID 전환(`#1058`) 뒤에는 초기 스키마 `1c444a5c4819`에 들어 있다 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -963,7 +966,7 @@ CREATE UNIQUE INDEX uq_app_user_email_active ON app_user (email_active);
 
 > **[#413] `email`이 로그인 ID이자 유일 키다.** 종전에는 *"구글 계정의 이메일은 변경될 수 있으므로 unique를 걸지 않는다"* 로 두고 유일성을 `google_sub`에 두었으나, **구글 위임을 그만두면서 그 전제가 사라졌다**(`PRD O-14`). 자체 인증에서 이메일은 사용자가 스스로 정하는 로그인 ID이므로 유일해야 한다.
 >
-> **`password_hash`는 해시만 담는다.** 평문 비밀번호는 저장·로그·감사 기록 어디에도 남기지 않는다 — `app_session`이 토큰 원문을 저장하지 않는 것(§2.16)과 같은 원칙이다.
+> **`password_hash`는 해시만 담는다.** 평문 비밀번호는 저장·로그·감사 기록 어디에도 남기지 않는다 — `user_session`이 토큰 원문을 저장하지 않는 것(§2.16)과 같은 원칙이다.
 >
 > **[#1301] `role` 값 제약은 CHECK가 아니라 트리거다.** CUBRID 11.4.6은 `CHECK`를 구문으로 받기만 하고 검사하지 않으므로(`#1058` · `§7.4`), 044부터 `trg_app_user_role_ins`·`trg_app_user_role_upd`(`BEFORE INSERT`·`BEFORE UPDATE`)가 값을 막는다. **마이그레이션 057이 그 두 트리거를 `IN ('OFFICE', 'FIELD')`에서 `IN ('OFFICE', 'FIELD', 'ADMIN')`으로 다시 만든다** — `CREATE OR REPLACE`가 없어 지우고 다시 만드는 방식이다. 057 이전 DB에서 `role = 'ADMIN'`을 넣거나 바꾸면 트리거가 REJECT한다. **downgrade는 데이터를 바꾼다** — 트리거를 좁히기 전에 관리자를 **사무직으로** 내린다(현장직이 아니다: `ADMIN`은 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 「계정 관리만 잃는」 최소 변경이다). 누가 관리자였는지는 그 순간 사라지므로 `IRREVERSIBLE`(`044`와 같은 성질)이지만, `INITIAL_ADMIN_EMAILS`에 든 계정은 다음 로그인에서 다시 관리자가 된다.
 
@@ -986,11 +989,11 @@ CREATE UNIQUE INDEX idx_user_token_hash ON user_token (token_hash);
 CREATE INDEX idx_user_token_user_purpose ON user_token (user_id, purpose);
 ```
 
-> **원문 대신 해시만 저장한다.** `app_session.session_token_hash`(§2.16)와 같은 규칙이다 — **DB가 유출돼도 토큰을 되돌릴 수 없어야 한다.** 원문은 메일 본문에만 실린다.
+> **원문 대신 해시만 저장한다.** `user_session.session_token_hash`(§2.16)와 같은 규칙이다 — **DB가 유출돼도 토큰을 되돌릴 수 없어야 한다.** 원문은 메일 본문에만 실린다.
 >
 > **유효기간** — 이메일 인증 24시간 · 비밀번호 재설정 1시간. 재설정이 짧은 것은 그 토큰이 계정을 통째로 넘기는 힘을 갖기 때문이다.
 >
-> 실물 테이블 생성은 **`#408`**이 담당한다. 이 절은 계약만 확정한다.
+> 실물 테이블은 **`#408`**(PR `#420` · 2026-08-17)이 만들었다 — ORM은 `db/models/user_token.py`이고, CUBRID 전환(`#1058`) 뒤에는 초기 스키마 `1c444a5c4819`가 만든다.
 
 ### 2.16 `user_session` — 로그인 세션 (#273)
 
@@ -1275,9 +1278,9 @@ CREATE UNIQUE INDEX uq_vessel_position_snapshot_observation
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK, `gen_random_uuid()` | |
-| `name` | VARCHAR(100) | NOT NULL, CHECK 공백 아님 | 계획 이름 |
+| `name` | VARCHAR(100) | NOT NULL | 계획 이름. **공백 여부는 DB가 보지 않는다** — 입력 스키마가 본다(아래 `[#2140]`) |
 | `regulation_year` | INTEGER | NOT NULL | |
-| `target` | VARCHAR(20) | NOT NULL, CHECK | `NO_AT_RISK` · `ALL_C_OR_BETTER` |
+| `target` | VARCHAR(20) | NOT NULL, **트리거 `trg_fleet_plan_target_ins`·`_upd`** | `NO_AT_RISK` · `ALL_C_OR_BETTER` |
 | `adjustments` | JSONB | NOT NULL | `[{vessel_id, speed_reduction_percent}]` — 수치는 **문자열** |
 | `prices` | JSONB | NOT NULL | `{charter_usd_per_day: {vessel_id: …}, fuel_usd_per_ton: {fuel_type: …}}` — **이 계획이 가정한 단가(USD)** |
 | `result` | JSONB | NOT NULL | 저장 시점에 서버가 낸 결과 전체(`API_SPEC §2.17.1` `data`) |
@@ -1294,12 +1297,16 @@ CREATE TABLE fleet_reduction_plan (
     prices           JSONB        NOT NULL,
     result           JSONB        NOT NULL,
     created_by       UUID REFERENCES app_user(id) ON DELETE SET NULL,
-    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT chk_fleet_reduction_plan_target CHECK (target IN ('NO_AT_RISK','ALL_C_OR_BETTER')),
-    CONSTRAINT chk_fleet_reduction_plan_name   CHECK (length(trim(name)) > 0)
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
+    -- CHECK는 없다 — `target`은 트리거가 막고 `name` 공백은 DB가 보지 않는다(아래 [#2140]).
 );
 CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_at DESC);
 ```
+
+> **[#2140] 이 표에는 CHECK가 선언돼 있지 않다 — 마이그레이션에도 ORM에도 없다.** 종전 DDL은 `chk_fleet_reduction_plan_target`·`chk_fleet_reduction_plan_name` 둘을 적었으나, `043`은 CUBRID가 CHECK를 검사하지 않는다는 이유로(`§7.4`) 처음부터 걸지 않았고 ORM 모델도 같은 사유를 적고 비워 두었다. 그래서 이 둘은 `§7.4`가 트리거로 옮긴 「CHECK 60건」에 들지 않는다.
+>
+> - **`target`** — `043`이 만든 트리거 `trg_fleet_plan_target_ins`·`trg_fleet_plan_target_upd`(`BEFORE INSERT`·`BEFORE UPDATE`)가 두 값 밖을 거부한다. `§7.4` 트리거 표의 「`043` 목표 등급 2」가 이것이다.
+> - **`name` 공백** — **DB 계층에는 집행이 없다.** 공백만 있는 이름도 빈 문자열도 그대로 들어간다(2026-10-07 `cii_test` head `067` 실측). 막는 자리는 입력 스키마 하나다 — `ReductionPlanSaveRequest.plan_name`이 앞뒤 공백을 걷고 1~100자를 요구한다(`api/schemas/fleet_reduction.py`). API를 지나지 않는 쓰기는 이 검사를 받지 않는다.
 
 > **단가를 선박 제원에 두지 않고 계획에 둔다** (2026-09-13 결정 C). 제원에 두면 단가를 고친 순간 **과거 계획의 손익이 조용히 바뀐다** — 보고한 숫자와 다시 연 숫자가 갈린다.
 
@@ -1370,7 +1377,7 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 
 ### 2.25 `port_call_record` — 공적 재항 기록 원본 (#1197)
 
-공공데이터(해양수산부 선박운항정보 오픈API · `PRD §15.1` `[#1197]`)에서 받은 **기항 한 번**이 한 행이다. 사용자가 넣은 항차의 실제 출항·도착 시각과 정박 구간을 **견주기만** 한다 — 이 표의 값이 항차·계산으로 흘러가는 경로는 없다(`PRD §17.1` · 계산과 `input_hash` 불변). 쓰는 쪽은 수집기(`python -m cii_platform.port_calls.collect`) 하나이고, 조회 API는 바깥 서비스를 부르지 않고 이 표만 읽는다.
+공공데이터(해양수산부 선박운항정보 오픈API · `PRD §15.1` `[#1197]`)에서 받은 **기항 한 번**이 한 행이다. 사용자가 넣은 항차의 실제 출항·도착 시각과 정박 구간을 **견주기만** 한다 — 이 표의 값이 항차·계산으로 흘러가는 경로는 없다(`PRD §17.1` · 계산과 `input_hash` 불변). 바깥 서비스에서 받아 쓰는 쪽은 수집기(`python -m cii_platform.port_calls.collect`) 하나이고, 조회 API는 바깥 서비스를 부르지 않고 이 표만 읽는다. 수집기 말고 이 표에 행을 넣는 것은 데모 시드뿐이다 — `db/demo_seed.py`의 `seed_demo`가 `SEED_PORT_CALLS`를 넣고 `clear_demo`(`--clear`)가 그 행만 지운다.
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -1722,13 +1729,15 @@ CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH R
 
 | 구분 | `updated_at` | 근거 |
 |---|---|---|
-| 운영 데이터 — `vessel` · `voyage` · `voyage_fuel_use` · `voyage_scenario` | **둔다** | 사용자가 행을 제자리에서 수시로 고친다. 마지막 수정 시각이 곧 감사 정보다 |
+| 운영 데이터 — `vessel` · `voyage` · `voyage_fuel_use` · `voyage_scenario` · `not_underway_period` · `app_user` | **둔다** | 사용자가 행을 제자리에서 수시로 고친다. 마지막 수정 시각이 곧 감사 정보다 |
 | 파라미터 테이블 — `regulation_year` · `cii_reference_line` · `cii_rating_boundary` · `weather_model_parameter` | **두지 않는다** | 규제값이 개정되면 **행을 고치지 않고 새 `version` 행을 넣고 `is_active`를 전환**한다. 시점은 `created_at`·`effective_from`이 담는다 |
 | 파라미터 테이블 중 `fuel_type` | **예외로 둔다** | `TECH_SPEC §5.2`의 `parameter_hash` 계약이 CF 값의 **제자리 갱신 추적**을 요구한다. 그래서 `content_hash`(§2.9 `[X-3]`)와 함께 `updated_at`을 둔다. **`content_hash`를 가진 파라미터 테이블은 이것뿐이다** |
 
 > **파라미터 테이블에 `updated_at`이 없는 것은 누락이 아니라 정책이다.** 5종 중 `fuel_type`만 가지고 있어 「`regulation_year`에 빠졌다」로 읽히기 쉬우나, 실제 구조는 그 반대다 — **`fuel_type`이 유일한 예외**다.
 >
-> 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`fuel_type`이 `version`·`is_active`를 가진 이유가 이것이다.
+> 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`cii_reference_line`·`cii_rating_boundary`가 `version`·`is_active`를 가진 이유가 이것이다(뒤의 둘은 `054`부터 — 아래).
+>
+> **[#2140] `fuel_type`의 `version`·`is_active`는 이 운용을 위한 것이 아니다.** 종전에는 이 자리가 `fuel_type`도 「새 `version` 행 + `is_active` 전환」으로 운용한다고 적어 위 표의 예외 행과 어긋났다. `fuel_type.code`는 `UNIQUE`(`uq_fuel_type_code` · `§2.9`)라 **같은 코드의 행이 둘일 수 없고**, 적재 경로(`services/parameter_import.py`의 `_apply_fuel_types`)도 있는 코드는 `cf`·`version`·`content_hash`를 **제자리에서** 고친다. `version`은 그때 함께 갈아 쓰는 세트 라벨이고(`§8.3.1`), `is_active`는 그 연료를 입력에 쓸 수 있는가를 가른다(비활성 연료는 조회에서 빠진다 — `db/repositories/parameters.py`).
 >
 > 🔴 **2026-09-18까지 이 정책은 문서로만 존재했다 (#673 실측).** `cii_reference_line`·`cii_rating_boundary`에는 `version`·`is_active` **컬럼 자체가 없었고**, 세 테이블의 키에는 **전역 UNIQUE 인덱스**가 걸려 같은 키의 이행 행을 만들 수 없었다 — 쓰는 경로가 없으니 아무도 부딪히지 않았다. `054`가 컬럼을 추가하고 전역 유니크를 **활성-유니크 트리거**로 교체해 이 정책을 집행 가능하게 만들었다. 적재 경로는 `API_SPEC §7.5`다. 다만 `054`의 조건은 `new.is_active`를 보지 않아 **활성 행이 있는 키에는 이행 행을 넣지도 고치지도 못했다** — 적재 경로가 「활성 행을 끄고 → 새 활성 행을 넣는」 순서라 부딪히지 않았을 뿐이다. `067`(#2104)이 `047`과 같은 모양(`new.is_active = 0 OR NOT EXISTS`)으로 고쳐 비활성 행은 언제나 통과한다(§2.10 SQL).
 >
@@ -2381,3 +2390,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-06 | `#2228` | §2.10 SQL·§7.2·§7.4 **활성-유니크 트리거 6개가 비활성 행을 통과시키게** (마이그레이션 067 · #2104). `054`가 `regulation_year`·`cii_reference_line`·`cii_rating_boundary`에 건 조건 `IF EXISTS (… is_active = 1 AND id <> new.id)`에 `new.is_active`가 없어, 활성 행이 있는 키에 **이행 행**(`is_active = 0`)을 INSERT하거나 이미 있는 이행 행의 다른 열을 UPDATE하는 것이 전부 거부됐다(2026-10-06 `cii_test`에서 세 표 모두 `-517` 실측 · 정본 §2.10 「활성 행끼리만 유일」과 어긋남). 운영의 두 쓰기 경로(`parameter_import._apply_versioned` — 활성 행을 끄고 → flush → 새 활성 행 · `seed._upsert_active` — 활성 행만 갱신·없으면 삽입)가 그 모양을 피해 가 드러나지 않았다. `047` 소프트 삭제와 같은 `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체(`replace_trigger` — 지우지 못하면 멈춘다)하고 downgrade는 `054` 조건으로 되돌린다. 거부 집합을 **좁히기만** 하므로 전에 통과하던 쓰기는 전부 그대로 통과하고, 활성 둘은 INSERT도 이행 행을 되살리는 UPDATE도 여전히 거부된다. 트리거는 `BEFORE INSERT`·`BEFORE UPDATE`라 기존 행은 다시 검사되지 않는다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`067` 적용 후 176 실측). §2.10 SQL·§7.2 각주·리비전 표·트리거 표 머리(head `067`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2104) |
 | 2026-10-07 | `#2248` | §2.25 「트리거가 없다」 각주에 **수집기가 지키는 값 제약** 한 문장 — 시간대 없는 시각 · 빈 `call_seq` · `call_year`가 없는 기항이 섞인 쌍은 넣지 않고 실패로 남긴다. 표에 값 제약이 없는 까닭이 「수집기만 쓴다」였는데, 그 수집기가 제공자 값을 검사 없이 옮기고 있었다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 · 헤더 최종 수정일 `2026-10-06` → `2026-10-07` (#2113) |
 | 2026-10-07 | `#2258` | **§2.1 `vessel` 표의 `call_sign` 행 뒤에 끼어 있던 `[#860]` 인용블록을 표 뒤(`updated_at` 행 다음)로 옮겼다** (`#2137`) — `is_cii_applicable_hint` 이하 10행이 머리 없이 표 밖 문단으로 렌더되고 있었다. **이 변경 이력 표 중간(`#672`과 `#1058` 행 사이)의 빈 줄을 지웠고**(그 뒤 행들이 표 밖으로 렌더됐다), §10.2의 `S-6` 행의 `\|\|--o\|`(ER 카디널리티 기호)를 이스케이프했다. 셀·문장은 그대로다. `§4.3`상 구조 정정이라 버전은 올리지 않는다 |
+| 2026-10-07 | `#___` | **문서의 두 서술이 서로 어긋나던 자리와 끝난 작업을 미래형으로 적던 자리를 모델·마이그레이션에 맞췄다** (#2140). ⑴ **§1 ER 다이어그램** — 선 집합을 `§7.1` 총람 25행과 같게 했다. FK가 아닌 선 다섯(`REGULATION_YEAR`·`CII_REFERENCE_LINE`·`CII_RATING_BOUNDARY` → `CALCULATION_RUN` · `AUDIT_LOG` → `VESSEL`·`VOYAGE`)을 지우고, 빠져 있던 FK 넷(`VESSEL` → `CALCULATION_RUN`·`SIMULATION_SNAPSHOT` · `CALCULATION_RUN` → `ANNUAL_SIMULATION_RUN` · `WEATHER_SNAPSHOT` → `CALCULATION_RUN`)을 더했으며, nullable인데 `\|\|`로 그려져 있던 넷(`voyage_scenario.voyage_id`·`weather_snapshot_id` · `calculation_run.voyage_id` · `vessel.default_fuel_type`)을 `\|o`로 고쳤다. 그리지 않는 표는 넷이 아니라 **여덟**이고 다이어그램에는 18개가 있다. ⑵ **§7.2** — 표는 `fuel_type`을 「제자리 갱신」 예외로 두는데 바로 아래 각주가 「새 `version` 행 + `is_active` 전환」 대상으로 꼽고 있었다. `code`가 `UNIQUE`라 뒤쪽이 성립하지 않는다 — 각주를 표에 맞췄고, 그 운용을 하는 표를 `regulation_year`·`cii_reference_line`·`cii_rating_boundary`로 적었다. 같은 표의 「운영 데이터」 행에 `updated_at`을 가진 `not_underway_period`·`app_user`가 빠져 있어 더했다(같은 절이 「7개 테이블」로 적는다). ⑶ **§2.22** — DDL이 적던 CHECK 둘은 `043`에도 ORM에도 없다. `target`은 트리거 `trg_fleet_plan_target_ins`·`_upd`가 막고 `name` 공백은 DB가 보지 않는다(입력 스키마가 본다)로 고쳤다. ⑷ **끝난 작업의 미래형** — §2.5 `weather_snapshot_id` 행의 「016+ 후속 마이그레이션에서 추가」(`016`이 했다 · `#115`), §2.15.1의 「실물 테이블 생성은 `#408`이 담당한다」(`#408` 닫힘 · PR `#420`). ⑸ 그 밖 — §2.15·§2.15.1의 `app_session` 둘을 실제 표 이름 `user_session`으로, §2.25 「쓰는 쪽은 수집기 하나」에 데모 시드를 더했다. **스키마·마이그레이션·모델은 바꾸지 않았다.** 이슈가 함께 짚은 `§7.4` 2항(연료 코드 개명)은 이 변경에 들지 않는다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 |
