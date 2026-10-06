@@ -34,7 +34,12 @@ from cii_platform.calc.fleet_reduction import (
     summarize_costs,
     target_rating_for,
 )
-from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING, layer1_context
+from cii_platform.calc.precision import (
+    LAYER1_ROUNDING,
+    SERIALIZATION_ROUNDING,
+    layer1_context,
+    publish_layer1_canonical,
+)
 from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, NotFoundError, ParameterError, ValidationError
@@ -89,10 +94,13 @@ def _publish_measure(value: Decimal | None, digits: int) -> str | None:
     화면은 연료를 소수 1, 일수를 정수로 다시 반올림한다(`DESIGN_SYSTEM §4.2`) — 여기서 반올림하면
     두 번 반올림된다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). 금액·감속률은 표시 자릿수가
     정해지지 않았거나 같아서 :func:`_publish`(``ROUND_HALF_UP``)에 남긴다.
+
+    절사 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와 같은 두 단계).
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
+    canonical = publish_layer1_canonical(value)
+    return str(canonical.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
 
 
 def _publish_cii(value: Decimal | None) -> str | None:
@@ -100,10 +108,13 @@ def _publish_cii(value: Decimal | None) -> str | None:
 
     화면이 3자리로 다시 반올림하므로 여기서 반올림하면 두 번 반올림된다
     (`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    절사 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와 같은 두 단계).
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
+    canonical = publish_layer1_canonical(value)
+    return str(canonical.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _legs(voyages_json: list[dict]) -> list[PlannedLeg]:

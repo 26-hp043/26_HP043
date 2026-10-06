@@ -67,7 +67,11 @@ from cii_platform.calc.annual_simulation import (
 )
 from cii_platform.calc.cii_engine import calculate_required_cii
 from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
-from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
+from cii_platform.calc.precision import (
+    LAYER1_ROUNDING,
+    SERIALIZATION_ROUNDING,
+    publish_layer1_canonical,
+)
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import annual_simulation as annual_run_repo
 from cii_platform.db.repositories import not_underway as not_underway_repo
@@ -179,11 +183,18 @@ _DIGITS = {"cii": 6, "quantity": 6, "probability": 4}
 
 def _publish(value: Decimal | None, kind: str) -> str | None:
     """``API_SPEC §1.7`` 문자열 직렬화. 종류(:data:`_DIGITS`)를 **호출 자리마다 적는다** —
-    기본값을 두면 CII가 아닌 6자리 값이 조용히 절사된다."""
+    기본값을 두면 CII가 아닌 6자리 값이 조용히 절사된다.
+
+    Layer 1 값(``"cii"`` · ``"quantity"``)은 자릿수를 줄이기 **전에 30자리 공표 확정**을
+    거친다 (`TECH_SPEC §1.2.1` · `#2184` · ``voyage_cii._publish``와 같은 두 단계) — 작업
+    정밀도 값을 바로 절사하면 참값이 경계에 놓인 입력에서 끝자리가 하나 내려간다.
+    ``"probability"``는 Layer 2 확정값이라 공표 확정 대상이 아니다.
+    """
     if value is None:
         return None
+    canonical = value if kind == "probability" else publish_layer1_canonical(value)
     rounding = SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
+    return str(canonical.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 
 # ─── 입력 확정 ───────────────────────────────────────────────────────────────

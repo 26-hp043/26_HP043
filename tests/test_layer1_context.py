@@ -10,9 +10,11 @@ TECH_SPEC §1.2.1(작업 정밀도 = 정본 자릿수 + 최소 20 · ROUND_HALF_
 이라 메인 스레드에서만 확인하면, 지금 고치려는 결함이 그대로 재발해도 CI가 통과한다.
 """
 
+import itertools
 import threading
 from datetime import UTC, datetime
 from decimal import (
+    ROUND_DOWN,
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
     Context,
@@ -256,17 +258,17 @@ _SEGMENT_CAPACITY = Decimal("50000")
 _SEGMENT_CF = Decimal("3.114")
 
 
-def _segment_cii_exact() -> Fraction:
-    """이슈의 항차 구간 CII를 **분수로** 낸다 — 반올림·절단된 값을 입력으로 쓰지 않는다.
+def _segment_cii_exact(inputs: dict[str, Decimal] = _SEGMENT_INPUT) -> Fraction:
+    """항차 구간 CII를 **분수로** 낸다 — 반올림·절단된 값을 입력으로 쓰지 않는다.
 
     ``연료 = 소모율 × (v / v_ref)³ × (거리 / v) / 24`` (`TECH_SPEC §4.1`),
     ``CII = 연료 × CF × 10⁶ / (capacity × 거리)`` (`PRD §3.3.1`).
     """
-    speed = Fraction(_SEGMENT_INPUT["speed_kn"])
-    distance = Fraction(_SEGMENT_INPUT["planned_distance_nm"])
+    speed = Fraction(inputs["speed_kn"])
+    distance = Fraction(inputs["planned_distance_nm"])
     fuel_ton = (
-        Fraction(_SEGMENT_INPUT["daily_foc_ton"])
-        * (speed / Fraction(_SEGMENT_INPUT["reference_speed_kn"])) ** 3
+        Fraction(inputs["daily_foc_ton"])
+        * (speed / Fraction(inputs["reference_speed_kn"])) ** 3
         * (distance / speed)
         / 24
     )
@@ -279,8 +281,8 @@ def _truncated_6(value: Fraction) -> str:
     return f"{scaled // 10**6}.{scaled % 10**6:06d}"
 
 
-def _segment_progress():
-    """계획 거리(2,300 nm)를 넘긴 시점의 시계 값 — 거리가 정확히 계획값에서 멎는다."""
+def _segment_progress(inputs: dict[str, Decimal] = _SEGMENT_INPUT):
+    """계획 거리를 넘긴 시점(출항 29일 뒤)의 시계 값 — 거리가 정확히 계획값에서 멎는다."""
     from cii_platform.services.simulation_clock import compute_progress
 
     return compute_progress(
@@ -289,23 +291,23 @@ def _segment_progress():
         arrival_at=None,
         planned_arrival_at=None,
         not_underway_periods=[],
-        **_SEGMENT_INPUT,
+        **inputs,
     )
 
 
-def _segment_cii_sent() -> str:
+def _segment_cii_sent(inputs: dict[str, Decimal] = _SEGMENT_INPUT) -> str:
     """`current_voyage.attained_cii` 전송값. 시계 → `_split_fuel` → 엔진 → 절사를 다 지난다."""
     from cii_platform.services import cii_current
 
-    progress = _segment_progress()
-    assert progress.distance_nm == _SEGMENT_INPUT["planned_distance_nm"], "상한에 닿지 않았다"
+    progress = _segment_progress(inputs)
+    assert progress.distance_nm == inputs["planned_distance_nm"], "상한에 닿지 않았다"
     voyage = SimpleNamespace(
         id="voyage",
         voyage_no="V-2097",
         status="IN_PROGRESS",
         departure_port_name="A",
         arrival_port_name="B",
-        planned_distance_nm=_SEGMENT_INPUT["planned_distance_nm"],
+        planned_distance_nm=inputs["planned_distance_nm"],
     )
     segment = cii_current._voyage_segment(
         voyage=voyage,
@@ -376,3 +378,124 @@ def test_in_progress_segment_cii_is_stable_under_higher_precision(monkeypatch, o
     monkeypatch.setattr("cii_platform.calc.precision.LAYER1_WORKING_PRECISION", higher)
     assert len(_segment_progress().fuel_ton.as_tuple().digits) == higher
     assert _segment_cii_sent() == baseline
+
+
+# ── 전송값은 30자리 공표 확정을 거친 뒤 절사한다 (`#2184`) ─────────────────────
+#
+# `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」는 두 단계다 — 공표 확정(유효숫자 30)을 먼저 하고,
+# 그 30자리 값을 전송 자릿수로 줄인다. 실시간 CII는 앞 단계 없이 작업 정밀도(50자리) 값을
+# 바로 절사해, 참값이 전송 자릿수 경계에 정확히 놓인 입력에서 `…99998` 꼬리가 끝자리를
+# 하나 내렸다 — 참값 `519/64 = 8.109375`가 `8.109374`로 나갔다. 같은 한 단계 절사가
+# `cii_history` · `annual_simulation` · `fleet_summary` · `fleet_reduction` · `data_quality`에도
+# 있었다.
+
+#: (거리 nm · 계획 속도 · 기준 속도 · 일일 소모율) → 참값. 이슈 `#2184` 표의 세 입력이다.
+_BOUNDARY_SEGMENT_CASES = [
+    (("1000", "8", "8", "25"), Fraction(519, 64)),
+    (("1000", "8", "10", "50"), Fraction(1038, 125)),
+    (("1000", "16", "12", "23.04"), Fraction(5536, 625)),
+]
+
+
+def _segment_inputs(distance, speed, reference_speed, daily_foc) -> dict[str, Decimal]:
+    return {
+        "planned_distance_nm": Decimal(distance),
+        "speed_kn": Decimal(speed),
+        "reference_speed_kn": Decimal(reference_speed),
+        "daily_foc_ton": Decimal(daily_foc),
+    }
+
+
+@pytest.mark.parametrize(("raw", "exact_expected"), _BOUNDARY_SEGMENT_CASES)
+def test_segment_cii_at_a_transport_boundary_is_published_before_truncation(raw, exact_expected):
+    """⚠️ #2184 — 참값이 소수 6자리 경계에 놓인 세 입력에서 전송값이 참값의 절사와 같다.
+
+    종전에는 `_truncate`가 50자리 값을 바로 절사해 `8.109374` · `8.303999` · `8.857599`가
+    나갔다. 참값은 분수로 따로 내고, 기대 문자열은 정수 나눗셈으로 만든다(`AGENTS §5`) —
+    절단된 값을 입력으로 쓰면 검산이 틀린 값을 확증한다.
+    """
+    inputs = _segment_inputs(*raw)
+    exact = _segment_cii_exact(inputs)
+    assert exact == exact_expected
+    assert (exact * 10**6).denominator == 1, "경계가 아니면 결함이 있어도 통과한다"
+
+    assert _segment_cii_sent(inputs) == _truncated_6(exact)
+
+
+def test_every_boundary_input_in_the_grid_is_the_truncation_of_the_exact_value():
+    """경계 입력 **다수**에서 전송값 = 참값의 6자리 절사 (`#2184` 완료 기준).
+
+    거리 6 × 계획 속도 6 × 기준 속도 6 × 소모율 6 = 1,296 조합 가운데 참값이 소수 6자리에
+    정확히 놓이는 것만 센다 — 나머지는 절사 자릿수 아래에서 갈려도 전송값이 같아 아무것도
+    잠그지 않는다. 격자는 임의로 정한 것이라 실제 입력에서의 빈도가 아니다. 경계 건수에
+    하한을 두는 것은 격자를 바꿔 경계가 사라지면 검사가 비는 것을 막기 위해서다.
+    """
+    grid = (
+        ["1000", "1500", "2000", "2300", "2500", "3000"],
+        ["8", "10", "12", "14", "16", "18"],
+        ["8", "10", "12", "14", "16", "18"],
+        ["20", "23.04", "25", "30", "40", "50"],
+    )
+    boundary = 0
+    mismatched: list[tuple[tuple[str, ...], str, str]] = []
+    for raw in itertools.product(*grid):
+        inputs = _segment_inputs(*raw)
+        exact = _segment_cii_exact(inputs)
+        if (exact * 10**6).denominator != 1:
+            continue
+        boundary += 1
+        sent = _segment_cii_sent(inputs)
+        if sent != _truncated_6(exact):
+            mismatched.append((raw, sent, _truncated_6(exact)))
+
+    assert boundary >= 100, f"경계 입력이 {boundary}건뿐이라 성질 검사가 되지 않는다"
+    assert mismatched == []
+
+
+@pytest.mark.parametrize("boundary", ["8.1094", "4.9824", "10.0001", "0.0002", "123.4567"])
+def test_every_service_publishes_the_canonical_value_before_shortening(boundary):
+    """경계 바로 아래의 50자리 값을 **모든 직렬화 헬퍼**가 경계 문자열로 내보낸다 (`#2184`).
+
+    `voyage_cii._publish`가 정본 경로(공표 확정 → 절사)다. 같은 한 단계 절사를 쓰던
+    `cii_current` · `cii_history` · `annual_simulation` · `fleet_summary` · `fleet_reduction` ·
+    `data_quality`가 그와 같은 값을 내는지 본다. 값은 경계에서 작업 정밀도의 마지막 자리
+    하나를 뺀 것 — 50자리로는 `…99999`지만 30자리 공표 확정이 경계로 되돌린다. 자릿수가
+    다른 종류(비율 5 · 대시보드 CII 4 · 연료 2)도 같은 두 단계를 지난다.
+    """
+    from cii_platform.services import (
+        annual_simulation,
+        cii_current,
+        cii_history,
+        data_quality,
+        fleet_reduction,
+        fleet_summary,
+        voyage_cii,
+    )
+
+    exact = Decimal(boundary)
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+        below = exact - Decimal(1).scaleb(exact.adjusted() - LAYER1_WORKING_PRECISION + 1)
+    assert below < exact
+    assert len(below.as_tuple().digits) == LAYER1_WORKING_PRECISION, "50자리가 아니면 전제가 없다"
+
+    def expect(digits: int) -> str:
+        return str(exact.quantize(Decimal(1).scaleb(-digits), rounding=ROUND_DOWN))
+
+    reference = voyage_cii._publish(below, "attained_cii")
+    assert reference == expect(6)
+    assert cii_current._publish(below, "cii") == reference
+    assert cii_history._publish(below, "cii") == reference
+    assert annual_simulation._publish(below, "cii") == reference
+
+    assert voyage_cii._publish(below, "ratio_to_required") == expect(5)
+    assert cii_current._publish(below, "ratio") == expect(5)
+
+    assert fleet_summary._publish_cii(below) == expect(4)
+    assert fleet_reduction._publish_cii(below) == expect(4)
+    assert data_quality._publish_cii(below) == expect(4)
+    assert data_quality._publish(below, 4) == expect(4)
+
+    assert voyage_cii._publish(below, "fuel_ton") == expect(2)
+    assert cii_current._publish(below, "fuel_ton") == expect(2)
+    assert cii_history._publish(below, "fuel_ton") == expect(2)
+    assert fleet_reduction._publish_measure(below, 2) == expect(2)
