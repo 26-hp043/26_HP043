@@ -184,6 +184,132 @@ describe('포커스 링은 outline이다 (#1167)', () => {
   })
 })
 
+/** 생성물 `:root` 블록에서 값 하나를 꺼낸다. */
+function generatedValue(name: string): string | undefined {
+  return new RegExp(`${name}:\\s*([^;]+);`).exec(rootBlock)?.[1]?.trim()
+}
+
+/** `src` 아래 모든 CSS. */
+function allCss(dir = fileURLToPath(new URL('..', import.meta.url)), out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules') allCss(full, out)
+    } else if (entry.name.endsWith('.css')) out.push(full)
+  }
+  return out
+}
+
+/**
+ * **자간은 `em`이다** (`#2150`).
+ *
+ * `DESIGN_SYSTEM §3`은 자간을 `-0.02em`·`-0.01em`으로 적는데 종전 내보내기는 `px`
+ * 소수(`-0.32`·`-0.16`)였다. 그 px은 **글자 크기가 16px일 때만** 같은 값이라
+ * `display`(32)·`page`(28)·`title`(20)에서는 `§3`이 말하는 것의 절반 남짓만 걸렸다 —
+ * **이 열의 값이 맞는 크기가 한 줄뿐**이었다(`§9.1`이 배율에서 겪은 것과 같은 꼴이다).
+ *
+ * ⚠️ **단위만 보지 않는다.** Figma가 다시 px 숫자(`-0.32`)를 내보내면 이 자리가
+ * `-0.32em` — 스무 배가 된다. 단위와 크기를 함께 본다.
+ */
+describe('자간 토큰이 §3의 단위와 범위 안이다 (#2150)', () => {
+  const TYPE_DOC = readFileSync(
+    join(fileURLToPath(new URL('..', import.meta.url)), '..', '..', 'DESIGN_SYSTEM.md'),
+    'utf-8',
+  )
+
+  it.each(['--letterSpacing-tight', '--letterSpacing-snug', '--letterSpacing-none'])(
+    '%s — em이고 0.05em을 넘지 않는다',
+    (name) => {
+      const value = generatedValue(name)
+      expect(value, `${name}을 찾지 못했습니다`).toBeDefined()
+      expect(value, '자간은 em이다 — px은 16px에서만 §3과 같다').toMatch(/em$/)
+      expect(Math.abs(Number.parseFloat(value as string))).toBeLessThanOrEqual(0.05)
+    },
+  )
+
+  /**
+   * `§3` **표의 자간 칸을 읽는다** — 「문서 어딘가에 그 글자가 있다」로 보지 않는다.
+   *
+   * ⚠️ 처음 쓴 검사는 `toContain('-0.02em')`이었다. 변이로 두드려 보니 표의 **여덟 줄을
+   * 전부** 바꿔야 붉어졌다 — `display` 한 줄만 어긋나면 나머지 세 줄이 그 글자를
+   * 가지고 있어 초록이 났다. `#2150`이 고치는 결함이 바로 「한 줄만 맞았다」였으므로,
+   * 한 줄의 어긋남을 못 보는 검사는 같은 결함을 다시 들인다.
+   */
+  /**
+   * ⚠️ 셀은 `[^|\n]`으로 센다 — `[^|]`은 **줄바꿈을 먹는다.** 처음 쓴 정규식이 그래서
+   * `§2`의 두 칸 표 여러 줄을 하나의 다섯 칸 줄로 읽어 `fill`·`text`를 끌어왔고, 위
+   * 「실제로 읽었다」가 그것을 잡았다. 절의 범위도 `§3`으로 자른다.
+   */
+  const ROW = /^\|\s*`(\w+)`\s*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|\s*([^|\n]+?)\s*\|/gm
+
+  /** `§3` 절만 — 같은 모양의 표가 다른 절에도 있다. */
+  const SECTION = TYPE_DOC.slice(TYPE_DOC.indexOf('## 3. 타이포그래피')).split(/^## 4\. /m)[0]
+
+  const tracking = [...SECTION.matchAll(ROW)].map(([, token, value]) => ({
+    token,
+    value: value === '0' ? '0em' : value,
+  }))
+
+  it('§3 타입 표를 실제로 읽었다 — 파서가 조용히 0건을 내지 않게', () => {
+    // 표가 안 잡히면 아래 대조가 빈 목록으로 통과한다. §3은 여덟 줄이다.
+    expect(tracking.map((r) => r.token)).toEqual([
+      'display',
+      'page',
+      'title',
+      'heading',
+      'body',
+      'label',
+      'caption',
+      'micro',
+    ])
+  })
+
+  it('§3 표의 모든 줄이 자간 토큰 중 하나를 적는다', () => {
+    const tokens = new Map([
+      ['--letterSpacing-tight', generatedValue('--letterSpacing-tight')],
+      ['--letterSpacing-snug', generatedValue('--letterSpacing-snug')],
+      ['--letterSpacing-none', generatedValue('--letterSpacing-none')],
+    ])
+    const values = new Set(tokens.values())
+    const adrift = tracking
+      .filter((r) => !values.has(r.value))
+      .map((r) => `${r.token} — §3은 ${r.value}, 토큰은 ${[...values].join(' · ')}`)
+    expect(adrift, '정본의 한 줄만 어긋나도 그 크기에서 자간이 틀린다').toEqual([])
+  })
+
+  it('자간 토큰이 모두 §3에서 쓰인다 — 아무도 안 쓰는 값이 남지 않게', () => {
+    const used = new Set(tracking.map((r) => r.value))
+    for (const [name, value] of [
+      ['--letterSpacing-tight', generatedValue('--letterSpacing-tight')],
+      ['--letterSpacing-snug', generatedValue('--letterSpacing-snug')],
+      ['--letterSpacing-none', generatedValue('--letterSpacing-none')],
+    ] as const) {
+      expect(used, `${name}(${value})을 §3 표의 어느 줄도 적지 않습니다`).toContain(value)
+    }
+  })
+})
+
+/**
+ * **컨트롤 높이는 토큰에서 온다** (`#2150`).
+ *
+ * `40px`이 CSS에 **스물두 곳** 직접 적혀 있었다 — 전부 입력칸과 그 줄의 제출 버튼이다.
+ * 같은 저장소에 `--target-row`(40) · `--target-button`(36)이 이미 있었고, 리터럴은 그
+ * 둘 어느 쪽과도 이어져 있지 않았다. 값을 바꾸려면 스물두 곳을 찾아야 하고,
+ * **하나를 빠뜨려도 화면은 멀쩡해 보인다.**
+ */
+describe('컨트롤 높이가 토큰에서 온다 (#2150)', () => {
+  it('높이를 40px·36px로 직접 적은 CSS가 없다', () => {
+    const literals: string[] = []
+    for (const file of allCss()) {
+      const body = stripComments(readFileSync(file, 'utf8'))
+      for (const found of body.matchAll(/^\s*(?:min-)?(?:block-size|height):\s*(?:40|36)px;/gm)) {
+        literals.push(`${file.split('/src/')[1]} :: ${found[0].trim()}`)
+      }
+    }
+    expect(literals.sort()).toEqual([])
+  })
+})
+
 describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', () => {
   function cssFiles(dir: URL, out: URL[] = []): URL[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -202,8 +328,20 @@ describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', (
     for (const file of files) {
       const body = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
       for (const [, name] of body.matchAll(/(--[\w-]+)\s*:/g)) declared.add(name)
-      // 닫는 괄호가 바로 오는 것만 센다 — 쉼표가 오면 대체값이 있다.
-      for (const [, name] of body.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
+      /*
+       * **대체값이 있어도 센다** (`#2150`).
+       *
+       * ⚠️ 종전에는 닫는 괄호가 바로 오는 것만 셌다 — 쉼표가 오면 대체값이 있으니
+       * 그려지기는 한다는 판단이었다. 그런데 그 때문에 **어디에도 정의되지 않은 이름
+       * 다섯**이 조용히 살아 있었다(`--cii-space-2` · `--cii-space-3` ·
+       * `--cii-font-size-sm` · `--cii-text-muted` · `--borderWidth-strong`).
+       * 늘 대체값만 그려지므로 **토큰을 쓴 것처럼 보이는 리터럴**이고, 토큰을 고쳐도
+       * 그 자리는 따라오지 않는다.
+       *
+       * 대체값은 **값이 늦게 오는 자리**(마크업이 넣는 변수)를 위한 안전망이지 이름을
+       * 면제하는 장치가 아니다. 그 자리들도 CSS에 기본값을 선언해 두면 된다.
+       */
+      for (const [, name] of body.matchAll(/var\(\s*(--[\w-]+)\s*[,)]/g)) {
         const at = referenced.get(name) ?? new Set<string>()
         at.add(file.pathname.split('/src/')[1] ?? file.pathname)
         referenced.set(name, at)

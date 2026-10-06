@@ -334,6 +334,12 @@
  */
 .beomi-foam {
   position: absolute;
+  /*
+   * 옆으로 흐르는 거리의 기본값 — 마크업이 알 하나하나에 넣는다 (`#2150`).
+   * 종전에는 `var(--beomi-foam-drift)`로 폴백만 두었는데, **그 이름이 CSS에
+   * 어디에도 없으면 폴백이 늘 그려지는지 오타인지 가릴 수 없다.**
+   */
+  --beomi-foam-drift: 14px;
   border-radius: 50%;
   /* 가장자리가 밝고 속이 비어야 거품이다 — 꽉 찬 원은 그냥 점이다. */
   background: radial-gradient(
@@ -359,7 +365,7 @@
   from { transform: translate(0, 0) scale(0.7); opacity: 0; }
   12% { opacity: 0.9; }
   70% { opacity: 0.65; }
-  to { transform: translate(var(--beomi-foam-drift, 14px), -200px) scale(1.15); opacity: 0; }
+  to { transform: translate(var(--beomi-foam-drift), -200px) scale(1.15); opacity: 0; }
 }
 
 /*

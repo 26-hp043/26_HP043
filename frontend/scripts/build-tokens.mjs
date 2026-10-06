@@ -77,6 +77,19 @@ function cssValue(token) {
   return String(token.value)
 }
 
+/**
+ * `em`으로 내는 number 토큰 — **자간**이다 (`#2150`).
+ *
+ * `DESIGN_SYSTEM §3`은 자간을 `-0.02em`·`-0.01em`으로 적는데, 종전 내보내기는 `px`
+ * 소수(`-0.32`·`-0.16`)였다. 그 px은 **글자 크기가 16px일 때만** 같은 값이라,
+ * `display`(32)·`page`(28)·`title`(20)에서는 `§3`이 말하는 것의 절반 남짓만 걸렸다.
+ * `em`은 글자 크기를 따라가므로 한 값이 여덟 행 전부에서 맞는다.
+ *
+ * ⚠️ **원본 숫자도 함께 바뀌어야 한다** — Figma가 다시 `-0.32`를 내보내면 이 자리가
+ * `-0.32em`(스무 배)이 된다. `tokens.sync.test.ts`가 크기를 함께 본다.
+ */
+const EM = new Set(['letterSpacing.tight', 'letterSpacing.snug', 'letterSpacing.none'])
+
 /** px를 붙이지 않는 number 토큰 — 개수·배수라 단위가 없다. */
 const UNITLESS = new Set([
   'grid.columns',
@@ -90,8 +103,8 @@ function renderPrimitive(path, token) {
   const raw = cssValue(token)
   if (token.type === 'number') {
     if (UNITLESS.has(path)) return `${cssName(path)}: ${raw};`
-    // letterSpacing은 Figma가 소수 px로 준다. 반올림하지 않고 그대로 둔다.
     const rounded = Number.isInteger(raw) ? raw : Number(raw.toFixed(2))
+    if (EM.has(path)) return `${cssName(path)}: ${rounded}em;`
     return `${cssName(path)}: ${rounded}px;`
   }
   if (token.type === 'string') {

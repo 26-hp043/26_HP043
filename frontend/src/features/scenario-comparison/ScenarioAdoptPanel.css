@@ -53,7 +53,7 @@
 
 .scenario-adopt__field select {
   font-size: var(--font-size-body);
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
@@ -75,7 +75,7 @@
 .scenario-adopt__submit {
   font-size: var(--font-size-body);
   align-self: flex-start;
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-16);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);

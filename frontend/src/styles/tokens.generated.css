@@ -66,9 +66,9 @@
   --fontFamilies-mono: 'Noto Sans Mono';
   --fontWeights-regular: 400;
   --fontWeights-medium: 500;
-  --letterSpacing-tight: -0.32px;
-  --letterSpacing-snug: -0.16px;
-  --letterSpacing-none: 0px;
+  --letterSpacing-tight: -0.02em;
+  --letterSpacing-snug: -0.01em;
+  --letterSpacing-none: 0em;
 
   /* ── 색 · 라이트 (기본값) ──────────────────────────────────── */
   --cii-a-fill: #1e8639;
