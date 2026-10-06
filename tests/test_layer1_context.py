@@ -499,3 +499,173 @@ def test_every_service_publishes_the_canonical_value_before_shortening(boundary)
     assert cii_current._publish(below, "fuel_ton") == expect(2)
     assert cii_history._publish(below, "fuel_ton") == expect(2)
     assert fleet_reduction._publish_measure(below, 2) == expect(2)
+
+
+# ── 공표 확정 **이전**의 산술도 적용 지점 안에서 한다 (`#2212`) ─────────────────
+#
+# `#2184`는 직렬화 헬퍼에 30자리 공표 확정을 넣었다. 그런데 헬퍼에 **들어가기 전**의 산술 —
+# CO₂ g → t 나눗셈, 두 CII의 뺄셈, 완결성 비율 나눗셈 — 이 `@layer1_context` 밖에 있으면
+# 호출 스레드의 기본 정밀도(`prec=28`)로 먼저 깎인다. 28자리로 깎인 값은 30자리 확정으로도
+# 돌아오지 않는다(`TECH_SPEC §1.2.1` 「파생값 계산도 적용 지점 안에서 한다」).
+#
+# 아래 입력은 참값이 **유효숫자 30자리 이내**로 떨어지게 골랐다 — 그래서 30자리 공표 확정이
+# 값을 바꾸지 않고, 기대 문자열은 참값(분수)의 절사 하나로 정해진다(`AGENTS §5`). 28자리로
+# 계산하면 29·30번째 자리가 올림을 일으켜 전송 자릿수 경계를 넘는다. 실제 운항 입력에서
+# 나오는 크기가 아니라 **계약을 잠그는 입력**이다.
+
+#: 호출 스레드의 기본 컨텍스트 — uvicorn 워커가 상속하는 값이다 (`TECH_SPEC §1.2.1`).
+_DEFAULT_PRECISION = 28
+
+
+def _truncated(value: Fraction, digits: int) -> str:
+    """분수를 소수 ``digits``자리로 **0 방향 절사**한 문자열. 정수 나눗셈만 쓴다."""
+    scaled = abs(value.numerator) * 10**digits // value.denominator
+    sign = "-" if value < 0 and scaled else ""
+    return f"{sign}{scaled // 10**digits}.{scaled % 10**digits:0{digits}d}"
+
+
+def _significant_digits(exact: Fraction) -> int:
+    """유한소수인 분수의 유효숫자 수 — 30 이하여야 「기대값 = 참값의 절사」가 성립한다."""
+    scale = next(n for n in range(80) if (exact * 10**n).denominator == 1)
+    return len(str(abs((exact * 10**scale).numerator)).rstrip("0"))
+
+
+#: (CO₂ g, 28자리로 나눴을 때 나가던 문자열). 참값 t는 각각 `12.3499…94` · `0.9999…96`이다.
+_CO2_GRAM_CASES = [
+    ("12349999.9999999999999999999994", "12.35"),
+    ("999999.999999999999999999999996", "1.00"),
+]
+
+
+@pytest.mark.parametrize(("grams_raw", "narrowed"), _CO2_GRAM_CASES)
+def test_data_quality_co2_ton_is_converted_inside_the_layer1_context(grams_raw, narrowed):
+    """⚠️ #2212 — 완결성 내역의 CO₂ 톤이 참값의 2자리 절사와 같다.
+
+    종전의 ``_publish_co2_ton``은 데코레이터 없이 ``grams / 1_000_000``을 했다 — 기본
+    컨텍스트에서는 28자리로 반올림되어 `12.3499…94`가 `12.35`로 나갔다.
+    """
+    from cii_platform.services import data_quality
+
+    grams = Decimal(grams_raw)
+    exact = Fraction(grams) / 10**6
+    assert _significant_digits(exact) == 30
+    expected = _truncated(exact, 2)
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        in_default = (grams / Decimal(10**6)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+        assert str(in_default) == narrowed
+        assert narrowed != expected, "28자리로도 같은 값이 나오는 입력이면 아무것도 잠그지 않는다"
+        sent = data_quality._publish_co2_ton(grams)
+
+    assert sent == expected
+
+
+def test_data_quality_co2_ton_is_published_before_truncation():
+    """CO₂ 톤도 **공표 확정 → 절사** 두 단계다 (`#2184`의 규약 · `#2212`에서 맞춘다).
+
+    컨텍스트 안에서 나누기만 하고 바로 절사하면, 경계 바로 아래의 50자리 값(`12.3499…9`)이
+    `12.34`로 나간다. 30자리 확정이 그 꼬리를 경계로 되돌린다 — 같은 파일의 ``_publish`` ·
+    ``_publish_cii``가 이미 그렇게 한다.
+    """
+    from cii_platform.services import data_quality
+
+    boundary = Decimal("12.35")
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+        below_ton = boundary - Decimal(1).scaleb(boundary.adjusted() - LAYER1_WORKING_PRECISION + 1)
+        grams = below_ton * Decimal(10**6)
+    assert len(below_ton.as_tuple().digits) == LAYER1_WORKING_PRECISION, "50자리여야 전제가 선다"
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        assert data_quality._publish_co2_ton(grams) == "12.35"
+        assert data_quality._publish_co2_ton(Decimal(0)) == "0.00"
+
+
+@pytest.mark.parametrize("sign", [1, -1])
+async def test_data_quality_cii_delta_is_subtracted_inside_the_layer1_context(monkeypatch, sign):
+    """⚠️ #2212 — ``cii_impact.delta``가 두 CII 참값의 차를 4자리로 절사한 값과 같다.
+
+    ``_impact``는 ``async``라 ``@layer1_context``를 달 수 없고(데코레이터는 코루틴을 **만드는**
+    순간만 감싼다), 종전에는 그 안에서 ``base − without``을 바로 했다. 기본 컨텍스트에서는
+    차가 28자리로 반올림되어 `0.12339…94`가 `0.1234`로 나갔다. 부호를 뒤집어도 대칭이다.
+    """
+    from cii_platform.services import data_quality
+
+    high = Decimal("5.123456789012345678901234567891")
+    low = Decimal("5.000056789012345678901234567897")
+    base_cii, without_cii = (high, low) if sign > 0 else (low, high)
+    exact = Fraction(base_cii) - Fraction(without_cii)
+    assert abs(exact) == Fraction(Decimal("0.123399999999999999999999999994"))
+    assert _significant_digits(exact) == 30
+    expected = _truncated(exact, 4)
+    assert expected == ("0.1233" if sign > 0 else "-0.1233")
+
+    async def _without(_session, **_kwargs):
+        return SimpleNamespace(data_available=True, attained_cii=without_cii, rating="C")
+
+    monkeypatch.setattr(data_quality, "compute_ytd_cii", _without)
+    base = SimpleNamespace(data_available=True, attained_cii=base_cii, rating="C")
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        in_default = (base_cii - without_cii).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+        assert str(in_default) != expected, "28자리로도 같은 값이면 아무것도 잠그지 않는다"
+        impact, reason = await data_quality._impact(
+            None, vessel=SimpleNamespace(id=1), year=2026, base=base, voyage_id=1
+        )
+
+    assert reason is None
+    assert impact["delta"] == expected
+
+
+def test_completeness_ratio_is_divided_inside_the_layer1_context():
+    """⚠️ #2212 — 완결성 비율이 참값의 4자리 절사와 같다 (이슈 본문 밖 · 같은 응답의 같은 유형).
+
+    ``calc.data_quality.completeness_ratio``는 ``measured / total``을 데코레이터 없이 했다 —
+    `TECH_SPEC §1.2.1`이 ``ratio_to_required``로 든 바로 그 형태다. 기본 컨텍스트에서는
+    `0.4999…9`(30자리)가 `0.5000`으로 나갔다.
+    """
+    from cii_platform.calc.data_quality import completeness_ratio
+    from cii_platform.services import data_quality
+
+    measured = Decimal("499999999999999999999999999999")
+    total = Decimal(10**30)
+    exact = Fraction(measured) / Fraction(total)
+    assert _significant_digits(exact) == 30
+    expected = _truncated(exact, 4)
+    assert expected == "0.4999"
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        in_default = (measured / total).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+        assert str(in_default) == "0.5000", "28자리로도 같은 값이면 아무것도 잠그지 않는다"
+        sent = data_quality._publish(completeness_ratio(measured, total), 4)
+
+    assert sent == expected
+
+
+@pytest.mark.parametrize(("grams_raw", "narrowed"), _CO2_GRAM_CASES)
+def test_other_services_convert_co2_grams_inside_the_layer1_context(grams_raw, narrowed):
+    """같은 g → t 나눗셈을 **직렬화 헬퍼 앞에서** 하던 두 서비스도 참값의 절사를 낸다 (`#2212`).
+
+    ``cii_history._fuel_rows``(연료축의 ``co2_ton``)와 ``cii_current._ytd_to_dict``(⑴의
+    ``not_underway_co2_ton``)가 ``_publish(g / 1_000_000, "co2_ton")`` 꼴이었다 — 헬퍼의 공표
+    확정은 이미 28자리로 깎인 값을 받는다.
+    """
+    from cii_platform.services import cii_current, cii_history
+
+    grams = Decimal(grams_raw)
+    exact = Fraction(grams) / 10**6
+    assert _significant_digits(exact) == 30
+    expected = _truncated(exact, 2)
+    assert narrowed != expected
+
+    class _Ytd(SimpleNamespace):
+        def __getattr__(self, _name):
+            return None
+
+    ytd = _Ytd(data_available=True, not_underway_co2_g=grams, substitutions=[])
+
+    with localcontext(prec=_DEFAULT_PRECISION):
+        fuel_rows = cii_history._fuel_rows({"HFO": Decimal(4)}, {"HFO": grams})
+        ytd_block = cii_current._ytd_to_dict(ytd)
+
+    assert fuel_rows[0]["co2_ton"] == expected
+    assert ytd_block["not_underway_co2_ton"] == expected

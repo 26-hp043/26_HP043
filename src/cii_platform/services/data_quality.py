@@ -228,13 +228,28 @@ def _publish_cii(value: Decimal | None) -> str | None:
     return str(canonical.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
+@layer1_context
 def _publish_co2_ton(grams: Decimal) -> str:
-    """CO₂ g → t 문자열 (소수 2자리 · **절사** · `#1600`) — `§2.7` ``co2_ton``과 같은 규약."""
+    """CO₂ g → t 문자열 (소수 2자리 · **절사** · `#1600`) — `§2.7` ``co2_ton``과 같은 규약.
+
+    **나눗셈을 적용 지점 안에서 한다** (`#2212` · `TECH_SPEC §1.2.1`). 밖에서 나누면 호출
+    스레드의 기본 정밀도(28자리)로 먼저 깎이고, 그 뒤의 절사는 깎인 값에서 시작한다.
+    절사 전에 30자리 공표 확정을 거치는 것은 ``_publish`` · ``_publish_cii``와 같다 (`#2184`).
+    """
+    canonical = publish_layer1_canonical(grams / _GRAMS_PER_TON)
     return str(
-        (grams / _GRAMS_PER_TON).quantize(
-            Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=SERIALIZATION_ROUNDING
-        )
+        canonical.quantize(Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=SERIALIZATION_ROUNDING)
     )
+
+
+@layer1_context
+def _cii_delta(attained: Decimal, attained_without: Decimal) -> Decimal:
+    """두 누적 CII의 차 — **적용 지점 안에서** 뺀다 (`#2212` · `TECH_SPEC §1.2.1`).
+
+    ``_impact``는 ``async``라 데코레이터를 달 수 없다 — ``@layer1_context``는 코루틴을
+    만드는 순간만 감싸고, 본문이 도는 동안에는 호출 스레드의 기본 컨텍스트로 돌아가 있다.
+    """
+    return attained - attained_without
 
 
 def _completeness_block(
@@ -358,7 +373,7 @@ async def _impact(
         {
             "attained_cii": _publish_cii(base.attained_cii),
             "attained_cii_without": _publish_cii(without.attained_cii),
-            "delta": _publish_cii(base.attained_cii - without.attained_cii),
+            "delta": _publish_cii(_cii_delta(base.attained_cii, without.attained_cii)),
             "rating": base.rating,
             "rating_without": without.rating,
         },
