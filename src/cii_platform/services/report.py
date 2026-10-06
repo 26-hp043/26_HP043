@@ -296,8 +296,8 @@ def _scenario_note(transport_capacity: Decimal | None, capacity_basis: str | Non
         unit = f" {capacity_basis}" if capacity_basis else ""
         # 정수 용량은 정수로, 소수가 있으면 그대로 — 자릿수 규정이 없는 값이라 지어내지 않는다.
         capacity = (
-            "실적 CII는 인용한 비교가 쓴 용량 "
-            f"{transport_capacity.normalize():,f}{unit}(으)로 나눈 항차 단위 값입니다. "
+            "실적 CII는 항차 단위 값이며, 분모는 인용한 비교가 쓴 용량 "
+            f"{transport_capacity.normalize():,f}{unit}입니다. "
             "비교 뒤 제원이 바뀐 선박에서는 다른 화면의 값과 다를 수 있습니다."
         )
     return (
