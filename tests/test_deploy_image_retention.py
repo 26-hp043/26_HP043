@@ -141,11 +141,20 @@ echo "/dev/sda1 45G 14G 31G 31% /"
 
 
 def _cleanup_block() -> str:
-    """`KEEP_IMAGES=`부터 `df` 줄까지 — 들여쓰기를 걷어 셸 원문으로."""
+    """`KEEP_IMAGES=`부터 `df` 줄까지 — 들여쓰기를 걷어 셸 원문으로.
+
+    ⚠️ 이 블록을 아래 검사들이 **실제로 실행한다.** 고정 경로 임시 파일을 쓰는 옛 블록이
+    돌아오면 `test_cleanup_uses_no_fixed_temp_path`가 붉어지는 것과 별개로, 실행 검사들이
+    검사를 돌리는 기계의 그 경로에 쓰고 지운다.
+    """
     lines = _app_script().splitlines()
     start = next(i for i, line in enumerate(lines) if line.strip().startswith("KEEP_IMAGES="))
     end = next(i for i in range(start, len(lines)) if lines[i].strip().startswith("df "))
-    return textwrap.dedent("\n".join(lines[start : end + 1])) + "\n"
+    block = textwrap.dedent("\n".join(lines[start : end + 1])) + "\n"
+    # 경계가 어긋나 엉뚱한 줄을 뽑았으면 여기서 드러난다 — 실행 검사의 호출 기록 불일치로
+    # 돌아가지 않게.
+    assert "docker rmi" in block and "docker images" in block, "정리 블록을 잘못 뽑았다"
+    return block
 
 
 def _run_cleanup(
