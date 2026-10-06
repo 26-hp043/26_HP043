@@ -12,7 +12,7 @@
 쓴다 — 등급은 시연 서사의 핵심이므로 전사 대신 실제 산출으로 잠근다.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from conftest import uuid_canon
@@ -43,6 +43,11 @@ VESSEL_IDS = {
     # `#889` — 「D등급까지 n일」이 숫자로 보이는 관찰 대상 선박.
     "watch": "00000000-0000-4000-8000-000000000005",
 }
+
+#: 시드의 「오늘」 + 3일 (`#2106`). 벽시계를 쓰면 기준일이 `_ANCHOR_FALLBACK`으로 떨어진
+#: 날부터(2026-10-17) 「올해 남은 날」이 어긋난다 — `test_cii_ytd_series_db.DEMO_AS_OF`와
+#: 같은 값이며, 진행 중 항차가 계획 거리에 닿은 뒤라 값이 날짜에 따라 움직이지 않는다.
+DEMO_AS_OF = demo_seed.DEMO_ANCHOR + timedelta(days=3)
 
 
 async def test_all_seeded_vessels_have_state_and_position(conn):
@@ -394,15 +399,19 @@ async def test_planned_voyage_departure_is_still_ahead(conn):
 
     ``2026-09-02``에 진행 중 항차가 만료됐을 때 이 항차의 출항 예정일도 **사흘
     뒤**였다. 같은 날 등록하지 않았으면 사흘 뒤 같은 실패를 다시 봤을 것이다.
+
+    **바로 앞 검사와 같은 이유로 벽시계가 아니라 `DEMO_ANCHOR`와 비교한다** (`#2106`).
+    DB의 ``now()``로 비교하면 기준일이 `_ANCHOR_FALLBACK`(08-25)으로 떨어지는 날부터
+    계획 항차의 출항 예정(최대 `+58d`)이 전부 과거가 되어, 시드가 바뀌지 않았는데
+    빨개진다. 기준일이 적재한 날의 자정이므로 절대 날짜로의 회귀는 여전히 잡힌다.
     """
-    overdue = (
+    rows = (
         await conn.execute(
-            text(
-                "SELECT voyage_no, planned_departure_at FROM voyage "
-                "WHERE status = 'PLANNED' AND planned_departure_at < now()"
-            )
+            text("SELECT voyage_no, planned_departure_at FROM voyage WHERE status = 'PLANNED'")
         )
     ).all()
+    assert rows, "계획 항차가 없다 — 이 검사가 아무것도 보지 않는다"
+    overdue = [r for r in rows if r.planned_departure_at < demo_seed.DEMO_ANCHOR]
     assert not overdue, (
         "계획 항차의 출항 예정일이 지났다 — 시드가 절대 시각으로 되돌아갔다"
         f"(demo_seed._rel 참조 · #792): "
@@ -564,7 +573,7 @@ async def test_days_to_d_is_a_number_for_at_least_one_seeded_vessel(conn):
     """
     # `get_fleet_summary`는 세션을 받는다 — 이 파일의 `conn`은 연결이라 감싼다.
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
-        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=DEMO_AS_OF)
     rows = result["vessels"]
 
     numeric = [row for row in rows if isinstance(row["days_to_d"], int)]
@@ -585,7 +594,7 @@ async def test_risk_narrative_survives_the_watch_vessel(conn):
     오히려 다양해진다.
     """
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
-        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=DEMO_AS_OF)
     summary = result["summary"]
 
     assert summary["rating_distribution"]["E"] == 2, "위험 선박 2척이 유지되어야 한다"
@@ -629,7 +638,7 @@ async def test_watch_vessel_third_voyage_leaves_the_dashboard_unchanged(conn):
     부등식이라 분포 한 칸이 움직여도 통과한다 — 여기서는 **분포 전체**를 잠근다.
     """
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
-        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=DEMO_AS_OF)
 
     # `#1807` — STAR SKIPPER의 DWT를 9,520(GT가 잘못 들어간 값) → 12,979로 정정하자 CII 분모가
     # 커져 이 배의 2026 등급이 B → A가 됐다. 시연 등급 구성이 바뀌는 것을 받아들인 결정이다.
