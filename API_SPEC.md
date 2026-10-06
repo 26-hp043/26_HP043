@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.52 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-10-06 |
+| 최종 수정일 | 2026-10-07 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -4783,13 +4783,13 @@ GET /api/v1/health
 
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
-|| EXT-P0-1 | `effective_capacity`를 단일 값으로 사용 → IMO G1/G2 이중 capacity 분리 필요 | §4.1, §5.1 — `transport_capacity`/`reference_capacity` 분리 | **수정 완료** |
-|| EXT-P0-4 | Voyage 생성 API에서 DRAFT + INCLUDE_AS_PLAN 충돌 | §3.3 — `annual_inclusion_policy`를 요청에서 제거, DRAFT는 EXCLUDE 강제 | **수정 완료** |
-|| EXT-P0-5 | Scenario compare 응답에 `scenario_id` 누락 | §5.1 — 각 시나리오에 `scenario_id` 추가 | **수정 완료** |
-|| EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
+| EXT-P0-1 | `effective_capacity`를 단일 값으로 사용 → IMO G1/G2 이중 capacity 분리 필요 | §4.1, §5.1 — `transport_capacity`/`reference_capacity` 분리 | **수정 완료** |
+| EXT-P0-4 | Voyage 생성 API에서 DRAFT + INCLUDE_AS_PLAN 충돌 | §3.3 — `annual_inclusion_policy`를 요청에서 제거, DRAFT는 EXCLUDE 강제 | **수정 완료** |
+| EXT-P0-5 | Scenario compare 응답에 `scenario_id` 누락 | §5.1 — 각 시나리오에 `scenario_id` 추가 | **수정 완료** |
+| EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
 | EXT-3.3/P1-5 | CSV formula injection strip이 데이터 훼손 위험 | §8.2 — strip 대신 apostrophe escape로 변경 | **수정 완료** |
 | EXT-3.4/P1-6 | 오류 메시지 한국어 조사 처리 (`{field}은/는`) | §1.3.2, §11 — `field_label` 한글 라벨 도입 | **수정 완료** |
-|| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
+| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
 
 > **[#132 후속 정정]** EXT-P0-1 반영 당시 §4.1·§5.1의 이중 capacity 분리는 완료됐으나, §1.7의 Layer 1 필드 열거에 `effective_capacity`가 남은 사실이 후속 확인됐다. #132에서 §1.7의 중복 필드 열거를 제거하고 endpoint별 응답 계약을 참조하도록 정정했다.
 
@@ -5231,3 +5231,4 @@ POST /api/v1/chat
 | 2026-10-06 | `#2213` | **§8.3 문서 구성 「시나리오 사후 비교」 행과 각주** (#2092). `PRD §25.2.1`은 직항·우회·감속 3종과 실적을 나란히 요구하는데 종전 서술은 「저장된 값을 그대로 인용」뿐이었고 구현은 채택된 한 행만 실었다. 어느 비교를 싣는가(지금 채택된 행이 속한 한 묶음 — 형제 두 행은 계산 이력 `result_json.scenarios[]`에서) · 경우별 표지(섹션 생략 · `이력 없음` · `—` · `계산 불가`) · 실적 행의 정의와 분모 용량 · 각주 규칙(「CII 기여도」와 같은 `COR-1` 문구 · 용량 숫자 · 2026-10-06 결정 1·2) · 유종 일부만 실적이 있을 때 연료 칸도 `계산 불가` · 옛 모양의 이력은 그 종류만 내려간다 · 수치 열은 표지가 섞여도 오른쪽 정렬. `AGENTS §4.3`상 행·각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2227` | **v1.51 — `GET /auth/me` 응답에 `is_tour` 추가**(§1.2 경로 표 · §1.2.5a 각주 · #2203). 둘러보기 계정은 `ADMIN`이라 화면이 `role`만 보면 「관리자」로 적는다 — 사이드바 계정 카드가 역할 자리에 「둘러보기」를 적을 근거다. 판정은 고정 PK(`TOUR_USER_ID`)이며 화면이 예약 이메일을 비교하지 않게 한다. 사용자 표현(`_user_payload`)이라 가입 · 로그인 · 이름 변경 응답에도 실린다. 응답 필드 추가라 버전을 올린다(`AGENTS §4.3`) |
 | 2026-10-06 | `#2233` | **v1.52 — §2.19 「알림 — 지금 걸려 있는 상태 목록」 신설**(`GET /fleet/notifications` · #2204). 상단바 종 버튼의 본체다. 발생 기록이 아니라 서버가 이미 판정한 상태의 모음이다 — 저장 · 읽음 상태 없음. 종류 넷(시정조치계획 대상 · D등급 진입 임박 · 실적 확정 전 항차 · 실측이 아닌 값이 든 선박)을 `§2.8` · `§2.16`의 판정에서 그대로 옮기고 `RISK` · `CHECK` 두 단계로 나눈다. 선대 요약과 같은 계산 함수를 써 대시보드와 수가 갈리지 않게 한다. §12 요약표 행. 절 신설이라 버전을 올린다(`AGENTS §4.3`) |
+| 2026-10-07 | `#___` | **§14.6 「외부 리뷰 반영 (v1.2)」 표의 `\|\|`로 시작하던 다섯 행(`EXT-P0-1`·`P0-4`·`P0-5`·`3.1`·`P1-2/3.2`)의 `\|` 하나를 지웠다** (`#2137`) — 열이 한 칸씩 밀려 ID 칸이 빈 칸으로 렌더되고 상태 칸이 버려지고 있었다. 셀 내용은 그대로다. 헤더 최종 수정일을 10-06 → 10-07로. `§4.3`상 구조 정정이라 버전은 올리지 않는다 |
