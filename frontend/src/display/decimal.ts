@@ -62,3 +62,25 @@ export function compareFixed(a: string, b: string, digits: number): number {
   if (left === right) return 0
   return left < right ? -1 : 1
 }
+
+/**
+ * 최댓값에 대한 각 값의 비율(백분율, 0~100) — 막대 길이용 (#2202).
+ *
+ * **표시값으로 나눈다** — 막대 옆 글자와 막대 길이가 같은 숫자에서 나와야 한다. 나눗셈은
+ * `BigInt`로 하고(‰ 단위로 버림), Layer 값 자체를 `Number`로 바꾸지 않는다. 돌려주는
+ * 것은 길이 비율이라는 화면 값이지 계산 결과가 아니다.
+ *
+ * - 막대는 **0에서 시작한다** — 축을 잘라 차이를 키우지 않는다(차이가 작으면 막대도 비슷하다)
+ * - 최댓값이 0 이하이면 전부 0이다(나눌 것이 없다)
+ * - 음수는 0으로 둔다 — 길이로 그릴 수 없는 값이며, 이 막대를 쓰는 지표(CII · 시간 · 연료 ·
+ *   CO₂)는 음수가 나오지 않는다
+ */
+export function shareOfMax(values: readonly string[], digits: number): number[] {
+  const scaled = values.map((value) => {
+    const n = displayScaled(value, digits)
+    return n < 0n ? 0n : n
+  })
+  const max = scaled.reduce((a, b) => (b > a ? b : a), 0n)
+  if (max <= 0n) return scaled.map(() => 0)
+  return scaled.map((n) => Number((n * 1000n) / max) / 10)
+}
