@@ -94,9 +94,23 @@ class TestWhatReEncodingCloses:
 
         이 함수는 **파일 이름을 받지 않는다** — 그것이 곧 「믿지 않는다」의 구현이다.
         속일 수 있는 입력이 애초에 들어오지 않는다.
+
+        ⚠️ 종전에는 `co_varnames`에 `filename`·`content_type` 두 **이름**이 없는지만 봤다
+        (`#2142`). 인자를 `name`·`mime`으로 지으면 그대로 통과한다. 이름을 열거하지 않고
+        **받는 것이 바이트 하나뿐**임을 본다.
         """
-        assert "filename" not in render_avatar.__code__.co_varnames
-        assert "content_type" not in render_avatar.__code__.co_varnames
+        import inspect
+
+        for func in (render_avatar, render_avatar_async):
+            assert list(inspect.signature(func).parameters) == ["raw"], func.__name__
+
+        # 바이트가 정한다 — 같은 호출 모양에 내용만 바꾸면 결과가 갈린다.
+        not_accepted = io.BytesIO()
+        Image.new("RGB", (64, 64), "red").save(not_accepted, format="BMP")
+        assert "BMP" not in ACCEPTED_FORMATS, "표본이 받는 형식이다 — 거부를 못 잰다"
+        with pytest.raises(ValidationError):
+            render_avatar(not_accepted.getvalue())
+        render_avatar(_png((64, 64)))
 
     def test_output_size_does_not_follow_input_size(self):
         """저장 크기가 고정된다 (`#2080` ⑷).

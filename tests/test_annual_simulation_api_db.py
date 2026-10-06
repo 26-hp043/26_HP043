@@ -351,18 +351,64 @@ async def test_policy_decides_actual_versus_plan(session, vessel_id):
     assert result["data"]["deterministic"]["remaining_voyage_count"] == 1
 
 
+#: `PRD §9.4.2` 표를 **여기 독립으로** 적는다(수치 계약) — 제품 함수를 다시 불러 기대값을
+#: 만들면 표가 바뀌어도 함께 따라간다. 각 구간은 아래를 포함하고 위를 포함하지 않는다
+#: (「≥ 80%」 · 「50% 이상 80% 미만」 · 「20% 이상 50% 미만」 · 「< 20%」).
+_PROBABILITY_BANDS = {
+    "LOW": (Decimal("0.8"), None),
+    "MEDIUM": (Decimal("0.5"), Decimal("0.8")),
+    "HIGH": (Decimal("0.2"), Decimal("0.5")),
+    "CRITICAL": (None, Decimal("0.2")),
+}
+
+
 @pytest.mark.asyncio
-async def test_risk_comes_from_probability_not_margin(session, vessel_id):
+@pytest.mark.parametrize(
+    ("actual_fuel", "plan_fuel", "target", "projected_rating", "expected"),
+    [
+        # 실적 1건뿐이라 분포가 한 점이다 — 확률 1. 여유율로는 C · 3.1%라 MEDIUM이다.
+        ("250", None, "C", "C", "LOW"),
+        # 예상 등급은 C인데 D 경계까지 1.1%뿐이라 확률이 0.8 아래로 내려간다.
+        # 여유율로는 C · 3% 미만이라 HIGH다.
+        ("250", "260", "C", "C", "MEDIUM"),
+        # 예상 등급이 D로 넘어갔다. 여유율로도 HIGH라 이 줄은 두 기준이 갈리지 않는다 —
+        # 지키는 것은 0.5 미만 구간의 값이다.
+        ("250", "268", "C", "D", "HIGH"),
+        # **여유율은 넉넉한데 확률이 없다** — 예상 등급 B · 다음 경계까지 5.5%라 여유율로는
+        # LOW인데, 목표 A에는 닿지 않아 확률이 0이다.
+        ("215", None, "A", "B", "CRITICAL"),
+    ],
+)
+async def test_risk_comes_from_probability_not_margin(
+    session, vessel_id, actual_fuel, plan_fuel, target, projected_rating, expected
+):
     """`PRD §9.4.2` — 기능③ 위험도는 **목표 달성 확률** 기반이다.
 
     기능①·②의 마진 기반 함수를 쓰면 등급마다 `margin_ratio`를 요구해 500이 난다.
-    """
-    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
-    result = await _run(session, vessel_id)
 
+    ⚠️ 종전에는 입력이 하나였고 그 확률이 언제나 0.8 이상이었다 — 위험도를 `LOW`로
+    고정해도 통과했다(`#2142` 검토). 네 구간을 하나씩 밟는다. 주석의 여유율 쪽 판정은
+    `PRD §9.4.1` 표를 손으로 적용한 것이다(required = 4745 × 50000^-0.622 × 0.89 ≈
+    5.04507, 경계 0.86 · 0.94 · 1.06 · 1.18).
+    """
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", fuel=actual_fuel
+    )
+    if plan_fuel is not None:
+        await _add_voyage(
+            session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", fuel=plan_fuel
+        )
+    result = await _run(session, vessel_id, target_rating=target)
+
+    # 전제 — 이 입력이 정말 그 구간에 든다. 어긋나면 아래 단언은 다른 구간을 보고 있다.
     probability = Decimal(result["data"]["monte_carlo"]["target_success_probability"])
-    expected = "LOW" if probability >= Decimal("0.8") else result["data"]["risk_level"]
-    assert result["data"]["risk_level"] == expected
+    floor, ceiling = _PROBABILITY_BANDS[expected]
+    assert floor is None or probability >= floor, probability
+    assert ceiling is None or probability < ceiling, probability
+    # 전제 — 주석이 적은 여유율 쪽 판정의 출발점(예상 등급)이 맞다.
+    assert result["data"]["deterministic"]["projected_rating"] == projected_rating
+
+    assert result["data"]["risk_level"] == expected, probability
 
 
 # ─────────────────────────────────────────────────────────────────────────────

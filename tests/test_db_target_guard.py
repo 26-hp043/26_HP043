@@ -220,6 +220,36 @@ class TestGuardIsActuallyWired:
             "이 경로로 개발 DB에 붙을 수 있다 (#691)."
         )
 
+    @staticmethod
+    def _requests_a_guarded_fixture(source: str) -> bool:
+        """어느 함수든 가드가 걸린 fixture를 **인자로 받는가**.
+
+        ⚠️ 종전에는 부분 문자열 `"conn"`이 본문에 있는지만 봤다 — `connection`·
+        `reconnect` 같은 낱말 하나면 fixture 없이 DB를 여는 파일도 통과했다(`#2142`).
+        pytest가 fixture를 주입하는 길은 인자 이름뿐이므로 그것을 읽는다.
+        """
+        import ast
+
+        guarded = {"migrated_db", "app_fresh_engine", "conn"}
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                names = {a.arg for a in (*node.args.posonlyargs, *node.args.args)}
+                names |= {a.arg for a in node.args.kwonlyargs}
+                if names & guarded:
+                    return True
+        return False
+
+    def test_a_word_that_merely_contains_the_fixture_name_does_not_count(self):
+        """대조군 — `conn`이 **낱말 속에만** 있는 파일은 가드를 지난 것이 아니다."""
+        direct = (
+            "import sqlalchemy\n\n"
+            "def test_x():\n"
+            "    connection = sqlalchemy.create_engine('cubrid://dev').connect()\n"
+        )
+        assert "conn" in direct, "표본에 그 낱말이 없다 — 아무것도 가르지 못한다"
+        assert self._requests_a_guarded_fixture(direct) is False
+        assert self._requests_a_guarded_fixture("async def test_x(conn):\n    pass\n") is True
+
     def test_the_offending_files_all_go_through_a_guarded_fixture(self):
         """`#691`이 지목한 12개 파일이 **가드가 걸린 fixture**를 통과한다.
 
@@ -248,8 +278,7 @@ class TestGuardIsActuallyWired:
         for name in offenders:
             path = tests_dir / name
             assert path.exists(), f"{name}이 없다 — 목록이 낡았는지 확인할 것"
-            text = path.read_text(encoding="utf-8")
-            if not any(f in text for f in ("migrated_db", "app_fresh_engine", "conn")):
+            if not self._requests_a_guarded_fixture(path.read_text(encoding="utf-8")):
                 unguarded.append(name)
 
         assert not unguarded, (

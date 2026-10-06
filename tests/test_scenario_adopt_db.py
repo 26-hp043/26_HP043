@@ -496,14 +496,45 @@ def test_the_route_is_registered():
     assert "post" in app.openapi()["paths"]["/api/v1/scenarios/{scenario_id}/adopt"]
 
 
-def test_compare_response_carries_scenario_ids():
+@pytest.mark.asyncio
+async def test_compare_response_carries_scenario_ids(session, vessel_id):
     """IT-ADOPT-004 — 채택하려면 **비교 응답에 id가 있어야** 한다.
 
     `#57`이 이미 넣었으나 그 사실이 이 이슈의 전제이므로 여기서 함께 잠근다.
-    """
-    from cii_platform.services.scenario_compare import _serialize_scenarios
 
-    assert "scenario_ids" in _serialize_scenarios.__code__.co_varnames
+    ⚠️ 종전에는 직렬화 함수의 **지역 변수 이름**(`co_varnames`)에 `scenario_ids`가 있는지만
+    봤다 — 변수는 두고 응답 값만 비워도 통과했다(`#2142`). 실제 비교 응답을 받아, 그 id가
+    **저장된 행을 가리키는지**까지 본다(채택은 그 id로 행을 찾는다).
+    """
+    from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
+
+    # 비교는 기준 속도가 있어야 돈다(`PRD §11.4.1`). 이 파일의 선박에는 없다.
+    await session.execute(
+        text("UPDATE vessel SET reference_speed_kn = 14 WHERE id = :id"), {"id": vessel_id}
+    )
+    response = await compare_scenarios(
+        session,
+        ScenarioCompareInput(
+            vessel_id=vessel_id,
+            regulation_year=2026,
+            current_speed_kn=Decimal("12"),
+            fuel_type="HFO",
+            direct_distance_nm=Decimal("5000"),
+            base_daily_foc_ton=Decimal("30"),
+        ),
+    )
+
+    ids = [row["scenario_id"] for row in response["data"]["scenarios"]]
+    assert len(ids) == 3 and all(ids), ids
+    assert len(set(ids)) == 3, ids
+    for scenario_id in ids:
+        found = await session.execute(
+            text("SELECT COUNT(*) FROM voyage_scenario WHERE id = :id").bindparams(
+                bindparam("id", type_=UuidText())
+            ),
+            {"id": scenario_id},
+        )
+        assert found.scalar_one() == 1, f"응답의 id {scenario_id}가 저장된 행을 가리키지 않는다"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -192,10 +192,15 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
         direct_distance_nm=Decimal("5000"),
         base_daily_foc_ton=Decimal("30"),
     )
+    # ⚠️ 종전에는 **행 수**만 대조했다 — 순서를 뒤섞어도 통과했다(`#2142`). 봉투에는
+    # 시나리오 종류가 나가지 않으므로(화이트리스트), 나가는 값인 CII의 **순서**로 본다.
     expected = [
-        row.get("scenario_type")
+        Decimal(str(row["attained_cii"]))
         for row in (await compare_scenarios(session, payload))["data"]["scenarios"]
     ]
+    assert expected != sorted(expected), (
+        "서비스 순서가 이미 CII 오름차순이다 — 정렬해도 같아 아무것도 가르지 못한다"
+    )
 
     raw = await chat_tools.run_tool(
         session,
@@ -212,7 +217,7 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
     body = _parsed(raw)
     assert "error" not in body, body
     rows = body["result"]["scenarios"]
-    assert len(rows) == len(expected), (rows, expected)
+    assert [Decimal(str(row["attained_cii"])) for row in rows] == expected, (rows, expected)
     for row in rows:
         assert set(row) <= set(chat_tools._PUBLISH_MAP.values()), row
     assert VESSEL_NAME not in _flat(body)

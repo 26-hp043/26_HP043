@@ -167,7 +167,13 @@ def test_non_positive_capacity_is_rejected():
 # ── `TECH_SPEC §2.3.1` [ORACLE-S-1] — 계획값 0 이하 거부 (#967) ───────────────
 
 
-def _voyage(**over) -> RemainingVoyage:
+def _voyage_without_specs(**over) -> RemainingVoyage:
+    """속도-연료 모델 제원이 **없는** 잔여 항차.
+
+    ⚠️ 종전 이름은 `_voyage`였다 — 파일 머리의 `_voyage`(제원 있음)를 **덮어써서**, 이 아래
+    모든 검사가 제원 없는 항차로 돌았다(`#2142`). 「일부만 제원이 빠졌다」를 만들려던
+    검사가 실제로는 「전부 빠졌다」를 보고 있었다.
+    """
     kwargs = {
         "distance_nm": 3000.0,
         "fuel_ton": 250.0,
@@ -194,7 +200,7 @@ def test_deterministic_projection_rejects_non_positive_plan_values(bad):
     종전 구현은 폭 0 표본으로 받아 넘겼다(`#967`). 거리 0은 분모에 기여하지 않아 결과가
     틀리지는 않지만, 입력 누락이 어디에도 드러나지 않는다. 메시지에 **어느 항차**인지 싣는다.
     """
-    remaining = [_voyage(), _voyage(**bad)]
+    remaining = [_voyage_without_specs(), _voyage_without_specs(**bad)]
     with pytest.raises(ValueError, match=r"잔여 항차 1의 계획값이 0 이하"):
         _project(remaining=remaining)
 
@@ -202,7 +208,7 @@ def test_deterministic_projection_rejects_non_positive_plan_values(bad):
 def test_monte_carlo_rejects_non_positive_plan_values_before_sampling():
     """결정론과 같은 가드가 Monte Carlo에도 걸린다 — 두 경로가 다른 입력을 받으면 안 된다."""
     with pytest.raises(ValueError, match=r"잔여 항차 0의 계획값이 0 이하"):
-        _simulate(remaining=[_voyage(distance_nm=0.0)])
+        _simulate(remaining=[_voyage_without_specs(distance_nm=0.0)])
 
 
 def test_degenerate_band_still_returns_the_plan_value():

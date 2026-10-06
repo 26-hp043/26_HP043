@@ -845,16 +845,24 @@ def test_fuel_type_label_does_not_invent_a_name():
     assert fuel_type_label(None) == "—"
 
 
-def test_the_fuel_table_carries_no_raw_fuel_code():
+def test_no_known_fuel_code_is_shown_as_itself():
     """`#645`가 출처를 고칠 때 **유종 칸이 남아 있었다** — 같은 표에서 한 칸만 영문이었다.
 
-    열 이름을 짚지 않고 문서 전체를 훑는다 — 연료가 다른 절에 하나 더 실려도 걸린다.
+    ⚠️ 종전 이름은 `test_the_fuel_table_carries_no_raw_fuel_code`였고 docstring이 「문서
+    전체를 훑는다」고 적었으나, 실제로는 **라벨 dict에 `HFO` 키가 있는지**만 봤다 —
+    문서도 표시 함수도 지나지 않았다(`#2142`). 이 파일은 DB 없이 돌아 문서를 조립하지
+    못한다. 문서 전체 훑기는 `test_reports_db.py`의
+    `test_no_raw_source_code_survives_in_the_report`가 한다. 여기서는 그 훑기가 기대는
+    성질 — **아는 코드는 표시 함수를 지나면 코드가 아닌 것이 된다** — 을 본다.
     """
-    from cii_platform.reports.labels import FUEL_TYPE_LABELS
+    from cii_platform.reports.labels import FUEL_TYPE_LABELS, fuel_type_label
 
-    assert "HFO" in FUEL_TYPE_LABELS
-    # 반대 방향도 함께 본다: 「코드가 없다」만 보면 열을 통째로 빼도 통과한다.
-    assert FUEL_TYPE_LABELS["HFO"] == "중유"
+    assert FUEL_TYPE_LABELS, "연료 표가 비었다 — 아래 반복이 아무것도 보지 않는다"
+    for code in FUEL_TYPE_LABELS:
+        shown = fuel_type_label(code)
+        assert shown != code, f"{code}가 원문 코드 그대로 나간다"
+        # 표기가 다른 연료의 코드와 겹치면 「원문 코드가 남았다」 훑기가 헛돈다.
+        assert shown not in FUEL_TYPE_LABELS, (code, shown)
 
 
 def test_ship_type_labels_cover_the_calc_ship_types():

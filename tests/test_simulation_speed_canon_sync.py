@@ -23,7 +23,8 @@
 * 그런데도 `SPEED` 행은 `parameters_used`·`parameter_hash`에 **실린다**
 * `§12.6` 민감도의 ±1kn은 **프로파일에서 오지 않는다**
 
-케이스: UT-CII-008 (`TEST_PLAN §14.5`)
+NOT-COVERED: UT-CII-008 — 계획값 0 가드의 소재는 `test_annual_simulation.py`다
+(`#2142`에서 머리말의 케이스 주장을 지웠다).
 """
 
 from __future__ import annotations
