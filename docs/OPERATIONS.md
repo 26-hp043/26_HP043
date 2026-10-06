@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-29 (§3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-29 (§8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -1231,9 +1231,9 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
 ### 8.4 디스크 사용량
 
 ```bash
-# Docker 이미지/볼륨
-ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "docker system df"
-ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
+# 루트 디스크 · Docker 이미지/볼륨
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "df -h /; docker system df"
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "df -h /; docker system df"
 
 # CUBRID DB 디렉터리 (db-01) -- 보관 로그(archive log)를 포함한 실제 사용량 (#1640).
 # 데이터는 이미지의 $CUBRID_DATABASES(/home/cubrid/CUBRID/databases)에 있다 -- /var/lib/cubrid가 아니다.
@@ -1241,6 +1241,32 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
   "docker exec cii-cubrid sh -c 'du -sh \"\$CUBRID_DATABASES/cii\"'"
 ```
+
+#### 8.4.1 app-01 옛 백엔드 이미지 (#2041)
+
+배포(`deploy.yml` `deploy-app`)가 끝에서 `bluelog-backend` 이미지를 **실행 중 1개 + 최근 3개**만
+남기고 지운다. 배포 로그에 `[app-01] 옛 이미지 정리: … N개`와 `[app-01] 루트 디스크 …`가 찍힌다.
+
+> 이 단계가 없던 동안 배포마다 이미지가 쌓여 **2026-09-29에 app-01 루트 디스크가 100%**
+> (45G 중 여유 139M · `bluelog-backend` 253개 · `/var/lib/containerd` 36G)까지 찼다.
+> 롤백은 GHCR에서 태그로 다시 받으므로(§3.6.2 · `ops.yml` `rollback-drill`) VM에 옛 이미지를 둘 필요가 없다.
+
+손으로 정리해야 하면 **저장소를 한정해서** 지운다.
+
+```bash
+# app-01 — 실행 중 + 최근 3개를 남기고 bluelog-backend만 지운다
+img="$(docker inspect cii-backend --format '{{.Config.Image}}')"
+docker images "${img%:*}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+  | sort -r | cut -f2 | grep -vxF "$img" | grep -v ':<none>$' | tail -n +4 \
+  | xargs -r docker rmi
+
+# journald가 크면(기본 상한은 파일시스템의 10%)
+sudo journalctl --vacuum-size=200M
+```
+
+> ⚠️ **`docker image prune -a`·`docker system prune`은 쓰지 않는다.** app-01은 our-tax와 같은
+> VM이라 저장소를 가리지 않는 정리는 **our-tax의 롤백 이미지까지** 지운다. `--volumes`는 §9.2의
+> 고아 볼륨 복구 가능성을 없앤다(비가역).
 
 ---
 
@@ -1433,8 +1459,8 @@ docker stats --no-stream
 # 스왑 설정 (멱등 · 재부팅을 견디는 /swapfile을 만든다)
 sudo ~/bluelog/ops/host/setup-zram-swap.sh
 
-# 불필요한 이미지 정리
-docker image prune -a
+# 불필요한 이미지 정리 — bluelog-backend만 (§8.4.1)
+# `docker image prune -a`는 같은 VM의 our-tax 이미지까지 지운다 (#2041)
 ```
 
 ### 9.6 포트 충돌
