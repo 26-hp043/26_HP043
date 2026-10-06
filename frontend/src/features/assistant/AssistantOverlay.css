@@ -94,6 +94,58 @@
   cursor: pointer;
 }
 
+/*
+ * 첫 방문 안내 말풍선 (#2205) — 런처 바로 위.
+ *
+ * 떠 있는 면이므로 `--shadow-overlay` + 테두리를 함께 쓴다(파일 머리 · `§5`). 새 토큰은
+ * 만들지 않았다 — 어시스턴트 치수가 미확정(`DESIGN_SYSTEM §16` 항목 16~18)이라 기존
+ * 값만 조합한 임시안이며, 확정이 오면 이 블록만 고친다.
+ *
+ * 폭은 창보다 넓어지지 않는다. 런처와 같은 오른쪽 선에 맞추고, 아래는 런처 높이 +
+ * 간격만큼 띄운다 — 런처를 가리지 않는다.
+ */
+.assistant__hint {
+  position: fixed;
+  right: var(--space-24);
+  bottom: calc(var(--space-24) + var(--assistant-launcher-size) + var(--space-8));
+  z-index: 40;
+  box-sizing: border-box;
+  width: min(260px, calc(100vw - 2 * var(--space-24)));
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.assistant__hint-text {
+  margin: 0;
+  font-size: var(--font-size-label);
+  word-break: keep-all;
+}
+
+.assistant__hint-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.assistant__hint-button {
+  padding: var(--space-4) var(--space-8);
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+
+.assistant__hint-button:hover {
+  text-decoration: underline;
+}
+
 .assistant__launcher:hover {
   background: var(--color-surface-2);
 }
