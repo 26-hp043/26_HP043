@@ -246,6 +246,45 @@ async def test_066_roundtrip_swaps_hash_trigger_case_sensitivity():
     await _assert_no_duplicate_trigger_names()
 
 
+#: `067`이 갈아 끼운 활성-유니크 트리거 여섯 — 이름은 `054` 그대로다.
+_ACTIVE_UNIQUE_TRIGGER_NAMES = tuple(
+    f"trg_{table}_active_unique_{event}"
+    for table in ("regulation_year", "cii_reference_line", "cii_rating_boundary")
+    for event in ("ins", "upd")
+)
+
+#: `067`이 더한 조각을 CUBRID가 `db_trigger`에 보관하는 모양 — 식별자를 대괄호로 감싸고
+#: 공백을 뺀다(2026-10-06 `cii_test` 실측 — `not ([new].[is_active]=0 or not exists (…))`).
+_INACTIVE_PASS_FRAGMENT = "[new].[is_active]=0"
+
+
+async def _active_unique_conditions() -> dict[str, str]:
+    rows = await _db_trigger_rows("SELECT name, condition FROM db_trigger")
+    return {row[0]: str(row[1]).lower() for row in rows if row[0] in _ACTIVE_UNIQUE_TRIGGER_NAMES}
+
+
+async def test_067_roundtrip_swaps_active_unique_inactive_row_pass():
+    """`downgrade 066`이 `054`의 조건(비활성 행도 거부)을, `upgrade head`가 `new.is_active = 0 OR`를
+    되살린다 (#2104).
+
+    `066` 한 단계 왕복과 같은 이유로 따로 본다 — 이름·개수(6)가 그대로라 집합 대조로는 두
+    상태가 구분되지 않는다.
+    """
+    step = run_alembic("downgrade", "066")
+    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    try:
+        downgraded = await _active_unique_conditions()
+        assert set(downgraded) == set(_ACTIVE_UNIQUE_TRIGGER_NAMES), sorted(downgraded)
+        assert all(_INACTIVE_PASS_FRAGMENT not in cond for cond in downgraded.values()), downgraded
+    finally:
+        _restore_to_head()
+
+    restored = await _active_unique_conditions()
+    assert set(restored) == set(_ACTIVE_UNIQUE_TRIGGER_NAMES), sorted(restored)
+    assert all(_INACTIVE_PASS_FRAGMENT in cond for cond in restored.values()), restored
+    await _assert_no_duplicate_trigger_names()
+
+
 async def test_partial_downgrade_preserves_immutability():
     """부분 다운그레이드 뒤에도 calculation_run immutable이 유지된다.
 

@@ -170,3 +170,146 @@ async def test_weather_param_unique_rejects_duplicate(conn):
 async def test_weather_param_same_key_other_model_ok(conn):
     await _insert_weather_param(conn, model_version="SIMPLE_RULE")
     await _insert_weather_param(conn, model_version="TOWNSIN_KWON_ALPHA")
+
+
+# --- 활성-유니크의 「활성 행끼리만」 (054 → 067, #2104) ---
+
+
+async def _insert_regulation_year(conn, year=1900, is_active=1, source_ref="TEST"):
+    # [#127] 정본에 없는 연도(1900)를 쓴다 — seed의 2023~2030과 키가 겹치지 않게.
+    await conn.execute(
+        text(
+            "INSERT INTO regulation_year "
+            '("year", z_factor_percent, effective_from, source_ref, version, is_active) '
+            "VALUES (:y, 0, '1900-01-01', :src, '1.0', :act)"
+        ),
+        {"y": year, "src": source_ref, "act": is_active},
+    )
+
+
+async def _insert_refline_versioned(conn, is_active=1, source_ref="TEST"):
+    await conn.execute(
+        text(
+            "INSERT INTO cii_reference_line "
+            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref, "
+            "version, is_active) "
+            "VALUES ('BULK_CARRIER', '__test__', 'DWT', '4745E3', '4745000', '0.622', :src, "
+            "'1.0', :act)"
+        ),
+        {"src": source_ref, "act": is_active},
+    )
+
+
+async def _insert_boundary_versioned(conn, is_active=1, source_ref="TEST"):
+    await conn.execute(
+        text(
+            "INSERT INTO cii_rating_boundary "
+            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref, "
+            "version, is_active) "
+            "VALUES ('BULK_CARRIER', '__test__', 'DWT', '0.86', '0.94', '1.06', '1.18', :src, "
+            "'1.0', :act)"
+        ),
+        {"src": source_ref, "act": is_active},
+    )
+
+
+#: (테이블, 같은 키 행을 넣는 헬퍼, 검사 행만 고르는 WHERE) — `054`가 트리거를 건 세 표.
+_ACTIVE_UNIQUE_TABLES = {
+    "regulation_year": (_insert_regulation_year, '"year" = 1900'),
+    "cii_reference_line": (_insert_refline_versioned, "condition_expr = '__test__'"),
+    "cii_rating_boundary": (_insert_boundary_versioned, "condition_expr = '__test__'"),
+}
+
+_tables = pytest.mark.parametrize("table", sorted(_ACTIVE_UNIQUE_TABLES))
+
+
+async def test_regulation_year_active_duplicate_is_rejected(conn):
+    # 054 — `uq_regulation_year_year`를 뺀 자리의 활성-유니크. 두 기준선 표와 같은 계약.
+    await _insert_regulation_year(conn)
+    with pytest.raises(IntegrityError, match="trg_regulation_year_active_unique"):
+        await _insert_regulation_year(conn)
+
+
+@_tables
+async def test_inactive_row_insert_passes_with_active_present(conn, table):
+    """활성 행이 있는 키에 **이행 행**(is_active = 0)을 넣을 수 있다 (#2104 · 067).
+
+    `054`의 조건은 `new.is_active`를 보지 않아 활성 행이 하나라도 있으면 비활성 행 INSERT까지
+    거부했다 — 「활성 행끼리만 유일」(`DB_SCHEMA §2.10`)이 아니었다.
+    """
+    insert, where = _ACTIVE_UNIQUE_TABLES[table]
+    await insert(conn)
+    await insert(conn, is_active=0)
+    count = (
+        await conn.execute(text(f"SELECT count(*) FROM {table} WHERE {where}"))  # noqa: S608
+    ).scalar_one()
+    assert count == 2
+
+
+@_tables
+async def test_inactive_row_update_passes_with_active_present(conn, table):
+    """활성 행이 있는 키의 **이행 행**은 다른 열을 고칠 수 있다 (#2104 · 067).
+
+    `BEFORE UPDATE` 트리거도 같은 조건이라 `054`에서는 이행 행의 출처 메모 하나도 못 고쳤다.
+    """
+    insert, where = _ACTIVE_UNIQUE_TABLES[table]
+    await insert(conn)
+    await insert(conn, is_active=0)
+    await conn.execute(
+        text(f"UPDATE {table} SET source_ref = 'TEST-FIXED' WHERE {where} AND is_active = 0")  # noqa: S608
+    )
+    fixed = (
+        await conn.execute(
+            text(f"SELECT count(*) FROM {table} WHERE {where} AND source_ref = 'TEST-FIXED'")  # noqa: S608
+        )
+    ).scalar_one()
+    assert fixed == 1
+
+
+@_tables
+async def test_reactivating_history_row_beside_active_is_rejected(conn, table):
+    """이행 행을 `is_active = 1`로 되살리면 활성 행이 둘이 되므로 거부된다 (`047` ⑥과 같은 판단).
+
+    `067`이 넓힌 것은 **비활성 행의 쓰기**뿐이다 — 활성 행 둘은 INSERT든 UPDATE든 여전히
+    막혀야 계산이 읽는 활성 행이 하나로 남는다.
+    """
+    insert, where = _ACTIVE_UNIQUE_TABLES[table]
+    await insert(conn)
+    await insert(conn, is_active=0)
+    with pytest.raises(IntegrityError, match=f"trg_{table}_active_unique_upd"):
+        await conn.execute(
+            text(f"UPDATE {table} SET is_active = 1 WHERE {where} AND is_active = 0")  # noqa: S608
+        )
+
+
+def test_067_copies_054_trigger_targets():
+    """`067`이 사본으로 가진 (표, 키)·이름 규칙이 `054` 원본과 같다 (`066` 검토 지적과 같은 잠금).
+
+    `alembic/versions`는 패키지가 아니라 `067`이 `054`를 import할 수 없어 사본을 갖는다. 사본이
+    원본과 어긋나면 없는 이름을 교체하려다 트리거가 **늘어나거나** 옛 조건이 남는다.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+
+    def load(pattern: str):
+        hits = sorted(versions.glob(pattern))
+        assert len(hits) == 1, f"{pattern}: {[h.name for h in hits]}"
+        spec = importlib.util.spec_from_file_location(f"migration_{hits[0].stem}", hits[0])
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    m054 = load("054_*.py")
+    m067 = load("067_*.py")
+    original = tuple((table, keys) for table, _index, keys in m054.ACTIVE_UNIQUE)
+    assert original == m067.ACTIVE_UNIQUE
+    assert m067._EVENTS == m054._EVENTS
+    for table, _keys in m067.ACTIVE_UNIQUE:
+        for event in m067._EVENTS:
+            assert m067._trigger_name(table, event) == m054._trigger_name(table, event)
+    # 되돌리는 조건은 `054`가 건 것과 글자 그대로 같아야 한다 — 왕복 뒤 정의 대조(`#1861`).
+    for table, keys in m067.ACTIVE_UNIQUE:
+        assert m067._exists(table, keys) == m054._condition(table, keys)
