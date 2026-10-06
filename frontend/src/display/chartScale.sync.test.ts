@@ -28,12 +28,15 @@ const SRC = dirOf(import.meta.url, '..')
 /**
  * 훅을 쓰지 않아도 되는 파일과 **그 이유**.
  *
- * ⚠️ 「목록에 있으니 괜찮다」가 아니다 — `position-chart`는 **같은 증상이 남아 있고**
- * 이 이슈의 범위 밖이라 적어 둔 것이다. 이유를 함께 적어야 다음 사람이 가를 수 있다.
+ * ⚠️ 「목록에 있으니 괜찮다」가 아니다 — 이유를 함께 적어야 다음 사람이 가를 수 있다.
+ * 그리고 이유가 **다른 가드에 기대고 있으면 그 가드를 이름으로 적는다.** 개략도가
+ * 그 경우다(`#2156`) — 글자가 배율을 타는 것은 맞고, 그것을 범위 안에 묶는 것은
+ * `§9.5`의 최대 폭이며, 그 묶음을 지키는 것은 `chartMaxWidth.sync.test.ts`다.
+ * 아래 「기대는 가드가 실재한다」가 그 참조를 잠근다.
  */
 const EXEMPT: Readonly<Record<string, string>> = {
   'features/fleet/PositionChart.tsx':
-    '개략도 — 축·계열이 없어 §9 대상이 아니다. ⚠️ 다만 SVG `<text>` 둘이 배율을 탄다(#2038 범위 밖 · 후속)',
+    '개략도 — 축·계열이 없어 §9 대상이 아니다. SVG `<text>` 둘(나침방 · 선박 이름표)은 배율을 타지만 **그것이 이 그림의 결정**이다 〔확정 2026-10-06 · `#2156` · `rlatnals4114`〕 — `§9.5`(v2.28 🔒)가 최대 폭 `1,049px`를 둔 이유가 바로 이 글자 크기이고, 그 상한 안에서 `13.0`~`17.5px`로 `§3` 범위(13~18)에 선다. 셋(상한 · `LABEL_FONT` · `VIEW_W`) 중 하나만 바뀌면 범위를 벗어나는데, 그것은 `features/fleet/chartMaxWidth.sync.test.ts`가 잡는다',
   'features/fleet/FleetMap.tsx': '지도 — 타일이 배율을 갖는다(maplibre 소관)',
   'features/fleet/FleetDashboard.tsx': '글리프 — 카드 장식',
   'features/fleet/VesselGlyph.tsx': '글리프 — 선박 실루엣',
@@ -84,6 +87,23 @@ describe('차트는 배율을 타지 않는다 — 목록 (#2038)', () => {
     const live = new Set(withViewBox().filter((key) => !usesHook(key)))
     const dead = Object.keys(EXEMPT).filter((key) => !live.has(key))
     expect(dead).toEqual([])
+  })
+
+  /**
+   * **기대는 가드가 실재한다** (`#2156`).
+   *
+   * 개략도의 예외 사유는 「다른 가드가 묶고 있다」로 선다. 그 가드가 사라지거나
+   * 이름이 바뀌면 **이유가 조용히 거짓이 된다** — 사유는 글이라 저절로 붉어지지
+   * 않는다. 이름으로 적은 참조를 여기서 잡는다.
+   */
+  it('개략도 예외가 이름으로 적은 가드가 실재하고 §3 범위를 단언한다 (#2156)', () => {
+    const reason = EXEMPT['features/fleet/PositionChart.tsx']
+    const named = /`([\w/.]+\.test\.tsx?)`/.exec(reason)
+    expect(named, '예외 사유가 기대는 가드를 이름으로 적지 않았다').not.toBeNull()
+
+    const guard = readFileSync(join(SRC, (named as RegExpExecArray)[1]), 'utf8')
+    expect(guard).toMatch(/toBeGreaterThanOrEqual\(13\)/)
+    expect(guard).toMatch(/toBeLessThanOrEqual\(18\)/)
   })
 
   it('두 차트는 훅을 쓴다', () => {
