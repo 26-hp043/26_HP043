@@ -37,6 +37,10 @@ export const en: Record<MessageKey, string> = {
   'account.language': 'Language',
   'account.settings': 'Settings',
   'account.settingsSub': 'Account · Password',
+  'account.role.OFFICE': 'Office',
+  'account.role.FIELD': 'Field',
+  'account.role.ADMIN': 'Admin',
+  'account.role.tour': 'Tour',
 
   'theme.groupLabel': 'Theme',
   'theme.light': 'Light',

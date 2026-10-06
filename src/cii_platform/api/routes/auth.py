@@ -249,6 +249,14 @@ def _user_payload(user: AppUser) -> dict[str, object]:
         # 안 올린 사용자(기본 상태다)는 화면을 열 때마다 404를 하나씩 만든다.
         # 「지우기」를 보일지도 이 값으로 가른다.
         "has_avatar": user.avatar_etag is not None,
+        # `#2203` — 둘러보기 계정인가. 화면이 사이드바 계정 카드의 역할 자리에 「관리자」
+        # 대신 「둘러보기」를 적는다 — 둘러보기 계정은 서비스를 다 보이려고 ADMIN이라
+        # (아래 `tour_login`), 역할을 그대로 적으면 심사위원이 자기 권한으로 읽는다.
+        #
+        # 판정은 고정 PK 하나로 한다(`tour_gate.TOUR_USER_ID` — 중앙 읽기 전용 가드와 같은
+        # 출처). 화면이 이메일(`tour@bluelog.local`)을 비교하면 예약 주소 목록의 단일
+        # 출처(`reserved_emails.py`)가 화면에 한 벌 더 생긴다.
+        "is_tour": user.id == _TOUR_USER_ID,
     }
 
 

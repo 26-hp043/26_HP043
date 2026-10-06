@@ -42,6 +42,11 @@ export const ko = {
   'account.language': '언어',
   'account.settings': '설정',
   'account.settingsSub': '계정 정보 · 비밀번호',
+  /** 계정 카드의 역할 자리 (#2203) — 글자는 `authRules.ROLE_LABEL`과 같다(`accountRole.test`가 대조) */
+  'account.role.OFFICE': '사무직',
+  'account.role.FIELD': '현장직',
+  'account.role.ADMIN': '관리자',
+  'account.role.tour': '둘러보기',
 
   /** 테마 선택 칸(#1525) — 아이콘만 있는 칸의 낭독 이름. 안내는 현재 언어로 읽힌다 */
   'theme.groupLabel': '화면 테마',
