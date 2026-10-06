@@ -484,7 +484,8 @@ async def test_row_that_already_exists_is_still_skipped(conn: AsyncConnection):
 
     위 세 검사만 있으면 「모든 ``IntegrityError``를 올리는 구현」도 통과한다. 그 구현은
     재적재를 깨뜨린다. 트리거가 있는 표(``vessel`` — 위반이 트리거 액션 안에서 난다)와
-    없는 표(``voyage`` — 직접 위반)는 드라이버가 주는 errno가 달라 둘 다 본다.
+    없는 표(``voyage`` — 직접 위반)는 드라이버가 주는 errno가 달라 둘 다 본다. 시연 계정
+    (``app_user`` — ``vessel``과 같은 갈래)의 재적재는 ``test_demo_user_seed.py``가 본다.
     """
     assert await _insert_ignoring_existing(conn, demo_seed._vessel, SEED_VESSELS[:1]) == 0
     assert await _insert_ignoring_existing(conn, demo_seed.voyage_tbl, SEED_VOYAGES[:1]) == 0

@@ -2049,6 +2049,10 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
     경량 ``sa.table``에는 제약 정보가 없고 ORM 모델에서도 PK 이름은 ``None``일 수 있어
     (이름은 마이그레이션이 정한다), 대조표를 두면 그 표가 낡는 순간 정상 재적재가
     실패한다. 시연 계정처럼 PK가 아니라 이메일 유니크에서 걸리는 재적재도 같은 갈래다.
+
+    그래서 **새 PK인데 다른 유니크**(예: 다른 선박이 이미 쓰는 IMO)에 걸린 행도 건너뛴다.
+    그 행에 딸린 행(그 선박의 항차)은 다음 표에서 FK 위반으로 실패한다 — 그때 오류가
+    가리키는 표가 아니라 앞 표의 건너뜀이 원인이다.
     """
     if not rows:
         return 0

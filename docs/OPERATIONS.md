@@ -416,7 +416,7 @@ gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡�
 | 하루 | 관찰선 진행 항차가 도착 예정을 넘겨 `IN_PROGRESS_PAST_ETA` 대상이 된다 |
 | 약 3주 | 최근 구간이 30일 창을 벗어나 `NO_RECENT_DATA`가 된다 |
 
-**적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 `IntegrityError`를 삼키므로 이미 있는 행은 그대로다. 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
+**적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 PK·유니크 중복을 건너뛰므로 이미 있는 행은 그대로다(그 밖의 위반 — 값 트리거 거부 · FK · NOT NULL — 은 건너뛰지 않고 적재 전체를 실패시킨다 · `#2105`). 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
 
 > **시연·인터뷰 직전에 `clear_demo=true` + `seed_demo=true`로 한 번 돌린다.** 회차가 여러 번이면 회차 사이에도 돌린다 — 둘러보기 세션은 관리자 권한이라 누군가 선박을 지웠을 수 있고, 다시 적재하면 되살아난다(#1486 결정).
 >
