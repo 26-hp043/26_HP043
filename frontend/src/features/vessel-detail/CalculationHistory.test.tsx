@@ -129,6 +129,10 @@ describe('「더 보기」가 실패해도 받은 행을 버리지 않는다 (#1
     expect(message).not.toBe('')
     // 조회가 500으로 실패했다 — 그 숫자는 화면에 나가지 않는다 (`#2221`).
     expect(message).not.toMatch(/HTTP|\d{3}/)
+    // 숫자를 뺀 본문이 제목을 되풀이하지 않는다 — 같은 문장이 두 줄로 보이지 않게.
+    const title = screen.getByRole('alert').querySelector('.error-state__title')?.textContent ?? ''
+    expect(title).not.toBe('')
+    expect(message.replace(/[.\s]/g, '')).not.toBe(title.replace(/[.\s]/g, ''))
     // 표가 그대로다 — 종전에는 여기서 `ErrorState` 하나만 남았다.
     expect(screen.getByText('CII 예측')).toBeTruthy()
     // 실패를 「계산이 없다」로 바꿔 말하지도 않는다.
