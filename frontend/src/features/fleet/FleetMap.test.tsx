@@ -49,6 +49,11 @@ const vesselMarkers = (): FakeMarkerRecord[] =>
 /** 항구 핀만 (`#1882`). */
 const portMarkers = (): FakeMarkerRecord[] =>
   markersCreated().filter((m) => m.element.classList.contains('fleetmap__port'))
+/**
+ * 지도 호스트를 이름으로 찾는다 (#2128). 호스트는 `group`이고 — 안에 붙는 마커 버튼이
+ * 보조기술에 닿으려면 `img`일 수 없다 — 지도 아래 접이식 대체 정보(`<details>`)도 같은 역할로 잡힌다.
+ */
+const MAP_NAME = /현재 위치 지도/
 
 vi.mock('maplibre-gl', () => {
   class FakeMap {
@@ -171,7 +176,7 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
   it('결측을 접근성 트리에도 넣는다 — 눈으로 보는 쪽에만 있으면 낭독은 못 듣는다', () => {
     render(<FleetMap vessels={[vessel('1', '35.1', '129.0'), vessel('2', null, null)]} />)
 
-    const label = screen.getByRole('img').getAttribute('aria-label') ?? ''
+    const label = screen.getByRole('group', { name: MAP_NAME }).getAttribute('aria-label') ?? ''
     expect(label).toContain('선박 1척의 현재 위치 지도')
     expect(label).toContain('좌표가 없는 1척은 빠져 있습니다')
   })
@@ -180,7 +185,7 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     render(<FleetMap vessels={[vessel('1', null, null), vessel('2', null, null)]} />)
 
     expect(screen.getByText(/위치가 기록된 선박이 없습니다/)).toBeTruthy()
-    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('group', { name: MAP_NAME })).toBeNull()
   })
 
   /**
@@ -200,12 +205,12 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
       <FleetMap vessels={[vessel('1', null, null), vessel('2', null, null)]} />,
     )
     // 캔버스가 없으니 지도도 없다 — 여기까지는 종전과 같다.
-    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByRole('group', { name: MAP_NAME })).toBeNull()
     expect(mapsCreated()).toHaveLength(0)
 
     rerender(<FleetMap vessels={[vessel('1', '35.1', '129.0'), vessel('2', null, null)]} />)
 
-    expect(screen.getByRole('img')).toBeTruthy()
+    expect(screen.getByRole('group', { name: MAP_NAME })).toBeTruthy()
     // 종전에는 여기서 0이었다 — 캔버스는 생겼는데 지도는 만들어지지 않았다.
     expect(mapsCreated()).toHaveLength(1)
   })
@@ -256,7 +261,7 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(lines[0]).toMatch(/항해 계획이 아닙니다/)
     expect(lines[0]).not.toMatch(/테두리/)
     expect(lines[1]).toMatch(/테두리/)
-    const map = screen.getByRole('img')
+    const map = screen.getByRole('group', { name: MAP_NAME })
     expect(map.getAttribute('aria-describedby')).toBe(container.querySelector('.fleetmap__hint')?.id)
   })
 
@@ -284,7 +289,7 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     render(<FleetMap vessels={[vessel('1', '35.1', '129.0'), vessel('2', '34.0', '128.0')]} />)
 
     expect(screen.queryByText(/표시되지 않았습니다/)).toBeNull()
-    const label = screen.getByRole('img').getAttribute('aria-label') ?? ''
+    const label = screen.getByRole('group', { name: MAP_NAME }).getAttribute('aria-label') ?? ''
     expect(label).not.toContain('빠져 있습니다')
   })
 })

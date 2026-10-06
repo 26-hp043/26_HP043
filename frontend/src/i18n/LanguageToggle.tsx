@@ -1,4 +1,5 @@
 import { LANGUAGES, useI18n, useTextLang, type Language } from './core'
+import { moveRadioByArrow } from '../components/radioArrowKeys'
 import './LanguageToggle.css'
 
 /**
@@ -29,6 +30,8 @@ export function LanguageToggle({ labelledBy }: { labelledBy?: string } = {}) {
       lang={textLang}
       aria-label={labelledBy ? undefined : t('i18n.groupLabel')}
       aria-labelledby={labelledBy}
+      // 화살표 이동 (#2128) — `ThemeToggle`과 같은 규약이라 같은 함수를 쓴다.
+      onKeyDown={moveRadioByArrow}
     >
       {LANGUAGES.map((candidate) => (
         <Option
@@ -68,6 +71,8 @@ function Option({
       role="radio"
       lang={textLang}
       aria-checked={selected}
+      // 선택된 칸만 Tab을 받는다 — 나머지는 화살표로 닿는다.
+      tabIndex={selected ? 0 : -1}
       aria-label={label}
       title={label}
       className={

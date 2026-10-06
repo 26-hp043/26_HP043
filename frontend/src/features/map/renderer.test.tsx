@@ -156,3 +156,40 @@ describe('MapRendererHost', () => {
     ])
   })
 })
+
+/*
+ * 지도 호스트는 **그림이 아니라 묶음**이다 (#2128 ⑵).
+ *
+ * `role="img"`는 하위 트리를 통째로 presentational로 만든다 — 그 안의 버튼은 보조기술에
+ * 버튼으로 닿지 않는다. 그런데 렌더러는 마커·항만 핀 **버튼**을 이 호스트 안에 붙인다
+ * (`#1831` · `#1933`). 이름(`aria-label`)과 설명(`aria-describedby`)은 그대로 호스트가 갖는다.
+ */
+describe('MapRendererHost — 안에 붙는 조작이 보조기술에 닿는다 (#2128)', () => {
+  it('렌더러가 호스트 안에 붙인 버튼의 조상에 role="img"가 없다', () => {
+    let button: HTMLButtonElement | null = null
+    const renderer: MapRenderer<{ mode: 'fleet' }> = {
+      mount(target) {
+        button = document.createElement('button')
+        button.setAttribute('aria-label', '선박 1')
+        target.append(button)
+        return { update: vi.fn(), destroy: vi.fn() }
+      },
+    }
+    const view = render(
+      <>
+        <p id="hint">설명</p>
+        <MapRendererHost ariaLabel="지도" ariaDescribedBy="hint" model={{ mode: 'fleet' }} renderer={renderer} />
+      </>,
+    )
+
+    // 이 파일은 공통 뒷정리를 쓰지 않는다 — 앞 검사의 DOM이 남으므로 자기 container 안에서 찾는다.
+    const attached = view.container.querySelector('button')!
+    expect(attached).toBe(button)
+    expect(attached.closest('[role="img"]')).toBeNull()
+    // 이름과 설명은 잃지 않는다 — 이름이 읽히려면 호스트에 역할이 있어야 한다(`§12`).
+    const host = attached.parentElement!
+    expect(host.getAttribute('aria-label')).toBe('지도')
+    expect(host.getAttribute('role')).not.toBeNull()
+    expect(host.getAttribute('aria-describedby')).toBe('hint')
+  })
+})
