@@ -32,9 +32,12 @@
 
 ## 재실행 가능하다
 
-``ON CONFLICT DO NOTHING``이라 여러 번 돌려도 행이 늘지 않는다. **덮어쓰지도 않는다** —
-누군가 데모 선박의 값을 고쳐 두었다면 그 편집을 존중한다. 초기화가 목적이면 지우고 다시
-넣는 편이 의도가 분명하다.
+이미 있는 행(PK·유니크 중복)은 건너뛰므로 여러 번 돌려도 행이 늘지 않는다. **덮어쓰지도
+않는다** — 누군가 데모 선박의 값을 고쳐 두었다면 그 편집을 존중한다. 초기화가 목적이면
+지우고 다시 넣는 편이 의도가 분명하다.
+
+**건너뛰는 것은 중복뿐이다** (`#2105`). 값 트리거의 거부·FK·NOT NULL 위반은 건너뛰지
+않고 예외로 올려 적재 전체를 실패시킨다(:func:`_insert_ignoring_existing`).
 
 ## 고정 UUID는 계약이다
 
@@ -68,6 +71,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
+from cii_platform.db.cubrid_errors import violated_unique_index
 from cii_platform.db.models import Base
 from cii_platform.db.types import JSONText, UuidText
 
@@ -101,7 +105,7 @@ VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
 #: 종전 값 ``0000001``은 대역만 지키고 체크섬은 고려하지 않았다. 0으로 시작하면서
 #: 체크섬이 맞는 7자리는 10만 개 있으므로 **두 조건을 함께 만족할 수 있다.**
 #: 이미 적재된 DB는 마이그레이션 ``036``이 고친다 — 이 seed는
-#: ``ON CONFLICT DO NOTHING``이라 덮어쓰지 않는다.
+#: 이미 있는 행을 건너뛸 뿐 덮어쓰지 않는다.
 SYNTHETIC_IMO_BULK = "0000012"
 #: 합성 IMO — 실선 대역과 겹치지 않는 0 시작(018 규칙). 로로(`0000024`) 다음 값이다.
 SYNTHETIC_IMO_WATCH = "0000036"
@@ -339,7 +343,7 @@ SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK, P_IN_PORT)
 #: 문제는 그 대신 쓸 계정이 없다는 것이었다.
 #:
 #: UUID를 고정 상수로 둔다 — ``uuid4()``를 쓰면 시드를 다시 돌릴 때마다 PK가 달라져
-#: ``ON CONFLICT DO NOTHING``이 이메일 UNIQUE에서만 걸린다. 값 대역은 이 파일의
+#: 재적재의 중복 건너뜀이 이메일 UNIQUE에서만 걸린다. 값 대역은 이 파일의
 #: 관례를 따른다(선박 ``…0001``~, 구간 ``…0201``~, 계정 ``…0301``~).
 DEMO_USER_ID = "00000000-0000-4000-8000-000000000301"
 
@@ -2028,11 +2032,27 @@ port_call_tbl = sa.table(
 async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dict]) -> int:
     """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다.
 
-    행별 ``INSERT``를 돌려 성공할 때마다 직접 세고, 이미 있는 행은
-    ``IntegrityError``로 넘긴다 — 그 예외는 실패가 아니라 「이미 있다」는 뜻이다.
-    CUBRID에는 ``ON CONFLICT``·``RETURNING``이 없어(``#1058``) 이보다 나은 표현이
-    없다(#371의 행별 실행 원칙을 따른다). 종전 ``RETURNING`` 서술은 PostgreSQL
-    시절의 것이었다(``#1176``).
+    행별 ``INSERT``를 돌려 성공할 때마다 직접 센다. CUBRID에는 ``ON CONFLICT``·
+    ``RETURNING``이 없어(``#1058``) 이보다 나은 표현이 없다(#371의 행별 실행 원칙을
+    따른다). 종전 ``RETURNING`` 서술은 PostgreSQL 시절의 것이었다(``#1176``).
+
+    ## 건너뛰는 것은 중복뿐이다 (`#2105`)
+
+    ``IntegrityError`` 가운데 **PK·유니크 위반만** 「이미 있다」로 읽고, 그 밖의 위반
+    (값 트리거의 거부 · FK · NOT NULL)은 **그대로 다시 올린다.** 종전에는 예외 종류를
+    보지 않아, 시드 상수가 트리거에 걸려 거부된 행도 ``0행 신규 적재``로 보고됐다 —
+    「이미 다 들어 있다」와 「넣지 못했다」가 같은 출력이었다. 호출자(:func:`main`)가
+    단일 트랜잭션이라 올라간 예외는 적재 전체를 되돌리고 프로세스를 실패로 끝낸다.
+
+    판정은 :func:`~cii_platform.db.cubrid_errors.violated_unique_index`가 **인덱스 이름을
+    돌려주는가**로 한다. 그 표의 인덱스 이름 집합과 대조하지는 않는다 — 여기서 쓰는
+    경량 ``sa.table``에는 제약 정보가 없고 ORM 모델에서도 PK 이름은 ``None``일 수 있어
+    (이름은 마이그레이션이 정한다), 대조표를 두면 그 표가 낡는 순간 정상 재적재가
+    실패한다. 시연 계정처럼 PK가 아니라 이메일 유니크에서 걸리는 재적재도 같은 갈래다.
+
+    그래서 **새 PK인데 다른 유니크**(예: 다른 선박이 이미 쓰는 IMO)에 걸린 행도 건너뛴다.
+    그 행에 딸린 행(그 선박의 항차)은 다음 표에서 FK 위반으로 실패한다 — 그때 오류가
+    가리키는 표가 아니라 앞 표의 건너뜀이 원인이다.
     """
     if not rows:
         return 0
@@ -2042,8 +2062,9 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
         try:
             await conn.execute(sa.insert(table).values(row))
             inserted += 1
-        except sa.exc.IntegrityError:
-            pass  # 이미 존재 — 무시
+        except sa.exc.IntegrityError as exc:
+            if violated_unique_index(exc.orig) is None:
+                raise  # 중복이 아니다 — 거부된 행을 「이미 있다」로 세지 않는다
     return inserted
 
 
@@ -2059,7 +2080,7 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
 
     ## 왜 필요한가
 
-    이 모듈은 ``ON CONFLICT DO NOTHING``이라 **기존 행을 갱신하지 않는다.** 그건
+    이 모듈은 이미 있는 행을 건너뛰므로 **기존 행을 갱신하지 않는다.** 그건
     의도된 것이다 — 사용자가 데모 선박을 고쳤을 수 있고, 시드가 그것을 덮으면
     「내가 넣은 값이 사라진다」가 된다.
 
@@ -2146,7 +2167,7 @@ async def seed_demo_user(conn: AsyncConnection) -> int:
     파라미터가 바뀔 때 **저장소의 해시만 옛 파라미터로 남는다.** 평문은 어차피
     :data:`DEMO_USER_PASSWORD`로 공개돼 있으므로 미리 계산해 얻는 것도 없다.
 
-    ## ``ON CONFLICT DO NOTHING``
+    ## 이미 있으면 건너뛴다
 
     이 파일의 다른 시드와 같은 규약이다 — **기존 행을 덮지 않는다.** 사람이 이
     계정의 비밀번호를 바꿨다면 그 변경이 살아남는다.
@@ -2479,8 +2500,8 @@ async def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover -
 
     ## 왜 ``--clear``가 필요한가 (#1485)
 
-    적재는 **덮어쓰지 않는다** — :func:`_insert_ignoring_existing`이 ``IntegrityError``를
-    삼키므로 이미 있는 행은 그대로 남는다(모듈 독스트링 「덮어쓰지도 않는다」). 그런데
+    적재는 **덮어쓰지 않는다** — :func:`_insert_ignoring_existing`이 PK·유니크 중복을
+    건너뛰므로 이미 있는 행은 그대로 남는다(모듈 독스트링 「덮어쓰지도 않는다」). 그런데
     시드의 시각은 **적재일 기준 상대값**이라(`#792`), 오래된 적재는 진행 중 항차가 도착
     예정을 넘기고 관찰선의 최근 구간이 30일 창을 벗어난다. 다시 넣어서는 그 상태를
     되돌릴 수 없고 **지우고 넣어야** 한다.
