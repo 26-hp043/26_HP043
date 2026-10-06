@@ -28,6 +28,7 @@ import {
   reproducibilityLine,
   riskFlag,
   sensitivityRows,
+  topLever,
   stackSegments,
   toPercent,
   validateRuns,
@@ -919,6 +920,8 @@ function Result({
   const segments = stackSegments(mc.rating_probabilities)
   const rows = sensitivityRows(result.sensitivity_analysis)
   const noRemaining = result.warnings.includes(NO_REMAINING_VOYAGES)
+  // 잔여 계획 0건이면 표를 그리지 않으므로(#1580) 한 줄도 내지 않는다.
+  const lever = noRemaining ? null : topLever(rows)
   /*
    * 민감도 절이 있으면 「복합 효과 미포함」은 그 절이 `interaction_note`로 이미 말한다 (#1700).
    * 서버가 같은 문장을 경고 코드로도 내려 종전에는 **카드 안과 맨 아래에 두 번** 나왔다.
@@ -963,6 +966,19 @@ function Result({
         결과만 캡처해도 어느 배 · 어느 해 · 어느 목표인지 읽힌다.
       */}
       <div className="annual-sim__under-verdict">
+        {/*
+          결과를 바꾸는 변수 한 줄 (#2199) — 표는 화면 맨 아래라 첫 화면에서 답의 다음
+          질문(「그럼 무엇이 바꾸나」)이 읽히지 않았다. 수치와 등급만 강조한다.
+          권고가 아니라 민감도 결과의 서술이다(`topLever` 머리주석).
+        */}
+        {lever ? (
+          <p className="annual-sim__conditions" data-testid="annual-sim-top-lever">
+            <span className="annual-sim__conditions-label">{ANNUAL_COPY.topLeverLabel}</span>{' '}
+            {lever.label} → {ANNUAL_COPY.topLeverYearEnd}{' '}
+            <b className="annual-sim__em">{lever.toRating}</b> · {ANNUAL_COPY.topLeverProbability}{' '}
+            <b className="annual-sim__em">{lever.probabilityChange}</b>
+          </p>
+        ) : null}
         <p className="annual-sim__conditions">
           <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
           <strong>{resultConditionsText(conditions)}</strong>

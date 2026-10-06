@@ -11,6 +11,7 @@ import {
   riskFlag,
   sensitivityRows,
   stackSegments,
+  topLever,
   INLINE_LABEL_MIN_PERCENT,
   RUNS_MAX,
   RUNS_MIN,
@@ -598,5 +599,63 @@ describe('남은 해가 없을 때의 문구 (#2056 C⑤)', () => {
 
   it('등급 문자를 내지 않는다 — 「이후 해는 괜찮다」로 읽히면 안 된다', () => {
     expect(futureYearsUnavailableText('2030')).not.toMatch(/\b[A-E]\b/)
+  })
+})
+
+describe('topLever — 결론 띠 아래 「가장 크게 움직이는 변수」 (#2199)', () => {
+  const note = { interaction_note: 'n' }
+
+  it('달성 확률을 가장 많이 올리는 행 하나를 고르고, 바뀐 뒤 등급만 꺼낸다', () => {
+    const lever = topLever(
+      sensitivityRows({
+        ...note,
+        speed_minus_1kn: { projected_cii: '5.992', rating_change: 'C→B', target_probability_change: '0.7000' },
+        fuel_minus_10pct: { projected_cii: '6.100', rating_change: 'C→B', target_probability_change: '0.4000' },
+      }),
+    )
+    expect(lever).toEqual({ label: '속력 -1kn', toRating: 'B', probabilityChange: toSignedPercent('0.7000') })
+  })
+
+  it('표의 「달성 확률 변화」 칸과 같은 문자열을 쓴다 — 두 자리가 다른 값을 내지 않는다', () => {
+    const rows = sensitivityRows({
+      ...note,
+      fuel_minus_10pct: { projected_cii: '6.100', rating_change: 'C→B', target_probability_change: '0.4000' },
+    })
+    expect(topLever(rows)?.probabilityChange).toBe(rows[0].probabilityChange)
+  })
+
+  it('같으면 표 순서에서 앞선 행이다', () => {
+    const lever = topLever(
+      sensitivityRows({
+        ...note,
+        fuel_minus_10pct: { projected_cii: '6.1', rating_change: 'C→B', target_probability_change: '0.3000' },
+        speed_minus_1kn: { projected_cii: '6.0', rating_change: 'C→B', target_probability_change: '0.3000' },
+      }),
+    )
+    expect(lever?.label).toBe('속력 -1kn')
+  })
+
+  it('올리는 행이 없으면 아무것도 내지 않는다 — 0이나 음수를 1순위로 적지 않는다', () => {
+    expect(
+      topLever(
+        sensitivityRows({
+          ...note,
+          speed_minus_1kn: { projected_cii: '6.0', rating_change: 'C→C', target_probability_change: '0.0000' },
+          speed_plus_1kn: { projected_cii: '7.0', rating_change: 'C→D', target_probability_change: '-0.3000' },
+        }),
+      ),
+    ).toBeNull()
+  })
+
+  it('확률을 내지 않는 행(거리 · 항차 · 대체 연료)은 고르지 않는다', () => {
+    expect(
+      topLever(
+        sensitivityRows({
+          ...note,
+          distance_minus_5pct: { projected_cii: '6.0', rating_change: 'C→B' },
+          fuel_cf_alternative: { projected_cii: '5.0', rating_change: 'C→A', alternative_fuel: 'LNG' },
+        }),
+      ),
+    ).toBeNull()
   })
 })

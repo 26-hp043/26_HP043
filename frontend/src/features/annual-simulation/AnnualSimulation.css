@@ -793,6 +793,19 @@
   font-size: var(--font-size-caption);
 }
 
+/*
+ * 결론 문장의 강조 (#2199) — 수치와 등급만. `§3` 굵기 500.
+ *
+ * 색은 `--color-primary`가 아니라 글자용 파생 `--color-link`다. Primary를 그대로 글자에
+ * 쓰면 다크에서 페이지 바탕 대비가 4.31로 `1.4.3`의 4.5에 못 미친다(라이트 11.2).
+ * `--color-link`는 Primary 70% + 본문색이라 라이트 12.0 · 다크 6.6이다. 등급은 글자로
+ * 적히고 등급 색을 쓰지 않으므로 `§0.2` 제약 2 · `§14` 색 단독 금지에 걸리지 않는다.
+ */
+.annual-sim__em {
+  color: var(--color-link);
+  font-weight: var(--font-weight-strong);
+}
+
 /* 결과 머리의 조건 한 줄 (#1553) — 결과 블록들의 맨 위. */
 .annual-sim__conditions {
   margin: 0;
