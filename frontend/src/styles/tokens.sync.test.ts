@@ -985,6 +985,94 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
   })
 
   /*
+   * **공용 배지도 같은 자리다** (`#2147`).
+   *
+   * 위 두 검사는 **대시보드의 배지**(`.vessel__mark--none`)만 본다. 같은 판단이
+   * 필요한 공용 `GradeBadge`는 그 눈 밖에 있었고, `--cii-none-*`를 그대로 쓰고
+   * 있었다 — 기능①·②·③ · 대시보드 · 실시간 CII · 선박 상세 **여섯 화면**이 그 배지다.
+   *
+   * 범위를 좁게 잡아 같은 결함이 옆자리에 남은 것이 `#1202`가 적은 그 패턴이고,
+   * 이것이 **세 번째**다(`#829` ⑶ · `#1170` ⑴ 다음).
+   *
+   * 색을 **마크업이 인라인으로** 넣으므로 TSX를 읽는다. 토큰 이름이 아니라 **실제
+   * 대비**를 재는 것은 위와 같다 — `#748`이 이름 기반 가드로 밟은 함정이다.
+   */
+  const gradeBadgeSource = readFileSync(
+    join(fileURLToPath(new URL('.', import.meta.url)), '../components/GradeBadge.tsx'),
+    'utf-8',
+  )
+
+  /** `none`일 때 고르는 쪽만 꺼낸다 — A~E 가지는 등급 토큰이 맞다. */
+  function noneBranch(property: string): string {
+    const found = new RegExp(`${property}:\\s*none \\? '([^']+)'`).exec(gradeBadgeSource)
+    expect(found, `GradeBadge의 ${property} none 가지를 찾지 못했습니다`).not.toBeNull()
+    return (found as RegExpExecArray)[1]
+  }
+
+  it.each(THEMES)('$name — 공용 배지의 등급 없음 문자가 등급 축 밖이고 4.5:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const expr = noneBranch('color')
+    expect(
+      /--cii-/.test(expr),
+      `공용 배지의 등급 없음 문자가 등급 토큰(${expr})이다 — 이 배지는 \`—\` 하나를 그린다 (§0.2 제약 2)`,
+    ).toBe(false)
+
+    const text = evaluate(expr, generated, alias)
+    const bg = evaluate(generated['--cii-none-bg'], generated, alias)
+    expect(contrast(text, bg), '공용 배지의 등급 없음 문자 — 1.4.3 4.5:1').toBeGreaterThanOrEqual(4.5)
+  })
+
+  it.each(THEMES)('$name — 공용 배지의 등급 없음 테두리가 등급 축 밖이고 3:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const expr = noneBranch('borderColor')
+    expect(
+      /--cii-/.test(expr),
+      `공용 배지의 등급 없음 테두리가 등급 토큰(${expr})이다 (§0.2 제약 2)`,
+    ).toBe(false)
+
+    const value = evaluate(expr, generated, alias)
+    for (const face of NONE_FACES) {
+      expect(
+        contrast(value, evaluate(generated[face] ?? `var(${face})`, generated, alias)),
+        `${face} 위 공용 배지 테두리 — 1.4.11 비텍스트 3:1`,
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  /*
+   * **채움 Primary는 짝으로 정의된 토큰을 쓴다** (`#2147`).
+   *
+   * 면을 `--semantic-primary`로, 글자를 `--surface-card`로 각각 집어 오면 **두 값이
+   * 서로의 짝이 아니다.** 오류 화면 주 버튼이 그랬고 다크에서 `3.76`이었다 —
+   * 라이트는 `12.14`라 **라이트에서만 보면 멀쩡했다.**
+   *
+   * 저장소 전체에서 **`--color-on-primary`를 글자로 쓰는 규칙**을 찾아, 그 면이
+   * 짝인 `--color-primary-solid`인지와 실제 대비를 함께 본다.
+   */
+  it.each(THEMES)('$name — 채움 Primary의 글자가 면 위에서 4.5:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const text = evaluate('var(--color-on-primary)', generated, alias)
+    const face = evaluate('var(--color-primary-solid)', generated, alias)
+    expect(contrast(text, face), '채움 Primary — 1.4.3 4.5:1').toBeGreaterThanOrEqual(4.5)
+
+    const errorCss = readFileSync(
+      join(fileURLToPath(new URL('.', import.meta.url)), '../components/ErrorBoundary.css'),
+      'utf-8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '')
+    const rule = /\.error-screen__button--primary\s*\{([^}]*)\}/.exec(errorCss)
+    expect(rule, '오류 화면 주 버튼 규칙을 찾지 못했습니다').not.toBeNull()
+    const body = (rule as RegExpExecArray)[1]
+    expect(body).toContain('var(--color-primary-solid)')
+    expect(body).toContain('var(--color-on-primary)')
+  })
+
+  /*
    * `#1202` — **경계가 테두리뿐인 컨트롤은 네 면에서 3:1이다.**
    *
    * `#829` ⑶이 폼 컨트롤에서, `#1170` ⑴이 배지에서 같은 판단을 내렸는데 **범위가
