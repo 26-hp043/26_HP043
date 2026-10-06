@@ -207,11 +207,19 @@ async def test_distance_without_fuel_is_not_injected(session):
     """
     vessel_id = await _make_vessel(session, foc=None)
     await _add_actuals(session, await _make_voyage(session, vessel_id))
+    actual_only, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
     await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC))
 
     with_clock, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
 
     # 실적만으로 계산한 값과 같아야 한다 — 진행분이 섞이지 않았다는 뜻이다.
+    #
+    # ⚠️ 종전에는 이 주석만 있고 **누적(`ytd`)을 읽지 않았다** — 거리만 넣는 구현도
+    # 경고만 붙이면 통과했다(`#2142`). 진행 항차를 넣기 **전**의 누적과 대조한다.
+    assert with_clock["ytd"]["attained_cii"] == actual_only["ytd"]["attained_cii"]
+    # 독립 검산 — 400 t × 3.114 × 10⁶ g ÷ (50,000 DWT × 5,000 nm)
+    #   = 1,245,600,000 ÷ 250,000,000 = 4.9824 (정수 연산 · `AGENTS §5`)
+    assert Decimal(with_clock["ytd"]["attained_cii"]) == Decimal("4.9824")
     assert with_clock["current_voyage"]["distance_nm"] != "0.00"
     assert with_clock["current_voyage"]["fuel_ton"] == "0.00"
     assert WARNING_SIM_NO_FUEL_RATE in with_clock["warnings"]

@@ -33,13 +33,23 @@ def _code_pairs() -> set[tuple[str, str]]:
     return {(src, dst) for src, dsts in _TRANSITIONS.items() for dst in dsts}
 
 
-def _prd_pairs() -> set[tuple[str, str]]:
+def _prd_block() -> str:
     text = (ROOT / "PRD.md").read_text(encoding="utf-8")
     start = text.index("### 8.1 항차 상태 모델")
-    block = text[start : text.index("```", text.index("```mermaid", start) + 3)]
-    pairs = re.findall(rf"^\s*({_STATUS})\s*-->\s*({_STATUS})\s*:", block, re.MULTILINE)
-    # `[*] --> DRAFT`(시작 표시)는 상태 전환이 아니다.
-    return {(a, b) for a, b in pairs if a != "*"}
+    return text[start : text.index("```", text.index("```mermaid", start) + 3)]
+
+
+def _mermaid_pairs(block: str) -> set[tuple[str, str]]:
+    """``A --> B: label`` 줄만 읽는다.
+
+    `[*] --> DRAFT`(시작 표시)는 상태 전환이 아니다 — 왼쪽이 상태 이름 모양이 아니고
+    라벨(``:``)도 없어 정규식에 걸리지 않는다.
+    """
+    return set(re.findall(rf"^\s*({_STATUS})\s*-->\s*({_STATUS})\s*:", block, re.MULTILINE))
+
+
+def _prd_pairs() -> set[tuple[str, str]]:
+    return _mermaid_pairs(_prd_block())
 
 
 def _api_spec_pairs() -> set[tuple[str, str]]:
@@ -50,8 +60,19 @@ def _api_spec_pairs() -> set[tuple[str, str]]:
 
 
 def test_시작_표시를_전환으로_읽지_않는다() -> None:
-    """파서가 `[*] --> DRAFT`를 전환으로 세면 아래 비교가 늘 어긋난다."""
-    assert ("*", "DRAFT") not in _prd_pairs()
+    """파서가 `[*] --> DRAFT`를 전환으로 세면 아래 비교가 늘 어긋난다.
+
+    ⚠️ 종전에는 ``("*", "DRAFT") not in _prd_pairs()``였다 — 정규식 ``[A-Z_]+``는 ``*``를
+    **잡을 수 없으므로** 그 쌍은 어떤 파서에서도 나오지 않는다(`#2142`). 시작·끝 표시가
+    실제로 있는 표본을 읽혀, **양쪽이 모두 상태 이름인 줄만** 남는지 본다.
+    """
+    sample = "    [*] --> DRAFT\n    DRAFT --> PLANNED: 계획 확정\n    CANCELLED --> [*]\n"
+    assert _mermaid_pairs(sample) == {("DRAFT", "PLANNED")}
+
+    # 정본에 시작 표시가 실제로 있고, 읽은 쌍에는 상태 이름만 있다.
+    assert "[*] -->" in _prd_block(), "PRD 상태도에 시작 표시가 없다 — 이 검사의 전제가 사라졌다"
+    known = {name for pair in _code_pairs() for name in pair}
+    assert {name for pair in _prd_pairs() for name in pair} <= known
 
 
 def test_읽은_전환이_비어_있지_않다() -> None:

@@ -64,5 +64,12 @@ def test_a_mismatch_stops_the_deploy():
     이전 컨테이너가 그대로 남아 서비스는 살아 있다.
     """
     body = _text()
-    assert body.count('if [ "${got}" != "${DEPLOY_SHA}" ]; then') == 2
-    assert body.count("exit 1") >= 2
+    guard = 'if [ "${got}" != "${DEPLOY_SHA}" ]; then'
+    assert body.count(guard) == 2
+
+    # ⚠️ 종전에는 파일 전체의 `exit 1` 개수(≥ 2)를 셌다 — 이 파일에는 `exit 1`이 열 개
+    # 넘게 있어, 불일치 블록의 것을 지워도 통과했다(`#2142`). **그 `if` 블록 안**을 본다.
+    for block in body.split(guard)[1:]:
+        inside = block.split("\n", 1)[1].split(" fi\n", 1)[0]
+        commands = [line.strip() for line in inside.splitlines() if line.strip()]
+        assert "exit 1" in commands, "불일치를 알리기만 하고 계속 간다:\n" + inside

@@ -109,9 +109,14 @@ async def test_zero_reduction_leaves_every_vessel_as_it_was(session, vessel_id):
     """⚠️ `#513` 완료 기준 — **감속률 0%일 때 전 선박 등급이 그대로다.** 데모 선박까지 전부 본다."""
     result = await _evaluate(session, vessel_id, "0")
 
-    for row in result["vessels"]:
-        if row["unavailable_reason"] is None:
-            assert row["after"] == row["before"], row["vessel_name"]
+    # ⚠️ 종전에는 `unavailable_reason is None`인 행만 조용히 골라 단언했다 — **전 선박이
+    # 산출 불가여도** 반복이 한 번도 돌지 않고 통과했다(`#2142`). 견줄 수 있는 행이 실제로
+    # 있고, 이 검사가 만든 선박이 그 안에 드는지 먼저 본다.
+    comparable = [row for row in result["vessels"] if row["unavailable_reason"] is None]
+    assert _mine(result, vessel_id) in comparable, _mine(result, vessel_id)
+    for row in comparable:
+        assert row["before"] is not None, row["vessel_name"]
+        assert row["after"] == row["before"], row["vessel_name"]
     assert result["rating_distribution"]["before"] == result["rating_distribution"]["after"]
 
 

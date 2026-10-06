@@ -351,12 +351,18 @@ def test_as_of_is_part_of_input_hash():
     assert first == compute_input_hash({**base, "as_of": "2026-08-15T15:00:00Z"})
 
 
-def test_adding_as_of_does_not_change_hashes_of_inputs_without_it():
+def test_adding_as_of_does_not_change_hashes_of_inputs_without_it(monkeypatch):
     """``as_of``를 넘기지 않는 입력의 해시는 종전과 같다.
 
     ``INPUT_FIELDS``가 바뀌면 저장된 모든 ``input_hash``가 무효가 될 수 있다.
     필터가 **입력에 있는 키만** 담으므로 기능①과 기존 저장분은 영향받지 않는다.
+
+    ⚠️ 종전에는 ``startswith("sha256:")``만 봤다 — 어떤 해시든 통과한다(`#2142`).
+    「종전」을 **``as_of``를 목록에서 뺀 채 계산한 값**으로 만들어 대조한다
+    (``test_scenario_compare_api``의 경유지 해시 검사와 같은 방식).
     """
+    from cii_platform.calc import hash as hash_mod
+
     without_as_of = {
         "vessel_id": "v-1",
         "regulation_year": 2026,
@@ -366,15 +372,15 @@ def test_adding_as_of_does_not_change_hashes_of_inputs_without_it():
         "weather_model": "NONE",
         "weather_factor": Decimal("1.0"),
     }
-    # as_of 도입 이전과 동일한 필드 집합이므로 해시가 달라질 이유가 없다.
-    expected = (
-        "sha256:"
-        # 값 자체를 하드코딩하지 않고, as_of 키가 없을 때 필터가 무시한다는 사실을
-        # 검증한다 — 하드코딩하면 무관한 정본 변경에도 이 테스트가 깨진다.
-    )
-    assert compute_input_hash(without_as_of).startswith(expected)
-    assert compute_input_hash({**without_as_of, "unrelated": 1}) == compute_input_hash(
-        without_as_of
+    now = compute_input_hash(without_as_of)
+    assert compute_input_hash({**without_as_of, "unrelated": 1}) == now
+
+    # 값 자체를 하드코딩하지 않는다 — 하드코딩하면 무관한 정본 변경에도 이 테스트가 깨진다.
+    assert "as_of" in hash_mod.INPUT_FIELDS
+    before_as_of = tuple(f for f in hash_mod.INPUT_FIELDS if f != "as_of")
+    monkeypatch.setattr(hash_mod, "INPUT_FIELDS", before_as_of)
+    assert compute_input_hash(without_as_of) == now, (
+        "as_of 없는 입력의 해시가 종전과 다르다 — 저장된 기능① 실행이 재현 불가가 된다"
     )
 
 
