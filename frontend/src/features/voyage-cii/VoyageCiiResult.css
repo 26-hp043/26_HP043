@@ -264,7 +264,7 @@
   grid-column: 2;
   grid-row: 1;
   align-self: end;
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-8);
   border: 0;
   background: none;

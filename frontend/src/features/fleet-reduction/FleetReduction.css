@@ -66,7 +66,7 @@
    조용히 안 걸린다 (`#936` · `§8.4`). */
 .fr__control,
 .fr__charter {
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
@@ -344,7 +344,7 @@
 }
 
 .fr__button {
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-24);
   /* 경계는 테두리가 맡는다 (`tokens.css` 「Primary 채움 컨트롤의 테두리」 · #1296). */
   border: var(--borderWidth-default) solid var(--color-primary-solid-border);
