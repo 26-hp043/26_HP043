@@ -78,6 +78,16 @@ on:
       - 'Dockerfile'
       - 'docker-compose.prod.*.yml'
       - 'ops/**'
+      # 서버에서 실제로 도는 스크립트 둘만 넣는다 (#2117). 서버의 저장소 사본은 이 워크플로가
+      # 배포 커밋으로 맞출 때만 갱신되므로, 여기 없으면 스크립트만 바꾼 머지는 서버에 닿지
+      # 않는다 — `ops.yml`의 백업·복구(db_backup.py)가 옛 판으로 돌고, purge_expired.py를
+      # crontab에 걸어 두었다면 그것도 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체
+      # (이미지 빌드 · db-01 · app-01 · 화면)를 돌린다 — `ops/**`와 같은 성질이다.
+      # `scripts/**` 전체를 넣지 않는 것은 로컬·CI 전용 스크립트 변경까지 운영 재배포를
+      # 일으키기 때문이다. 서버에서 도는 스크립트가 늘면 여기와
+      # `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
+      - 'scripts/db_backup.py'
+      - 'scripts/purge_expired.py'
       - 'frontend/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
@@ -161,7 +171,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # deploy-db가 CUBRID_PASSWORD 하나만 보다가 비어 있으면 죽었다 — 하나 고칠 때마다
   # 다음 것이 또 비는지 확인하는 루프였다(실측: 시크릿 0건 상태로 5연속 실패).
-  # 여기서 9종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
+  # 여기서 10종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
+  # `INITIAL_ADMIN_EMAILS`도 본다 (#2117) — 비면 staging에서는 관리자 0명으로 조용히 뜬다.
   # ---------------------------------------------------------------------------
   preflight:
     # 시연 동결이면 push 자동 배포를 건너뛴다 — 위 `freeze` 잡 참조 (#789).
@@ -181,12 +192,13 @@ jobs:
           CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
           CORS_ALLOW_ORIGINS: ${{ secrets.CORS_ALLOW_ORIGINS }}
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          INITIAL_ADMIN_EMAILS: ${{ secrets.INITIAL_ADMIN_EMAILS }}
         run: |
           missing=0
           for name in \
             OCI_SSH_PRIVATE_KEY OCI_SSH_USER OCI_DB_HOST OCI_APP_HOST \
             OCI_DB_PRIVATE_IP OCI_APP_PRIVATE_IP CUBRID_PASSWORD \
-            CORS_ALLOW_ORIGINS APP_PUBLIC_URL; do
+            CORS_ALLOW_ORIGINS APP_PUBLIC_URL INITIAL_ADMIN_EMAILS; do
             if [ -z "${!name}" ]; then
               echo "::error::시크릿 ${name} 가 비어 있다"
               missing=1
@@ -196,7 +208,7 @@ jobs:
             echo "::error::위 시크릿을 Settings → Secrets and variables → Actions 에서 등록한다 (docs/OPERATIONS.md §3.1 · #1234)"
             exit 1
           fi
-          echo "[preflight] 필수 시크릿 9종 확인"
+          echo "[preflight] 필수 시크릿 10종 확인"
 
   # ---------------------------------------------------------------------------
   # 이미지 빌드 & GHCR 푸시
