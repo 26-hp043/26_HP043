@@ -24,12 +24,21 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
-from cii_platform.db.demo_seed import VESSEL_ID_BULK
+from cii_platform.db.demo_seed import DEMO_ANCHOR, VESSEL_ID_BULK
 
 _BASE = "https://testserver"
+
+#: 연도와 기준 시각을 **명시해** 묻는다 (`#2106`). 비우면 서버의 현재 연도·시각이라
+#: 2027년부터 「올해」에 시드 항차가 없고, 기준일이 폴백(08-25)으로 떨어진 뒤에는
+#: 진행 중 판정이 벽시계에 매인다. 값은 `test_cii_ytd_series_db.DEMO_AS_OF`와 같다.
+_YEAR = 2026
+# `Z` 표기 — `+00:00`을 쿼리 문자열에 그대로 두면 `+`가 공백으로 읽혀 422가 난다.
+_AS_OF = (DEMO_ANCHOR + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _get(client: TestClient, path: str) -> dict:
@@ -42,8 +51,8 @@ def test_진행_중_항차가_누적에_들어가면_따로_센다(migrated_db, 
     """``cii/current``와 ``cii-history`` 올해 행이 **같은 필드를 같은 뜻**으로 낸다."""
     with TestClient(app, base_url=_BASE) as client:
         assert client.post("/api/v1/auth/dev-login").status_code == 200
-        current = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii/current")
-        history = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii-history")
+        current = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii/current?year={_YEAR}&as_of={_AS_OF}")
+        history = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii-history?as_of={_AS_OF}")
 
     assert current["current_voyage"] is not None, (
         "사전 조건: 데모 선박에 진행 중 항차가 있어야 한다"
@@ -64,7 +73,7 @@ def test_지난_연도_행에는_진행분이_없다(migrated_db, app_fresh_engi
     """
     with TestClient(app, base_url=_BASE) as client:
         assert client.post("/api/v1/auth/dev-login").status_code == 200
-        history = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii-history")
+        history = _get(client, f"/vessels/{VESSEL_ID_BULK}/cii-history?as_of={_AS_OF}")
 
     this_year = max(row["regulation_year"] for row in history["years"])
     past = [r for r in history["years"] if r["regulation_year"] < this_year]
@@ -80,7 +89,8 @@ def test_연간_리포트가_완료_항차와_진행_중_항차를_갈라_적는
     with TestClient(app, base_url=_BASE) as client:
         assert client.post("/api/v1/auth/dev-login").status_code == 200
         response = client.get(
-            f"/api/v1/vessels/{VESSEL_ID_BULK}/annual-report", params={"format": "html"}
+            f"/api/v1/vessels/{VESSEL_ID_BULK}/annual-report",
+            params={"format": "html", "year": _YEAR, "as_of": _AS_OF},
         )
     assert response.status_code == 200, response.text
     html = response.text
