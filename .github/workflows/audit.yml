@@ -30,7 +30,8 @@ jobs:
           # ci.yml · frontend/package.json의 engines와 같은 값을 쓴다.
           # ⚠️ engines를 올릴 때 네 곳(package.json · ci.yml · 이 파일 · deploy.yml)을
           # 함께 올려야 한다 — 자동 동기화가 없다. package.json은 JSON이라 주석을 달 수
-          # 없어 이 경고를 세 워크플로에만 둔다.
+          # 없어 이 경고를 두 워크플로(ci.yml · 이 파일)에 두고, deploy.yml에는 이 넷을
+          # 가리키는 메모만 있다.
           #
           # 감사 자체에는 npm 명령만 있으면 되지만, ci.yml과 같은 Node를 써서
           # 재현성을 맞춘다.

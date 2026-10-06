@@ -321,7 +321,7 @@ def test_env_example_does_not_set_app_env():
     ``docker-compose.prod.yml``의 ``APP_ENV: ${APP_ENV:-production}``은 compose 변수
     치환이다. 치환은 셸 환경 다음으로 **저장소 루트의 ``.env``를 읽는다.** 그래서
     ``.env``에 ``APP_ENV=development``가 있으면 그 값이 ``:-production`` 기본값을
-    이기고, 이미지에 굳어 있는 ``ENV APP_ENV=production``(``Dockerfile:85``)까지
+    이기고, 이미지에 굳어 있는 ``ENV APP_ENV=production``(``Dockerfile`` prod 단계)까지
     ``environment:``가 덮는다 — **프로덕션 스택이 development로 뜬다.**
 
     ``.env``가 운영 호스트에 없다는 가정은 성립하지 않는다. ``#524``가 프로덕션
