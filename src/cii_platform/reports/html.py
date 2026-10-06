@@ -21,6 +21,7 @@ from html import escape
 from typing import TYPE_CHECKING, assert_never
 
 from cii_platform.reports.document import (
+    ABSENT_MARKERS,
     DISCLAIMER,
     TREND_COLUMNS,
     ChartSection,
@@ -168,7 +169,13 @@ def _numeric_column(cells: Sequence[str]) -> bool:
     ``string``으로 선언돼 있지만 읽는 사람에게는 수치 열이다. 선언에 두 번째 뜻을 얹으면
     한쪽을 고칠 때 다른 쪽이 조용히 움직인다.
     """
-    present = [cell for cell in cells if cell.strip() and cell.strip() != MISSING_VALUE]
+    # 서버가 정한 「없음」 표지(``이력 없음``·``계산 불가`` — `#2092`)도 ``—``처럼 세지 않는다.
+    # 표지 하나가 열을 뒤집으면 미리보기·PDF에서 그 열의 숫자들이 왼쪽으로 몰린다.
+    present = [
+        cell
+        for cell in cells
+        if cell.strip() and cell.strip() != MISSING_VALUE and cell.strip() not in ABSENT_MARKERS
+    ]
     return bool(present) and all(_looks_numeric(cell) for cell in present)
 
 

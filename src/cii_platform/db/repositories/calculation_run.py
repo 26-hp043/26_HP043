@@ -227,8 +227,12 @@ async def find_scenario_run(
         .order_by(CalculationRun.created_at.desc(), CalculationRun.id.desc())
     )
     for run in (await session.execute(stmt)).scalars():
-        scenarios = (run.result_json or {}).get("scenarios") or []
-        if any(item.get("scenario_id") == needle for item in scenarios):
+        payload = run.result_json if isinstance(run.result_json, dict) else {}
+        scenarios = payload.get("scenarios")
+        # 항목의 모양을 믿지 않는다 — dict가 아닌 항목이 섞인 이력이 조회 전체를 막지 않게.
+        if isinstance(scenarios, list) and any(
+            isinstance(item, dict) and item.get("scenario_id") == needle for item in scenarios
+        ):
             return run
     return None
 

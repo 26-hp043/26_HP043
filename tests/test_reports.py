@@ -1466,6 +1466,52 @@ def test_the_missing_marker_matches_the_document_side():
     assert _display(None, "cii") == MISSING_VALUE
 
 
+def test_a_server_marker_does_not_flip_a_numeric_column():
+    """「이력 없음」·「계산 불가」 하나가 수치 열을 왼쪽으로 뒤집지 않는다 (`#2092`).
+
+    사후 비교 표는 「저장된 비교에 없다」·「낼 수 없다」를 `—`와 다른 말로 적는데, 그 말이
+    들어간 열이 **미리보기·PDF에서 통째로 왼쪽**이 됐다 — `#2004`가 `—`만 세지 않았기
+    때문이다. 서버가 정한 표지는 닫힌 집합이라 `—`처럼 세지 않을 수 있다. 사용자 입력이
+    섞이는 「집계 중」 같은 글자는 여전히 열을 뒤집는다(바로 위 검사).
+    """
+    from cii_platform.reports.document import ABSENT_MARKERS
+
+    section = TableSection(
+        title="시나리오 사후 비교",
+        headers=["구분", "연료 (t)", "CII"],
+        rows=[
+            ["직항", "250.0", "5.190"],
+            ["우회", "이력 없음", "이력 없음"],
+            ["실적", "계산 불가", "계산 불가"],
+        ],
+    )
+    header, rows = _alignment(section)
+    assert header == [False, True, True]
+    assert [row[1:] for row in rows] == [[True, True]] * 3
+    # 표지만 있는 열은 수치 열이 아니다 — 세지 않는 값뿐이면 판정할 근거가 없다.
+    only_markers = TableSection(title="표", headers=["CII"], rows=[[m] for m in ABSENT_MARKERS])
+    assert _alignment(only_markers)[0] == [False]
+
+
+def test_the_absent_markers_are_the_ones_the_document_uses():
+    """렌더러가 세지 않는 표지와 서비스가 쓰는 표지가 **같은 상수**인가.
+
+    갈리면 한쪽에서 바꾼 문구가 다른 쪽에서 값으로 세어져 열이 조용히 뒤집힌다 — 그래서
+    상수는 문서 모델(`reports/document.py`) 한 곳에 있고 서비스가 가져다 쓴다.
+    """
+    from cii_platform.reports.document import ABSENT_MARKERS
+    from cii_platform.reports.html import _looks_numeric
+    from cii_platform.services import report as report_service
+
+    assert {
+        report_service.SCENARIO_NOT_STORED,
+        report_service.ACTUAL_CII_NOT_COMPUTABLE,
+        report_service.ACTUAL_RATING_NOT_RATED,
+    } == ABSENT_MARKERS
+    assert MISSING_VALUE not in ABSENT_MARKERS, "`—`는 따로 센다 — 두 번 적지 않는다"
+    assert not any(_looks_numeric(marker) for marker in ABSENT_MARKERS)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 결론 · 차트 · 소진형 분기 — `#2002` · `PRD §16.4` · `DESIGN_SYSTEM §2.4.4` · `§8.6` · `§14`
 # ─────────────────────────────────────────────────────────────────────────────

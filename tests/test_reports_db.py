@@ -195,11 +195,12 @@ _COMPARED = [
 ]
 
 
-async def _compare(session, vessel_id, *, with_run=True, cii_shift="0"):
+async def _compare(session, vessel_id, *, with_run=True, cii_shift="0", mutate=None):
     """비교 한 번을 저장 형태 그대로 심는다 — 시나리오 3행(항차 연결 없음) + 이력 1건.
 
     서비스(`scenario_compare`)를 부르지 않는 것은 값을 손으로 정해 두어야 **인용**을
     대조할 수 있기 때문이다. ``cii_shift``는 두 번째 비교를 첫 번째와 구별하는 데 쓴다.
+    ``mutate``는 이력의 ``scenarios[]``를 저장 직전에 고치는 함수다 — 옛 모양을 흉내 낼 때 쓴다.
     """
     from cii_platform.db.repositories import calculation_run as calc_run_repo
 
@@ -240,10 +241,15 @@ async def _compare(session, vessel_id, *, with_run=True, cii_shift="0"):
                 "fuel_ton": fuel,
                 "attained_cii": str(value),
                 "estimated_rating": rating,
-                "calculation_basis": {"transport_capacity": "50000"},
+                "calculation_basis": {
+                    "transport_capacity": "50000",
+                    "transport_capacity_basis": "DWT",
+                },
             }
         )
     if with_run:
+        if mutate is not None:
+            scenarios = mutate(scenarios)
         await calc_run_repo.insert_scenario(
             session,
             vessel_id=vessel_id,
@@ -377,6 +383,107 @@ async def test_scenario_without_its_comparison_says_so(session, vessel_id):
     # 실적의 기록값은 그대로 있고, CII만 다른 말이다 — 「없음」 셋이 서로 구별된다.
     assert actual[1] == "3,100" and actual[4] == "260.0"
     assert actual[5] not in ("—", missing) and not actual[5][0].isdigit()
+    # 각주도 용량을 숫자로 적지 못한다 — 모른다고 적는다.
+    assert "용량을 알 수 없어" in section.note and "50,000" not in section.note
+
+
+@pytest.mark.asyncio
+async def test_scenario_note_reuses_the_cor1_wording_and_names_the_capacity(session, vessel_id):
+    """각주 — 2026-10-06 결정 1·2 (`#2092`).
+
+    ⑴ 「항차 단위 CII는 공식 등급 지표가 아니다」는 같은 문서의 「CII 기여도」 절이 쓰는
+    문구(``COR-1``)를 **그대로** 싣는다 — 두 절의 문구가 갈리면 한쪽만 고쳐진다.
+    ⑵ 실적 CII의 분모 용량을 **숫자로** 적는다 — 인용한 비교가 쓴 값이라, 비교 뒤 제원이
+    고쳐진 선박에서는 다른 화면의 값과 다를 수 있고 그 이유를 읽는 사람이 알 수 있어야 한다.
+    """
+    from cii_platform.reports.document import VOYAGE_CII_NOTE
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    section = _section(document, "시나리오 사후 비교")
+
+    # 정본 문구 (PRD §25.2 · COR-1) — 「CII 기여도」 절과 **같은 상수**다.
+    assert VOYAGE_CII_NOTE in section.note
+    assert _section(document, "CII 기여도").note == VOYAGE_CII_NOTE
+    # 비교가 쓴 용량 50,000 DWT — 실적 CII 5.223이 이 분모로 나온 값이다.
+    assert "50,000 DWT" in section.note
+    assert section.rows[3][5] == "5.223"
+    # 표지 셋의 뜻이 각주에 있다.
+    for marker in ("이력 없음", "계산 불가", "—"):
+        assert f"「{marker}」" in section.note, marker
+
+
+@pytest.mark.asyncio
+async def test_partial_fuel_actuals_do_not_print_a_partial_sum(session, vessel_id):
+    """유종이 둘인데 하나만 실적이 있다 — 그 하나의 합을 표지 없이 싣지 않는다.
+
+    종전에는 「연료」 칸이 기록된 유종의 합(260.0)을 그대로 실어, 세 시나리오의 연료 옆에서
+    **이 항차의 연료 전체**로 읽혔다. CII는 이미 「계산 불가」였으므로 연료도 같은 표지다 —
+    같은 이유(모든 유종의 실적이 없다)로 낼 수 없는 값이다. 「—」가 아닌 것은 기록이 있기
+    때문이다 — 「—」는 아무것도 적히지 않은 칸의 말이다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
+            "VALUES (:id, 'LNG', 40, 2.750, 'USER_INPUT')"
+        ),
+        {"id": voyage_id},
+    )
+    ids = await _compare(session, vessel_id)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    actual = _section(document, "시나리오 사후 비교").rows[3]
+
+    assert actual[1] == "3,100", "기록된 실적 거리는 그대로다"
+    assert actual[4] == report_service.ACTUAL_CII_NOT_COMPUTABLE, actual
+    assert actual[5] == report_service.ACTUAL_CII_NOT_COMPUTABLE, actual
+    assert "260" not in actual[4]
+    # 유종별 기록은 「연료 내역」에 그대로 남는다 — 지운 것이 아니라 합을 내지 않은 것이다.
+    fuel_rows = _section(document, "연료 내역").rows
+    assert sorted(row[2] for row in fuel_rows) == ["260.0", "—"]
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_comparison_run_does_not_break_the_report(session, vessel_id):
+    """키가 빠진 이력 항목은 그 **행만** 「이력 없음」이고 리포트는 산다.
+
+    종전에는 ``item["fuel_ton"]`` 같은 접근이 ``KeyError``로 올라가 **리포트 전체가 500**
+    이었다. 저장 경로(`services/scenario_compare.py`)는 `#373` 이후 이 키를 전부 써 왔지만,
+    이력 한 건의 모양이 문서 전체를 막아서는 안 된다. 네 모양을 한 번에 본다 — 키가 빠진
+    형제 항목 · 키가 빠진 **채택** 항목 · dict가 아닌 항목 · 문자열로 든 ``calculation_basis``.
+    """
+
+    def _old_shape(items):
+        direct, detour, slow = items
+        detour = {k: v for k, v in detour.items() if k not in ("fuel_ton", "attained_cii")}
+        direct = {**direct, "calculation_basis": "DWT 50000"}
+        # 채택 행의 id는 남긴다 — 이력을 찾는 키다. 나머지 키는 전부 없다.
+        slow = {"scenario_id": slow["scenario_id"], "scenario_type": "SLOW_STEAMING"}
+        return [direct, detour, slow, "garbage"]
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    ids = await _compare(session, vessel_id, mutate=_old_shape)
+    await _adopt(session, ids["SLOW_STEAMING"], voyage_id)
+
+    section = _section(
+        await build_voyage_report(session, voyage_id, as_of=AS_OF), "시나리오 사후 비교"
+    )
+
+    direct, detour, slow, actual = section.rows
+    # 온전한 항목은 이력의 값으로.
+    assert direct == ["직항", "3,000", "14.0", "214.3", "250.0", "5.190", "C"]
+    # 키가 빠진 항목은 그 종류만 「이력 없음」 — 「—」(기록 없음)와 다른 말이다.
+    assert detour == ["우회", *[report_service.SCENARIO_NOT_STORED] * 6]
+    # 채택 행은 이력 항목이 깨져도 **제 행의 값**으로 남는다.
+    assert slow == ["감속 (채택)", "3,000", "11.9", "252.1", "180.6", "3.750", "A"]
+    # 용량을 읽을 수 있는 항목이 없으므로 실적 CII는 「계산 불가」, 각주도 그렇게 적는다.
+    assert actual[5] == report_service.ACTUAL_CII_NOT_COMPUTABLE
+    assert "용량을 알 수 없어" in section.note
 
 
 @pytest.mark.asyncio

@@ -14,14 +14,22 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from decimal import Decimal
+from html import escape
+from uuid import UUID, uuid4
 
 from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from cii_platform.api.main import app
-from cii_platform.services.report import _display
+from cii_platform.reports.document import VOYAGE_CII_NOTE
+from cii_platform.services.report import (
+    ACTUAL_CII_NOT_COMPUTABLE,
+    SCENARIO_NOT_STORED,
+    _display,
+)
 
 _BASE = "https://testserver"
 
@@ -203,6 +211,10 @@ async def test_비교_채택_완료_뒤_리포트가_3종과_실적을_싣는다
                 for cell in row:
                     assert f">{cell}<" in html.text, cell
 
+            # 각주 — 「CII 기여도」 절과 같은 COR-1 문구, 그리고 비교가 쓴 용량 숫자(결정 1·2).
+            assert html.text.count(escape(VOYAGE_CII_NOTE)) == 2
+            assert "50,000 DWT" in html.text
+
             # PDF는 같은 문서에서 나온다 — 렌더러가 없는 환경에서는 건너뛴다.
             from cii_platform.reports import pdf as pdf_module
 
@@ -210,6 +222,115 @@ async def test_비교_채택_완료_뒤_리포트가_3종과_실적을_싣는다
                 pdf = client.get(f"/api/v1/voyages/{voyage_id}/report", params={"format": "pdf"})
                 assert pdf.status_code == 200, pdf.text
                 assert pdf.content.startswith(b"%PDF-")
+    finally:
+        if vessel_id:
+            async with sessionmaker() as s:
+                await _cleanup(s, vessel_id)
+        await get_engine().dispose()
+
+
+async def _old_shape_comparison(session, vessel_id: str, voyage_id: str) -> None:
+    """옛 모양의 이력 한 건을 저장 형태 그대로 심고 감속 행을 채택한다.
+
+    비교 API를 부르지 않는 것은, 같은 초에 저장된 이력 둘의 순서가 id로 갈려 어느 쪽이
+    인용될지 정해지지 않기 때문이다. 여기서는 이 묶음이 **유일한** 이력이다.
+    """
+    from cii_platform.db.repositories import calculation_run as calc_run_repo
+
+    ids = {}
+    for kind, name, speed, hours, fuel, cii, rating in (
+        ("DIRECT", "직항", "14", "785.71", "1145.8333", "3.56800000", "A"),
+        ("DETOUR", "우회", "14", "857.14", "1250.0000", "3.56800000", "A"),
+        ("SLOW_STEAMING", "감속", "11.9", "924.37", "993.3000", "3.09300000", "A"),
+    ):
+        ids[kind] = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO voyage_scenario (id, vessel_id, scenario_type, scenario_name, "
+                "distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
+                "estimated_rating, risk_level) VALUES (:id, :vid, :kind, :name, 11000, "
+                ":speed, :hours, :fuel, :cii, :rating, 'LOW')"
+            ),
+            {
+                "id": ids[kind],
+                "vid": UUID(vessel_id),
+                "kind": kind,
+                "name": name,
+                "speed": Decimal(speed),
+                "hours": Decimal(hours),
+                "fuel": Decimal(fuel),
+                "cii": Decimal(cii),
+                "rating": rating,
+            },
+        )
+    await calc_run_repo.insert_scenario(
+        session,
+        vessel_id=UUID(vessel_id),
+        input_hash="sha256:" + "a" * 64,
+        parameter_hash="sha256:" + "b" * 64,
+        model_version={"engine": "test"},
+        # 형제 두 항목에 표가 읽는 키가 없고, 용량 블록도 없다.
+        result_json={
+            "scenarios": [
+                {"scenario_id": str(ids["DIRECT"]), "scenario_type": "DIRECT"},
+                {"scenario_id": str(ids["DETOUR"]), "scenario_type": "DETOUR"},
+                {"scenario_id": str(ids["SLOW_STEAMING"]), "scenario_type": "SLOW_STEAMING"},
+            ]
+        },
+        parameters_used={},
+        warnings=[],
+        duration_ms=1,
+    )
+    await session.execute(
+        text("UPDATE voyage_scenario SET voyage_id = :yid, is_adopted = 1 WHERE id = :id"),
+        {"yid": UUID(voyage_id), "id": ids["SLOW_STEAMING"]},
+    )
+    await session.commit()
+
+
+async def test_옛_모양의_이력은_그_행만_내려가고_리포트는_산다(migrated_db, app_fresh_engine):
+    """`result_json.scenarios[]`에 키가 빠진 이력 — 종전에는 `KeyError`가 올라가 리포트가 500이었다.
+
+    HTTP로 보는 것은 결함이 **응답 코드**로 드러난 것이기 때문이다. 키가 빠진 종류는 「이력
+    없음」, 채택 행은 제 행의 값, 실적 CII는 용량을 몰라 「계산 불가」 — 그리고 미리보기의
+    수치 열은 표지가 섞여도 오른쪽 정렬을 지킨다.
+    """
+    from cii_platform.db.session import get_engine, get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    vessel_id = None
+    try:
+        async with sessionmaker() as s:
+            vessel_id, voyage_id = await _seed(s)
+            await _old_shape_comparison(s, vessel_id, voyage_id)
+            await _complete(s, voyage_id)
+
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+
+            html = client.get(f"/api/v1/voyages/{voyage_id}/report", params={"format": "html"})
+            csv_response = client.get(
+                f"/api/v1/voyages/{voyage_id}/report", params={"format": "csv"}
+            )
+            assert html.status_code == 200, html.text
+            assert csv_response.status_code == 200, csv_response.text
+
+            direct, detour, slow, actual = _table(csv_response.text)
+            assert direct == ["직항", *[SCENARIO_NOT_STORED] * 6]
+            assert detour == ["우회", *[SCENARIO_NOT_STORED] * 6]
+            assert slow == ["감속 (채택)", "11,000", "11.9", "924.4", "993.3", "3.093", "A"]
+            assert actual[1:5] == ["11,200", "13.2", "848.0", "1,180.5"]
+            assert actual[5] == ACTUAL_CII_NOT_COMPUTABLE
+            assert "용량을 알 수 없어" in html.text
+
+            # 수치 열 다섯(거리·속력·소요·연료·CII)은 표지가 있어도 오른쪽 정렬 — 표지 셀도
+            # `num` 클래스를 받는다. 등급 열은 글자 열이라 왼쪽 그대로다(2행).
+            section_html = html.text.split("시나리오 사후 비교", 1)[1].split("</table>", 1)[0]
+            cells = re.findall(r"<td( class=\"num\")?>([^<]*)</td>", section_html)
+            assert cells.count((' class="num"', SCENARIO_NOT_STORED)) == 10
+            assert cells.count(("", SCENARIO_NOT_STORED)) == 2
+            assert cells.count((' class="num"', ACTUAL_CII_NOT_COMPUTABLE)) == 1
+            assert cells.count(("", ACTUAL_CII_NOT_COMPUTABLE)) == 0
     finally:
         if vessel_id:
             async with sessionmaker() as s:
