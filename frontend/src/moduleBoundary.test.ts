@@ -61,7 +61,40 @@ const RAW = new Map(FILES.filter((f) => f !== SELF).map((f) => [f, readFileSync(
 /** 참조를 세는 사본 — 주석·문자열 내용이 지워져 있다 (`#1351`). */
 const SOURCE = new Map([...RAW].map(([f, text]) => [f, withoutCommentsAndStrings(text)]))
 
-const DECLARATION = /^export (?:const|function|class|interface|type) (\w+)/gm
+/**
+ * `export` 선언이 내보내는 이름 (`#2145`).
+ *
+ * 종전 정규식은 `export (const|function|class|interface|type) 이름` 다섯 꼴만 읽었다.
+ * `export async function`(`auth/session.ts`에만 열여섯) · `export enum` · `export default
+ * function` · `export { a, b }`는 **세지 않았다** — 미참조여도 걸리지 않으니, 그 꼴로 적은
+ * 죽은 코드는 이 검사가 「없다」고 말했다.
+ *
+ * 두 꼴을 읽는다.
+ *
+ * - **선언** — `export` 뒤에 `declare` · `default` · `abstract` · `async`가 끼어도 되고,
+ *   종류는 `const` · `let` · `var` · `function`(`function*`) · `class` · `interface` ·
+ *   `type` · `enum`(`const enum`)이다.
+ * - **중괄호** — `export { a, b as c }` · `export type { T }`. 내보내는 이름은 `as` **뒤**다.
+ *   `from`이 붙은 재수출도 그 파일의 export다 — 아무도 가져가지 않으면 죽은 통로다.
+ *
+ * 읽지 않는 것: `export * from`(이름이 없다) · `export const { a, b } = …`(구조 분해 —
+ * 지금 소스에 없다. 생기면 아래 표본 검사의 「읽지 않는 꼴」에서 드러나게 적어 두었다).
+ */
+const DECLARATION =
+  /^export (?:declare )?(?:default )?(?:abstract )?(?:async )?(?:const enum|const|let|var|function\*?|class|interface|type|enum) (\w+)/gm
+const BRACED = /^export (?:type )?\{([^}]*)\}/gm
+
+function exportedNames(text: string): string[] {
+  const declared = [...text.matchAll(DECLARATION)].map(([, name]) => name)
+  const braced = [...text.matchAll(BRACED)].flatMap(([, list]) =>
+    list
+      .split(',')
+      .map((item) => item.trim().replace(/^type\s+/, ''))
+      .filter((item) => item !== '')
+      .map((item) => item.split(/\s+as\s+/).pop() as string),
+  )
+  return [...declared, ...braced]
+}
 
 /**
  * 주석과 문자열의 **내용**을 지운 사본. 참조는 이것으로 센다 (`#1351`).
@@ -140,18 +173,26 @@ function key(file: string, name: string): string {
   return `${relative(HERE, file).replaceAll('\\', '/')}::${name}`
 }
 
+/** 훑기는 한 번만 한다 — 아래 두 검사가 같은 결과를 나눠 쓴다 (`#2250`의 방식). */
+let unreferencedCache: string[] | null = null
+
 function unreferencedExports(): string[] {
+  if (unreferencedCache !== null) return unreferencedCache
   const found: string[] = []
   for (const [file, text] of SOURCE) {
     if (file.includes('.test.')) continue
-    for (const [, name] of text.matchAll(DECLARATION)) {
+    for (const name of exportedNames(text)) {
       const pattern = new RegExp(`\\b${name}\\b`)
       const used = [...SOURCE].some(([other, body]) => other !== file && pattern.test(body))
       if (!used) found.push(key(file, name))
     }
   }
-  return found.sort()
+  unreferencedCache = found.sort()
+  return unreferencedCache
 }
+
+/** 소스 전체를 이름마다 훑는다 — 느린 디스크에서 기본 시한(5초)에 걸린 전례가 있다 (`#2250`). */
+const SCAN = { timeout: 20_000 }
 
 /**
  * 남아 있는 미참조 `export`와 **남긴 이유**.
@@ -233,18 +274,59 @@ describe('미참조 export 목록 (#594)', () => {
     // 못 읽으면 아래 대조가 「빈 것끼리 같다」로 통과한다.
     expect(FILES.length).toBeGreaterThan(100)
     const total = [...SOURCE].reduce(
-      (n, [f, t]) => n + (f.includes('.test.') ? 0 : [...t.matchAll(DECLARATION)].length),
+      (n, [f, t]) => n + (f.includes('.test.') ? 0 : exportedNames(t).length),
       0,
     )
     expect(total).toBeGreaterThan(400)
   })
 
-  it('목록에 없는 미참조 export가 없다', () => {
+  it('export를 읽는 눈이 좁지 않다 — 읽어야 할 꼴과 읽지 않을 꼴 (#2145)', () => {
+    // 종전 정규식이 읽던 다섯 꼴.
+    const before = [
+      ['export const A = 1', 'A'],
+      ['export function b() {}', 'b'],
+      ['export class C {}', 'C'],
+      ['export interface D {}', 'D'],
+      ['export type E = string', 'E'],
+    ]
+    // 종전에는 지나쳤던 꼴 — 미참조여도 걸리지 않았다.
+    const widened = [
+      ['export async function probe() {}', 'probe'],
+      ['export enum Mode {}', 'Mode'],
+      ['export const enum Flag {}', 'Flag'],
+      ['export default function Page() {}', 'Page'],
+      ['export default async function load() {}', 'load'],
+      ['export default class Screen {}', 'Screen'],
+      ['export abstract class Base {}', 'Base'],
+      ['export declare const injected: string', 'injected'],
+      ['export let counter = 0', 'counter'],
+      ['export function* walk() {}', 'walk'],
+    ]
+    for (const [line, name] of [...before, ...widened]) expect(exportedNames(line), line).toEqual([name])
+
+    expect(exportedNames('export { a, b as c }')).toEqual(['a', 'c'])
+    expect(exportedNames('export type { T, U as V }')).toEqual(['T', 'V'])
+    expect(exportedNames("export { type P, q } from ''")).toEqual(['P', 'q'])
+    expect(exportedNames('export {\n  one,\n  two,\n}')).toEqual(['one', 'two'])
+
+    // 읽지 않는 꼴 — export가 아니거나, 이름이 없거나, 이 검사가 다루지 않기로 한 것.
+    const ignored = [
+      'const local = 1',
+      '  export const nested = 1', // 줄 머리가 아니다 — 네임스페이스 안
+      'import { a } from ""',
+      "export * from ''",
+      'export const { a, b } = pair',
+      'exported(function named() {})',
+    ]
+    for (const line of ignored) expect(exportedNames(line), line).toEqual([])
+  })
+
+  it('목록에 없는 미참조 export가 없다', SCAN, () => {
     const surprises = unreferencedExports().filter((k) => KEPT[k] === undefined)
     expect(surprises).toEqual([])
   })
 
-  it('목록이 낡지 않았다 — 참조가 생긴 것은 뺀다', () => {
+  it('목록이 낡지 않았다 — 참조가 생긴 것은 뺀다', SCAN, () => {
     const measured = new Set(unreferencedExports())
     const stale = Object.keys(KEPT).filter((k) => !measured.has(k))
     expect(stale).toEqual([])
