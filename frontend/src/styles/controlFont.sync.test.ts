@@ -180,11 +180,28 @@ describe('클래스로 그려지는 컨트롤도 크기를 갖는다 (#2046)', (
     .map((p) => code(readFileSync(p, 'utf8')))
     .join('\n')
 
+  /*
+   * 클래스마다 **한 번만** 묻는다 (`#2250`). 아래 정규식은 이어 붙인 CSS 전체를 처음부터
+   * 훑는데, 같은 클래스(`acc__input` 따위)를 단 컨트롤이 여럿이라 종전에는 같은 질문을
+   * 컨트롤 수만큼 되풀이했다 — CI에서 이 검사 하나가 2.3~2.5초였다. 답은 클래스 이름과
+   * 위 `css`에만 달려 있으므로 기억해 두어도 판정이 달라지지 않는다.
+   */
+  const declared = new Map<string, boolean>()
+
   function declaresFontSize(cls: string): boolean {
+    const known = declared.get(cls)
+    if (known !== undefined) return known
     const escaped = cls.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
     const rule = new RegExp(`([^{}]*\\.${escaped}(?![\\w-])[^{}]*)\\{([^}]*)\\}`, 'g')
-    for (const found of css.matchAll(rule)) if (/font-size\s*:/.test(found[2])) return true
-    return false
+    let answer = false
+    for (const found of css.matchAll(rule)) {
+      if (/font-size\s*:/.test(found[2])) {
+        answer = true
+        break
+      }
+    }
+    declared.set(cls, answer)
+    return answer
   }
 
   const found: { file: string; classes: string[] }[] = []
