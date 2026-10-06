@@ -103,12 +103,6 @@ erDiagram
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
 | `call_sign` | VARCHAR(7) | NULL, **트리거 `trg_chk_call_sign_ins`·`_upd`** (`^[A-Z0-9]{4,7}$` · `REGEXP BINARY`) [#1197] | 호출부호(call sign) — **공공데이터 교차 대조의 키**(`PRD §15.1` `[#1197]` 각주). `해양수산부_선박운항정보`가 IMO가 아니라 이 값으로 질의한다. ITU RR No.19.55상 영문 대문자·숫자 4~7자이며 API가 strip · upper로 접어 넣는다(`API_SPEC §2.3`). 선택: `NULL`이면 그 배는 대조 대상이 아닐 뿐 계산은 그대로. **UNIQUE 없음** — 재배정되는 값이다(마이그레이션 058) |
-
-> **[#860] 제원 4컬럼의 정밀도가 곧 API 입력 경계다.** `NUMERIC(12,2)`는 `0.01 ~ 9,999,999,999.99`,
-> `(6,2)`는 `0.01 ~ 9,999.99`, `(8,2)`는 `0.01 ~ 999,999.99`만 담는다. 그보다 작은 양수는 `0.00`으로
-> 반올림돼 `chk_*_positive`에 걸리고, 큰 값은 정밀도 초과다 — 둘 다 종전에는 **500**이었다.
-> API 스키마(`api/schemas/vessel.py` `_storable`)와 화면(`formRules.ts` `STORABLE`)이 이 값에서 경계를 계산하며,
-> 정밀도를 바꾸면 세 곳이 함께 바뀌어야 한다 — `tests/test_vessel_spec_bounds.py`·`specBounds.sync.test.ts`가 대조한다.
 | `is_cii_applicable_hint` | BOOLEAN | NOT NULL DEFAULT false | GT ≥ 5000 및 선종 기준 자동 산정 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `imo_active` | VARCHAR(7) | NULL, **UNIQUE `uq_vessel_imo_active`** · 값은 트리거 `trg_vessel_imo_active_ins`·`_upd`가 채운다 [#1631] | **활성 키** — 활성 행이면 `imo_number`의 사본, 소프트 삭제된 행이면 `NULL`(마이그레이션 061). CUBRID 유니크 인덱스는 NULL을 여러 개 허용하므로 「활성 행 안에서만 유일」이 **인덱스로** 선다 — 부분 유니크 인덱스를 CUBRID가 하는 형태로 옮긴 것. **앱은 이 열을 쓰지 않는다** — `AFTER INSERT/UPDATE` 트리거가 `is_deleted`에 따라 다시 채운다(잘못 넣어도 바로잡는다) |
@@ -119,6 +113,12 @@ erDiagram
 | `position_updated_at` | TIMESTAMPTZ | NULL | 위치 갱신 시각. **위치가 있으면 필수** (UIFLOW 2-8) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
+
+> **[#860] 제원 4컬럼의 정밀도가 곧 API 입력 경계다.** `NUMERIC(12,2)`는 `0.01 ~ 9,999,999,999.99`,
+> `(6,2)`는 `0.01 ~ 9,999.99`, `(8,2)`는 `0.01 ~ 999,999.99`만 담는다. 그보다 작은 양수는 `0.00`으로
+> 반올림돼 `chk_*_positive`에 걸리고, 큰 값은 정밀도 초과다 — 둘 다 종전에는 **500**이었다.
+> API 스키마(`api/schemas/vessel.py` `_storable`)와 화면(`formRules.ts` `STORABLE`)이 이 값에서 경계를 계산하며,
+> 정밀도를 바꾸면 세 곳이 함께 바뀌어야 한다 — `tests/test_vessel_spec_bounds.py`·`specBounds.sync.test.ts`가 대조한다.
 
 **인덱스:**
 
@@ -2243,7 +2243,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | S-3 | 도착항 lat/lon CHECK 누락 | CHECK 제약 추가 | §2.2 |
 | S-4 | voyage_scenario enum CHECK 누락 | scenario_type, rating, risk_level CHECK 추가 | §2.4 |
 | S-5 | weather_model_parameter UNIQUE 누락 | (model_version, key) UNIQUE 인덱스 추가 | §2.12 |
-| S-6 | ER 다이어그램 카디널리티 오류 | SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN으로 수정 | §1 |
+| S-6 | ER 다이어그램 카디널리티 오류 | SIMULATION_SNAPSHOT \|\|--o\| ANNUAL_SIMULATION_RUN으로 수정 | §1 |
 | S-7 | hash 형식 CHECK 제약 누락 | sha256 형식 regex CHECK 추가 | §2.5, §2.7 |
 | S-8 | voyage_scenario.vessel_id 누락 | vessel_id NOT NULL 컬럼 추가 | §2.4 |
 
@@ -2345,7 +2345,6 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |
 | 2026-09-13 | `#513` | **v1.24 — §2.22 `fleet_reduction_plan` 신설**(마이그레이션 043). `UIFLOW 2-10` 함대 감축 계획의 저장본. ⚠️ **단가를 계획에 저장**한다(2026-09-13 결정 C) — 선박 제원에 두면 단가를 고친 순간 과거 계획의 손익이 조용히 바뀐다. `result`는 저장 시점 결과를 그대로 두고 다시 계산하지 않는다. `created_by`는 SET NULL(계정이 지워져도 계획은 남는다). downgrade는 `IRREVERSIBLE`. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
 | 2026-09-15 | `#672` | **v1.25 — §2.15 `app_user.role` 컬럼 추가**(마이그레이션 044 · CHECK `chk_app_user_role`). 사무직(`OFFICE`)·현장직(`FIELD`) 2종, 기본값 현장직, **기존 행은 전부 사무직**으로 채웠다 — 그전까지 전원이 전 기능을 썼으므로 그래야 아무도 잃지 않는다. §2.14 `action` 열거에 `ROLE_CHANGE` 추가(행위자·대상·전후 값). §9.2 실측 행 갱신(역할 구분이 생겼고 회사 소속은 여전히 없다). downgrade는 열을 지워 지정 기록이 사라지므로 `IRREVERSIBLE`(`migration_guard.py`). 컬럼 추가라 버전을 올린다(`#363`이 042 컬럼 추가에서 올린 선례) (#672) |
-
 | 2026-09-15 | `#1058` | **v1.26 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |
 | 2026-09-18 | `#1080` | **v1.28 — §2.23 `chat_session` · §2.24 `chat_message` 신설.** ORM(`models/chat.py`)·마이그레이션에 이미 존재하는데 문서만 「정의돼 있지 않다」고 적어 두고 있었다(#287 각주). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819` 초기 스키마에 흡수됐다. §2.16 각주를 「§2.23·§2.24에 정의돼 있다」로 정정하고 §4.3 보존 행에서 「테이블 미정의 각주」 참조를 걷었다 — 만료 행은 `scripts/purge_expired.py`가 90일 `expires_at` 그대로 지운다(유예 없음). 계산 경로 격리(`calculation_run`·`voyage` 비참조 · 감사 로그 `CHAT_TOOL_CALL`이 가리킨다)와 「지우는 표」 성격(본문은 여기만, 감사 로그에는 해시)을 각주로 못 박았다. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1080) |
 | 2026-09-18 | `#673` | **v1.29 — §2.8 `UNIQUE(year)`·§2.10 `idx_refline_unique`·§2.11 `idx_boundary_unique`를 활성-유니크 트리거로 교체 · §2.10·§2.11에 `version`·`is_active` 컬럼 추가 · §7.2 각주에 「정책이 문서로만 존재했다」는 실측 등재.** §7.2가 정한 개정 운용(새 행 + 전환)이 물리적으로 불가능했던 이유가 둘였다 — ⑴ 두 테이블에 컬럼이 없었다 ⑵ 세 키가 전역 유니크라 이행 행을 못 만들었다. `054`가 둘 다 고친다(컬럼 추가 · 트리거 교체 — `050` ⑴ 패턴). 기존 행은 현행이므로 `is_active = 1`이 초깃값이다. 구조 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#673) |
@@ -2381,3 +2380,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-06 | `#2226` | §7.4 **해시 형식 트리거 4개를 `REGEXP BINARY`로** (마이그레이션 066 · #2103). `a7d3e9b14f26`이 건 `trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`의 조건이 `REGEXP`라 — CUBRID는 기본이 대소문자 무시(`050` 실측) — 정본 `[S-7]`의 `~`(대소문자 구분)보다 넓었고, `'SHA256:' \|\| REPEAT('A', 64)`가 두 표 네 열에 모두 들어갔다(2026-10-06 `cii_test` INSERT 8건 통과 실측). `050`·`058`과 같은 `REGEXP BINARY`로 교체하고(`replace_trigger` — 지우지 못하면 멈춘다), downgrade는 옛 조건으로 되돌린다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`066` 적용 후 176 실측). 운영 영향 없음 — 트리거는 `BEFORE INSERT`뿐이고 두 표는 해시 열 UPDATE가 막혀 있으며, 해시를 만드는 경로는 전부 `calc/hash.py`(`hexdigest` — 소문자)다. 되살린 것 표·리비전 표·트리거 표 머리(head `066`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2103) |
 | 2026-10-06 | `#2228` | §2.10 SQL·§7.2·§7.4 **활성-유니크 트리거 6개가 비활성 행을 통과시키게** (마이그레이션 067 · #2104). `054`가 `regulation_year`·`cii_reference_line`·`cii_rating_boundary`에 건 조건 `IF EXISTS (… is_active = 1 AND id <> new.id)`에 `new.is_active`가 없어, 활성 행이 있는 키에 **이행 행**(`is_active = 0`)을 INSERT하거나 이미 있는 이행 행의 다른 열을 UPDATE하는 것이 전부 거부됐다(2026-10-06 `cii_test`에서 세 표 모두 `-517` 실측 · 정본 §2.10 「활성 행끼리만 유일」과 어긋남). 운영의 두 쓰기 경로(`parameter_import._apply_versioned` — 활성 행을 끄고 → flush → 새 활성 행 · `seed._upsert_active` — 활성 행만 갱신·없으면 삽입)가 그 모양을 피해 가 드러나지 않았다. `047` 소프트 삭제와 같은 `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체(`replace_trigger` — 지우지 못하면 멈춘다)하고 downgrade는 `054` 조건으로 되돌린다. 거부 집합을 **좁히기만** 하므로 전에 통과하던 쓰기는 전부 그대로 통과하고, 활성 둘은 INSERT도 이행 행을 되살리는 UPDATE도 여전히 거부된다. 트리거는 `BEFORE INSERT`·`BEFORE UPDATE`라 기존 행은 다시 검사되지 않는다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`067` 적용 후 176 실측). §2.10 SQL·§7.2 각주·리비전 표·트리거 표 머리(head `067`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2104) |
 | 2026-10-07 | `#2248` | §2.25 「트리거가 없다」 각주에 **수집기가 지키는 값 제약** 한 문장 — 시간대 없는 시각 · 빈 `call_seq` · `call_year`가 없는 기항이 섞인 쌍은 넣지 않고 실패로 남긴다. 표에 값 제약이 없는 까닭이 「수집기만 쓴다」였는데, 그 수집기가 제공자 값을 검사 없이 옮기고 있었다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 · 헤더 최종 수정일 `2026-10-06` → `2026-10-07` (#2113) |
+| 2026-10-07 | `#2258` | **§2.1 `vessel` 표의 `call_sign` 행 뒤에 끼어 있던 `[#860]` 인용블록을 표 뒤(`updated_at` 행 다음)로 옮겼다** (`#2137`) — `is_cii_applicable_hint` 이하 10행이 머리 없이 표 밖 문단으로 렌더되고 있었다. **이 변경 이력 표 중간(`#672`과 `#1058` 행 사이)의 빈 줄을 지웠고**(그 뒤 행들이 표 밖으로 렌더됐다), §10.2의 `S-6` 행의 `\|\|--o\|`(ER 카디널리티 기호)를 이스케이프했다. 셀·문장은 그대로다. `§4.3`상 구조 정정이라 버전은 올리지 않는다 |
