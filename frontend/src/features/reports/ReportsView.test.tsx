@@ -836,6 +836,51 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
     expect(provider.previewHtml).toHaveBeenCalledTimes(2)
   })
 
+  it('문서가 연도 목록보다 늦게 와도 새 선박의 문서는 한 번만 묻는다', async () => {
+    /*
+     * 위 검사의 문서 스텁은 곧바로 답해, 목록이 다시 서는 렌더에는 이미 새 선박의 문서가
+     * 와 있다. 실제 순서는 반대다 — 목록은 붙들어 둔 답이라 즉시 오고 문서는 서버를 다녀온다.
+     * 그 순서에서 선박을 바꾼 렌더가 앞 선박의 목록으로 한 번 묻고, 목록이 다시 선 렌더가
+     * (앞 문서가 아직 안 와서) 같은 조건으로 한 번 더 물었다.
+     */
+    stubYears(async () => yearsReply([2024, 2025]))
+    const held: Array<(html: string) => void> = []
+    let calls = 0
+    const provider = stub({
+      previewHtml: vi.fn(async () => {
+        calls += 1
+        // 첫 문서(선박 A)는 곧바로 온다. 그 뒤의 문서는 검사가 풀 때까지 오지 않는다.
+        if (calls === 1) return '<p>a</p>'
+        return new Promise<string>((done) => {
+          held.push(done)
+        })
+      }),
+    })
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+    await waitFor(() => expectUnlocked())
+
+    fireEvent.change(vesselSelect(), { target: { value: 'v-b' } })
+    // 목록이 다시 서고(연도 칸이 값을 되찾고) 새 선박의 문서를 묻는다 — 문서는 아직 오지 않았다.
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(2))
+    await new Promise((done) => setTimeout(done, 0))
+
+    expect(provider.previewHtml).toHaveBeenCalledTimes(2)
+    expect(provider.previewHtml).toHaveBeenLastCalledWith({
+      kind: 'ANNUAL',
+      vesselId: 'v-b',
+      year: 2025,
+    })
+    for (const release of held) release('<p>b</p>')
+    await waitFor(() => expectUnlocked())
+    expect(provider.previewHtml).toHaveBeenCalledTimes(2)
+  })
+
   it('선박을 고르기 전에는 잠그지 않는다 — 종전대로 누르면 사유를 말한다', async () => {
     stubYears(async () => json({ detail: 'boom' }, 500))
     const provider = stub()
@@ -846,6 +891,7 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
     fireEvent.click(screen.getByTestId('preview-button'))
     expect(provider.previewHtml).not.toHaveBeenCalled()
     // 선박을 고르라는 사유가 뜬다 — 연도 칸의 상태 문구가 아니다.
+    // 정본 문구 (PRD §6.4 검증 오류 「{대상}을/를 선택해 주세요.」) — 바꾸려면 PRD 개정이 먼저다.
     expect(screen.getByText(/선박을 선택해 주세요/)).toBeTruthy()
     expect(yearState()).toBeNull()
   })

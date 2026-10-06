@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PageHeader } from '../../components/PageHeader'
-import { SELECT_VESSEL_FIRST, useYearOptions, yearStateText } from '../parameters/yearCatalog'
+import {
+  SELECT_VESSEL_FIRST,
+  YEAR_STATE_COPY,
+  useYearOptions,
+  yearStateText,
+} from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   coerceYear,
@@ -120,13 +125,18 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   /**
    * 연도 칸의 상태 문구 — 로딩·실패·빈 목록이 서로 다르다 (#2120 · #2183). 목록이 있으면
    * `null`이다. 선박을 고르기 전에는 쓰지 않는다(그때는 `SELECT_VESSEL_FIRST`가 말한다).
+   *
+   * 훅의 답이 **지금 선박의 것이 아니면** 불러오는 중으로 읽는다. 선박을 바꾼 바로 그 렌더에서
+   * 훅은 아직 앞 선박의 목록을 들고 있고 로딩도 서지 않았다 — 그 렌더를 「목록이 있다」로 읽으면
+   * 연도가 값 → `null` → 값으로 튀어, 열어 둔 미리보기가 새 선박의 문서를 두 번 묻는다.
    */
-  const yearText = yearStateText(yearOptions)
+  const yearText =
+    yearOptions.settledFor !== vesselId ? YEAR_STATE_COPY.loading : yearStateText(yearOptions)
   /**
    * 요청에 실을 연도 (#2183). **목록에서 정한다** — 목록이 없으면(로딩·실패·빈 목록) `null`이고
    * 그때 연간 리포트는 요청하지 않는다. 선박을 바꾸면 훅이 새 목록을 받는 동안 옛 목록을
-   * 들고 있으므로, 목록 길이가 아니라 상태 문구로 판단한다 — 옛 선박의 해로 새 선박의
-   * 문서를 묻지 않는다. 고른 해가 새 목록에 없으면 가장 최근 연도로 떨어진다.
+   * 들고 있으므로, 목록 길이가 아니라 상태 문구로 판단한다(위 `yearText`) — 옛 선박의 해로
+   * 새 선박의 문서를 묻지 않는다. 고른 해가 새 목록에 없으면 가장 최근 연도로 떨어진다.
    */
   const year = yearText === null ? coerceYear(years, chosenYear) : null
 
