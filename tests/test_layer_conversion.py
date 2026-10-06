@@ -108,6 +108,18 @@ def test_to_float64_rejects_non_decimal() -> None:
         to_float64(5.0)  # type: ignore[arg-type]
 
 
+def test_estimate_precision_loss_rejects_non_decimal_original() -> None:
+    """손실은 **Decimal 원값**에 대해서만 잰다 (#2144).
+
+    정수를 받아 주면 `5 − Decimal(5.0)`이 그대로 계산되어 「손실 0」이 나온다 — 원값이
+    이미 Layer 1 밖에서 만들어진 값인데 변환 손실이 없다고 적는다.
+    """
+    import pytest
+
+    with pytest.raises(TypeError, match="int"):
+        estimate_precision_loss(5, 5.0)  # type: ignore[arg-type]
+
+
 def test_convert_simulation_params_preserves_structure() -> None:
     """convert_simulation_params는 Decimal leaf만 float로 바꾸고 구조는 보존한다."""
     params = {

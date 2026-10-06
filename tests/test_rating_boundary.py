@@ -14,6 +14,7 @@ TEST_PLAN §2.2 UT-RATING-001~007 전건 + HSC 상속 회귀 + seed 교차검증
 
 import threading
 from decimal import ROUND_HALF_EVEN, Context, Decimal, setcontext
+from fractions import Fraction
 
 import pytest
 
@@ -269,3 +270,75 @@ def test_fallback_targets_exist_in_seed():
     """폴백 대상 선종이 실제로 d-vector seed에 있어야 한다."""
     boundary = {row.ship_type for row in SEED_RATING_BOUNDARIES}
     assert set(RATING_BOUNDARY_FALLBACK.values()) <= boundary
+
+
+# --- 경계 바로 위 · 시드 14행 (#2144) -----------------------------------------------
+# 종전의 「경계 + ε」 검사는 inferior(UT-RATING-005)와, Fixture 2의 upper
+# (`test_layer1_fixtures.py::test_fixture_2_published_boundary_flips_rating`)뿐이었다.
+# superior·lower는 「정확히 같으면 더 우수한 등급」만 보았으므로, 비교에 허용 오차가
+# 끼어들어(`attained <= lower + 0.001`) 경계를 넘긴 값이 좋은 등급으로 남아도 통과했다.
+# 두 검사 모두 `BULK_CARRIER` 한 행의 d-vector였다.
+
+#: 경계 이름 → (정확히 같을 때 등급, 바로 위 등급). `PRD §3.3.6`의 if 사슬 그대로다.
+_GRADES_AT_AND_ABOVE = {
+    "superior": ("A", "B"),
+    "lower": ("B", "C"),
+    "upper": ("C", "D"),
+    "inferior": ("D", "E"),
+}
+
+#: 경계에 더하는 양. 뒤의 것은 소수 30째 자리 한 단위다 — 기본 컨텍스트(28자리)에서는
+#: 더해도 반올림으로 사라지므로 `_at_working_precision`으로 더한다.
+_EPSILONS = (Decimal("0.000001"), Decimal("1E-30"))
+
+
+def _exact_boundary(required: Decimal, d: Decimal) -> Decimal:
+    """`required × d`를 **분수로** 낸다 — 제품의 곱셈·컨텍스트를 거치지 않는다.
+
+    두 값이 모두 유한 소수라 곱도 유한 소수이고, 여기 쓰는 입력에서는 34자리를 넘지
+    않아 작업 정밀도(50) 안에서 정확하다.
+    """
+    product = Fraction(required) * Fraction(d)
+    return _at_working_precision(lambda: Decimal(product.numerator) / Decimal(product.denominator))
+
+
+@pytest.mark.parametrize(("key", "d"), [("superior", BULK_DV.d1), ("lower", BULK_DV.d2)])
+@pytest.mark.parametrize("epsilon", _EPSILONS)
+def test_just_above_superior_and_lower_takes_the_next_grade(key, d, epsilon):
+    """superior·lower 「경계 + ε → 다음 등급」 (`PRD §3.3.6` — `<=`가 아니면 `else`로 내려간다).
+
+    upper·inferior의 같은 자리는 위 주석의 두 검사가 이미 잡는다.
+    """
+    required = Decimal("100")
+    boundary = _exact_boundary(required, d)
+    attained = _at_working_precision(lambda: boundary + epsilon)
+
+    assert attained > boundary  # ε가 반올림으로 사라지지 않았다
+    assert determine_rating(attained, required, BULK_DV).rating == _GRADES_AT_AND_ABOVE[key][1]
+
+
+@pytest.mark.parametrize(
+    "row", SEED_RATING_BOUNDARIES, ids=lambda r: f"{r.ship_type}[{r.condition_expr}]"
+)
+@pytest.mark.parametrize("required", [Decimal("100"), LONG_REQUIRED], ids=["short", "long"])
+def test_every_seed_row_rates_at_and_just_above_its_boundaries(row, required):
+    """시드 등급 경계 14행 전부 — 경계값 · 경계 정확 일치 · 경계 바로 위.
+
+    종전 검사는 `BULK_CARRIER` 한 행의 d-vector로만 판정을 보았다. 경계값의 기대값은
+    `Fraction`으로 따로 내고(`_exact_boundary`), 판정 기대값은 `PRD §3.3.6`의 순서다.
+    """
+    dv = DVector(row.d1, row.d2, row.d3, row.d4)
+    exact = {
+        "superior": _exact_boundary(required, row.d1),
+        "lower": _exact_boundary(required, row.d2),
+        "upper": _exact_boundary(required, row.d3),
+        "inferior": _exact_boundary(required, row.d4),
+    }
+
+    returned = determine_rating(Decimal("0"), required, dv).boundaries
+    assert {k: returned[f"{k}_boundary"] for k in exact} == exact
+
+    for key, (at, above) in _GRADES_AT_AND_ABOVE.items():
+        assert determine_rating(exact[key], required, dv).rating == at, key
+        just_above = _at_working_precision(lambda key=key: exact[key] + Decimal("1E-30"))
+        assert determine_rating(just_above, required, dv).rating == above, key
