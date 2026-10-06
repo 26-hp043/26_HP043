@@ -15,13 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import ctypes.util
 import io
 import logging
-import os
 import re
-import shutil
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -29,6 +25,7 @@ from datetime import UTC
 from pathlib import Path
 
 import pytest
+from pdf_env import pdf_environment_gap
 
 from cii_platform.reports.csv_export import (
     BOM,
@@ -459,31 +456,6 @@ def test_empty_document_renders():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _pdf_environment_gap() -> str | None:
-    """PDF 종단 검사를 돌릴 수 없는 **환경 사정**. 없으면 ``None`` (`#2143`).
-
-    **제품 코드에 묻지 않는다.** 종전에는 ``pdf.is_available()``·``pdf.has_korean_font()``가
-    거짓이면 건너뛰었는데, 그러면 그 함수가 틀려서 「없다」고 답하는 결함도 같은 skip으로
-    가려진다. 렌더러는 공유 라이브러리 탐색으로, 폰트는 ``fc-list``로 따로 본다.
-
-    CI에서는 건너뛰지 않는다 — ``ci.yml``의 ``test`` 잡이 ``libpango``·``fonts-nanum``을
-    설치하고 설치가 실패하면 잡을 중단하므로, 거기서 없다면 환경이 아니라 회귀다.
-    """
-    if os.environ.get("CI"):
-        return None
-    if ctypes.util.find_library("pango-1.0") is None:
-        return "Pango 공유 라이브러리를 찾지 못한 환경 (WeasyPrint 런타임)"
-    fc_list = shutil.which("fc-list")
-    if fc_list is None:
-        return "fc-list가 없어 한국어 폰트 유무를 가릴 수 없는 환경"
-    listed = subprocess.run(
-        [fc_list, ":lang=ko", "family"], capture_output=True, text=True, timeout=60
-    )
-    if listed.returncode != 0 or not listed.stdout.strip():
-        return "한국어 폰트가 설치되지 않은 환경 (`fc-list :lang=ko`가 비었다)"
-    return None
-
-
 def test_pdf_renders_korean_without_tofu():
     """**이 이슈의 완료 기준**이다 — PDF에 한글이 깨지지 않아야 한다.
 
@@ -491,10 +463,10 @@ def test_pdf_renders_korean_without_tofu():
     아니라 **추출된 텍스트**로 확인한다. 폰트가 빠지면 추출 텍스트가 비거나
     깨지므로 이 단언이 먼저 깨진다.
 
-    환경이 갖춰졌으면(:func:`_pdf_environment_gap`) 그 뒤의 실패는 전부 실패다 —
+    환경이 갖춰졌으면(:func:`pdf_env.pdf_environment_gap`) 그 뒤의 실패는 전부 실패다 —
     제품의 판정이 「없다」고 답하는 것도 포함한다.
     """
-    gap = _pdf_environment_gap()
+    gap = pdf_environment_gap()
     if gap is not None:
         pytest.skip(gap)
 
@@ -526,7 +498,7 @@ def test_missing_korean_font_is_detected_not_ignored(monkeypatch: pytest.MonkeyP
     폰트가 빠졌을 때 지나는 것과 같은 「글리프 없음」 경로다. 종전에는 ``bool``이기만
     하면 통과해, 늘 참이나 늘 거짓을 돌려주는 판정도 지나갔다.
     """
-    gap = _pdf_environment_gap()
+    gap = pdf_environment_gap()
     if gap is not None:
         pytest.skip(gap)
 
