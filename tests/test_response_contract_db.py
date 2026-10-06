@@ -1836,6 +1836,12 @@ ROUTE_COVERAGE: dict[str, str] = {
     # 공용 데이터로 필드 집합을 비교할 수 없다. 그 파일이 자기 데이터로 양쪽 모양을 모두 보고,
     # HTTP 경로(인증·봉투·422)는 따로 본다.
     "GET /fleet/data-quality": ("tests/test_data_quality_db.py::test_the_route_answers_over_http"),
+    # `API_SPEC §2.19` (#2204) — 항목이 **DB의 판정에 따라** 생기고 사라져 공용 데이터로
+    # 행 모양을 비교할 수 없다. 그 파일이 봉투 · 키 집합 · 422와, 두 출처(`§2.8` ·
+    # `§2.16`)와 수가 같은지를 본다.
+    "GET /fleet/notifications": (
+        "tests/test_notifications_db.py::test_the_route_answers_over_http"
+    ),
     # `API_SPEC §3.12` (#1923) — 요청이 **공적 재항 기록 한 건과 어긋난 항차**를 전제하고, 데모
     # 시드의 어긋난 항차는 확정(`CONFIRMED`)이라 보내면 되돌려진다 — 공용 데이터를 바꾸는 요청을
     # 계약 표에서 보낼 수 없다. 그 파일이 자기 선박·기록으로 응답 키 전부와 404·409·422를 본다.

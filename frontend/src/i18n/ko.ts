@@ -23,9 +23,11 @@ export const ko = {
   'shell.voyage.none': '항차 없음',
   'shell.voyage.unselected': '항차 선택 안 함',
 
-  /** 상단바 — 알림 자리(체계 미정의 · `DESIGN_SYSTEM §16` 항목 10) */
-  'shell.notification.aria': '알림 (준비 중)',
-  'shell.notification.title': '알림 — 준비 중',
+  /** 상단바 — 알림 (#2204 · `DESIGN_SYSTEM §7.2` 「알림」). 개수는 `{count}`로 넣는다 */
+  'shell.notification.aria': '알림 {count}건',
+  'shell.notification.title': '알림',
+  'shell.notification.empty': '지금 걸려 있는 알림이 없습니다',
+  'shell.notification.failed': '알림을 불러오지 못했습니다',
 
   /** 사이드바 — 미구현·사무직 전용 항목에 붙는 꼬리표 */
   'shell.navTag': '준비 중',

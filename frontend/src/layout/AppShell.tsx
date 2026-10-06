@@ -24,7 +24,8 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
 import { useI18n, useTextLang } from '../i18n/core'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
-import { BellGlyph, LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { NotificationBell } from '../features/notifications/NotificationBell'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
 
@@ -497,24 +498,10 @@ export function AppShell() {
             </select>
           </span>
           {/*
-            알림 — **알림 체계가 아직 없다** (`DESIGN_SYSTEM §16` 항목 10 · `#771` ⑽).
-            자리는 `§7.2`가 정한 대로 두되(선박 · 항차 · 알림 · 계정) **누를 수 없게**
-            한다. 종전에는 `onClick`이 없는 살아 있는 버튼이었다 — 누르게 생겼는데
-            아무 일도 없고, `aria-label`은 「읽지 않음 없음」이라 **셀 것이 없는 상태**를
-            「없다」로 단정했다. 사이드바의 비활성 항목과 같은 판단이다 — 자리가
-            사라지면 「이 제품에는 그런 기능이 없다」로 읽히고, 살아 있으면 동작을
-            기대한다. 알림 체계가 정해지면(PO) 이 `disabled`와 문구만 걷어낸다.
+            알림 — 지금 걸려 있는 상태 목록 (#2204 · `DESIGN_SYSTEM §7.2` 「알림」 · `§16` 항목 10).
+            종전에는 알림 체계가 없어 `disabled` + 「준비 중」이었다(`#771` ⑽).
           */}
-          <button
-            type="button"
-            className="app-shell__iconbtn"
-            lang={textLang}
-            aria-label={t('shell.notification.aria')}
-            title={t('shell.notification.title')}
-            disabled
-          >
-            <BellGlyph />
-          </button>
+          <NotificationBell />
           {/*
             계정 · 로그아웃은 **사이드바로 옮겼다** (#2203 · `DESIGN_SYSTEM §7.2` 개정). 상단바는
             전역 컨텍스트(선박 · 항차)와 알림만 둔다. 테마 · 한/EN 토글은 그 전부터 계정
