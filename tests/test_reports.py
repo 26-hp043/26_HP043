@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import ctypes.util
 import io
 import logging
+import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -455,6 +459,31 @@ def test_empty_document_renders():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _pdf_environment_gap() -> str | None:
+    """PDF 종단 검사를 돌릴 수 없는 **환경 사정**. 없으면 ``None`` (`#2143`).
+
+    **제품 코드에 묻지 않는다.** 종전에는 ``pdf.is_available()``·``pdf.has_korean_font()``가
+    거짓이면 건너뛰었는데, 그러면 그 함수가 틀려서 「없다」고 답하는 결함도 같은 skip으로
+    가려진다. 렌더러는 공유 라이브러리 탐색으로, 폰트는 ``fc-list``로 따로 본다.
+
+    CI에서는 건너뛰지 않는다 — ``ci.yml``의 ``test`` 잡이 ``libpango``·``fonts-nanum``을
+    설치하고 설치가 실패하면 잡을 중단하므로, 거기서 없다면 환경이 아니라 회귀다.
+    """
+    if os.environ.get("CI"):
+        return None
+    if ctypes.util.find_library("pango-1.0") is None:
+        return "Pango 공유 라이브러리를 찾지 못한 환경 (WeasyPrint 런타임)"
+    fc_list = shutil.which("fc-list")
+    if fc_list is None:
+        return "fc-list가 없어 한국어 폰트 유무를 가릴 수 없는 환경"
+    listed = subprocess.run(
+        [fc_list, ":lang=ko", "family"], capture_output=True, text=True, timeout=60
+    )
+    if listed.returncode != 0 or not listed.stdout.strip():
+        return "한국어 폰트가 설치되지 않은 환경 (`fc-list :lang=ko`가 비었다)"
+    return None
+
+
 def test_pdf_renders_korean_without_tofu():
     """**이 이슈의 완료 기준**이다 — PDF에 한글이 깨지지 않아야 한다.
 
@@ -462,43 +491,55 @@ def test_pdf_renders_korean_without_tofu():
     아니라 **추출된 텍스트**로 확인한다. 폰트가 빠지면 추출 텍스트가 비거나
     깨지므로 이 단언이 먼저 깨진다.
 
-    CI는 `libpango` · `fonts-nanum`을 설치한다 — 없는 환경에서는 건너뛴다.
+    환경이 갖춰졌으면(:func:`_pdf_environment_gap`) 그 뒤의 실패는 전부 실패다 —
+    제품의 판정이 「없다」고 답하는 것도 포함한다.
     """
-    pdf_module = pytest.importorskip("cii_platform.reports.pdf")
-    if not pdf_module.is_available():
-        pytest.skip("WeasyPrint 런타임(Pango)이 없는 환경")
-    if not pdf_module.has_korean_font():
-        # 로컬 개발 박스에는 한국어 폰트가 없을 수 있다. CI는 fonts-nanum을 설치하므로
-        # 여기서 건너뛰지 않는다 — 회귀를 잡는 것은 CI다.
-        pytest.skip("한국어 폰트가 설치되지 않은 환경 (CI는 fonts-nanum을 설치한다)")
+    gap = _pdf_environment_gap()
+    if gap is not None:
+        pytest.skip(gap)
+
+    import pypdf
+
+    from cii_platform.reports import pdf as pdf_module
+
+    assert pdf_module.is_available(), "환경 검사를 지났는데(또는 CI인데) 렌더러를 불러오지 못했다"
+    assert pdf_module.has_korean_font(), "환경 검사를 지났는데(또는 CI인데) 폰트 판정이 거짓이다"
 
     pdf = pdf_module.render_pdf(render_html(_document()))
     assert pdf.startswith(b"%PDF-")
 
-    reader = pytest.importorskip("pypdf", reason="pypdf 없이는 텍스트 추출을 못 한다")
-    import io
-
-    text = reader.PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+    text = pypdf.PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
     assert "연간 실적 리포트" in text
     assert "STAR SKIPPER" in text
     # 면책이 문서 안에 있어야 한다 (PRD §25.1).
     assert "참고용 예측값" in text
 
 
-def test_missing_korean_font_is_detected_not_ignored():
+def test_missing_korean_font_is_detected_not_ignored(monkeypatch: pytest.MonkeyPatch):
     """폰트가 없으면 오류 없이 tofu가 된다 — 그 상태를 코드가 알아채야 한다.
 
     이 함수가 없으면 배포 이미지에서 폰트 패키지가 빠져도 아무것도 실패하지 않고
     문서의 한글만 □□□가 된다.
+
+    판정의 **양쪽**을 본다. 한국어 폰트가 있는 환경에서는 참이어야 하고, 어떤 폰트에도
+    글리프가 없는 글자(영구 비문자 U+FFFF)로 프로브를 바꾸면 거짓이어야 한다 —
+    폰트가 빠졌을 때 지나는 것과 같은 「글리프 없음」 경로다. 종전에는 ``bool``이기만
+    하면 통과해, 늘 참이나 늘 거짓을 돌려주는 판정도 지나갔다.
     """
+    gap = _pdf_environment_gap()
+    if gap is not None:
+        pytest.skip(gap)
+
     from cii_platform.reports import pdf as pdf_module
 
-    if not pdf_module.is_available():
-        pytest.skip("WeasyPrint 런타임(Pango)이 없는 환경")
+    assert pdf_module.has_korean_font() is True
 
-    # 참/거짓 어느 쪽이든 **판정 자체가 동작**해야 한다. 환경에 따라 값이 갈리므로
-    # 값을 단언하지 않고 예외 없이 bool을 돌려주는 것을 본다.
-    assert isinstance(pdf_module.has_korean_font(), bool)
+    monkeypatch.setattr(
+        pdf_module,
+        "_PROBE_HTML",
+        '<html><body style="font-family: sans-serif">\uffff</body></html>',
+    )
+    assert pdf_module.has_korean_font() is False
 
 
 def test_pdf_error_offers_csv_and_keeps_the_cause_in_the_log(
