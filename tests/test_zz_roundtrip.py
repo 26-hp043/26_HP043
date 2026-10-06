@@ -231,9 +231,11 @@ async def test_066_roundtrip_swaps_hash_trigger_case_sensitivity():
     롤백이 실제로 옛 조건(대소문자 무시)으로 돌아가는지는 여기서 본다 — 이름·개수가 그대로라
     집합 대조로는 두 상태가 구분되지 않는다.
     """
-    step = run_alembic("downgrade", "065")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    # 내리는 명령과 그 단언을 `try` **안에** 둔다 (`#2143` · 아래 다섯 검사도 같다). 밖에 두면
+    # 내린 뒤 단언이 떨어질 때 복원이 돌지 않아 스키마가 내려간 채 다음 검사로 넘어간다.
     try:
+        step = run_alembic("downgrade", "065")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         downgraded = await _hash_trigger_conditions()
         assert set(downgraded) == set(_HASH_TRIGGER_NAMES), sorted(downgraded)
         assert all("binary" not in cond for cond in downgraded.values()), downgraded
@@ -270,9 +272,9 @@ async def test_067_roundtrip_swaps_active_unique_inactive_row_pass():
     `066` 한 단계 왕복과 같은 이유로 따로 본다 — 이름·개수(6)가 그대로라 집합 대조로는 두
     상태가 구분되지 않는다.
     """
-    step = run_alembic("downgrade", "066")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
+        step = run_alembic("downgrade", "066")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         downgraded = await _active_unique_conditions()
         assert set(downgraded) == set(_ACTIVE_UNIQUE_TRIGGER_NAMES), sorted(downgraded)
         assert all(_INACTIVE_PASS_FRAGMENT not in cond for cond in downgraded.values()), downgraded
@@ -298,9 +300,9 @@ async def test_partial_downgrade_preserves_immutability():
         base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → 044
     """
     await _clear_demo_data()
-    step = run_alembic("downgrade", "043")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
+        step = run_alembic("downgrade", "043")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         await _assert_calculation_run_immutable()
     finally:
         # 부분 롤백 상태에서 head로 복원한다(실패해도 후속 테스트 오염 방지).
@@ -363,9 +365,9 @@ async def test_seed_downgrade_removes_fuel_type_rows():
     await _clear_demo_data()
     # `017`은 `1c444a5c4819`에 합쳐졌고 seed는 `6c7496c4d122`가 넣는다 (`#1058`).
     # 그 앞으로 내리는 자리가 종전의 `downgrade 016`에 해당한다.
-    step = run_alembic("downgrade", "1c444a5c4819")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
+        step = run_alembic("downgrade", "1c444a5c4819")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
         try:
             async with engine.connect() as connection:
@@ -390,9 +392,9 @@ async def test_032_downgrade_removes_regulation_parameters():
     ``regulation_year``). 여기서는 커밋된 계산 이력이 없으므로 걸리지 않는다.
     """
     # 종전 `031`의 자리 — 규제 파라미터를 넣는 `6c7496c4d122` 앞이다 (`#1058`).
-    step = run_alembic("downgrade", "1c444a5c4819")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
+        step = run_alembic("downgrade", "1c444a5c4819")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
         try:
             async with engine.connect() as connection:
@@ -421,9 +423,9 @@ async def test_seed_migration_skips_existing_rows():
     지워 **없는 행만 다시 들어오는지**도 본다.
     """
     await _clear_demo_data()
-    step = run_alembic("downgrade", "1c444a5c4819")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
+        step = run_alembic("downgrade", "1c444a5c4819")
+        assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
         # seed 63행을 넣은 뒤 alembic_version만 직전으로 되돌린다 — 운영 재현
         seeded = run_alembic("upgrade", "6c7496c4d122")
         assert seeded.returncode == 0, f"{seeded.stdout}\n{seeded.stderr}"

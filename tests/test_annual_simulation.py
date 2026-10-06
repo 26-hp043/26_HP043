@@ -18,6 +18,7 @@ from __future__ import annotations
 import platform
 import sys
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
@@ -1015,22 +1016,57 @@ def _cut(**over):
     return backsolve_required_cut(**kwargs)
 
 
-@pytest.mark.parametrize("target", ["A", "B", "C", "D"])
-def test_cutting_the_required_amount_lands_exactly_on_the_target_boundary(target):
+# 기대값은 **이 파일의 정수에서** 만든다 — 제품 함수를 다시 불러 만들지 않는다(`AGENTS §5`).
+# 50,000 DWT · 확정 5,000 nm · 400 t, 잔여 3,000 nm × 4항차, `CF` 3.114, `required` 5.0.
+_CUT_W = Fraction(50_000) * (5_000 + 4 * 3_000)
+_CUT_COMPLETED_M = Fraction(400 * 3_114_000)
+_CUT_TARGET_CII = {
+    "A": Fraction(5) * Fraction(86, 100),
+    "B": Fraction(5) * Fraction(94, 100),
+    "C": Fraction(5) * Fraction(106, 100),
+    "D": Fraction(5) * Fraction(118, 100),
+}
+
+
+def _cut_planned_m(fuel_ton: int) -> Fraction:
+    return Fraction(4 * fuel_ton * 3_114_000)
+
+
+def _cut_allowed_m(target: str) -> Fraction:
+    return _CUT_TARGET_CII[target] * _CUT_W - _CUT_COMPLETED_M
+
+
+def _cut_case(fuel_ton: int, target: str):
+    remaining = [_voyage(fuel_ton=float(fuel_ton)) for _ in range(4)]
+    projection = _project(remaining=remaining)
+    return _cut(projection=projection, remaining=remaining, target_rating=target)
+
+
+# 잔여 항차당 250 t(기본 픽스처)는 연말 CII가 5.1289라 C·D는 이미 달성이다. 종전에는 그
+# 둘을 `pytest.skip`으로 넘겨 **C·D 경계의 역산은 한 번도 돌지 않았다**(`#2143`).
+# 350 t은 6.594로 D 경계(5.9)도 넘으므로 네 목표 모두 실제로 줄일 것이 있다.
+_NEEDS_CUT = [(250, "A"), (250, "B"), (350, "A"), (350, "B"), (350, "C"), (350, "D")]
+# 150 t은 3.663으로 A 경계(4.3) 안이라 네 목표 모두 이미 달성이다.
+_ALREADY_INSIDE = [(250, "C"), (250, "D"), (150, "A"), (150, "B"), (150, "C"), (150, "D")]
+
+
+@pytest.mark.parametrize(("fuel_ton", "target"), _NEEDS_CUT)
+def test_cutting_the_required_amount_lands_exactly_on_the_target_boundary(fuel_ton, target):
     """⚠️ **역산의 실질** — 줄이라는 만큼 줄이면 목표 경계에 **정확히** 닿는다.
 
     산식을 옮겨 적기만 하면 항 하나가 틀려도 「그럴듯한 양」이 나온다. 되짚어
-    계산해 경계와 맞춰야 그것이 드러난다.
+    계산해 경계와 맞춰야 그것이 드러난다. 네 목표 모두에서 돈다 — 건너뛰지 않는다.
     """
-    projection = _project()
-    plan = _cut(projection=projection, target_rating=target)
-    if plan.required_cut_g == 0:
-        pytest.skip(f"목표 {target}는 이미 달성 상태라 역산할 것이 없다")
+    planned_m = _cut_planned_m(fuel_ton)
+    expected = planned_m - _cut_allowed_m(target)
+    assert expected > 0, "이 입력은 줄일 것이 있는 갈래여야 한다"
 
-    total_m = projection.completed_co2_g + projection.planned_co2_g - plan.required_cut_g
-    total_w = CAPACITY * (projection.completed_distance_nm + projection.planned_distance_nm)
+    plan = _cut_case(fuel_ton, target)
+    cut = Fraction(plan.required_cut_g)
 
-    assert total_m / total_w == plan.target_cii
+    assert cut == expected
+    assert (_CUT_COMPLETED_M + planned_m - cut) / _CUT_W == _CUT_TARGET_CII[target]
+    assert plan.achievable
 
 
 def test_the_target_boundary_comes_from_the_same_table_as_the_rating():
@@ -1045,14 +1081,22 @@ def test_the_target_boundary_comes_from_the_same_table_as_the_rating():
     assert _cut(target_rating="D").target_cii == projection.boundaries["inferior_boundary"]
 
 
-def test_already_inside_the_target_needs_no_cut():
-    """이미 목표 안이면 **0**이다 — 음수로 내려가지 않는다.
+@pytest.mark.parametrize(("fuel_ton", "target"), _ALREADY_INSIDE)
+def test_already_inside_the_target_needs_no_cut(fuel_ton, target):
+    """이미 목표 안이면 **0**이다 — 음수로 내려가지 않는다 (`PRD §12.3.1`).
 
-    음수를 그대로 두면 화면이 「−30t 줄이세요」를 그린다.
+    음수를 그대로 두면 화면이 「−30t 줄이세요」를 그린다. 연료 환산도 `0`이지
+    `None`이 아니다 — `None`은 잔여 계획이 없을 때의 값이다(`API_SPEC §6.1.1`).
     """
-    plan = _cut(target_rating="D")
-    assert plan.required_cut_g >= 0
-    assert plan.achievable
+    allowed = _cut_allowed_m(target)
+    assert _cut_planned_m(fuel_ton) < allowed, "이 입력은 이미 달성인 갈래여야 한다"
+
+    plan = _cut_case(fuel_ton, target)
+
+    assert plan.required_cut_g == 0
+    assert plan.required_cut_fuel_ton == 0
+    assert plan.achievable is True
+    assert Fraction(plan.allowed_planned_co2_g) == allowed
 
 
 def test_fuel_conversion_keeps_the_planned_fuel_mix():

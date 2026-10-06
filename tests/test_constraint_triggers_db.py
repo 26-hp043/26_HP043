@@ -292,13 +292,14 @@ async def test_needs_recalc_cannot_smuggle_another_column(conn: AsyncConnection)
 @pytest.mark.asyncio
 async def test_snapshot_is_fully_immutable(conn: AsyncConnection):
     """``simulation_snapshot``은 허용되는 UPDATE가 없다 (`009` 그대로)."""
-    snap_id = await conn.scalar(text("SELECT id FROM simulation_snapshot"))
-    if snap_id is None:
-        pytest.skip("스냅샷이 없다")
+    # 스냅샷을 **이 검사가 넣는다** (`#2143`). 종전에는 있는 행을 집어 쓰고 없으면
+    # `pytest.skip`이었다. 데모 시드는 스냅샷을 넣지 않으므로 **앞서 돈 다른 검사가
+    # 커밋해 둔 행**이 있을 때만 돌았다 — 전체 실행에서는 돌고 이 파일만 돌리면 건너뛰었다.
+    snap_id = await _insert_snapshot(conn)
     with pytest.raises(DatabaseError):
         await conn.execute(
-            text("UPDATE simulation_snapshot SET voyages_json = '[]' WHERE id = :id"),
-            {"id": str(snap_id)},
+            text("UPDATE simulation_snapshot SET voyages_json = '[1]' WHERE id = :id"),
+            {"id": snap_id},
         )
 
 
@@ -329,8 +330,9 @@ async def test_parent_side_delete_is_deliberately_not_guarded(conn: AsyncConnect
     검사가 실패하고, 그때 `test_seed_data.py`와 `DB_SCHEMA §7.4`를 함께 봐야 한다.
     """
     code = await conn.scalar(text("SELECT fuel_type FROM voyage_fuel_use"))
-    if code is None:
-        pytest.skip("참조 중인 연료가 없다")
+    # 데모 시드(`migrated_db`)가 연료 실적을 넣으므로 비어 있을 수 없다 — 비었으면 이 검사가
+    # 고정하려던 사실을 보지 못한 것이므로 건너뛰지 않고 실패한다 (`#2143`).
+    assert code is not None, "voyage_fuel_use가 비었다 — 데모 시드가 연료 실적을 넣지 못했다"
 
     await conn.execute(text("DELETE FROM fuel_type WHERE code = :code"), {"code": str(code)})
     remaining = await conn.scalar(

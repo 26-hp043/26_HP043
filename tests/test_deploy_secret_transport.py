@@ -121,23 +121,43 @@ def test_real_compose_reads_the_rendered_env_byte_exact(tmp_path: Path):
     컨테이너 안에서 값을 그대로 찍어 비교한다.
     """
     values = {f"V{i}": v for i, v in enumerate(_FAKE_VALUES)}
-    (tmp_path / "compose.yml").write_text(
-        "services:\n  t:\n    image: busybox:latest\n    environment:\n"
-        + "".join(f"      {k}: ${{{k}:-}}\n" for k in values),
-        encoding="utf-8",
+    compose = "services:\n  t:\n    image: busybox:latest\n    environment:\n" + "".join(
+        f"      {k}: ${{{k}:-}}\n" for k in values
     )
-    (tmp_path / ".env").write_text(
-        "".join(_run_emit(k, v) for k, v in values.items()), encoding="utf-8"
-    )
-    for key, value in values.items():
-        got = subprocess.run(
-            ["docker", "compose", "run", "--rm", "-T", "t", "sh", "-c", f'printf %s "${key}"'],
-            cwd=tmp_path,
+
+    def run(cwd: Path, command: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["docker", "compose", "run", "--rm", "-T", "t", "sh", "-c", command],
+            cwd=cwd,
             capture_output=True,
             timeout=120,
         )
-        if got.returncode != 0:
-            pytest.skip(f"compose 실행 불가: {got.stderr.decode('utf-8', 'replace')[:200]}")
+
+    # 환경 문제와 대상 실패를 가른다 (`#2143`). **`.env` 없이** 같은 compose 파일을 먼저
+    # 돌려 본다 — 여기서 안 되면 데몬·이미지 쪽 사정이라 건너뛴다. 그 뒤 `.env`를 둔
+    # 실행이 실패하면 그것은 `emit`이 만든 `.env`를 compose가 읽지 못한 것이므로 실패다.
+    # 종전에는 두 경우를 가리지 않고 skip해, compose가 거부하는 줄을 `emit`이 내도 통과했다.
+    bare = tmp_path / "emit-probe"
+    bare.mkdir()
+    (bare / "compose.yml").write_text(compose, encoding="utf-8")
+    probe = run(bare, "true")
+    if probe.returncode != 0:
+        pytest.skip(
+            f"compose 실행 불가(`.env` 없이도): {probe.stderr.decode('utf-8', 'replace')[:200]}"
+        )
+
+    rendered = tmp_path / "emit-env"
+    rendered.mkdir()
+    (rendered / "compose.yml").write_text(compose, encoding="utf-8")
+    (rendered / ".env").write_text(
+        "".join(_run_emit(k, v) for k, v in values.items()), encoding="utf-8"
+    )
+    for key, value in values.items():
+        got = run(rendered, f'printf %s "${key}"')
+        assert got.returncode == 0, (
+            f"{key}: `.env` 없이는 되던 compose가 `emit`이 만든 `.env`에서 실패했다: "
+            f"{got.stderr.decode('utf-8', 'replace')[:400]}"
+        )
         assert got.stdout == value.encode("utf-8"), f"{key}: {got.stdout!r} != {value!r}"
 
 

@@ -418,7 +418,45 @@ def test_example_only_section_lists_every_field(number: str) -> None:
     )
 
 
-@pytest.mark.parametrize("number", sorted(TABLES))
+#: 요청 표는 있으나 ```` ```json ```` 블록이 없는 절 — 아래 예시 대조의 대상이 아니다.
+#:
+#: 종전에는 ``TABLES`` 전부를 매개변수로 돌리고 블록이 없으면 `pytest.skip`으로 끝냈다.
+#: 그러면 실행마다 skip이 11건 나오고, **예시가 지워져 대조가 사라진 절**과 처음부터 없던
+#: 절이 같은 줄로 보인다(`#2143`). 없는 절을 여기 이름으로 적고, 목록이 문서와 같은지는
+#: `test_tables_without_an_example_are_exactly_the_listed_ones`가 본다.
+TABLES_WITHOUT_EXAMPLE: frozenset[str] = frozenset(
+    {
+        "1.2.1",
+        "1.2.2",
+        "1.2.3",
+        "1.2.4",
+        "1.2.5",
+        "1.2.6",
+        "1.2.7",
+        "1.2.8",
+        "1.2.9",
+        "1.2.10",
+        "2.6",
+    }
+)
+
+
+def test_tables_without_an_example_are_exactly_the_listed_ones() -> None:
+    """``TABLES_WITHOUT_EXAMPLE`` = 문서에서 실제로 JSON 블록이 없는 표 절.
+
+    예시를 새로 적은 절이 목록에 남아 있으면 그 예시는 대조되지 않고, 예시를 지운 절은
+    아래 검사가 「블록이 없다」로 실패한다 — 어느 쪽이든 목록을 문서에 맞추게 한다.
+    """
+    text = _spec()
+    actual = {number for number in TABLES if "```json" not in section(text, number)}
+    assert actual == set(TABLES_WITHOUT_EXAMPLE), (
+        f"목록에만 있다(예시가 생겼다 — 뺀다): {sorted(TABLES_WITHOUT_EXAMPLE - actual)} · "
+        f"문서에만 있다(예시가 없어졌다): {sorted(actual - TABLES_WITHOUT_EXAMPLE)}"
+    )
+    assert set(TABLES) - TABLES_WITHOUT_EXAMPLE, "예시를 대조할 절이 하나도 없다"
+
+
+@pytest.mark.parametrize("number", sorted(set(TABLES) - TABLES_WITHOUT_EXAMPLE))
 def test_example_next_to_a_table_uses_only_schema_fields(number: str) -> None:
     """표 옆의 예시 JSON은 일부만 보여도 되지만 **스키마에 없는 키를 보이면 안 된다.**
 
@@ -426,8 +464,9 @@ def test_example_next_to_a_table_uses_only_schema_fields(number: str) -> None:
     그대로 따라 보낸 요청이 `extra="forbid"`에 422로 끝난다.
     """
     text = section(_spec(), number)
-    if "```json" not in text:
-        pytest.skip(f"§{number}에는 요청 예시가 없다")
+    assert "```json" in text, (
+        f"§{number}에 요청 예시가 없다 — 지운 것이 맞으면 `TABLES_WITHOUT_EXAMPLE`에 적는다"
+    )
     keys = example_fields(text, TABLES[number])
     schema = set(schema_fields(TABLES[number]))
 

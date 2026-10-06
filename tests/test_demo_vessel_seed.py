@@ -301,17 +301,18 @@ async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
     없으면 ``select_reference_line()``이 ``ValueError``를 던져 **계산 API가 그 선박에
     대해 항상 실패한다.** 선박만 넣고 기준선을 확인하지 않으면 드러나지 않는 결함이다.
 
-    규제 파라미터는 마이그레이션이 아니라 ``scripts/seed.py``가 넣는다(#127이 승격을
-    다룬다). 적재 전이면 이 테스트는 건너뛴다 — seed 미실행은 이 이슈의 결함이 아니다.
+    기준선은 data migration ``6c7496c4d122``가 넣으므로 ``migrated_db`` 뒤에는 항상
+    있다. 표가 비었으면 **건너뛰지 않고 실패한다** (`#2143`) — 종전에는 「seed 미적재」로
+    건너뛰었는데, 그 분기는 마이그레이션이 행을 넣지 못한 회귀를 초록으로 가린다.
     """
     ship_type = await conn.scalar(
         text("SELECT ship_type FROM vessel WHERE id = :vid")
         .bindparams(bindparam("vid", type_=UuidText()))
         .bindparams(vid=vessel_id)
     )
+    assert ship_type is not None, f"데모 선박이 없다: {vessel_id}"
     total = await conn.scalar(text("SELECT count(*) FROM cii_reference_line"))
-    if total == 0:
-        pytest.skip("규제 파라미터 seed 미적재 (scripts/seed.py) — #127 참조")
+    assert total > 0, "cii_reference_line이 비었다 — data migration(6c7496c4d122)이 넣는 표다"
 
     count = await conn.scalar(
         text("SELECT count(*) FROM cii_reference_line WHERE ship_type = :st").bindparams(
