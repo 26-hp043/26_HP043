@@ -241,7 +241,12 @@ function allElements(): Element[] {
 
 let losingPairsMemo: Map<string, string> | undefined
 
-/** 같은 요소에 닿는 짝 중 **변종이 지는** 것 — 열쇠는 `파일|바탕|변종`, 값은 부딪친 속성. */
+/**
+ * 같은 요소에 닿는 짝 중 **변종이 지는** 것 — 열쇠는 `파일|바탕|변종`, 값은 부딪친 속성.
+ *
+ * 한 번 계산한 답을 기억한다. 기억된 뒤에는 `rules` 인자를 다시 보지 않으므로, 이 파일의
+ * 규칙 표 하나로만 부른다 — 다른 규칙 집합을 넘기면 낡은 답이 돌아온다.
+ */
 function losingPairs(rules: Rule[]): Map<string, string> {
   if (losingPairsMemo !== undefined) return losingPairsMemo
   const losers = new Map<string, string>()
