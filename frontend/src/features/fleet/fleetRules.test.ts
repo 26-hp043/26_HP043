@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   actionsSummaryText,
+  fleetSummaryParts,
   daysToDText,
   unconfirmedVoyages,
   daysValueText,
@@ -461,5 +462,42 @@ describe('「조치 필요」 결론 한 줄 (#2200)', () => {
   it('권고형 어미를 쓰지 않는다 (`DESIGN_SYSTEM §11`)', () => {
     const text = actionsSummaryText([{ vesselId: 'v1', reason: 'E_THIS_YEAR' }])
     expect(text).not.toMatch(/하세요|필요합니다|권장|추천/)
+  })
+})
+
+/*
+ * 대시보드 요약 문장 (#2199). 값은 선대 요약(`counts`)에서만 — 강조는 수치와 등급만이다.
+ */
+describe('fleetSummaryParts', () => {
+  const text = (parts: { text: string }[] | null) => parts?.map((p) => p.text).join('') ?? null
+  const ems = (parts: { text: string; em: boolean }[] | null) =>
+    parts?.filter((p) => p.em).map((p) => p.text) ?? []
+
+  it('E 척수와 가장 이른 D 진입을 한 문장으로', () => {
+    const parts = fleetSummaryParts({
+      total: 5,
+      ratingDistribution: { A: 1, B: 1, C: 1, D: 0, E: 2 },
+      soonestDEntry: { days: 39 },
+    })
+    expect(text(parts)).toBe(`5척 중 2척 E등급 · 1척은 ${daysValueText(39)} 뒤 D등급 위험`)
+    expect(ems(parts)).toEqual(['2', 'E', '1', daysValueText(39), 'D'])
+  })
+
+  it('한쪽만 있으면 그쪽만 — 0척을 적지 않는다', () => {
+    expect(
+      text(fleetSummaryParts({ total: 3, ratingDistribution: { E: 1 }, soonestDEntry: null })),
+    ).toBe('3척 중 1척 E등급')
+    expect(
+      text(fleetSummaryParts({ total: 3, ratingDistribution: { E: 0 }, soonestDEntry: { days: 10 } })),
+    ).toBe(`3척 중 1척은 ${daysValueText(10)} 뒤 D등급 위험`)
+  })
+
+  it('둘 다 없으면 줄을 두지 않는다 — 「문제없음」을 지어내지 않는다', () => {
+    expect(fleetSummaryParts({ total: 4, ratingDistribution: {}, soonestDEntry: null })).toBeNull()
+  })
+
+  it('권고형 어미를 쓰지 않는다 (§11)', () => {
+    const parts = fleetSummaryParts({ total: 2, ratingDistribution: { E: 1 }, soonestDEntry: { days: 5 } })
+    expect(text(parts)).not.toMatch(/하세요|필요/)
   })
 })

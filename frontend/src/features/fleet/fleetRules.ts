@@ -70,6 +70,45 @@ export function actionsSummaryText(
 }
 
 /**
+ * 대시보드 요약 문장 한 줄 (#2199 · 링카고 「4개월 뒤, 운임이 50만큼 낮을 것으로 예상」).
+ *
+ * 「5척 중 **2**척 **E**등급 · **1**척은 **39일** 뒤 **D**등급 위험」. 값은 **이미 받은 선대 요약**
+ * (`counts`)에서만 온다 — 다른 경로를 새로 부르지 않는다(`DESIGN_SYSTEM §8.6` · `#1728` 취지).
+ * 판정하지 않고 옮긴다: E 척수는 등급 분포, D 진입은 `soonestDEntry`(올해 안에 진입하는 가장
+ * 이른 배 — 서버가 연말을 넘으면 `null`로 둔다).
+ *
+ * - 강조(`em`)는 **수치와 등급만**이다(`§8.6` 「결과를 바꾸는 변수 한 줄」과 같은 규칙)
+ * - 서술이다 — 「~하세요」를 쓰지 않는다(`§11`)
+ * - 둘 다 없으면(E 0척 · 올해 D 진입 없음) **줄을 두지 않는다** — 「문제없음」을 지어내지 않는다
+ */
+export function fleetSummaryParts(counts: {
+  total: number
+  ratingDistribution: Record<string, number>
+  soonestDEntry: { days: number } | null
+}): { text: string; em: boolean }[] | null {
+  const e = counts.ratingDistribution.E ?? 0
+  const soon = counts.soonestDEntry
+  if (e === 0 && soon === null) return null
+  const parts: { text: string; em: boolean }[] = [{ text: `${counts.total}척 중 `, em: false }]
+  if (e > 0) {
+    parts.push({ text: String(e), em: true }, { text: '척 ', em: false }, { text: 'E', em: true })
+    parts.push({ text: '등급', em: false })
+  }
+  if (soon !== null) {
+    if (e > 0) parts.push({ text: ' · ', em: false })
+    parts.push(
+      { text: '1', em: true },
+      { text: '척은 ', em: false },
+      { text: daysValueText(soon.days), em: true },
+      { text: ' 뒤 ', em: false },
+      { text: 'D', em: true },
+      { text: '등급 위험', em: false },
+    )
+  }
+  return parts
+}
+
+/**
  * 남은 일수만 — `36일` (#1569). 자릿수·단위는 `§4.2`가 소유한다.
  *
  * 대시보드 요약 행의 「D등급 진입 임박」 칸이 쓴다. 칸 라벨이 이미 「D등급」을 말하므로

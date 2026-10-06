@@ -1117,3 +1117,20 @@
   stroke: currentColor;
   stroke-width: 1.6;
 }
+
+/*
+ * 요약 문장 한 줄 (#2199) — 숫자 칸들 위. 본문보다 한 단 큰 글자로 답을 먼저 읽게 하되 결론 띠
+ * (`§8.6` display)만큼 키우지 않는다 — 대시보드에는 결론 띠가 없고, 이 줄은 띠가 아니다.
+ * 강조는 수치와 등급만: 굵기 500 + 글자용 파생색(Primary를 글자에 그대로 쓰면 다크 4.31로 미달).
+ */
+.fleet__summary {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  color: var(--text-primary);
+}
+
+.fleet__em {
+  font-weight: var(--font-weight-strong);
+  color: var(--color-link);
+}

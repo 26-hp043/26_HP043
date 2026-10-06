@@ -47,6 +47,8 @@ import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
+import { ChoiceCards } from '../../components/ChoiceCards'
+import { targetDescription, useGradeBoundaries } from './gradeBoundaries'
 import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
@@ -282,6 +284,8 @@ export function AnnualSimulation({
    */
   // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다. 목록이 없으면 `''`다.
   const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear || requestedYear)
+  // 목표 등급 카드의 한 줄 풀이 — 이 배 · 이 연도의 등급 경계 (#2201).
+  const gradeBoundaries = useGradeBoundaries(shell.vesselId, year)
 
   /*
    * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
@@ -577,28 +581,24 @@ export function AnnualSimulation({
           }
         </Field>
 
-        <Field
-          id="annual-sim-target"
-          label={ANNUAL_COPY.targetRatingLabel}
-          hint={ANNUAL_COPY.targetRatingHint}
-        >
-          {(control) => (
-            <select
-              {...control}
-              className="annual-sim__control"
-              value={target}
-              onChange={(event) =>
-                setTarget(event.target.value as (typeof TARGET_RATINGS)[number])
-              }
-            >
-              {TARGET_RATINGS.map((rating) => (
-                <option key={rating} value={rating}>
-                  {rating}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        {/*
+          목표 등급 — 선택 카드 (#2201 · `DESIGN_SYSTEM §8.4`). 넷 중 하나이고, 카드마다 **이 배 ·
+          이 연도의 등급 경계**를 한 줄로 적는다(「연말 CII 5.348 이하」) — 셀렉트로는 A~D가 각각
+          무엇을 뜻하는지 고르기 전에 보이지 않았다. 경계는 서버 값이다(`gradeBoundaries.ts`).
+          E는 두지 않는다(`PRD §12.8`).
+        */}
+        <ChoiceCards
+          name="annual-sim-target"
+          legend={ANNUAL_COPY.targetRatingLabel}
+          legendClassName="field__label"
+          value={target}
+          onChange={(rating) => setTarget(rating)}
+          options={TARGET_RATINGS.map((rating) => ({
+            value: rating,
+            label: rating,
+            description: targetDescription(rating, gradeBoundaries),
+          }))}
+        />
 
         {/*
           기본값이 있는 네 칸을 접는다 (#1418). 첫 화면이 입력 폼이 아니라 **기준연도 · 목표 등급 ·
