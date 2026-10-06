@@ -335,10 +335,14 @@ def _year_bounds(year: int) -> tuple[datetime, datetime]:
     return datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC)
 
 
+@layer1_context
 def _remaining_days(*, as_of: datetime, regulation_year: int) -> Decimal:
     """규제연도의 잔여 일수. ``as_of``가 그 해 밖이면 경계로 자른다.
 
     과거 연도를 조회하면 연중 어느 시점이 아니라 **그 해 전체**가 대상이므로 0이다.
+
+    나눗셈을 **적용 지점 안에서** 한다 (`#2254` · `TECH_SPEC §1.2.1`) — 부르는 쪽
+    (:func:`_project_year_end`)이 코루틴이라 거기서는 컨텍스트가 걸려 있지 않다.
     """
     year_start, year_end = _year_bounds(regulation_year)
     cursor = min(max(as_of, year_start), year_end)

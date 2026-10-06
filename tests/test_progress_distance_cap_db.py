@@ -39,6 +39,7 @@ from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.calc.precision import LAYER1_ROUNDING, LAYER1_WORKING_PRECISION
 from cii_platform.services.cii_current import (
     WARNING_IN_PROGRESS_PAST_ETA,
     WARNING_IN_PROGRESS_PLANNED_DISTANCE_REACHED,
@@ -61,7 +62,7 @@ AS_OF = datetime(YEAR, 7, 1, tzinfo=UTC)
 PLANNED_ARRIVAL = datetime(YEAR, 7, 15, tzinfo=UTC)
 
 
-def _progress(**over):
+def _progress(_clock=compute_progress, **over):
     params = {
         "as_of": AS_OF,
         "departure_at": DEPARTURE,
@@ -73,7 +74,7 @@ def _progress(**over):
         "reference_speed_kn": SPEED,
     }
     params.update(over)
-    return compute_progress(**params)
+    return _clock(**params)
 
 
 # --------------------------------------------------------------------------
@@ -105,10 +106,13 @@ def test_the_cap_does_not_depend_on_decimal_precision() -> None:
     그 형태는 ``Decimal`` 문맥에 기댄다 — 기본 28자리에서는 우연히 맞아떨어져
     위 검사를 **통과해 버리지만**, ``prec=8``에서는 ``(3000/14)×14 = 2999.9999``로
     계획에 닿지 못한다. 문맥을 좁혀 그 의존을 드러낸다.
+
+    시계는 Layer 1 컨텍스트를 스스로 건다(`#2254`) — 바깥에서 좁힌 문맥은 본문에 닿지
+    않으므로 데코레이터가 감싼 **본문을 직접** 부른다.
     """
     with localcontext() as ctx:
         ctx.prec = 8
-        progress = _progress()
+        progress = _progress(_clock=compute_progress.__wrapped__)
 
     assert progress.distance_nm == PLANNED_DISTANCE
 
@@ -120,7 +124,10 @@ def test_time_stops_with_the_distance() -> None:
     """
     progress = _progress()
 
-    assert progress.underway_hours == PLANNED_DISTANCE / SPEED
+    # 시계는 Layer 1 컨텍스트 안에서 나눈다(`#2254`) — 기대값도 같은 작업 정밀도로 낸다.
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+        expected = PLANNED_DISTANCE / SPEED
+    assert progress.underway_hours == expected
 
 
 def test_fuel_stops_with_the_distance() -> None:

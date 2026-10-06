@@ -298,7 +298,13 @@ async def _base_ytd(session: AsyncSession, vessel: Vessel, year: int) -> _Vessel
     return _VesselBase(ytd, None)
 
 
+@layer1_context
 def _sailing_hours(voyage) -> Decimal | None:
+    """출항~도착 실적 시간(h). **적용 지점 안에서** 나눈다 (`#2254` · `TECH_SPEC §1.2.1`).
+
+    이 값은 ``judge_anomaly``가 암시 속력(거리 ÷ 시간)을 낼 때의 분모다. 판정 함수는 적용
+    지점 안이지만 인자는 그 **밖에서** 먼저 만들어진다.
+    """
     if voyage.actual_departure_at is None or voyage.actual_arrival_at is None:
         return None
     seconds = Decimal(str((voyage.actual_arrival_at - voyage.actual_departure_at).total_seconds()))
