@@ -1,6 +1,6 @@
 import { useChartWidth } from '../../display/chartBox'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
-import { formatTimestamp } from '../../display/format'
+import { NO_TIMESTAMP_TEXT, formatTimestamp } from '../../display/format'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import type { YtdSeries, YtdSeriesPoint } from './types'
 import './YtdSeriesChart.css'
@@ -301,7 +301,7 @@ function SeriesTable({ series, unit }: { series: YtdSeries; unit: string }) {
         <tbody>
           {series.points.map((p) => (
             <tr key={`${p.at}-${p.voyageId ?? ''}`}>
-              <td>{formatTimestamp(p.at)}</td>
+              <td>{formatTimestamp(p.at) ?? NO_TIMESTAMP_TEXT}</td>
               <td>{kindText(p.kind)}</td>
               <td className="num">
                 {formatDecimalString(p.attainedCii, DISPLAY_DIGITS.cii)}

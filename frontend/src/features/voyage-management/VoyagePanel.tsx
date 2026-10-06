@@ -1166,7 +1166,7 @@ function ActualsForm({
           voyage.plannedDepartureAt === null
             ? '계획 출항 시각이 없습니다. 이 칸을 채우면 진행 중 누적이 계산됩니다.'
             : // 입력칸용 값(`2026-06-01T09:00`)이 아니라 표시 형식으로 (`DESIGN_SYSTEM §4.4` · #2122).
-              `계획 ${formatTimestamp(voyage.plannedDepartureAt)}`
+              plannedTimeHint(voyage.plannedDepartureAt)
         }
       />
       <VoyageField
@@ -1179,7 +1179,7 @@ function ActualsForm({
         hint={
           voyage.plannedArrivalAt === null
             ? undefined
-            : `계획 ${formatTimestamp(voyage.plannedArrivalAt)}`
+            : plannedTimeHint(voyage.plannedArrivalAt)
         }
       />
 
@@ -1211,6 +1211,17 @@ function ActualsForm({
       </div>
     </form>
   )
+}
+
+/**
+ * 실적 시각 칸 아래의 「계획 …」 한 줄 (#2122 · #2124).
+ *
+ * 읽을 수 없는 시각이면 **줄을 내지 않는다** — 「계획 null」·「계획 —」은 값이 없다는 말이
+ * 아니라 깨진 문장으로 읽힌다.
+ */
+function plannedTimeHint(plannedAt: string): string | undefined {
+  const time = formatTimestamp(plannedAt)
+  return time === null ? undefined : `계획 ${time}`
 }
 
 /**

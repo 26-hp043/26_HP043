@@ -221,6 +221,19 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
     expect(hint).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)
   })
 
+  it('계획 시각을 읽을 수 없으면 힌트 줄을 내지 않는다 — 「계획 Invalid Date」가 아니다 (#2124)', async () => {
+    const broken = { ...IN_PROGRESS, plannedDepartureAt: 'not-a-date', plannedArrivalAt: 'not-a-date' }
+    const list = vi.fn(async () => ({ voyages: [broken], fuelTypes: ['HFO'], nextCursor: null, hasMore: false }))
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ list })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+
+    for (const label of ['실제 출항 시각', '실제 도착 시각']) {
+      const field = await screen.findByLabelText(label)
+      const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+      expect(hint, label).not.toMatch(/Invalid|null|계획/)
+    }
+  })
+
   it('입력한 시각이 provider까지 도달한다', async () => {
     const saveActuals = vi.fn(async (_id: string, _draft: ActualsDraft) => IN_PROGRESS)
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ saveActuals })} />)

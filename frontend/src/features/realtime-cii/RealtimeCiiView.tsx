@@ -380,9 +380,14 @@ export function RealtimeCiiView({
             나뉘어 있어, 왼쪽 두 줄(제목·부제)과 높이가 어긋났다.
           */}
           <p className="rt__asof">
-            기준 {formatAsOf(data.asOf)}
-            {refreshing ? " · 갱신 중…" : ""} · {POLL_INTERVAL_MS / 1000}초마다
-            자동 갱신
+            {/* 읽을 수 없는 시각이면 「기준」 조각을 뺀다 — 뒤 조각이 문장 머리가 된다 (#2124). */}
+            {[
+              formatAsOf(data.asOf) === null ? null : `기준 ${formatAsOf(data.asOf)}`,
+              refreshing ? "갱신 중…" : null,
+              `${POLL_INTERVAL_MS / 1000}초마다 자동 갱신`,
+            ]
+              .filter((part) => part !== null)
+              .join(" · ")}
           </p>
           {/*
             `#755` — 갱신에 실패하면 **그 사실을 말한다.** 값을 남기는 것과 값이
@@ -725,9 +730,12 @@ function VoyageMapBlock({
         **마지막으로 받은 위치**임을 말한다. 「지금 여기 있다」가 아니다 — 진행률과
         위치가 서로 다른 시점을 가리킬 수 있다는 것이 R-D2가 연 문제였다.
       */}
-      <p className="rt__map-asof">
-        위치 기준 {formatTimestamp(route.positionUpdatedAt)}
-      </p>
+      {/* 읽을 수 없는 시각이면 줄을 그리지 않는다 — 「위치 기준」만 남기지 않는다 (#2124). */}
+      {formatTimestamp(route.positionUpdatedAt) !== null ? (
+        <p className="rt__map-asof">
+          위치 기준 {formatTimestamp(route.positionUpdatedAt)}
+        </p>
+      ) : null}
     </div>
   );
 }

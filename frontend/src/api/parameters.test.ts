@@ -8,8 +8,9 @@ import { ParametersError, createApiParametersProvider } from './parameters'
  *
  * * **`cf`를 문자열로 유지하는 것** — `Number`로 되돌리면 정밀도가 깎이고, 그 차이는
  *   등급 경계 근처에서만 드러나 발견이 늦다 (`API_SPEC §1.7`).
- * * **응답이 깨져도 화면이 죽지 않는 것** — 연료 선택지는 폼의 일부일 뿐인데
- *   그것 때문에 전체 화면이 못 뜨면 사용자는 아무것도 못 한다.
+ * * **받지 못한 것을 없는 것으로 적지 않는 것** (#2124) — 형식이 깨진 200 응답을 빈
+ *   목록으로 돌려주면 화면이 「등록된 연료가 없습니다」를 그린다. 오류로 알려 실패
+ *   문구가 나가게 한다. 배열 **안의** 깨진 행 하나는 걸러 내고 나머지를 준다.
  */
 
 const BODY = {
@@ -81,11 +82,46 @@ describe('연료 종류 조회', () => {
     expect(rows).toHaveLength(1)
   })
 
-  it('본문이 배열이 아니면 빈 목록이다 — 던지지 않는다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: null }))
-    const rows = await createApiParametersProvider(fetchImpl).listFuelTypes()
+  it('`data`가 배열이 아니면 오류다 — 빈 목록으로 뭉개지 않는다 (#2124)', async () => {
+    for (const body of [{ data: null }, { data: 'nope' }, { data: {} }, {}, null]) {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
 
-    expect(rows).toEqual([])
+      await expect(
+        createApiParametersProvider(fetchImpl).listFuelTypes(),
+        JSON.stringify(body),
+      ).rejects.toBeInstanceOf(ParametersError)
+    }
+  })
+
+  it('본문이 JSON이 아니면 오류다 (#2124)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('<html>502</html>', { status: 200 }))
+
+    await expect(createApiParametersProvider(fetchImpl).listFuelTypes()).rejects.toBeInstanceOf(
+      ParametersError,
+    )
+  })
+
+  it('깨진 응답의 문구는 HTTP 실패와 같은 꼴이다 — 화면이 실패 상태로 그린다 (#2124)', async () => {
+    // 이 메시지가 그대로 화면에 나가는 자리가 있다. 문구가 아니라 **같은 머리로 시작하는가**를 본다.
+    const message = async (response: Response): Promise<string> =>
+      createApiParametersProvider(vi.fn().mockResolvedValue(response))
+        .listFuelTypes()
+        .then(
+          () => '',
+          (error: Error) => error.message,
+        )
+    const httpFailure = await message(jsonResponse({}, 500))
+    const head = httpFailure.slice(0, httpFailure.indexOf('('))
+
+    expect(head).not.toBe('')
+    expect(await message(jsonResponse({ data: null }))).toContain(head.trim())
+    expect(await message(new Response('oops', { status: 200 }))).toContain(head.trim())
+  })
+
+  it('빈 배열은 오류가 아니다 — 「없음」과 「못 받음」이 다른 답이다 (#2124)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }))
+
+    await expect(createApiParametersProvider(fetchImpl).listFuelTypes()).resolves.toEqual([])
   })
 
   it('실패는 ParametersError로 알린다', async () => {
@@ -136,11 +172,25 @@ describe('규정 연도 조회', () => {
     expect(rows).toEqual([2023, 2026])
   })
 
-  it('응답이 깨져도 빈 목록을 준다 — 화면이 죽지 않는다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: 'nope' }))
-    const rows = await createApiParametersProvider(fetchImpl).listRegulationYears()
+  it('응답 형식이 깨졌으면 오류다 — 빈 목록으로 뭉개지 않는다 (#2124)', async () => {
+    for (const body of [{ data: 'nope' }, { data: null }, {}]) {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
 
-    expect(rows).toEqual([])
+      await expect(
+        createApiParametersProvider(fetchImpl).listRegulationYears(),
+        JSON.stringify(body),
+      ).rejects.toBeInstanceOf(ParametersError)
+    }
+    const notJson = vi.fn().mockResolvedValue(new Response('oops', { status: 200 }))
+    await expect(createApiParametersProvider(notJson).listRegulationYears()).rejects.toBeInstanceOf(
+      ParametersError,
+    )
+  })
+
+  it('빈 배열은 오류가 아니다 (#2124)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }))
+
+    await expect(createApiParametersProvider(fetchImpl).listRegulationYears()).resolves.toEqual([])
   })
 
   it('HTTP 오류는 ParametersError다', async () => {

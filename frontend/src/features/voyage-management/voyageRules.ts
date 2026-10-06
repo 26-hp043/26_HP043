@@ -6,6 +6,7 @@ import type {
   VoyageStatus,
 } from './types'
 import { kstInputToIso, toKstInput } from '../../display/format'
+import { readNumberInput } from '../../display/numberInput'
 import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 
 /**
@@ -261,13 +262,14 @@ export function primaryAction(voyage: ManagedVoyage): PrimaryAction | null {
   return null
 }
 
-/** 숫자 입력 한 칸을 읽는다. 빈 문자열은 `null`(미입력)이다. */
-function readNumber(raw: string): number | null {
-  const trimmed = raw.trim()
-  if (trimmed === '') return null
-  const value = Number(trimmed)
-  return Number.isFinite(value) ? value : Number.NaN
-}
+/**
+ * 숫자 입력 한 칸을 읽는다. 빈 문자열은 `null`(미입력), 읽을 수 없으면 `NaN`이다.
+ *
+ * 해석은 `display/numberInput`이 갖는다 (#2124) — 천 단위 쉼표와 전각 숫자를 받는다.
+ * 요청을 조립하는 `apiProvider.ts`도 같은 함수로 읽는다. 검증이 통과시킨 `12,480`을
+ * 조립 쪽이 `Number()`로 다시 읽으면 `NaN`이 `null`로 나간다.
+ */
+const readNumber = readNumberInput
 
 export type FieldErrors = Record<string, string>
 
@@ -354,13 +356,14 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
 
   const distance = readNumber(draft.plannedDistanceNm)
   if (distance === null) errors.plannedDistanceNm = '계획 거리를 입력해 주세요.'
-  else if (Number.isNaN(distance) || distance <= 0) {
-    errors.plannedDistanceNm = '계획 거리는 0보다 커야 합니다.'
-  }
+  // 「못 읽었다」와 「범위 밖이다」는 고칠 것이 달라 문구를 가른다 (#2124).
+  else if (Number.isNaN(distance)) errors.plannedDistanceNm = '계획 거리를 숫자로 입력해 주세요.'
+  else if (distance <= 0) errors.plannedDistanceNm = '계획 거리는 0보다 커야 합니다.'
 
   const speed = readNumber(draft.plannedSpeedKn)
   if (speed === null) errors.plannedSpeedKn = '계획 속력을 입력해 주세요.'
-  else if (Number.isNaN(speed) || speed < 1) {
+  else if (Number.isNaN(speed)) errors.plannedSpeedKn = '계획 속력을 숫자로 입력해 주세요.'
+  else if (speed < 1) {
     // 서버가 실적 속력에 두는 하한과 같다 (§3.6 VALIDATION_ERROR).
     errors.plannedSpeedKn = '계획 속력은 1.0 kn 이상이어야 합니다.'
   } else if (speed > MAX_SPEED_KN) {
@@ -383,9 +386,8 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
   draft.fuelUses.forEach((fu, index) => {
     const fuel = readNumber(fu.plannedFuelTon)
     if (fuel === null) errors[`plannedFuelTon.${index}`] = '계획 연료를 입력해 주세요.'
-    else if (Number.isNaN(fuel) || fuel <= 0) {
-      errors[`plannedFuelTon.${index}`] = '계획 연료는 0보다 커야 합니다.'
-    }
+    else if (Number.isNaN(fuel)) errors[`plannedFuelTon.${index}`] = '계획 연료를 숫자로 입력해 주세요.'
+    else if (fuel <= 0) errors[`plannedFuelTon.${index}`] = '계획 연료는 0보다 커야 합니다.'
     if (fu.fuelType.trim() === '') {
       errors[`fuelType.${index}`] = '연료 종류를 선택해 주세요.'
     }
@@ -441,12 +443,16 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
   const errors: FieldErrors = {}
 
   const distance = readNumber(draft.actualDistanceNm)
-  if (distance !== null && (Number.isNaN(distance) || distance <= 0)) {
+  if (distance !== null && Number.isNaN(distance)) {
+    errors.actualDistanceNm = '실제 거리를 숫자로 입력해 주세요.'
+  } else if (distance !== null && distance <= 0) {
     errors.actualDistanceNm = '실제 거리는 0보다 커야 합니다.'
   }
 
   const speed = readNumber(draft.actualAvgSpeedKn)
-  if (speed !== null && (Number.isNaN(speed) || speed < 1)) {
+  if (speed !== null && Number.isNaN(speed)) {
+    errors.actualAvgSpeedKn = '실제 평균 속력을 숫자로 입력해 주세요.'
+  } else if (speed !== null && speed < 1) {
     errors.actualAvgSpeedKn = '실제 평균 속력은 1.0 kn 이상이어야 합니다.'
   } else if (speed !== null && speed > MAX_SPEED_KN) {
     // VAL-009 상한 (#1269)
@@ -455,7 +461,9 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
 
   for (const [fuelType, raw] of Object.entries(draft.actualFuelTon)) {
     const ton = readNumber(raw)
-    if (ton !== null && (Number.isNaN(ton) || ton <= 0)) {
+    if (ton !== null && Number.isNaN(ton)) {
+      errors[`actualFuelTon.${fuelType}`] = '실적 연료를 숫자로 입력해 주세요.'
+    } else if (ton !== null && ton <= 0) {
       errors[`actualFuelTon.${fuelType}`] = '실적 연료는 0보다 커야 합니다.'
     }
   }

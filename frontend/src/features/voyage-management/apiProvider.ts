@@ -2,6 +2,7 @@ import { csrfHeaders, redirectToLogin, SESSION_EXPIRED_MESSAGE } from '../../aut
 import { filenameFrom, saveBlob } from '../../download/file'
 import { readPageMeta } from '../../api/base'
 import { createApiParametersProvider } from '../../api/parameters'
+import { readNumberInput } from '../../display/numberInput'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type { ImportResult, ImportRowError } from './importRules'
 import {
@@ -400,7 +401,8 @@ export function createApiVoyageManagementProvider(
           voyage_no: draft.voyageNo.trim(),
           departure_port_name: draft.departurePortName.trim(),
           arrival_port_name: draft.arrivalPortName.trim(),
-          planned_distance_nm: Number(draft.plannedDistanceNm),
+          // 검증과 같은 함수로 읽는다 — 쉼표·전각 숫자를 받는다 (#2124).
+          planned_distance_nm: readNumberInput(draft.plannedDistanceNm),
           /*
            * 거리의 출처 (#1256 · `§3.3`). 폼이 넣어 준 값을 그대로 싣는다 — 좌표로 채운
            * 거리는 저장 뒤에도 「좌표 기반 추정 거리」여야 한다(`PRD §15.2`). 없으면 키를
@@ -409,9 +411,9 @@ export function createApiVoyageManagementProvider(
           ...(draft.plannedDistanceSource === undefined
             ? {}
             : { planned_distance_source: draft.plannedDistanceSource }),
-          planned_speed_kn: Number(draft.plannedSpeedKn),
+          planned_speed_kn: readNumberInput(draft.plannedSpeedKn),
           // optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]).
-          ...(year === '' ? {} : { regulation_year: Number(year) }),
+          ...(year === '' ? {} : { regulation_year: readNumberInput(year) }),
           /*
            * 계획 시각 2종 (`#873`). **빈 칸은 키 자체를 넣지 않는다** — `§3.3`이
            * optional로 규정하므로 생략이 곧 「없음」이다.
@@ -438,7 +440,7 @@ export function createApiVoyageManagementProvider(
            */
           fuel_uses: draft.fuelUses.map((fu) => ({
             fuel_type: fu.fuelType,
-            planned_fuel_ton: Number(fu.plannedFuelTon),
+            planned_fuel_ton: readNumberInput(fu.plannedFuelTon),
             source: 'USER_INPUT',
           })),
           /*

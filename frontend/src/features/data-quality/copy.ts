@@ -76,7 +76,9 @@ export const DATA_QUALITY_COPY = {
     minutes: number,
   ) => `${fieldLabel} 입력 ${entered} · 공적 기록 ${recorded} (${authorityName}) · ${hours}시간 ${minutes}분 차이`,
   /** 출처 표기 — `DESIGN_SYSTEM` 확정 대기 중이라 개발 임시안이다(#1197). */
-  publicRecordSourceNote: (sourceText: string, fetchedAt: string) => `출처: ${sourceText} · ${fetchedAt} 기준`,
+  publicRecordSourceNote: (sourceText: string, fetchedAt: string | null) =>
+    // 받은 시각을 읽을 수 없으면 그 조각을 뺀다 — 「— 기준」을 적지 않는다 (#2124).
+    fetchedAt === null ? `출처: ${sourceText}` : `출처: ${sourceText} · ${fetchedAt} 기준`,
 
   /*
    * 「이 값으로 채우기」 (#1923 · `PRD §17.4.4`). 버튼 모양·다이얼로그 표현은 `DESIGN_SYSTEM

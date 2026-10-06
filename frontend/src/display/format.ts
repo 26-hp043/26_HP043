@@ -241,23 +241,6 @@ export function formatGrouped(value: string, digits: number): string {
 }
 
 /**
- * 소수 비율을 백분율 문자열로 바꾼다.
- *
- * `DESIGN_SYSTEM §4.2` 「비율」 — **API는 소수 문자열(`"0.98758"`)로 내려오고
- * 백분율 환산과 반올림은 표시 시점에만** 적용한다. `§4.1`의 3자리 규칙을 그대로
- * 적용하면 `0.988`이 되어 의미가 전달되지 않는다.
- *
- * **`% 기호는 붙이지 않는다.** 단위 부착은 호출부 책임이다(모듈 주석 참조).
- *
- * 곱셈을 쓰지 않고 **소수점 위치를 두 칸 옮긴다** — `Number('0.98758') * 100`은
- * `98.75800000000001`이 된다.
- *
- * @example
- * formatPercent('0.98758')   // '98.8'
- * formatPercent('0.072')     // '7.2'
- * formatPercent('1')         // '100.0'
- */
-/**
  * 기준 시각·기록 시각의 표시 형식 (#1420).
  *
  * ## 화면마다 달랐다
@@ -279,14 +262,46 @@ export function formatGrouped(value: string, digits: number): string {
  * 종전에는 브라우저 시간대를 따랐다. `DESIGN_SYSTEM §11`이 수집 시각을 **KST**로 적고
  * 서버도 KST 기준으로 말하므로, 다른 시간대에서 연 화면이 **같은 값을 다른 시각으로**
  * 보이는 자리를 없앤다.
+ *
+ * ## 읽을 수 없으면 `null`이다 (#2124)
+ *
+ * 종전에는 `new Date(value).toLocaleString(…)`을 그대로 돌려, 해석할 수 없는 값에
+ * **`"Invalid Date"`라는 영문 문자열**이 화면에 나갔다. 오프셋이 없는 문자열은 더 나쁘다 —
+ * `Date`가 **기기 시간대**로 읽어 그럴듯한 시각을 내므로, 위 「시간대는 KST로 고정한다」가
+ * 뒷문으로 깨진다. 둘 다 `null`로 돌려 **호출부가 값 없음으로 그리게** 한다 — 무엇으로
+ * 적을지는 자리마다 다르다(표의 칸은 `—`, 문장 안의 조각은 통째로 뺀다). 판정은 아래
+ * `kstYear`와 같은 `toInstant` 하나가 한다.
  */
-export function formatTimestamp(value: string | Date): string {
-  return new Date(value).toLocaleString('ko-KR', {
+export function formatTimestamp(value: string | Date): string | null {
+  const at = toInstant(value)
+  if (at === null) return null
+  return at.toLocaleString('ko-KR', {
     timeZone: 'Asia/Seoul',
     hour12: false,
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+}
+
+/**
+ * 시각이 **혼자 서는 자리**(표의 칸 · 「이름: 값」 줄)에서 읽을 수 없는 시각을 적는 표기 (#2124).
+ *
+ * 문장 안에 끼운 자리(「계획 …」 · 「… 기준」)는 이 표기를 쓰지 않고 **그 조각을 통째로
+ * 뺀다** — 「계획 —」은 값이 없다는 말이 아니라 깨진 문장으로 읽힌다.
+ */
+export const NO_TIMESTAMP_TEXT = '—'
+
+/**
+ * 값을 **순간**으로 읽는다. 읽을 수 없으면 `null` (#2056 · #2124).
+ *
+ * **오프셋(`Z` · `±hh:mm` · `±hhmm`)이 없는 문자열은 읽지 않는다** — `Date`가 그런 값을
+ * 기기 시간대로 읽으므로 같은 문자열이 기기마다 다른 순간이 된다. 서버는 시각을 UTC
+ * 오프셋과 함께 준다(`API_SPEC §6.1`). `Date` 인스턴스는 이미 순간이라 그대로 받는다.
+ */
+function toInstant(value: string | Date): Date | null {
+  if (typeof value === 'string' && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return null
+  const at = value instanceof Date ? value : new Date(value)
+  return Number.isNaN(at.getTime()) ? null : at
 }
 
 /**
@@ -300,12 +315,11 @@ export function formatTimestamp(value: string | Date): string {
  * 없는 문자열도 `null`이다** — `Date`가 그런 값을 **기기 시간대**로 읽으므로, 통과시키면 위
  * 두 번째 갈래(기기마다 다른 해)가 뒷문으로 돌아온다. 서버는 `as_of`를 UTC 오프셋과 함께
  * 준다(`API_SPEC §6.1`). `Date` 인스턴스는 이미 순간이라 그대로 받는다. 위 `formatTimestamp`도
- * 같은 전제(오프셋이 있는 ISO 문자열)로 동작하며, 이 검사는 여기에만 둔다.
+ * 같은 판정(`toInstant`)을 쓴다 (#2124) — 종전에는 이 검사가 여기에만 있었다.
  */
 export function kstYear(value: string | Date): number | null {
-  if (typeof value === 'string' && !/(Z|[+-]\d{2}:?\d{2})$/i.test(value.trim())) return null
-  const at = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(at.getTime())) return null
+  const at = toInstant(value)
+  if (at === null) return null
   const year = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric' })
     .formatToParts(at)
     .find((part) => part.type === 'year')?.value
@@ -324,7 +338,7 @@ export function kstYear(value: string | Date): number | null {
 const KST_OFFSET = '+09:00'
 
 /** `datetime-local` 입력 칸의 값 꼴 — `2026-09-20T09:30`. */
-const LOCAL_INPUT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/
 
 /**
  * 순간 → `datetime-local` 입력 칸의 **KST** 값 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
@@ -384,10 +398,35 @@ export function toKstInput(value: string | Date | null): string {
  * 명시해 붙인다. 서버에는 UTC를 보낸다(`API_SPEC` — `as_of`가 「ISO 8601, UTC」다).
  *
  * 꼴이 다르면 `null`이다 — 「비어 있음」과 「잘못 적었음」을 호출부가 가른다.
+ *
+ * ## 달력에 없는 날짜도 `null`이다 (#2124)
+ *
+ * `Date`는 넘친 자리를 **다음 자리로 굴린다** — `2026-02-31T09:30`이 3월 3일이 되고
+ * `T24:00`이 다음 날 0시가 된다. 꼴 검사(숫자 자릿수)만으로는 그것을 못 막아, 사용자가
+ * 적은 날짜와 **다른 날짜가 저장됐다.** 그래서 적힌 다섯 자리를 그대로 달력에 올려 보고,
+ * 되읽은 값이 하나라도 다르면(굴렀으면) 읽지 않는다. 윤년(2월 29일)도 이 대조가 가른다.
+ *
+ * 초가 붙은 값(`…T09:30:15`)은 꼴이 달라 `null`이다 — 입력 칸의 정밀도가 분이고
+ * `toKstInput`이 분까지만 적는다.
  */
 export function kstInputToIso(local: string): string | null {
   const trimmed = local.trim()
-  if (!LOCAL_INPUT.test(trimmed)) return null
+  const match = LOCAL_INPUT.exec(trimmed)
+  if (match === null) return null
+
+  const [year, month, day, hour, minute] = match.slice(1).map(Number)
+  // 시간대와 무관한 달력 대조다 — UTC 달력에 그대로 올려 굴렀는지만 본다.
+  const wall = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  if (
+    wall.getUTCFullYear() !== year ||
+    wall.getUTCMonth() !== month - 1 ||
+    wall.getUTCDate() !== day ||
+    wall.getUTCHours() !== hour ||
+    wall.getUTCMinutes() !== minute
+  ) {
+    return null
+  }
+
   const at = new Date(`${trimmed}:00${KST_OFFSET}`)
   return Number.isNaN(at.getTime()) ? null : at.toISOString()
 }
@@ -412,11 +451,11 @@ export function formatCapacity(value: number | string | null): string | null {
   return formatGrouped(String(value), DISPLAY_DIGITS.capacity)
 }
 
-/** :func:`toDecimalInput`이 쓰는 중간 자릿수. 표시 자릿수보다 넉넉하다. */
-const BRIDGE_DIGITS = 6
+/** `String(number)`의 꼴 — 부호 · 정수부 · 소수부 · 지수. `-1.5e-7` · `123.45` · `1e+21`. */
+const NUMBER_TEXT = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/
 
 /**
- * JSON number를 포매터가 받는 **십진 문자열**로 옮긴다 (#872).
+ * JSON number를 포매터가 받는 **십진 문자열**로 옮긴다 (#872 · #2124).
  *
  * ## 왜 `String(value)`면 안 되나
  *
@@ -427,30 +466,71 @@ const BRIDGE_DIGITS = 6
  * 실제로 그렇게 죽었다. 실시간 CII 화면의 진행률이 `formatPercent(String(ratio))`
  * 였고, 계획 거리가 큰 항차가 **출항 직후**면 비율이 `5e-7` 근처가 된다.
  *
- * ## `toFixed`는 자릿수를 맞추려는 것이 아니다
+ * ## 반올림하지 않는다 — 지수만 푼다 (#2124)
  *
- * **지수 표기를 피하려는 것**이다. 실제 반올림은 포매터가 규정 자릿수로 한 번 한다
- * — 여기서 6자리로 자르는 것은 그보다 넉넉해 표시값에 영향을 주지 않는다. 이 설명은
- * `features/not-underway/periodRules.ts`가 먼저 적어 둔 것이고, 같은 규율이 여러
- * 화면에 필요해져 이 자리로 올렸다(`display/decimal.ts`가 `#820`에서 옮겨진 것과
- * 같은 이유 — **복사하면 한쪽만 고쳐진다**).
+ * 종전에는 `value.toFixed(6)`이었고 주석이 *「6자리는 표시 자릿수보다 넉넉해 표시값에
+ * 영향을 주지 않는다」*고 적었다. 틀렸다 — **자르는 자리가 얼마나 깊든 반올림이 두 번이면
+ * 경계에서 값이 바뀐다.** `4.98249996`이 `toFixed(6)`에서 `4.982500`이 되고, 포매터가 그것을
+ * 3자리로 다시 올려 `4.983`을 냈다(바로 3자리로 보면 `4.982`). 자릿수를 늘리는 것도 답이
+ * 아니다 — `toFixed(20)`은 이진 표현을 드러내 `4.9825`를 `4.98249999999999992895`로 적고,
+ * 이번에는 올라야 할 값이 내려간다.
+ *
+ * 그래서 **`String(value)`가 낸 숫자열을 그대로 두고 소수점만 옮긴다.** 그 숫자열은 같은
+ * `number`로 되읽히는 가장 짧은 십진 표기라, 서버가 JSON에 적은 값과 같다(아래 한계 안에서).
+ * 반올림은 포매터가 규정 자릿수로 **한 번** 한다.
+ *
+ * ## 남는 한계
+ *
+ * - `number`가 담지 못하는 자리는 이미 없다 — 유효 숫자 17자리를 넘는 값은 JSON을 읽는
+ *   순간 깎였고 여기서 되살릴 수 없다. 그 정밀도가 필요한 값은 서버가 **문자열**로 준다
+ *   (`API_SPEC §1.7`) — 이 다리는 그런 값이 지나는 길이 아니다.
+ * - `1e21` 이상은 **풀지 않는다.** 그대로 지수 표기가 나가 포매터가 던진다 — 그 경계는
+ *   값이 아니라 **입력 하한·상한**의 문제이고 `#860`이 서버에서 다룬다.
  *
  * ## 유한하지 않으면 던진다
  *
  * `NaN`·`Infinity`는 표시할 수 없다. 「없음」으로 바꿔 주지 않는 이유는 포매터의
  * 기존 규율과 같다 — 조용한 폴백은 틀린 값을 숨긴다(`#823` 판정). 값이 없을 수 있는
  * 자리는 호출부가 `null` 가드를 **먼저** 둔다.
- *
- * ⚠️ `1e21` 이상은 `toFixed`도 지수 표기를 내므로 이 다리를 지나도 포매터가 던진다.
- * 그 경계는 값이 아니라 **입력 하한·상한**의 문제이고 `#860`이 서버에서 다룬다.
  */
 export function toDecimalInput(value: number): string {
   if (!Number.isFinite(value)) {
     throw new TypeError(`유한한 수가 아닙니다: ${JSON.stringify(value)}`)
   }
-  return value.toFixed(BRIDGE_DIGITS)
+  const text = String(value)
+  const match = NUMBER_TEXT.exec(text)
+  if (match === null) return text
+  const [, sign, intPart, fracPart = '', exponent] = match
+  // 음의 지수만 푼다. 양의 지수(`1e+21` 이상)는 위 「남는 한계」대로 둔다.
+  if (exponent === undefined || !exponent.startsWith('-')) return text
+
+  const digits = `${intPart}${fracPart}`
+  // 소수점이 옮겨 갈 자리. `String`은 정수부를 한 자리로 내므로 음의 지수에서는 늘 0 이하다.
+  const point = intPart.length + Number(exponent)
+  const body =
+    point > 0
+      ? `${digits.slice(0, point)}.${digits.slice(point)}`
+      : `0.${'0'.repeat(-point)}${digits}`
+  return `${sign}${body}`
 }
 
+/**
+ * 소수 비율을 백분율 문자열로 바꾼다.
+ *
+ * `DESIGN_SYSTEM §4.2` 「비율」 — **API는 소수 문자열(`"0.98758"`)로 내려오고
+ * 백분율 환산과 반올림은 표시 시점에만** 적용한다. `§4.1`의 3자리 규칙을 그대로
+ * 적용하면 `0.988`이 되어 의미가 전달되지 않는다.
+ *
+ * **`% 기호는 붙이지 않는다.** 단위 부착은 호출부 책임이다(모듈 주석 참조).
+ *
+ * 곱셈을 쓰지 않고 **소수점 위치를 두 칸 옮긴다** — `Number('0.98758') * 100`은
+ * `98.75800000000001`이 된다.
+ *
+ * @example
+ * formatPercent('0.98758')   // '98.8'
+ * formatPercent('0.072')     // '7.2'
+ * formatPercent('1')         // '100.0'
+ */
 export function formatPercent(value: string, digits: number = DISPLAY_DIGITS.percent): string {
   const trimmed = value.trim()
   if (!/^[+-]?\d+(\.\d+)?$/.test(trimmed)) {

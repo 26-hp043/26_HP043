@@ -157,6 +157,49 @@ describe('validateDraft — API_SPEC §3.3', () => {
   it('숫자가 아닌 값을 잡는다', () => {
     expect(validateDraft(draft({ plannedDistanceNm: '십일천' })).plannedDistanceNm).toBeDefined()
   })
+
+  it('천 단위 쉼표·전각 숫자는 오류가 아니다 — 화면이 보여 준 꼴이다 (#2124)', () => {
+    // 종전에는 `1,000`에 「0보다 커야 합니다」가 나갔다.
+    const errors = validateDraft(
+      draft({
+        plannedDistanceNm: '12,480',
+        plannedSpeedKn: '１３．５',
+        fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '1,210.5' }],
+      }),
+    )
+    expect(errors).toEqual({})
+  })
+
+  it('「못 읽었다」와 「범위 밖이다」를 다른 문구로 안내한다 (#2124)', () => {
+    // 문구 자체가 아니라 **두 경우가 갈리는가**를 본다 (`AGENTS §4.6` — 표시 문구).
+    const unreadable = validateDraft(
+      draft({
+        plannedDistanceNm: '12,5',
+        plannedSpeedKn: '빠르게',
+        fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 'abc' }],
+      }),
+    )
+    const outOfRange = validateDraft(
+      draft({
+        plannedDistanceNm: '0',
+        plannedSpeedKn: '0.5',
+        fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '-1' }],
+      }),
+    )
+    const missing = validateDraft(
+      draft({
+        plannedDistanceNm: '',
+        plannedSpeedKn: '',
+        fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '' }],
+      }),
+    )
+    for (const key of ['plannedDistanceNm', 'plannedSpeedKn', 'plannedFuelTon.0']) {
+      expect(unreadable[key], key).toBeDefined()
+      expect(outOfRange[key], key).toBeDefined()
+      expect(unreadable[key], key).not.toBe(outOfRange[key])
+      expect(unreadable[key], key).not.toBe(missing[key])
+    }
+  })
 })
 
 describe('validateDraft — 연료 다행 (#636)', () => {
@@ -223,6 +266,32 @@ describe('validateActuals — 모든 항목이 선택이다', () => {
 
   it('거리만 먼저 넣는 것을 허용한다', () => {
     expect(hasErrors(validateActuals(actuals({ actualDistanceNm: '11200' })))).toBe(false)
+  })
+
+  it('쉼표가 든 실적은 오류가 아니고, 읽은 값이 그대로 나간다 (#2124)', () => {
+    // 실적 칸 아래에 「계획 12,480 nm」가 적혀 있다 — 그 꼴로 옮겨 적는다.
+    const input = actuals({ actualDistanceNm: '12,480', actualFuelTon: { HFO: '1,050.5' } })
+
+    expect(validateActuals(input)).toEqual({})
+    const payload = actualsPayload(input)
+    expect(payload.actual_distance_nm).toBe(12480)
+    expect(payload.fuel_uses).toEqual([
+      { fuel_type: 'HFO', actual_fuel_ton: 1050.5, source: 'USER_INPUT' },
+    ])
+  })
+
+  it('실적도 「못 읽었다」와 「범위 밖이다」의 문구가 다르다 (#2124)', () => {
+    const unreadable = validateActuals(
+      actuals({ actualDistanceNm: '1,00', actualAvgSpeedKn: 'x', actualFuelTon: { HFO: '1.2.3' } }),
+    )
+    const outOfRange = validateActuals(
+      actuals({ actualDistanceNm: '0', actualAvgSpeedKn: '0.9', actualFuelTon: { HFO: '0' } }),
+    )
+    for (const key of ['actualDistanceNm', 'actualAvgSpeedKn', 'actualFuelTon.HFO']) {
+      expect(unreadable[key], key).toBeDefined()
+      expect(outOfRange[key], key).toBeDefined()
+      expect(unreadable[key], key).not.toBe(outOfRange[key])
+    }
   })
 
   it('들어온 값이 서버 제약을 어기면 잡는다', () => {

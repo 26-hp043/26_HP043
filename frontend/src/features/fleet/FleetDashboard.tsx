@@ -892,10 +892,13 @@ function FleetHead({
       {asOf ? (
         <p className="fleet__asof">
           {/* 상대 시각만으로는 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */}
-          <span className="fleet__asof-abs">
-            {/* 형식은 `formatTimestamp`가 갖는다 (#1420) — 초를 내지 않는 판단이 그 안에 있다. */}
-            기준 {formatTimestamp(asOf)}
-          </span>
+          {/* 읽을 수 없는 시각이면 「기준」 조각을 통째로 뺀다 (#2124). */}
+          {formatTimestamp(asOf) !== null ? (
+            <span className="fleet__asof-abs">
+              {/* 형식은 `formatTimestamp`가 갖는다 (#1420) — 초를 내지 않는 판단이 그 안에 있다. */}
+              기준 {formatTimestamp(asOf)}
+            </span>
+          ) : null}
           <span className="fleet__asof-rel">{relativeTime(asOf, now)}</span>
         </p>
       ) : null}

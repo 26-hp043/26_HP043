@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { GradeBadge } from '../../components/GradeBadge'
-import { formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
+import { NO_TIMESTAMP_TEXT, formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useYearOptions, yearStateText } from '../parameters/yearCatalog'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
@@ -457,8 +457,9 @@ function PublicRecordDetail({
             <li key={`${mismatch.field}-${index}`}>
               {COPY.publicRecordMismatch(
                 PUBLIC_RECORD_FIELD_LABEL[mismatch.field],
-                formatTimestamp(mismatch.enteredAt),
-                formatTimestamp(mismatch.recordedAt),
+                // 「이름 값」 꼴이라 읽을 수 없는 시각은 값 없음으로 적는다 (#2124).
+                formatTimestamp(mismatch.enteredAt) ?? NO_TIMESTAMP_TEXT,
+                formatTimestamp(mismatch.recordedAt) ?? NO_TIMESTAMP_TEXT,
                 authority,
                 hours,
                 minutes,
@@ -549,7 +550,9 @@ function FillControl({
         className="dq__fill-action"
         disabled={busy}
         aria-expanded={confirmed ? confirming : undefined}
-        aria-label={`${COPY.fillAction} — ${PUBLIC_RECORD_FIELD_LABEL[mismatch.field]} ${formatTimestamp(mismatch.recordedAt)}`}
+        aria-label={[COPY.fillAction, '—', PUBLIC_RECORD_FIELD_LABEL[mismatch.field], formatTimestamp(mismatch.recordedAt)]
+          .filter((part) => part !== null)
+          .join(' ')}
         onClick={() => {
           if (confirmed) setConfirming(true)
           else void submit(false)
