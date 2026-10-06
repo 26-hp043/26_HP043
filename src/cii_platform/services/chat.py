@@ -337,10 +337,9 @@ async def _answer_turn(
     for _ in range(MAX_TOOL_CALLS_PER_TURN + 1):
         try:
             response = await provider.complete(messages=messages, tools=tool_schemas())
-        except LLMError as exc:
+        except LLMError:
             # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`). 답은 고정
-            # 문구다 — 예외 원문은 상태 코드를 담을 수 있어 로그에만 남긴다 (`#2112`).
-            _log.warning("챗봇 공급자 실패: %s", exc)
+            # 문구다 — 상태 코드 같은 진단은 공급자(`llm/anthropic.py`)가 로그에 남긴다 (`#2112`).
             return _result(
                 PROVIDER_ERROR_MESSAGE,
                 used_tools,

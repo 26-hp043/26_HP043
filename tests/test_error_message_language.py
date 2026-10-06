@@ -118,7 +118,17 @@ def _parts(node: ast.AST) -> list[ast.AST]:
     if isinstance(node, ast.JoinedStr):
         return list(node.values)
     if isinstance(node, ast.BinOp):
-        return _parts(node.left) + _parts(node.right)
+        # ``"…" + x``와 ``"원인: %s" % exc`` — 오른쪽이 튜플이면 그 원소까지 본다.
+        right = node.right
+        tail = list(right.elts) if isinstance(right, ast.Tuple) else _parts(right)
+        return _parts(node.left) + tail
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "format"
+    ):
+        # ``"원인: {}".format(exc)`` — 틀 문자열과 인자를 함께 본다.
+        return _parts(node.func.value) + list(node.args) + [k.value for k in node.keywords]
     return [node]
 
 
@@ -208,7 +218,8 @@ def _message_sites(tree: ast.Module, *, validators: bool) -> list[tuple[int, ast
     def visit(body: list[ast.stmt], scope: dict[str, ast.AST], in_app_error_class: bool) -> None:
         for node in _scope_nodes(body):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                visit(node.body, _assignments(node.body), in_app_error_class)
+                # 안쪽 함수는 바깥 함수의 대입도 본다 — 바깥에서 만든 문구를 안에서 던지는 꼴.
+                visit(node.body, {**scope, **_assignments(node.body)}, in_app_error_class)
                 continue
             if isinstance(node, ast.ClassDef):
                 inherits = any(getattr(base, "id", None) in names for base in node.bases)
@@ -267,6 +278,9 @@ def _findings(root: Path = _ROOT) -> list[str]:
                     rendered += "{}"
                     if _mentions_exception(part.value):
                         leaks_exception = True
+                elif _mentions_exception(part):
+                    # ``%`` · ``.format()``로 끼운 예외 객체.
+                    leaks_exception = True
             identifiers = _SNAKE.findall(text)
             if identifiers:
                 found.append(f"{rel}:{lineno} 필드명 원문 {identifiers} — {text[:60]}")
@@ -357,12 +371,22 @@ def test_the_scanner_follows_variables_subclasses_and_internals(tmp_path):
         "    raise ValidationError(message)\n"
         "MODULE_MESSAGE = '모듈 상수 문구 (HTTP 500)'\n"
         "def module_level():\n"
-        "    raise AppError('INTERNAL_ERROR', MODULE_MESSAGE)\n",
+        "    raise AppError('INTERNAL_ERROR', MODULE_MESSAGE)\n"
+        # 검토가 찾은 미탐 셋 — `.format` · `%` · 바깥 함수의 변수.
+        "def formatted(exc):\n"
+        "    raise CalculationError('계산 실패: {}'.format(exc))\n"
+        "def percent(exc):\n"
+        "    raise CalculationError('계산 실패: %s' % exc)\n"
+        "def outer(exc):\n"
+        "    message = f'계산 실패: {exc}'\n"
+        "    def inner():\n"
+        "        raise CalculationError(message)\n"
+        "    inner()\n",
         encoding="utf-8",
     )
     found = _findings(tmp_path)
     by_line = {int(line.split(":")[1].split(" ")[0]): line for line in found}
-    assert len(found) == len(by_line) == 8, found
+    assert len(found) == len(by_line) == 11, found
     # `super().__init__`의 `{detail}`은 예외 이름이 아니라 그 줄은 조용하다 — 대신
     # `str(exc)`를 넘기는 **던지는 자리**가 잡힌다.
     assert 3 not in by_line
@@ -375,6 +399,9 @@ def test_the_scanner_follows_variables_subclasses_and_internals(tmp_path):
     assert "예외 객체" in by_line[18]
     assert "HTTP 상태 코드" in by_line[24]
     assert 21 not in by_line  # `clean`
+    assert "예외 객체" in by_line[26]  # `.format(exc)`
+    assert "예외 객체" in by_line[28]  # `% exc`
+    assert "예외 객체" in by_line[32]  # 바깥 함수의 `message`
 
 
 def test_service_error_messages_are_plain_korean():
