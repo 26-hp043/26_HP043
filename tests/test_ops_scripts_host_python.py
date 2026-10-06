@@ -38,6 +38,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import yaml
+
 _ROOT = Path(__file__).resolve().parents[1]
 
 #: 운영 호스트의 ``python3``. Ubuntu 22.04가 담는 버전이다 — 올리려면 **호스트를 먼저** 올린다.
@@ -159,3 +161,25 @@ def test_the_guard_would_catch_the_bug_it_was_written_for():
         pass
     else:  # pragma: no cover - 여기 오면 feature_version이 동작하지 않는 것이다
         raise AssertionError("feature_version이 새 문법을 걸러 내지 못한다")
+
+
+def test_host_scripts_trigger_a_deploy_when_they_change():
+    """호스트 스크립트를 바꾼 머지가 **배포를 돌린다** (#2117 ⑴).
+
+    서버의 저장소 사본은 ``deploy.yml``이 배포 커밋으로 맞출 때만 갱신된다. ``on.push.paths``에
+    스크립트 경로가 없으면 스크립트만 바꾼 머지는 서버에 닿지 않고, ``ops.yml``의 백업과
+    crontab이 **옛 판**으로 돈다 — 고쳤다고 믿는 동안 조용히.
+    """
+    workflow = yaml.safe_load(
+        (_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    )
+    # PyYAML(YAML 1.1)은 따옴표 없는 `on`을 불리언 True로 읽는다.
+    triggers = workflow["on"] if "on" in workflow else workflow[True]
+    paths = set(triggers["push"]["paths"])
+    assert paths, "deploy.yml의 on.push.paths를 읽지 못했다"
+
+    for name, where in HOST_SCRIPTS.items():
+        assert paths & {f"scripts/{name}", "scripts/**"}, (
+            f"deploy.yml의 on.push.paths에 scripts/{name} 이 없다 — 이 파일만 바꾼 머지는 "
+            f"배포를 돌리지 않아 서버 사본이 옛 판으로 남는다. {where}"
+        )
