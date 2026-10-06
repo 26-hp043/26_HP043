@@ -59,7 +59,7 @@ class Vessel(Base):
     detail_status = sa.Column(sa.String(length=20), nullable=True)
     current_lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
     current_lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
-    # 위치가 있으면 필수 — 화면이 「위치 갱신 시각」을 표시한다(UIFLOW §2-8).
+    # 위치가 있으면 필수 — 화면이 「위치 갱신 시각」을 표시한다(UIFLOW 2-8).
     position_updated_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True),

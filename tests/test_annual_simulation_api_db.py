@@ -870,7 +870,7 @@ def test_a_vessel_without_voyages_answers_422_over_http(migrated_db, app_fresh_e
     """⚠️ #1084 — **실제 HTTP로** 422를 받는다.
 
     서비스가 도메인 오류를 던져도 ``error_handlers``가 그것을 422로 옮기지 않으면
-    사용자는 여전히 500을 본다. 그 층위를 건너뛰지 않는다 (`AGENTS §3.3`).
+    사용자는 여전히 500을 본다. 그 층위를 건너뛰지 않는다.
 
     ``TestClient``는 실제로 커밋하므로 전용 선박을 만들고 ``finally``에서 지운다 —
     남기면 다음 실행의 선대 집계가 이 행을 본다(`test_input_boundaries_api_db`와 같은 이유).
