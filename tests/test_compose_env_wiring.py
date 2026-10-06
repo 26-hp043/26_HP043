@@ -652,3 +652,64 @@ def test_prod_db_env_example_declares_every_variable_the_compose_substitutes():
         f"docker-compose.prod.db.yml이 치환하는데 .env.db.example에 없는 변수: {missing}. "
         "수동 배포는 그 본보기를 .env로 복사한다 (OPERATIONS §3.3 · #1641)."
     )
+
+
+# ── 반대 방향: compose가 치환하는 값이 app 본보기에 있다 (#2118) ─────────────────
+#
+# `test_oci_app_compose_uses_every_variable_its_env_example_declares`는 「본보기 ⊆ compose」
+# 한 방향만 본다. db 쪽에는 반대 방향 검사가 있었는데(`#1641`) app 쪽에는 없어서,
+# `docs/OPERATIONS.md §3.3`이 app-01 `.env` 필수 값으로 드는 `APP_ENV`·`DATABASE_URL`이
+# 본보기에 없는 채로 초록이었다. 배포 렌더 검사(`test_deploy_env_rendering.py`)도 본보기의
+# 키에서 출발하므로 본보기에 없는 값은 그쪽 대조 대상에도 들지 않는다.
+
+#: compose가 치환하지만 app 본보기에 **일부러 두지 않는** 이름과 그 사유.
+_APP_EXAMPLE_EXEMPT: dict[str, str] = {
+    # 값이 있으면 앱이 기동을 거부한다(`auth/role_bootstrap.py`). 본보기는 주석으로
+    # 「읽히지 않는다」고만 적는다 — 채울 자리를 두면 그 거부를 부른다.
+    "INITIAL_OFFICE_EMAILS": "옛 이름 (#1301)",
+    # 아래 다섯은 compose가 기본값을 들고 있고 자동 배포도 `.env`에 적지 않는다.
+    # 본보기에 넣으면 `test_deploy_env_rendering.py`의 렌더 대조에 함께 걸린다.
+    "RATE_LIMIT_PER_MINUTE": "compose 기본값",
+    "RATE_LIMIT_AUTH_PER_MINUTE": "compose 기본값",
+    "RATE_LIMIT_CALC_PER_MINUTE": "compose 기본값",
+    "RATE_LIMIT_CHAT_PER_MINUTE": "compose 기본값",
+    "USE_FORWARDED_FOR": "compose 기본값",
+}
+
+
+def _substituted_names(node: object) -> set[str]:
+    """파싱한 compose의 **값**에서 `${NAME…}` 이름을 모은다 — 주석 속 예시는 세지 않는다."""
+    if isinstance(node, str):
+        return set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", node))
+    if isinstance(node, dict):
+        node = list(node.values())
+    if isinstance(node, list):
+        return set().union(*(_substituted_names(item) for item in node))
+    return set()
+
+
+def test_app_env_example_declares_every_variable_the_compose_substitutes():
+    """`.env.app.example`이 `docker-compose.prod.app.yml`의 치환 변수를 적는다 (#2118).
+
+    :func:`test_prod_db_env_example_declares_every_variable_the_compose_substitutes`의
+    app 쪽이다. 수동 배포는 이 본보기를 `.env`로 복사하고(`docs/OPERATIONS.md §3.3`),
+    거기 없는 변수는 그 경로에서 존재를 아는 방법이 없다. 주석 처리된 줄도 적힌 것으로
+    본다 — 「풀지 않으면 compose 기본값」을 그 형태로 표현한다.
+    """
+    substituted = _substituted_names(_compose(_PROD_APP))
+    declared = set(
+        re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", _APP_ENV_EXAMPLE.read_text(encoding="utf-8"), re.M)
+    )
+
+    missing = sorted(substituted - declared - set(_APP_EXAMPLE_EXEMPT))
+    assert not missing, (
+        f"docker-compose.prod.app.yml이 치환하는데 .env.app.example에 없는 변수: {missing}. "
+        "수동 배포는 그 본보기를 .env로 복사한다 (OPERATIONS §3.3 · #2118). 일부러 빼는 "
+        "값이면 `_APP_EXAMPLE_EXEMPT`에 사유와 함께 적는다."
+    )
+
+    # 면제 목록이 낡지 않게 한다 — compose에서 사라졌거나 본보기에 들어온 이름은 뺀다.
+    stale = sorted(name for name in _APP_EXAMPLE_EXEMPT if name not in substituted)
+    assert not stale, f"compose가 더는 치환하지 않는 면제 항목: {stale}"
+    redundant = sorted(set(_APP_EXAMPLE_EXEMPT) & declared)
+    assert not redundant, f"본보기에 이미 있는 면제 항목: {redundant}"

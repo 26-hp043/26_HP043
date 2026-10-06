@@ -8,17 +8,19 @@
  * 규정하므로, 값을 사람이 CSS로 옮겨 적으면 **전사 오류가 조용히 들어온다.**
  * 색상만 76개라 눈으로 대조할 수 없다.
  *
- * 그래서 CSS를 손으로 쓰지 않고 JSON에서 생성한다. 생성물(`src/styles/tokens.css`)은
- * 저장소에 커밋한다 — 개발 서버 기동에 빌드 단계를 끼워 넣지 않기 위해서다.
+ * 그래서 CSS를 손으로 쓰지 않고 JSON에서 생성한다. 생성물
+ * (`src/styles/tokens.generated.css`)은 저장소에 커밋한다 — 개발 서버 기동에 빌드 단계를
+ * 끼워 넣지 않기 위해서다. `src/styles/tokens.css`는 생성물이 아니라 손으로 쓰는 별칭
+ * 계층이며 이 스크립트가 건드리지 않는다.
  *
- * ## 동기화는 CI가 지킨다
+ * ## 동기화는 테스트가 지킨다
  *
- * ```
- * npm run build:tokens && git diff --exit-code src/styles/tokens.css
- * ```
- *
- * JSON을 고치고 이 스크립트를 돌리지 않으면 CI가 실패한다. `TEST_PLAN` 동기화
- * 가드(`test_testplan_sync.py`)와 같은 방식이다 — **드리프트에 신호를 붙인다.**
+ * CI에는 이 스크립트를 다시 돌려 `git diff`로 대조하는 단계가 없다 (#2118). 지키는 것은
+ * `src/styles/tokens.sync.test.ts`다 — 색 토큰(라이트·다크)은 값까지, `BlueLog.tokens.json`의
+ * 토큰은 이름이 생성물에 있는지를 대조하며, CI `frontend` 잡의 `npm run test`가 돌린다.
+ * 색 값을 고치거나 토큰을 더하고 이 스크립트를 돌리지 않으면 그 테스트가 실패한다.
+ * 생성물 전체를 다시 만들어 대조하는 것은 아니다. `TEST_PLAN` 동기화
+ * 가드(`test_testplan_sync.py`)와 같은 취지다 — **드리프트에 신호를 붙인다.**
  *
  * ## 사용
  *
