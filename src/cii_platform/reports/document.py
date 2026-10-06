@@ -77,6 +77,27 @@ DISCLAIMER = "본 리포트는 참고용 예측값입니다. 규제 제출용 �
 #: 등급이 붙지 않는 값에 붙이는 각주 (``PRD §25.2`` · ``COR-1``).
 VOYAGE_CII_NOTE = "항차 단위 CII는 공식 등급 지표가 아닙니다. 등급은 연간 누적(YTD)에만 해당합니다."
 
+#: 시나리오 사후 비교 표의 「없음」 표지 셋 (`#2092`). ``—``(기록된 값 없음)와 **다른 말**이다.
+#:
+#: 여기(문서 모델)에 두는 것은 렌더러도 읽어야 하기 때문이다 — HTML의 열 정렬 판정이 이
+#: 표지를 값으로 세면 수치 열이 통째로 왼쪽으로 뒤집힌다(`#2004`의 ``—``와 같은 이유).
+#: 서비스(``services/report.py``)는 이 이름을 그대로 가져다 쓴다.
+
+#: 그 종류의 시나리오가 **저장된 비교에 없다.** 값이 0이거나 비어 있는 것과 다르다.
+SCENARIO_NOT_STORED = "이력 없음"
+
+#: 실적 연료·CII를 **낼 수 없다** — 재료(실적 거리 · 모든 유종의 실적 연료 · 비교가 쓴
+#: 용량)가 모자라다.
+ACTUAL_CII_NOT_COMPUTABLE = "계산 불가"
+
+#: 실적 행의 등급 칸. 실적에는 저장된 등급이 없고 리포트가 등급을 새로 판정하지 않는다.
+ACTUAL_RATING_NOT_RATED = "산출 안 함"
+
+#: 수치 열에 들어올 수 있는 표지의 닫힌 집합. 렌더러의 열 판정이 **세지 않는** 값이다.
+ABSENT_MARKERS: frozenset[str] = frozenset(
+    {SCENARIO_NOT_STORED, ACTUAL_CII_NOT_COMPUTABLE, ACTUAL_RATING_NOT_RATED}
+)
+
 
 @dataclass(frozen=True)
 class KeyValueSection:

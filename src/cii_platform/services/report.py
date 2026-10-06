@@ -10,8 +10,9 @@
 
 ``PRD §25.2.1``이 *"저장된 이력을 그대로 인용한다 — 리포트 생성 시점에 재계산하지
 않는다. 재계산하면 파라미터 개정·기상 갱신으로 과거 비교 근거가 바뀐다"* 를 요구한다.
-저장된 ``voyage_scenario`` 행을 그대로 읽고, **이력이 없으면 그 섹션을 생략한다** —
-없는 비교를 만들지 않는다.
+채택된 ``voyage_scenario`` 행이 속한 비교(``calculation_run(SCENARIO)``)의 3종을 그대로
+읽고, **이력이 없으면 그 섹션을 생략한다** — 없는 비교를 만들지 않는다. 실적 행은 항차에
+기록된 값을 옮긴다 (`#2092`).
 """
 
 from __future__ import annotations
@@ -24,8 +25,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 
 from cii_platform.calc.capacity import capacity_axis
+from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
 from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.db.models.voyage_scenario import VoyageScenario
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -36,8 +39,11 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.reports.document import (
+    ACTUAL_CII_NOT_COMPUTABLE,
+    ACTUAL_RATING_NOT_RATED,
     BAND_GRADES,
     BAND_HEADERS,
+    SCENARIO_NOT_STORED,
     VOYAGE_CII_NOTE,
     ChartSection,
     KeyValueSection,
@@ -63,6 +69,7 @@ from cii_platform.services.cii_history import (
     MIN_REGULATION_YEAR,
     list_cii_history,
 )
+from cii_platform.services.scenario_compare import SCENARIO_NAMES
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
@@ -177,15 +184,157 @@ def _local_time(value) -> str:
 # ─── 항차 완료 리포트 (PRD §25.2) ────────────────────────────────────────────
 
 
-async def _scenario_section(session: AsyncSession, voyage) -> TableSection | None:
+#: 사후 비교 표가 싣는 3종과 그 순서 (``PRD §25.2.1`` — 직항·우회·감속).
+_SCENARIO_ORDER = ("DIRECT", "DETOUR", "SLOW_STEAMING")
+
+#: 「없음」 표지 셋(``SCENARIO_NOT_STORED``·``ACTUAL_CII_NOT_COMPUTABLE``·
+#: ``ACTUAL_RATING_NOT_RATED``)은 ``reports/document.py``에 있다 — HTML 렌더러의 열 정렬
+#: 판정도 같은 값을 읽어야 해서다. 이 모듈은 그 이름을 그대로 가져다 쓴다.
+
+#: 계산 이력 ``result_json.scenarios[]`` 한 항목에서 표가 읽는 키 (`#2092`).
+#: 하나라도 없으면 그 항목은 **없는 것으로** 다룬다 — 그 종류는 「이력 없음」이 되고 문서는
+#: 그대로 만들어진다. 옛 모양으로 저장된 이력 한 건이 리포트 전체를 500으로 만들지 않게.
+_RUN_ITEM_KEYS = (
+    "scenario_type",
+    "distance_nm",
+    "speed_kn",
+    "duration_hours",
+    "fuel_ton",
+    "attained_cii",
+    "estimated_rating",
+)
+
+
+def _scenario_row(name: str, values: dict[str, object] | None, *, adopted: bool) -> list[str]:
+    """시나리오 한 행. ``values``가 없으면 저장된 비교에 그 종류가 없는 것이다."""
+    label = f"{name}{' (채택)' if adopted else ''}"
+    if values is None:
+        return [label, *[SCENARIO_NOT_STORED] * 6]
+    return [
+        label,
+        _display(values["distance_nm"], "distance_nm"),
+        _display(values["speed_kn"], "speed_kn"),
+        _display(values["duration_hours"], "hours"),
+        _display(values["fuel_ton"], "fuel_ton"),
+        _display(values["cii"], "cii"),
+        _text(values["estimated_rating"]),
+    ]
+
+
+def _actual_row(voyage, fuel_uses, transport_capacity: Decimal | None) -> list[str]:
+    """실적 행 — 항차와 연료 기록에 **적힌 값**을 옮긴다.
+
+    계획값으로 메우지 않는다(같은 문서의 「CII 기여도」는 실적이 없으면 계획 연료로
+    대체하지만, 이 행의 이름은 「실적」이다). 없는 값은 ``—``, CII는 재료가 하나라도
+    모자라면 「계산 불가」다. 연료도 같다 — 유종 일부만 실적이 있으면 부분 합을 싣지 않고
+    「계산 불가」다.
+
+    CII는 ``calc.cii_engine``의 같은 식(CO₂ ÷ (용량 × 거리))이며, 용량은 **인용한 비교가
+    쓴 값**(``calculation_basis.transport_capacity``)이다 — 비교 뒤 제원이 고쳐졌어도
+    세 시나리오와 같은 분모로 나란히 놓이게 한다.
+    """
+    hours: Decimal | None = None
+    if voyage.actual_departure_at is not None and voyage.actual_arrival_at is not None:
+        seconds = (voyage.actual_arrival_at - voyage.actual_departure_at).total_seconds()
+        hours = Decimal(str(seconds)) / Decimal(3600)
+
+    recorded = [fu for fu in fuel_uses if fu.actual_fuel_ton is not None]
+    complete = bool(fuel_uses) and len(recorded) == len(fuel_uses)
+    # 유종이 둘인데 하나만 실적이 있으면 그 하나의 합은 **이 항차의 연료가 아니다.** 부분 합을
+    # 표지 없이 실으면 세 시나리오의 연료 옆에서 전체로 읽힌다. 기록이 하나도 없으면 「—」,
+    # 일부만 있으면 「계산 불가」 — CII와 같은 표지다(같은 이유로 낼 수 없다).
+    if not recorded:
+        fuel = _display(None, "fuel_ton")
+    elif complete:
+        total = sum((Decimal(fu.actual_fuel_ton) for fu in recorded), Decimal(0))
+        fuel = _display(total, "fuel_ton")
+    else:
+        fuel = ACTUAL_CII_NOT_COMPUTABLE
+
+    cii = ACTUAL_CII_NOT_COMPUTABLE
+    if complete and transport_capacity is not None and voyage.actual_distance_nm:
+        try:
+            result = calculate_attained_cii(
+                [
+                    FuelUse(fu.fuel_type, Decimal(fu.actual_fuel_ton), Decimal(fu.cf_used))
+                    for fu in recorded
+                ],
+                transport_capacity,
+                Decimal(voyage.actual_distance_nm),
+            )
+        except ValueError:
+            # 실적 연료 합이 0인 항차 등 — 엔진이 거부한 값을 표에 지어 넣지 않는다.
+            pass
+        else:
+            cii = _display(result.attained_cii, "cii")
+
+    return [
+        "실적",
+        _display(voyage.actual_distance_nm, "distance_nm"),
+        _display(voyage.actual_avg_speed_kn, "speed_kn"),
+        _display(hours, "hours"),
+        fuel,
+        cii,
+        ACTUAL_RATING_NOT_RATED,
+    ]
+
+
+def _scenario_note(transport_capacity: Decimal | None, capacity_basis: str | None) -> str:
+    """사후 비교 표의 각주 (`#2092` · 2026-10-06 결정 1·2).
+
+    * 「항차 단위 CII는 공식 등급 지표가 아니다」는 같은 문서의 「CII 기여도」 절이 쓰는
+      문구(:data:`VOYAGE_CII_NOTE` · ``COR-1``)를 **그대로** 싣는다 — 새로 짓지 않는다.
+    * 실적 CII의 분모 용량을 **숫자로** 적는다. 인용한 비교가 쓴 값이라 비교 뒤 제원이 고쳐진
+      선박에서는 다른 화면의 값과 다를 수 있고, 그때 읽는 사람이 이유를 알 수 있어야 한다.
+    """
+    if transport_capacity is None:
+        capacity = (
+            "실적 CII는 인용한 비교와 같은 용량으로 나눈 항차 단위 값인데, "
+            "이 비교가 쓴 용량을 알 수 없어 내지 않았습니다."
+        )
+    else:
+        unit = f" {capacity_basis}" if capacity_basis else ""
+        # 정수 용량은 정수로, 소수가 있으면 그대로 — 자릿수 규정이 없는 값이라 지어내지 않는다.
+        capacity = (
+            "실적 CII는 항차 단위 값이며, 분모는 인용한 비교가 쓴 용량 "
+            f"{transport_capacity.normalize():,f}{unit}입니다. "
+            "비교 뒤 제원이 바뀐 선박에서는 다른 화면의 값과 다를 수 있습니다."
+        )
+    return (
+        "항차 착수 전 저장된 비교 이력을 그대로 인용했습니다(재계산하지 않음). "
+        # 정본 문구 (PRD §6.3 「자동 결정 금지」) — 바꾸려면 PRD 개정이 먼저다.
+        "시스템은 시나리오별 수치만 비교하며, 최종 운항 판단은 사용자에게 있습니다. "
+        f"실적 행은 이 항차에 기록된 실적값입니다. {capacity} "
+        f"{VOYAGE_CII_NOTE} 실적 행의 등급은 산출하지 않습니다. "
+        f"「{SCENARIO_NOT_STORED}」은 그 시나리오가 저장된 비교에 없다는 뜻이고, "
+        f"「{ACTUAL_CII_NOT_COMPUTABLE}」는 재료(실적 거리 · 모든 유종의 실적 연료 · "
+        "비교가 쓴 용량)가 모자라 내지 않았다는 뜻이며, 「—」는 기록된 값이 없다는 뜻입니다."
+    )
+
+
+async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSection | None:
     """시나리오 사후 비교 (``PRD §25.2.1``).
 
-    *"이 항차에서 감속했다면 등급이 어떻게 달라졌는가"* 를 보이는 섹션이다.
+    *"이 항차에서 감속했다면 등급이 어떻게 달라졌는가"* 를 보이는 섹션이다. 직항·우회·감속
+    3종과 **실적**을 나란히 싣는다 (`#2092` — 종전에는 채택된 한 행뿐이었다).
 
     **저장된 값을 그대로 인용한다.** 재계산하면 파라미터 개정·기상 갱신으로 과거
     비교 근거가 바뀐다. 이력이 없으면 ``None`` — 없는 비교를 만들지 않는다.
+
+    ## 어느 비교를 싣는가
+
+    비교 3행은 ``voyage_id`` 없이 저장되고, 항차와 이어지는 것은 **채택한 한 행**뿐이다
+    (``services/scenario_adopt.py``). 그래서 기준은 하나다 — **이 항차에 지금 채택된 행이
+    속한 비교**. 형제 두 행은 그 행의 id를 담은 계산 이력(``SCENARIO``)의
+    ``result_json.scenarios[]``에서 온다. 같은 항차로 비교를 여러 번 돌렸어도, 다시
+    채택해 옛 채택 행이 남아 있어도 한 묶음만 잡힌다.
+
+    - 이 항차에 이어진 행이 없다 → 절을 생략한다. **비교를 돌리지 않은 항차와 비교만 하고
+      채택하지 않은 항차는 저장 구조에서 구분되지 않는다** — 둘 다 이어진 행이 없다.
+    - 채택 행을 만든 이력이 없다(저장하지 않는 경로가 남긴 행 — `#2088` 이전) → 채택 행만
+      값을 싣고 나머지 종류는 「이력 없음」이다. 선박의 다른 비교에서 끌어오지 않는다.
     """
-    rows = (
+    linked = (
         (
             await session.execute(
                 select(VoyageScenario)
@@ -193,37 +342,98 @@ async def _scenario_section(session: AsyncSession, voyage) -> TableSection | Non
                     VoyageScenario.voyage_id == voyage.id,
                     VoyageScenario.is_deleted == 0,
                 )
-                .order_by(VoyageScenario.created_at, VoyageScenario.id)
+                # 채택 행이 먼저, 그다음 최신순. 채택 행은 항차당 하나다(`#1626`).
+                .order_by(
+                    VoyageScenario.is_adopted.desc(),
+                    VoyageScenario.created_at.desc(),
+                    VoyageScenario.id,
+                )
             )
         )
         .scalars()
         .all()
     )
-    if not rows:
+    if not linked:
         return None
+    anchor = linked[0]
+
+    by_type: dict[str, dict[str, object]] = {
+        anchor.scenario_type: {
+            "scenario_id": str(anchor.id),
+            "scenario_name": anchor.scenario_name,
+            "distance_nm": anchor.distance_nm,
+            "speed_kn": anchor.speed_kn,
+            "duration_hours": anchor.duration_hours,
+            "fuel_ton": anchor.fuel_ton,
+            "cii": anchor.cii_value,
+            "estimated_rating": anchor.estimated_rating,
+        }
+    }
+    transport_capacity: Decimal | None = None
+    capacity_basis: str | None = None
+    run = await calc_run_repo.find_scenario_run(
+        session, vessel_id=voyage.vessel_id, scenario_id=anchor.id
+    )
+    if run is not None:
+        # 정본은 계산 이력이다(``DB_SCHEMA §2.4`` `[M-8]` — 시나리오 행의 ``cii_value``는
+        # 조회용 사본). 이력이 있으면 채택 행까지 이력의 값으로 싣는다.
+        #
+        # 모양을 믿지 않는다 — 키가 빠진 항목은 건너뛰어 그 종류를 「이력 없음」으로 둔다.
+        # 채택 행은 위에서 제 행의 값으로 이미 들어 있으므로 그 종류만은 값이 남는다. 저장
+        # 경로(`services/scenario_compare.py`)는 `#373` 이후 이 키를 전부 써 왔지만, 이력 한
+        # 건의 모양이 리포트 전체를 막아서는 안 된다.
+        payload = run.result_json if isinstance(run.result_json, dict) else {}
+        items = payload.get("scenarios")
+        for item in items if isinstance(items, list) else []:
+            if not isinstance(item, dict) or any(key not in item for key in _RUN_ITEM_KEYS):
+                continue
+            by_type[item["scenario_type"]] = {
+                "scenario_id": item.get("scenario_id"),
+                "scenario_name": item.get("scenario_name"),
+                # 입력 에코 둘은 JSON 숫자다 — ``str``을 거쳐 이진 오차 없이 옮긴다.
+                "distance_nm": None if item["distance_nm"] is None else str(item["distance_nm"]),
+                "speed_kn": None if item["speed_kn"] is None else str(item["speed_kn"]),
+                "duration_hours": item["duration_hours"],
+                "fuel_ton": item["fuel_ton"],
+                "cii": item["attained_cii"],
+                "estimated_rating": item["estimated_rating"],
+            }
+            basis = item.get("calculation_basis")
+            basis = basis if isinstance(basis, dict) else {}
+            if transport_capacity is None and basis.get("transport_capacity") is not None:
+                # 읽을 수 없거나 양의 유한값이 아니면 용량을 모르는 것으로 둔다 — 실적 CII는
+                # 「용량을 알 수 없어 내지 않았습니다」가 된다.
+                try:
+                    parsed = Decimal(str(basis["transport_capacity"]))
+                except InvalidOperation:
+                    parsed = None
+                if parsed is not None and parsed.is_finite() and parsed > 0:
+                    transport_capacity = parsed
+                    capacity_basis = basis.get("transport_capacity_basis")
+
+    rows = []
+    for scenario_type in _SCENARIO_ORDER:
+        values = by_type.get(scenario_type)
+        rows.append(
+            _scenario_row(
+                str((values or {}).get("scenario_name") or SCENARIO_NAMES[scenario_type]),
+                values,
+                adopted=bool(
+                    values and anchor.is_adopted and values["scenario_id"] == str(anchor.id)
+                ),
+            )
+        )
+    rows.append(_actual_row(voyage, fuel_uses, transport_capacity))
 
     table = TableSection(
         title="시나리오 사후 비교",
-        headers=["시나리오", "거리 (nm)", "속력 (kn)", "소요 (h)", "연료 (t)", "CII", "예상 등급"],
-        # 수치 열 선언 (#1247) — 시나리오 이름은 사용자 입력이고 등급은 글자다.
+        headers=["구분", "거리 (nm)", "속력 (kn)", "소요 (h)", "연료 (t)", "CII", "예상 등급"],
+        # 수치 열 선언 (#1247) — 구분은 라벨이고 등급은 글자다. 「이력 없음」·「계산 불가」는
+        # 숫자 문법에 안 맞아 문자열 규칙으로 되돌아간다.
         kinds=["string", "numeric", "numeric", "numeric", "numeric", "numeric", "string"],
-        rows=[
-            [
-                f"{row.scenario_name}{' (채택)' if row.is_adopted else ''}",
-                _display(row.distance_nm, "distance_nm"),
-                _display(row.speed_kn, "speed_kn"),
-                _display(row.duration_hours, "hours"),
-                _display(row.fuel_ton, "fuel_ton"),
-                _display(row.cii_value, "cii"),
-                _text(row.estimated_rating),
-            ]
-            for row in rows
-        ],
+        rows=rows,
         # `PRD §11` 중립 비교 원칙 — 우선순위를 부여하지 않는다.
-        note=(
-            "항차 착수 전 저장된 비교 이력을 그대로 인용했습니다(재계산하지 않음). "
-            "시스템은 수치만 비교하며 최종 운항 판단은 사용자에게 있습니다."
-        ),
+        note=_scenario_note(transport_capacity, capacity_basis),
     )
     table.validate()
     return table
@@ -394,7 +604,7 @@ async def build_voyage_report(
         warnings=[warning_label(code) for code in ytd.warnings],
     )
 
-    scenarios = await _scenario_section(session, voyage)
+    scenarios = await _scenario_section(session, voyage, fuel_uses)
     if scenarios is not None:
         document.sections.append(scenarios)
 
