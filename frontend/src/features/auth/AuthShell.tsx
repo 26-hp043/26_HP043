@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
 import { Field } from '../../components/Field'
-import { BeomiScene } from './BeomiScene'
+import { BeomiFigure, BeomiSea } from './BeomiScene'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -84,7 +84,7 @@ export function AuthShell({
           가르는 이유는, 1100px 이하에서 판이 상단 띠로 접힐 때(확정 3-3) 소개와
           함께 사라져야 하기 때문이다 — 띠에 바다만 남으면 로고 옆에서 거품이 올라간다.
         */}
-        {intro ? <BeomiScene /> : null}
+        {intro ? <BeomiSea /> : null}
 
         <p className="auth-brand">
           <BrandLogo />
@@ -124,6 +124,14 @@ export function AuthShell({
             </ul>
           </div>
         ) : null}
+
+        {/*
+          범이는 **소개 뒤**에 온다 (`#2157`). 판의 flex 항목이라 남은 높이를 받아
+          가므로, 소개가 길어지면 그림이 그만큼 작아진다 — 겹칠 수가 없다.
+          종전에는 물과 함께 띄워 두고 높이를 상수로 줬고, 좁은 폭에서 계층 목록
+          셋째 줄이 범이 모자 위에 그려졌다.
+        */}
+        {intro ? <BeomiFigure /> : null}
       </aside>
 
       {/* 우: 종전 카드 그대로. 폼과 링크의 구조는 바뀌지 않는다. */}

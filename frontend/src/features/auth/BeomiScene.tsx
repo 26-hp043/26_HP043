@@ -267,9 +267,12 @@ function Foam({ front }: { readonly front: boolean }) {
   )
 }
 
-export function BeomiScene() {
-  const { flipper, pivotInFlipper } = geometry
-
+/**
+ * 물 — 판 뒤에 깔리는 배경 한 겹. 글자도 범이도 이 위에 온다.
+ *
+ * 범이는 **여기 들어 있지 않다**(`#2157`). 아래 `BeomiFigure` 주석을 보라.
+ */
+export function BeomiSea() {
   return (
     <div className="beomi-sea" aria-hidden="true">
       <span className="beomi-deep" />
@@ -337,34 +340,56 @@ export function BeomiScene() {
         />
       ))}
 
-      <span className="beomi-figure">
-        <Foam front={false} />
-        <img
-          className="beomi-body"
-          src={BODY_1X}
-          srcSet={`${BODY_1X} 1x, ${BODY_2X} 2x`}
-          alt=""
-        />
-        {/*
-          지느러미의 자리와 회전축은 **자산에서 나온 값**이다(`beomiHello.geometry.json`).
-          손으로 옮겨 적으면 자산을 다시 뽑는 날 둘이 갈리고, 그러면 지느러미가 몸에서
-          어긋난 채 돈다 — 화면 검사는 그래도 통과한다.
-        */}
-        <img
-          className="beomi-flipper"
-          src={FLIPPER_1X}
-          srcSet={`${FLIPPER_1X} 1x, ${FLIPPER_2X} 2x`}
-          alt=""
-          style={{
-            left: `${flipper.left}%`,
-            top: `${flipper.top}%`,
-            inlineSize: `${flipper.width}%`,
-            blockSize: `${flipper.height}%`,
-            transformOrigin: `${pivotInFlipper[0]}% ${pivotInFlipper[1]}%`,
-          }}
-        />
-        <Foam front />
-      </span>
     </div>
+  )
+}
+
+/**
+ * 범이 — **글 흐름 안에 둔다** (`#2157`).
+ *
+ * ⚠️ 처음에는 물과 함께 띄워 두고(`position: absolute`) 높이를 `min(52vh, 470px)`로
+ * 줬다. 그러면 그림이 **소개 문장이 어디서 끝나는지 모른다** — 화면이 낮거나 판이
+ * 좁아 문장이 한 줄 더 늘면 계층 목록 셋째 줄이 범이 모자 위에 그려졌다(1280×720에서
+ * 65px 겹쳤다). 겹침을 상수로 피하려 하면 **문구가 한 줄 늘 때마다 그 상수가 틀린다.**
+ *
+ * 그래서 판의 **flex 항목**으로 둔다. 남은 높이를 받아 가므로 소개가 길어지면 범이가
+ * 그만큼 작아지고, 겹칠 수가 없다 — 계산은 브라우저가 한다.
+ *
+ * 물(`BeomiSea`)과 떨어져 있지만 같은 파일에 둔다. 둘은 **한 장면**이고, 자리만
+ * 다르다 — 물은 판 뒤에 깔리고 범이는 글 아래에 선다.
+ */
+export function BeomiFigure() {
+  const { flipper, pivotInFlipper } = geometry
+
+  return (
+    <span className="beomi-figure" aria-hidden="true">
+
+      <Foam front={false} />
+      <img
+        className="beomi-body"
+        src={BODY_1X}
+        srcSet={`${BODY_1X} 1x, ${BODY_2X} 2x`}
+        alt=""
+      />
+      {/*
+        지느러미의 자리와 회전축은 **자산에서 나온 값**이다(`beomiHello.geometry.json`).
+        손으로 옮겨 적으면 자산을 다시 뽑는 날 둘이 갈리고, 그러면 지느러미가 몸에서
+        어긋난 채 돈다 — 화면 검사는 그래도 통과한다.
+      */}
+      <img
+        className="beomi-flipper"
+        src={FLIPPER_1X}
+        srcSet={`${FLIPPER_1X} 1x, ${FLIPPER_2X} 2x`}
+        alt=""
+        style={{
+          left: `${flipper.left}%`,
+          top: `${flipper.top}%`,
+          inlineSize: `${flipper.width}%`,
+          blockSize: `${flipper.height}%`,
+          transformOrigin: `${pivotInFlipper[0]}% ${pivotInFlipper[1]}%`,
+        }}
+      />
+      <Foam front />
+    </span>
   )
 }

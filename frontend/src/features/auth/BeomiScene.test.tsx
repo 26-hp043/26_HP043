@@ -6,25 +6,40 @@ import { render } from '@testing-library/react'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AuthShell } from './AuthShell'
-import { BeomiScene } from './BeomiScene'
 import geometry from './beomiHello.geometry.json'
 
 const css = readFileSync(join(process.cwd(), 'src/features/auth/BeomiScene.css'), 'utf-8')
 /** 규칙 검사가 설명 문장에 걸리지 않게 한다 — `#831`·`#829`·`#694`에서 세 번 밟았다. */
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 const source = readFileSync(join(process.cwd(), 'src/features/auth/BeomiScene.tsx'), 'utf-8')
+const shellCss = readFileSync(join(process.cwd(), 'src/features/auth/AuthShell.css'), 'utf-8')
 
+/**
+ * **판을 통째로 그린다** — 조각만 그리지 않는다 (`#2157`).
+ *
+ * 장면은 두 조각(`BeomiSea` · `BeomiFigure`)이고, **그 둘이 판에서 어디에 놓이는지**가
+ * 이 장면의 요점이다. 조각만 그려 보면 자리가 바뀌어도 검사가 통과한다 — 실제로
+ * 범이가 소개 위로 올라와 계층 목록과 겹친 것이 그 자리였다.
+ */
 function scene() {
-  const { container } = render(<BeomiScene />)
+  const { container } = render(
+    <AuthShell title="로그인" intro>
+      폼
+    </AuthShell>,
+  )
   return container
 }
 
 describe('로그인 화면의 바다 — #2076', () => {
   it('로그인 화면에만 나온다 — 나머지 셋에는 없다', () => {
     /*
-     * 소개 블록과 **같은 깃발**로 가른다. 1100px 이하에서 판이 상단 띠로 접힐 때
-     * (확정 3-3) 소개와 함께 사라져야 하기 때문이다 — 띠에 바다만 남으면 로고
-     * 옆에서 거품이 올라간다.
+     * 소개 블록과 **같은 깃발**로 가른다.
+     *
+     * ⚠️ 깃발만으로는 모자랐다 (`#2157`). 1100px 이하에서 판이 상단 띠로 접힐 때
+     * (확정 3-3) 소개와 함께 사라져야 하는데, **그렇게 만드는 규칙이 없었다** —
+     * `@media`가 `.auth-intro`만 접었고 장면은 판의 다른 자식이라 83px 띠 안에
+     * 범이 몸통과 산호가 잘린 채 남았다. 적어 둔 것과 도는 것이 갈려 있었고,
+     * 아래 「접힌 띠」 검사가 이제 그 자리를 본다.
      */
     const { container: login } = render(
       <AuthShell title="로그인" intro>
@@ -44,7 +59,9 @@ describe('로그인 화면의 바다 — #2076', () => {
      */
     const container = scene()
     expect(container.querySelector('.beomi-sea')?.getAttribute('aria-hidden')).toBe('true')
-    for (const img of container.querySelectorAll('img')) {
+    expect(container.querySelector('.beomi-figure')?.getAttribute('aria-hidden')).toBe('true')
+    // 판 전체를 그리므로 로고까지 잡힌다 — **장면의 그림만** 본다.
+    for (const img of container.querySelectorAll('.beomi-figure img')) {
       expect(img.getAttribute('alt')).toBe('')
     }
   })
@@ -55,7 +72,7 @@ describe('로그인 화면의 바다 — #2076', () => {
      * 통과한다. 깨진 그림도 렌더 트리에서는 `<img>`다.
      */
     const container = scene()
-    const sources = [...container.querySelectorAll('img')].flatMap((img) => [
+    const sources = [...container.querySelectorAll('.beomi-figure img')].flatMap((img) => [
       img.getAttribute('src') ?? '',
       ...(img.getAttribute('srcset') ?? '').split(',').map((part) => part.trim().split(/\s+/)[0]),
     ])
@@ -172,6 +189,71 @@ describe('로그인 화면의 바다 — #2076', () => {
     expect(rules).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     expect(rules).not.toMatch(/\brgba?\(/)
     expect(rules).toContain('color-mix(in srgb, var(--brand-gradient-to)')
+  })
+
+  /**
+   * **접힌 띠에서 장면이 사라진다** (`#2157`).
+   *
+   * 소개를 접는 그 블록이 장면도 접어야 한다. 두 규칙이 **다른 블록**에 있으면
+   * 중단점이 바뀌는 날 한쪽만 따라가고, 그 어긋남은 1100px 이하에서만 보인다.
+   */
+  it('소개를 접는 그 블록이 바다와 범이도 접는다 (#2157)', () => {
+    const shellRules = shellCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    const at = shellRules.indexOf('@media (width <= 1100px)')
+    expect(at, '1100px 블록을 찾지 못했다').toBeGreaterThan(-1)
+
+    // 블록 하나를 중괄호를 세며 끊는다 — 안에 규칙이 여럿 들어 있다.
+    let depth = 0
+    let end = at
+    for (let i = shellRules.indexOf('{', at); i < shellRules.length; i += 1) {
+      if (shellRules[i] === '{') depth += 1
+      else if (shellRules[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+    const block = shellRules.slice(at, end)
+
+    expect(block).toMatch(/\.auth-intro\s*\{[^}]*display:\s*none/)
+    expect(block, '바다가 접힌 띠에 남는다').toContain('.beomi-sea')
+    expect(block, '범이가 접힌 띠에 남는다').toContain('.beomi-figure')
+    expect(block.slice(block.indexOf('.beomi-sea'))).toMatch(/display:\s*none/)
+  })
+
+  /**
+   * **범이는 소개 아래, 판의 자식이다** (`#2157`).
+   *
+   * 겹치지 않는 이유가 **숫자가 아니라 구조**다. 그림이 글 흐름 안에 있고 남은
+   * 높이를 받아 가므로, 소개가 길어지면 그림이 작아진다. 다시 띄워 두면(절대 위치)
+   * 그림은 소개가 어디서 끝나는지 모르게 되고 겹침이 돌아온다 — 1280×720에서 65px
+   * 겹쳤던 자리다.
+   *
+   * 멈춘 화면으로는 안 보인다. jsdom은 배치를 하지 않으므로 **구조**를 잠근다.
+   */
+  it('범이가 소개 뒤에 오고 바다 안에 들어 있지 않다 (#2157)', () => {
+    const container = scene()
+    const panel = container.querySelector('.auth-brand-panel') as HTMLElement
+    const figure = container.querySelector('.beomi-figure') as HTMLElement
+    const intro = container.querySelector('.auth-intro') as HTMLElement
+    const sea = container.querySelector('.beomi-sea') as HTMLElement
+
+    expect(figure.parentElement, '범이가 판의 직계 자식이 아니다').toBe(panel)
+    expect(sea.contains(figure), '범이가 다시 바다 안에 들어갔다').toBe(false)
+    expect(
+      intro.compareDocumentPosition(figure) & Node.DOCUMENT_POSITION_FOLLOWING,
+      '범이가 소개보다 앞에 온다',
+    ).toBeTruthy()
+
+    // 띄워 두지 않는다 — 띄우면 남은 높이를 받지 못한다.
+    const rule = rules.slice(rules.indexOf('.beomi-figure {'))
+    const body = rule.slice(0, rule.indexOf('}'))
+    expect(body).not.toMatch(/position:\s*absolute/)
+    expect(body).not.toMatch(/inset-block-end/)
+    expect(body).toMatch(/flex:\s*1/)
+    expect(body).toContain('min-block-size: 0')
   })
 
   it('자리 값이 **표로** 모여 있다 — 마크업에 흩어져 있지 않다', () => {
