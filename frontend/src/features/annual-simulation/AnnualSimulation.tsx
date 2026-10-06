@@ -7,6 +7,7 @@ import { DISPLAY_DIGITS, NO_TIMESTAMP_TEXT, formatDecimalString, formatTimestamp
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
+import { VESSEL_QUERY_KEY } from '../../layout/globalContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
@@ -788,6 +789,7 @@ export function AnnualSimulation({
             <Result
               key={state.result.simulation_id}
               result={state.result}
+              vesselId={shell.vesselId}
               conditions={
                 state.restored ? { ...state.conditions, vesselName: targetVessel } : state.conditions
               }
@@ -886,12 +888,15 @@ function FutureYearsLine({
 
 function Result({
   result,
+  vesselId,
   conditions,
   restored,
   provider,
   mapGeometryProvider,
 }: {
   result: AnnualSimulationResult
+  /** 다음 행동 링크(항로 비교)가 같은 배를 담아 간다 (#2222). 상단바 전역 선택이 소유한다. */
+  vesselId: string | null
   conditions: RunConditions
   restored?: { createdAt: string; needsRecalc: boolean }
   provider: AnnualSimulationProvider
@@ -1220,6 +1225,22 @@ function Result({
             </>
           )}
         </section>
+      ) : null}
+
+      {/*
+        다음 행동 — 결과 맨 아래 한 줄, 하나만 (#2222 · `DESIGN_SYSTEM §8` 결과 카드). 띠 아래
+        「가장 크게 움직이는 변수」(#2208)를 **이번 항로로 확인하는 곳**이 항로 비교다 — 같은 배가
+        선택된 채로 간다(쿼리로 선박을 담는 화면이다). 「함대 단위로 보기」는 실행 조건 쪽 진입로라
+        그 자리에 둔다(rlatnals4114 결정).
+      */}
+      {vesselId !== null ? (
+        <p className="result-card__next">
+          <Link
+            to={`${SCREEN_BY_ID.ROUTE_COMPARISON.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: vesselId })}`}
+          >
+            {SCREEN_BY_ID.ROUTE_COMPARISON.label}
+          </Link>
+        </p>
       ) : null}
 
       {/*

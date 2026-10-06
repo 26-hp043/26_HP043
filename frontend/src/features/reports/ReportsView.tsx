@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PageHeader } from '../../components/PageHeader'
-import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
+import {
+  SELECT_VESSEL_FIRST,
+  YEAR_STATE_COPY,
+  useYearOptions,
+  yearStateText,
+} from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   coerceYear,
@@ -101,7 +106,12 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    * 배가 선택된 줄 알고 리포트를 누른다.
    */
   const [shellVesselMissing, setShellVesselMissing] = useState(false)
-  const [year, setYear] = useState(() => new Date().getFullYear())
+  /**
+   * 사용자가 고른 해. 화면과 요청에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에
+   * 정한다 (#2183 · `FleetReduction`의 `chosenYear`와 같은 형태). 고르기 전에는 `null`이다 —
+   * 종전 초깃값은 **기기 시계의 해**였고, 목록을 못 받으면 그 값으로 연간 리포트를 요청했다.
+   */
+  const [chosenYear, setChosenYear] = useState<number | null>(null)
   /*
    * 규제연도 선택지 (`#635`). 기능①·연간 시뮬레이션·항로 비교가 이미 쓰는 훅이며
    * (`#632`), 보고서 화면만 로컬 상수를 보고 있었다.
@@ -110,11 +120,25 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    * 올해까지 · 최신 연도부터는 이제 훅이 모든 조회 화면에 같게 한다 (#1584) — 종전에는
    * 이 화면만 `reportRules.yearOptions`로 따로 하고 있었다.
    */
-  const {
-    years,
-    loading: yearsLoading,
-    failed: yearsFailed,
-  } = useYearOptions(vesselId, { throughCurrentYear: true })
+  const yearOptions = useYearOptions(vesselId, { throughCurrentYear: true })
+  const { years } = yearOptions
+  /**
+   * 연도 칸의 상태 문구 — 로딩·실패·빈 목록이 서로 다르다 (#2120 · #2183). 목록이 있으면
+   * `null`이다. 선박을 고르기 전에는 쓰지 않는다(그때는 `SELECT_VESSEL_FIRST`가 말한다).
+   *
+   * 훅의 답이 **지금 선박의 것이 아니면** 불러오는 중으로 읽는다. 선박을 바꾼 바로 그 렌더에서
+   * 훅은 아직 앞 선박의 목록을 들고 있고 로딩도 서지 않았다 — 그 렌더를 「목록이 있다」로 읽으면
+   * 연도가 값 → `null` → 값으로 튀어, 열어 둔 미리보기가 새 선박의 문서를 두 번 묻는다.
+   */
+  const yearText =
+    yearOptions.settledFor !== vesselId ? YEAR_STATE_COPY.loading : yearStateText(yearOptions)
+  /**
+   * 요청에 실을 연도 (#2183). **목록에서 정한다** — 목록이 없으면(로딩·실패·빈 목록) `null`이고
+   * 그때 연간 리포트는 요청하지 않는다. 선박을 바꾸면 훅이 새 목록을 받는 동안 옛 목록을
+   * 들고 있으므로, 목록 길이가 아니라 상태 문구로 판단한다(위 `yearText`) — 옛 선박의 해로
+   * 새 선박의 문서를 묻지 않는다. 고른 해가 새 목록에 없으면 가장 최근 연도로 떨어진다.
+   */
+  const year = yearText === null ? coerceYear(years, chosenYear) : null
 
   const [preview, setPreview] = useState<{ target: ReportTarget; html: string } | null>(
     null,
@@ -127,20 +151,6 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    * 판정은 미리보기를 따라가는 효과(#1768)와 같은 `targetKey`다 — 기준을 두 벌 두지 않는다.
    */
   const [saved, setSaved] = useState<{ name: string; key: string } | null>(null)
-
-  /*
-   * 선택된 연도를 목록 안으로 맞춘다 (`#635`).
-   *
-   * 화면은 올해를 기본값으로 들고 시작하는데 **서버 목록이 올해를 포함하지 않을 수
-   * 있다.** 그대로 두면 select는 첫 항목을 보이는데 화면의 상태는 여전히 올해라,
-   * 사용자가 보는 연도와 요청하는 연도가 갈린다.
-   */
-  useEffect(() => {
-    const next = coerceYear(years, year)
-    if (next !== null && next !== year) setYear(next)
-    // `years`는 매 렌더 새 배열이라 의존성에 넣으면 무한 루프다 — 내용으로 비교한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [years.join(','), year])
 
   useEffect(() => {
     api
@@ -256,8 +266,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     voyages.some((item) => item.id === shellVoyageId && !item.reportable)
 
   const resolve = useCallback((): ReportTarget | string => {
+    // 연도 목록이 없으면 연간 리포트를 만들지 않는다 (#2183). 사유는 연도 칸의 상태 문구 그대로다.
+    if (kind === 'ANNUAL' && vesselId && yearText !== null) return yearText
     return targetOf(kind, { vesselId, voyageId, year })
-  }, [kind, vesselId, voyageId, year])
+  }, [kind, vesselId, voyageId, year, yearText])
 
   /*
    * 늦게 온 문서를 버리는 표 (#1768 · `#1657`과 같은 배선).
@@ -335,10 +347,21 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    * 문구(`targetOf`의 반환값 · 마침표 있음)와는 다른 상태이며, 같은 절의 현행 관례 ②에
    * 따라 마침표를 찍지 않는다.
    *
-   * 연간 실적은 선박만 고르면 완전해지므로, 이 자리에 남는 것은 항차뿐이다.
+   * 연간 실적은 선박과 연도 목록이 있으면 완전해지므로, 그 밖에 이 자리에 남는 것은
+   * 항차뿐이다. 연도 목록이 없을 때는 연도 칸의 상태 문구를 그대로 쓴다 (#2183).
    */
   // 같은 상태의 같은 문장이다 (`PRD §6.4`) — 연도 칸과 한 곳에서 낸다 (#2048).
-  const blocking = vesselId ? '항차를 먼저 선택해 주세요' : SELECT_VESSEL_FIRST
+  const blocking = !vesselId
+    ? SELECT_VESSEL_FIRST
+    : kind === 'ANNUAL' && yearText !== null
+      ? yearText
+      : '항차를 먼저 선택해 주세요'
+  /**
+   * 연간 리포트인데 연도가 없다 (#2183) — 미리보기·PDF·CSV를 잠근다. 사유는 연도 칸의
+   * 상태 문구(`rp-year-state`)가 말하고, 버튼이 그것을 가리킨다(`§14` 「비활성의 사유」).
+   * 선박을 고르기 전에는 잠그지 않는다 — 그때는 종전대로 누르면 「선박을 선택해 주세요」다.
+   */
+  const yearBlocked = kind === 'ANNUAL' && vesselId !== '' && year === null
 
   /*
    * 한 번 만든 뒤에는 조건을 따라간다 (#1768).
@@ -470,9 +493,9 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   전부 `—`인 빈 문서가 `200 OK`로 나왔다.
                 */}
                 <select
-                  value={year}
-                  onChange={(event) => setYear(Number(event.target.value))}
-                  disabled={!vesselId || years.length === 0}
+                  value={year ?? ''}
+                  onChange={(event) => setChosenYear(Number(event.target.value))}
+                  disabled={!vesselId || year === null}
                   data-testid="year-select"
                 >
                   {/*
@@ -493,14 +516,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   안내를 쓴다. 「없다」와 「아직 모른다」를 같게 그리면 사용자는 기다려야
                   할지 문의해야 할지 판단할 수 없다.
                 */}
-                {vesselId && yearsLoading ? (
-                  <em className="rp__hint">{YEAR_STATE_COPY.loading}</em>
-                ) : null}
-                {vesselId && yearsFailed ? (
-                  <em className="rp__hint">{YEAR_STATE_COPY.failed}</em>
-                ) : null}
-                {vesselId && !yearsLoading && !yearsFailed && years.length === 0 ? (
-                  <em className="rp__hint">{YEAR_STATE_COPY.empty}</em>
+                {vesselId && yearText !== null ? (
+                  <em id="rp-year-state" className="rp__hint">
+                    {yearText}
+                  </em>
                 ) : null}
               </label>
             ) : (
@@ -572,7 +591,8 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               type="button"
               className="rp__action"
               onClick={() => void run('preview')}
-              disabled={busy !== null}
+              disabled={busy !== null || yearBlocked}
+              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
               data-testid="preview-button"
             >
               {busy === 'preview' ? '만드는 중…' : '미리보기'}
@@ -581,7 +601,8 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               type="button"
               className="rp__action rp__primary"
               onClick={() => void run('pdf')}
-              disabled={busy !== null}
+              disabled={busy !== null || yearBlocked}
+              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
               data-testid="pdf-button"
             >
               {busy === 'pdf' ? '만드는 중…' : 'PDF 내려받기'}
@@ -590,7 +611,8 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               type="button"
               className="rp__action"
               onClick={() => void run('csv')}
-              disabled={busy !== null}
+              disabled={busy !== null || yearBlocked}
+              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
               data-testid="csv-button"
             >
               {busy === 'csv' ? '만드는 중…' : 'CSV 내려받기'}

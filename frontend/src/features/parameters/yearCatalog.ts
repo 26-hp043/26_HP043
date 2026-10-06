@@ -165,6 +165,13 @@ export interface YearOptionsState {
   years: number[]
   loading: boolean
   failed: boolean
+  /**
+   * 위 셋이 **어느 선박의 답인지** (#2183). 선박을 바꾼 바로 그 렌더에서는 `loading`이 아직
+   * 서지 않았고 `years`는 앞 선박의 목록이다 — 그 한 렌더를 「목록이 있다」로 읽으면 화면이
+   * 앞 선박의 해로 새 선박을 묻는다. 인자로 넘긴 `vesselId`와 다르면 아직 답이 아니다.
+   * 선박이 비어 조회하지 않았을 때는 `''`이다.
+   */
+  settledFor: string
 }
 
 /**
@@ -182,7 +189,11 @@ export const YEAR_STATE_COPY = {
 } as const
 
 /** 연도 칸이 목록 대신 보일 문구. 목록이 있으면 `null`이다(칸을 그린다). */
-export function yearStateText({ years, loading, failed }: YearOptionsState): string | null {
+export function yearStateText({
+  years,
+  loading,
+  failed,
+}: Pick<YearOptionsState, 'years' | 'loading' | 'failed'>): string | null {
   if (loading) return YEAR_STATE_COPY.loading
   if (failed) return YEAR_STATE_COPY.failed
   return years.length === 0 ? YEAR_STATE_COPY.empty : null
@@ -228,6 +239,7 @@ export function useYearOptions(
   const [years, setYears] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
+  const [settledFor, setSettledFor] = useState('')
 
   useEffect(() => {
     if (!vesselId) {
@@ -235,6 +247,7 @@ export function useYearOptions(
       setYears([])
       setLoading(false)
       setFailed(false)
+      setSettledFor('')
       return
     }
     let cancelled = false
@@ -253,12 +266,14 @@ export function useYearOptions(
         setYears([])
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+        setLoading(false)
+        setSettledFor(vesselId)
       })
     return () => {
       cancelled = true
     }
   }, [catalog, vesselId, throughCurrentYear])
 
-  return { years, loading, failed }
+  return { years, loading, failed, settledFor }
 }
