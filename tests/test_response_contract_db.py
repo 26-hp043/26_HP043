@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -56,11 +57,18 @@ from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import API_V1_PREFIX, app
+from cii_platform.db import demo_seed
 
 #: 데모 시드의 고정 선박 (`db/demo_seed.py`).
 DEMO_VESSEL = "00000000-0000-4000-8000-000000000003"
 #: 벌크선 — 잔여 계획 항차 2건(`#816` v2의 `fuel_types`가 비지 않으려면 계획이 있어야 한다)
 DEMO_VESSEL_WITH_PLANS = "00000000-0000-4000-8000-000000000001"
+#: 시드 기준 질의 (`#2106`). 「올해」 응답은 연도·기준 시각을 비우면 서버 시각을 쓰는데,
+#: 2027년부터는 올해에 시드 항차가 없어 `data.points[]`·`drivers[]`·`actions[]`가 비고
+#: 그 아래 키가 통째로 사라진다 — 계약이 바뀐 것이 아니라 행이 없는 것인데 같은 모양으로
+#: 실패한다. 값은 `test_cii_ytd_series_db.DEMO_AS_OF`와 같다. `Z` 표기인 것은 `+00:00`의
+#: `+`가 쿼리 문자열에서 공백으로 읽혀 422가 나기 때문이다.
+_SEED_QUERY = f"year=2026&as_of={demo_seed.DEMO_ANCHOR + timedelta(days=3):%Y-%m-%dT%H:%M:%SZ}"
 
 _BASE = "https://testserver"
 _ROOT = Path(__file__).resolve().parents[1]
@@ -304,7 +312,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
         }
     ),
     # `API_SPEC §2.11`
-    "/vessels/{vessel_id}/cii/current": frozenset(
+    f"/vessels/{{vessel_id}}/cii/current?{_SEED_QUERY}": frozenset(
         {
             "data",
             "data.current_voyage",
@@ -374,7 +382,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
     ),
     # `API_SPEC §2.18` (#1671) — 올해 누적 CII 추이. 점의 키 집합은 종류(ACTUAL ·
     # IN_PROGRESS · PLAN)와 무관하게 같다 — ``null``이어도 키를 싣는다.
-    "/vessels/{vessel_id}/cii/ytd-series": frozenset(
+    f"/vessels/{{vessel_id}}/cii/ytd-series?{_SEED_QUERY}": frozenset(
         {
             "data",
             "data.boundaries",
@@ -524,7 +532,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
         }
     ),
     # `API_SPEC §2.8`
-    "/fleet/summary?year=2026": frozenset(
+    f"/fleet/summary?{_SEED_QUERY}": frozenset(
         {
             "data",
             "data.actions",
