@@ -18,6 +18,11 @@ Create Date: 2026-10-06
 ``054`` docstring과 ``DB_SCHEMA §2.10``은 「**활성 행끼리만** 유일하다」고 적는데, 집행은
 「활성 행이 있으면 같은 키는 아무것도 못 쓴다」였다.
 
+새 조건은 ``new.is_active``를 본다. 열을 생략한 INSERT에서도 ``new.is_active``는 기본값 1이다
+(열이 ``NOT NULL DEFAULT 1`` · ``tests/test_parameter_migrations.py``의
+``test_refline_unique_rejects_duplicate``가 열을 생략한 INSERT 둘로 거부를 잠근다). NULL이면
+조건 전체가 NULL이 되어 활성 중복이 열리므로, 이 전제가 깨지면 그 검사가 실패한다.
+
 지금까지 드러나지 않은 것은 운영의 두 쓰기 경로가 그 좁은 조건을 우연히 피해 가기
 때문이다 — ``services/parameter_import._apply_versioned``는 기존 활성 행을 **먼저** 끄고
 (UPDATE · 자기 자신은 ``id <> new.id``로 빠진다) 새 활성 행을 넣으며, ``db/seed._upsert_active``는
