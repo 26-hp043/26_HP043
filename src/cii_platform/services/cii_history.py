@@ -37,7 +37,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import capacity_axis
-from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
+from cii_platform.calc.precision import (
+    LAYER1_ROUNDING,
+    SERIALIZATION_ROUNDING,
+    publish_layer1_canonical,
+)
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
@@ -92,9 +96,14 @@ def _publish(value: Decimal, kind: str) -> str:
     종류(CII 6>3 · 거리 2>0 · 연료·CO₂ 2>1)는 절사하고, 같은 종류(연료 비중 1=1)만
     ``ROUND_HALF_UP``이다 — 절사하면 그 문자열이 곧 표시가 되기 때문이다. 절사는 화면의 표시
     반올림과 겹쳐 두 번 반올림되는 것을 막는 장치다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    자릿수를 줄이기 **전에 30자리 공표 확정**을 거친다 (`#2184` · ``voyage_cii._publish``와
+    같은 두 단계). 작업 정밀도 값을 바로 절사하면 참값이 경계에 놓인 입력에서 ``…99998``
+    꼬리가 끝자리를 하나 내린다.
     """
+    canonical = publish_layer1_canonical(value)
     rounding = LAYER1_ROUNDING if kind in _HALF_UP_KINDS else SERIALIZATION_ROUNDING
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
+    return str(canonical.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 
 def _validate_window(start: int, end: int) -> None:
