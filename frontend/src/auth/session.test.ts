@@ -1,8 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AuthRequestError,
   avatarSrc,
   changePassword,
+  confirmPasswordReset,
+  confirmEmailVerification,
+  requestEmailVerification,
+  requestPasswordReset,
+  tourLogin,
+  updateUserRole,
+  LOGIN_PATH,
   deleteAvatar,
   uploadAvatar,
   leaveAfterPasswordChange,
@@ -22,7 +29,7 @@ import {
   updateDisplayName,
   type CurrentUser,
 } from './session'
-import { safeNext } from '../features/auth/authRules'
+import { safeNext } from './safeNext'
 import { STORAGE_KEY } from '../layout/globalContext'
 
 /**
@@ -100,6 +107,67 @@ describe('safeNext — open redirect 방어', () => {
 
   it('쿼리스트링이 포함된 경로는 그대로 보존된다', () => {
     expect(safeNext('/annual-grade?vessel=1')).toBe('/annual-grade?vessel=1')
+  })
+})
+
+/*
+ * 세션 확인의 시한 (`#2127`).
+ *
+ * 로그인·가입 화면과 가드는 확인이 끝날 때까지 자리표시만 그린다. 서버가 연결은 받고
+ * 응답을 주지 않으면 그 상태가 프록시 시한까지 이어진다 — 시한이 없으면 로그인 폼이
+ * 뜨지 않는다.
+ */
+describe('probeCurrentUser — 응답이 오지 않으면 시한 뒤 비인증으로 끝난다 (#2127)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('시한 전에는 끝나지 않고, 시한이 지나면 null로 끝나며 요청을 끊는다', async () => {
+    vi.useFakeTimers()
+    await probeCurrentUser(async () => ME_OK)
+    let signal: AbortSignal | undefined
+    let settled = false
+    const pending = probeCurrentUser(((_url: string, init: RequestInit) => {
+      signal = init.signal ?? undefined
+      return new Promise<Response>(() => {})
+    }) as unknown as typeof fetch).then((user) => {
+      settled = true
+      return user
+    })
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(settled).toBe(false)
+    expect(signal?.aborted).toBe(false)
+
+    // 프록시 시한(120초)보다 **훨씬 먼저** 끝나야 한다 — 값 자체가 아니라 그 성질을 본다.
+    await vi.advanceTimersByTimeAsync(29_000)
+    expect(settled).toBe(true)
+    expect(await pending).toBeNull()
+    expect(getCachedUser()).toBeNull()
+    expect(signal?.aborted).toBe(true)
+  })
+
+  it('시한 뒤에 늦게 온 응답은 상태를 뒤집지 않는다', async () => {
+    vi.useFakeTimers()
+    let answer: (response: Response) => void = () => {}
+    const pending = probeCurrentUser(
+      (() => new Promise<Response>((resolve) => (answer = resolve))) as unknown as typeof fetch,
+    )
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await pending).toBeNull()
+
+    answer(ME_OK)
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('제때 온 응답은 그대로 쓰고 타이머를 남기지 않는다', async () => {
+    vi.useFakeTimers()
+    const user = await probeCurrentUser(async () => ME_OK)
+    expect(user).not.toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(getCachedUser()).not.toBeNull()
   })
 })
 
@@ -196,8 +264,12 @@ describe('logout', () => {
     expect(getCachedUser()).toBeNull()
   })
 
-  it('서버 호출이 실패해도 이 기기의 상태는 초기화한다', async () => {
+  it('서버에 닿지 못하면 던지고 로그인 상태를 유지한다 (#825 ⑵ · #1659)', async () => {
     /*
+     * ⚠️ **이름을 `#2127`에서 고쳤다.** 종전 이름은 「서버 호출이 실패해도 이 기기의 상태는
+     * 초기화한다」였는데 단언은 `#1659`부터 **캐시 유지**였다 — 이름과 단언이 반대였다.
+     * 지금 규칙은 「401은 초기화 · 그 밖의 실패는 유지」이고 401은 아래 검사가 본다.
+     *
      * ⚠️ **이 검사의 전제가 `#825` ⑵에서 바뀌었다.**
      *
      * 종전 이름은 「서버 호출 실패로 로그아웃이 **막히지 않는다**」였고, 실패해도
@@ -301,11 +373,10 @@ describe('redirectToLogin', () => {
  * 실패 처리를 되돌려도 그쪽 검사 18건이 전부 통과했다(실측). 실제 구현의 계약은
  * 여기서 잠근다.
  *
- * ## `logout`과 반대다
+ * ## 실패하면 이동하지 않는다
  *
- * `logout`은 서버 호출이 실패해도 상태를 비우고 이동한다 — **로그아웃 버튼에 갇히는
- * 것이 최악**이기 때문이다. 탈퇴는 반대다: 실패한 채 로그인 화면으로 보내면 사용자는
- * **탈퇴됐다고 믿는데 계정이 살아 있다.**
+ * 실패한 채 로그인 화면으로 보내면 사용자는 **탈퇴됐다고 믿는데 계정이 살아 있다.**
+ * (`logout`도 401 밖의 실패에서는 상태를 비우지 않는다 — `#825` ⑵ · `#1659`.)
  */
 describe('deleteAccount (#754)', () => {
   it('DELETE /auth/me를 CSRF 헤더와 함께 부른다', async () => {
@@ -809,6 +880,214 @@ describe('프로필 이미지 — #2080', () => {
         uploadAvatar(file, fetchImpl as unknown as typeof globalThis.fetch),
       ).rejects.toThrow(message)
     }
+  })
+})
+
+/*
+ * 세션 전환 (`#2127`).
+ *
+ * 이 파일은 노드 환경이라 `sessionStorage`·`window`·`document`가 없다. 필요한 만큼만
+ * 끼우고 검사마다 걷는다.
+ */
+function stubSelectionStore(): Map<string, string> {
+  const store = new Map<string, string>([
+    [STORAGE_KEY, JSON.stringify({ vesselId: 'a-vessel', voyageId: 'a-voyage' })],
+  ])
+  vi.stubGlobal('sessionStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  })
+  return store
+}
+
+function stubWindow(): { assign: ReturnType<typeof vi.fn> } {
+  const assign = vi.fn()
+  vi.stubGlobal('window', {
+    location: { assign, pathname: '/settings', search: '', origin: 'http://localhost' },
+  })
+  return { assign }
+}
+
+const OTHER_USER = {
+  data: { id: '00000000-0000-4000-8000-0000000000bb', email: 'b@example.com', display_name: 'B' },
+}
+
+const respond = (body: unknown, status = 200) =>
+  (async () => jsonResponse(body, status)) as unknown as typeof fetch
+
+describe('만료된 화면의 로그아웃 — 401은 「이미 로그아웃됨」이다 (#2127)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const expired = respond({ error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.' } }, 401)
+
+  it('던지지 않고 캐시를 비운 뒤 로그인 화면으로 이동한다', async () => {
+    const { assign } = stubWindow()
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(logout(expired)).resolves.toBeUndefined()
+
+    expect(getCachedUser()).toBeNull()
+    // 평소 로그아웃과 **같은 자리**다 — 복귀 경로(`next`)가 붙지 않는다. 스스로 나가는
+    // 사람에게 「다시 로그인해 돌아오라」는 주소를 주지 않는다.
+    expect(assign).toHaveBeenCalledTimes(1)
+    expect(assign).toHaveBeenCalledWith(LOGIN_PATH)
+  })
+
+  it('성공한 로그아웃과 같은 주소로 간다', async () => {
+    const { assign } = stubWindow()
+    await probeCurrentUser(async () => ME_OK)
+    await logout(respond({}, 204))
+    await probeCurrentUser(async () => ME_OK)
+    await logout(expired)
+
+    expect(assign).toHaveBeenCalledTimes(2)
+    expect(assign.mock.calls[1]).toEqual(assign.mock.calls[0])
+  })
+
+  it('저장된 선박·항차 선택도 비운다', async () => {
+    const store = stubSelectionStore()
+    await probeCurrentUser(async () => ME_OK)
+
+    await logout(expired)
+
+    expect(store.has(STORAGE_KEY)).toBe(false)
+  })
+
+  it.each([403, 500, 503])(
+    '%i는 종전대로 실패다 — 이동하지 않고 로그인 상태와 선택을 유지한다',
+    async (status) => {
+      const { assign } = stubWindow()
+      const store = stubSelectionStore()
+      await probeCurrentUser(async () => ME_OK)
+
+      await expect(logout(respond(null, status))).rejects.toBeInstanceOf(AuthRequestError)
+
+      expect(getCachedUser()).not.toBeNull()
+      expect(assign).not.toHaveBeenCalled()
+      expect(store.has(STORAGE_KEY)).toBe(true)
+    },
+  )
+})
+
+describe('계정이 바뀌는 성공 지점은 저장된 선택을 비운다 (#2127)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['로그인', () => login('b@example.com', 'pw', respond(OTHER_USER))],
+    ['둘러보기', () => tourLogin('code', respond(OTHER_USER))],
+    ['가입', () => signup('b@example.com', 'password-1234', null, respond(OTHER_USER, 201))],
+    ['탈퇴', () => deleteAccount(respond({}, 204))],
+    ['비밀번호 재설정', () => confirmPasswordReset('token', 'password-1234', respond({ data: {} }))],
+    ['로그아웃', () => logout(respond({}, 204))],
+    ['비밀번호 변경 뒤 이탈', async () => leaveAfterPasswordChange()],
+  ])('%s', async (_label, act) => {
+    const store = stubSelectionStore()
+    await probeCurrentUser(async () => ME_OK)
+
+    await act()
+
+    expect(store.has(STORAGE_KEY)).toBe(false)
+  })
+
+  it('탈퇴 뒤 같은 탭에서 다른 계정으로 로그인해도 앞 계정의 선택이 남아 있지 않다', async () => {
+    const store = stubSelectionStore()
+    stubWindow()
+    await probeCurrentUser(async () => ME_OK)
+
+    await deleteAccount(respond({}, 204))
+    // 탈퇴 직후 — 로그인 화면이 뜨기 전에 이미 비어 있다.
+    expect(store.has(STORAGE_KEY)).toBe(false)
+
+    const next = await login('b@example.com', 'pw', respond(OTHER_USER))
+    expect(next.id).toBe(OTHER_USER.data.id)
+    expect(store.has(STORAGE_KEY)).toBe(false)
+  })
+
+  it('만료로 로그인 화면에 온 뒤 다른 계정으로 들어와도 비워진다 — 내리는 길을 지나지 않은 전환', async () => {
+    const store = stubSelectionStore()
+    await probeCurrentUser(async () => ME_OK)
+    // 만료: 캐시만 비워지고 선택은 남는다(같은 사람이 돌아올 수 있다).
+    await expect(updateDisplayName('x', respond(null, 401))).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
+    expect(store.has(STORAGE_KEY)).toBe(true)
+
+    await login('b@example.com', 'pw', respond(OTHER_USER))
+
+    expect(store.has(STORAGE_KEY)).toBe(false)
+  })
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['로그인 실패', () => login('b@example.com', 'bad', respond({ error: { message: 'x' } }, 401))],
+    ['탈퇴 실패', () => deleteAccount(respond(null, 500))],
+    ['재설정 실패', () => confirmPasswordReset('t', 'password-1234', respond(null, 422))],
+  ])('%s는 비우지 않는다 — 계정이 바뀌지 않았다', async (_label, act) => {
+    const store = stubSelectionStore()
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(act()).rejects.toBeInstanceOf(AuthRequestError)
+
+    expect(store.has(STORAGE_KEY)).toBe(true)
+  })
+
+  it('세션 확인(새로고침)은 비우지 않는다 — 같은 세션이다', async () => {
+    const store = stubSelectionStore()
+    await probeCurrentUser(async () => ME_OK)
+    expect(store.has(STORAGE_KEY)).toBe(true)
+  })
+})
+
+/*
+ * `API_SPEC §1.2` — 상태 변경 요청은 `X-CSRF-Token`을 요구하고, **세션을 요구하는
+ * 라우트에 예외가 없다**(`#634`). 이 파일의 요청 가운데 세션이 있어야 부를 수 있는
+ * 상태 변경 요청은 일곱이다. 세션 없이 부르는 공개 인증 요청 일곱(로그인·둘러보기·가입·
+ * 메일 인증 2종·비밀번호 재설정 2종)은 검증할 세션이 없어 **적용 대상이 아니다**(같은 절).
+ */
+describe('세션이 필요한 상태 변경 요청은 X-CSRF-Token을 싣는다 (#2127)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  const TOKEN = 'csrf-token-1'
+  const file = new File([new Uint8Array([1])], 'me.png', { type: 'image/png' })
+
+  it.each<[string, string, string, (f: typeof fetch) => Promise<unknown>]>([
+    ['로그아웃', 'POST', '/auth/logout', (f) => logout(f)],
+    ['표시 이름 변경', 'PATCH', '/auth/me', (f) => updateDisplayName('새 이름', f)],
+    ['프로필 이미지 올리기', 'POST', '/auth/me/avatar', (f) => uploadAvatar(file, f)],
+    ['프로필 이미지 지우기', 'DELETE', '/auth/me/avatar', (f) => deleteAvatar(f)],
+    ['비밀번호 변경', 'POST', '/auth/password-change', (f) => changePassword('a', 'b', f)],
+    ['역할 지정', 'PATCH', '/auth/users/u-1/role', (f) => updateUserRole('u-1', 'OFFICE', f)],
+    ['탈퇴', 'DELETE', '/auth/me', (f) => deleteAccount(f)],
+  ])('%s — %s %s', async (_label, method, path, act) => {
+    vi.stubGlobal('document', { cookie: `sid=s; csrf=${TOKEN}` })
+    await probeCurrentUser(async () => ME_OK)
+    const fetchImpl = vi.fn(async () => ME_OK)
+
+    await act(fetchImpl as unknown as typeof fetch)
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`/api/v1${path}`)
+    expect(init.method).toBe(method)
+    expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe(TOKEN)
+    expect(init.credentials).toBe('include')
+  })
+
+  it.each<[string, string, (f: typeof fetch) => Promise<unknown>]>([
+    ['로그인', '/auth/login', (f) => login('a@b.c', 'pw', f)],
+    ['둘러보기', '/auth/tour-login', (f) => tourLogin('c', f)],
+    ['가입', '/auth/signup', (f) => signup('a@b.c', 'password-1234', null, f)],
+    ['인증 메일 요청', '/auth/verify-email/request', (f) => requestEmailVerification('a@b.c', f)],
+    ['인증 확인', '/auth/verify-email/confirm', (f) => confirmEmailVerification('t', f)],
+    ['재설정 메일 요청', '/auth/password-reset/request', (f) => requestPasswordReset('a@b.c', f)],
+    ['재설정 확인', '/auth/password-reset/confirm', (f) => confirmPasswordReset('t', 'password-1234', f)],
+  ])('공개 인증 요청 %s(%s)는 POST이고 쿠키를 싣는다 — 세션이 없어 토큰 검증 대상이 아니다', async (_label, path, act) => {
+    const fetchImpl = vi.fn(async () => ME_OK)
+
+    await act(fetchImpl as unknown as typeof fetch)
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`/api/v1${path}`)
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('include')
   })
 })
 

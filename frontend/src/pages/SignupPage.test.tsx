@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '../test/renderSetup'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { SignupPage } from './SignupPage'
@@ -15,9 +15,19 @@ import { probeCurrentUser } from '../auth/session'
  * 이 화면이 깃발을 **켜는지**는 여기서 본다.
  */
 
+const signedOut = async () => ({ ok: false, status: 401, json: async () => null }) as Response
+
+/*
+ * 이 파일은 **세션이 없다고 확인된 뒤**의 화면을 본다 (`#2127`). 화면이 마운트되며 세션을
+ * 확인하게 되어, 확인 전에는 폼이 그려지지 않는다 — 그 구간은 `authEntryProbe.test.tsx`가 본다.
+ */
+beforeEach(async () => {
+  await probeCurrentUser(signedOut)
+})
+
 afterEach(async () => {
   // 사용자 캐시는 모듈 전역이다 — 로그인 상태가 남으면 화면이 `<Navigate>`로 빠진다.
-  await probeCurrentUser(async () => ({ ok: false, status: 401, json: async () => null }) as Response)
+  await probeCurrentUser(signedOut)
 })
 
 function renderSignup() {

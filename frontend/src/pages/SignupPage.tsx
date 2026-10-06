@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import {
@@ -10,7 +10,13 @@ import {
   validateSignup,
   type FieldErrors,
 } from '../features/auth/authRules'
-import { LOGIN_PATH, signup, useAuthUser } from '../auth/session'
+import {
+  LOGIN_PATH,
+  probeSessionOnce,
+  signup,
+  useAuthResolved,
+  useAuthUser,
+} from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
 
 /** 서버 필드 경로 → 이 폼의 칸 (#877 ⑴). */
@@ -45,6 +51,12 @@ const SIGNUP_SERVER_FIELDS = {
  */
 export function SignupPage() {
   const user = useAuthUser()
+  const resolved = useAuthResolved()
+
+  // 로그인 화면과 같은 확인이다 — 세션이 유효하면 가입 폼 대신 기본 화면으로 간다 (`#2127`).
+  useEffect(() => {
+    probeSessionOnce()
+  }, [])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -56,6 +68,8 @@ export function SignupPage() {
   const [busy, setBusy] = useState(false)
 
   if (user) return <Navigate to={DEFAULT_PATH} replace />
+  // 확인 중에는 폼을 그리지 않는다. 확인이 실패로 끝나면 폼이 나온다(`LoginPage`와 같다).
+  if (!resolved) return <div className="require-auth__pending" aria-busy="true" />
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()

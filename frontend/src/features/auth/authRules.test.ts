@@ -5,7 +5,6 @@ import {
   MIN_PASSWORD_LENGTH,
   hasErrors,
   isEmailVerified,
-  safeNext,
   splitSubmitFailure,
   validateEmail,
   validateLogin,
@@ -92,25 +91,6 @@ describe('회원가입 검증', () => {
 
   it('가입에서는 길이 정책을 적용한다', () => {
     expect(validateSignup('a@b.com', 'short', 'short').password).toBeDefined()
-  })
-})
-
-describe('safeNext — open redirect 방어', () => {
-  it('내부 경로는 그대로', () => {
-    expect(safeNext('/dashboard')).toBe('/dashboard')
-  })
-
-  it('쿼리스트링 보존', () => {
-    expect(safeNext('/annual-grade?vessel=1')).toBe('/annual-grade?vessel=1')
-  })
-
-  it.each([
-    ['null', null],
-    ['절대 URL', 'https://evil.example.com'],
-    ['프로토콜 상대 URL', '//evil.example.com'],
-    ['상대 경로', 'dashboard'],
-  ])('%s는 루트로 대체', (_label, raw) => {
-    expect(safeNext(raw)).toBe('/')
   })
 })
 

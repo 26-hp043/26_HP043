@@ -197,17 +197,6 @@ export function splitSubmitFailure<K extends string>(
   return { errors, failure: unplaced[0] ?? null }
 }
 
-/**
- * `?next=` 복귀 경로 — **앱 내부 경로만** 허용한다.
- *
- * 외부 URL을 그대로 쓰면 open redirect가 된다. 로그인 직후 이동하는 자리라
- * 공격자가 이 값을 심으면 사용자가 로그인한 상태로 외부 사이트에 도착한다.
- */
-export function safeNext(raw: string | null): string {
-  if (!raw) return '/'
-  return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/'
-}
-
 /** 이메일 인증 여부. `null`이면 미인증이며 배너를 띄운다. */
 export function isEmailVerified(emailVerifiedAt: string | null): boolean {
   return emailVerifiedAt !== null
