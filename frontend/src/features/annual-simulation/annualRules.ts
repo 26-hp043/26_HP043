@@ -346,6 +346,45 @@ export function sensitivityRows(
 }
 
 /**
+ * 결론 띠 아래 「가장 크게 움직이는 변수」 한 줄 (#2199).
+ *
+ * 민감도 표는 화면 맨 아래라, 결과를 바꾸는 변수가 무엇인지 첫 화면에서 읽히지 않았다.
+ * 표의 행 가운데 **달성 확률을 가장 많이 올리는 것 하나**를 골라 띠 바로 아래에 적는다.
+ *
+ * - **고르는 기준은 서버 값 하나다** — `target_probability_change`가 가장 큰 행. 화면이
+ *   등급이나 CII로 다시 판정하지 않는다(이 화면의 계산은 전부 서버 몫이다).
+ * - **올리는 행이 없으면 아무것도 내지 않는다.** 전부 0 이하면(잔여 계획 0건 · 이미 100%)
+ *   「가장 크게 움직이는 것」이 없다 — 0을 1순위로 적으면 할 일이 있는 것처럼 읽힌다.
+ * - 같으면 표 순서(`SENSITIVITY_ROWS`)에서 앞선 것. 표와 같은 순서로 읽히게 한다.
+ * - **권고가 아니라 서술이다** — 「낮추세요」가 아니라 「이 변수를 이만큼 바꾸면 이렇게
+ *   된다」. 항로 비교의 `§11` 중립과 같은 취지다.
+ */
+export function topLever(rows: ReturnType<typeof sensitivityRows>): {
+  label: string
+  /** `C→B`의 오른쪽 — 바뀐 뒤 연말 등급 */
+  toRating: string
+  probabilityChange: string
+} | null {
+  let best: (typeof rows)[number] | null = null
+  let bestValue = 0
+  for (const row of rows) {
+    const raw = row.entry.target_probability_change
+    if (raw === null || raw === undefined) continue
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value <= bestValue) continue
+    best = row
+    bestValue = value
+  }
+  if (!best) return null
+  const parts = best.entry.rating_change.split('→')
+  return {
+    label: best.label,
+    toRating: parts[parts.length - 1].trim(),
+    probabilityChange: best.probabilityChange,
+  }
+}
+
+/**
  * 재현성 요약 문구 — `TECH_SPEC §5.2`.
  *
  * seed와 생성기를 **한 줄로** 보여 준다. 「이 seed로 다시 실행하면 같은 값이 나온다」가

@@ -300,6 +300,8 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     await runOnce()
 
     expect(screen.getByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeTruthy()
+    // 표가 없으면 결론 띠 아래 「가장 크게 움직이는 변수」도 없다 (#2199)
+    expect(screen.queryByTestId('annual-sim-top-lever')).toBeNull()
     // 거리 행 설명은 **띄우지 않는다** — 그것만 띄우면 나머지 행이 유효해 보인다.
     expect(screen.queryByText(ANNUAL_COPY.distanceNote)).toBeNull()
 
@@ -326,6 +328,26 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(within(section).getByRole('table')).toBeTruthy()
     expect(within(section).getByText('개별 효과만 표시합니다.')).toBeTruthy()
     expect(within(section).queryByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeNull()
+  })
+
+  it('결론 띠 아래에 달성 확률을 가장 많이 올리는 변수를 한 줄로 적는다 (#2199)', async () => {
+    stubWith(
+      withSensitivity({
+        speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
+        fuel_minus_10pct: { projected_cii: '8.300000', rating_change: 'E→E', target_probability_change: '0.0500' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const line = screen.getByTestId('annual-sim-top-lever')
+    expect(line.textContent).toContain(ANNUAL_COPY.topLeverLabel)
+    expect(line.textContent).toContain('속력 -1kn')
+    // 강조는 수치와 등급 둘뿐이다
+    const em = [...line.querySelectorAll('b')].map((b) => b.textContent)
+    expect(em).toEqual(['D', '+12.0%'])
+    // 권고형으로 쓰지 않는다
+    expect(line.textContent).not.toMatch(/하세요|최적|추천/)
   })
 
   it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {

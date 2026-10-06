@@ -166,6 +166,10 @@ export const ANNUAL_COPY = {
 
   /* ── 민감도 (PRD §12.6) ────────────────────────────────────────────── */
   sensitivityTitle: '민감도',
+  /** 결론 띠 아래 한 줄 (#2199) — 민감도 표에서 달성 확률을 가장 많이 올리는 변수 */
+  topLeverLabel: '가장 크게 움직이는 변수',
+  topLeverYearEnd: '연말',
+  topLeverProbability: '달성 확률',
   columnVariable: '변수',
   columnProjectedCii: '예측 CII',
   columnRatingChange: '등급 변화',
