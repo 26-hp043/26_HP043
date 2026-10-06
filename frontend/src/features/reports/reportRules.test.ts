@@ -113,6 +113,11 @@ describe('coerceYear — 선택된 연도를 목록 안으로 (#635)', () => {
   it('목록이 비면 null — 로딩·실패 상태이며 고를 것이 없다', () => {
     expect(coerceYear([], 2026)).toBeNull()
   })
+
+  it('아직 고르지 않았으면 가장 최근 연도다 — 기기 시계의 해를 초깃값으로 두지 않는다 (#2183)', () => {
+    expect(coerceYear([2024, 2023], null)).toBe(2024)
+    expect(coerceYear([], null)).toBeNull()
+  })
 })
 
 describe('요청 대상 만들기', () => {
@@ -121,6 +126,16 @@ describe('요청 대상 만들기', () => {
       kind: 'ANNUAL',
       vesselId: 'v-1',
       year: 2026,
+    })
+  })
+
+  it('연간 리포트는 연도가 없으면 만들지 않는다 — 사유를 돌려준다 (#2183)', () => {
+    const result = targetOf('ANNUAL', { vesselId: 'v-1', voyageId: '', year: null })
+    expect(typeof result).toBe('string')
+    // 항차 리포트는 연도와 무관하다 — `null`이어도 그대로 만든다.
+    expect(targetOf('VOYAGE', { vesselId: 'v-1', voyageId: 'vy-1', year: null })).toEqual({
+      kind: 'VOYAGE',
+      voyageId: 'vy-1',
     })
   })
 

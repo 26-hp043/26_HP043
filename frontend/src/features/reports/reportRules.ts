@@ -1,6 +1,7 @@
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
 import { portDisplayName, type SamplePort } from '../ports/samplePorts'
+import { YEAR_STATE_COPY } from '../parameters/yearCatalog'
 import type { ReportTarget, VoyageOption } from './types'
 
 /**
@@ -73,19 +74,29 @@ export function voyageLabel(voyage: VoyageOption, ports: readonly SamplePort[]):
  * 사용자가 보는 연도와 요청하는 연도가 갈린다.
  *
  * 목록이 비어 있으면 `null`이다 — 로딩·실패 상태이며, 그때는 고를 것이 없다.
+ *
+ * 아직 고르지 않았으면(`null`) 가장 최근 연도다 (#2183) — 기기 시계의 해를 초깃값으로
+ * 두지 않는다. 목록이 올해를 담지 않는 상태에서 그 값은 서버가 모르는 연도였다.
  */
-export function coerceYear(options: readonly number[], selected: number): number | null {
+export function coerceYear(options: readonly number[], selected: number | null): number | null {
   if (options.length === 0) return null
-  return options.includes(selected) ? selected : options[0]
+  return selected !== null && options.includes(selected) ? selected : options[0]
 }
 
-/** 요청을 만들 수 있는 상태인가. 만들 수 없으면 왜인지 돌려준다. */
+/**
+ * 요청을 만들 수 있는 상태인가. 만들 수 없으면 왜인지 돌려준다.
+ *
+ * 연간 리포트는 연도가 없으면(`null` — 목록이 로딩·실패·빈 상태) 만들지 않는다 (#2183).
+ * 화면은 그 셋을 구분한 문구를 먼저 돌려주므로(`ReportsView`의 `resolve`) 여기의 문구는
+ * 목록이 비어 고를 연도가 없는 경우의 것이다 — 새 문구를 만들지 않는다.
+ */
 export function targetOf(
   kind: 'VOYAGE' | 'ANNUAL',
-  selection: { vesselId: string; voyageId: string; year: number },
+  selection: { vesselId: string; voyageId: string; year: number | null },
 ): ReportTarget | string {
   if (kind === 'ANNUAL') {
     if (!selection.vesselId) return '선박을 선택해 주세요.'
+    if (selection.year === null) return YEAR_STATE_COPY.empty
     return { kind: 'ANNUAL', vesselId: selection.vesselId, year: selection.year }
   }
   if (!selection.vesselId) return '선박을 먼저 선택해 주세요.'
