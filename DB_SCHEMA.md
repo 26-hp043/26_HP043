@@ -763,10 +763,12 @@ CREATE INDEX idx_refline_ship_type ON cii_reference_line (ship_type);
 
 -- 활성-유니크(집행은 이것이 한다 — CUBRID는 부분 유니크 인덱스가 없다):
 CREATE TRIGGER trg_cii_reference_line_active_unique_ins BEFORE INSERT ON cii_reference_line
-  IF EXISTS (SELECT 1 FROM cii_reference_line
+  IF NOT (new.is_active = 0 OR NOT EXISTS (SELECT 1 FROM cii_reference_line
              WHERE ship_type = new.ship_type AND condition_expr = new.condition_expr
-               AND is_active = 1 AND id <> new.id) EXECUTE REJECT;
+               AND is_active = 1 AND id <> new.id)) EXECUTE REJECT;
 -- UPDATE에도 같은 조건의 트리거가 하나 더 선다(trg_..._upd).
+-- 🔴 067(#2104) — `new.is_active = 0 OR`는 067이 더했다. 054의 조건은 new.is_active를 보지
+--    않아 활성 행이 있는 키에는 이행 행을 넣지도 고치지도 못했다(047 소프트 삭제와 같은 모양).
 ```
 
 **검증 제약:**
@@ -1728,7 +1730,7 @@ CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH R
 >
 > 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`fuel_type`이 `version`·`is_active`를 가진 이유가 이것이다.
 >
-> 🔴 **2026-09-18까지 이 정책은 문서로만 존재했다 (#673 실측).** `cii_reference_line`·`cii_rating_boundary`에는 `version`·`is_active` **컬럼 자체가 없었고**, 세 테이블의 키에는 **전역 UNIQUE 인덱스**가 걸려 같은 키의 이행 행을 만들 수 없었다 — 쓰는 경로가 없으니 아무도 부딪히지 않았다. `054`가 컬럼을 추가하고 전역 유니크를 **활성-유니크 트리거**로 교체해 이 정책을 집행 가능하게 만들었다. 적재 경로는 `API_SPEC §7.5`다.
+> 🔴 **2026-09-18까지 이 정책은 문서로만 존재했다 (#673 실측).** `cii_reference_line`·`cii_rating_boundary`에는 `version`·`is_active` **컬럼 자체가 없었고**, 세 테이블의 키에는 **전역 UNIQUE 인덱스**가 걸려 같은 키의 이행 행을 만들 수 없었다 — 쓰는 경로가 없으니 아무도 부딪히지 않았다. `054`가 컬럼을 추가하고 전역 유니크를 **활성-유니크 트리거**로 교체해 이 정책을 집행 가능하게 만들었다. 적재 경로는 `API_SPEC §7.5`다. 다만 `054`의 조건은 `new.is_active`를 보지 않아 **활성 행이 있는 키에는 이행 행을 넣지도 고치지도 못했다** — 적재 경로가 「활성 행을 끄고 → 새 활성 행을 넣는」 순서라 부딪히지 않았을 뿐이다. `067`(#2104)이 `047`과 같은 모양(`new.is_active = 0 OR NOT EXISTS`)으로 고쳐 비활성 행은 언제나 통과한다(§2.10 SQL).
 >
 > ⚠️ `weather_model_parameter`(§2.12)는 `version`·`is_active`가 없어 이 운용을 적용할 수 없다. 외부 규제값이 아니라 모델 파라미터라 성격이 다르며, 필요해지면 별도로 정한다.
 
@@ -1852,6 +1854,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 | `048` | 열거형·정합 23 |
 | `050` | `chk_capacity_rule`을 정본 `[M-7]`에 맞게 좁혔다(`LIKE 'fixed %'` → `REGEXP BINARY`) |
 | `066` | 해시 형식 4(`trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`)를 `REGEXP` → `REGEXP BINARY`로 교체 — 대문자 hex·`SHA256:` 접두 거부(#2103). 이름·시점·개수는 그대로 |
+| `067` | `054`의 활성-유니크 6(`trg_regulation_year_active_unique_*`·`trg_cii_reference_line_active_unique_*`·`trg_cii_rating_boundary_active_unique_*`)의 조건을 `IF EXISTS (…)` → `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체 — 활성 행이 있는 키의 **이행 행** INSERT·UPDATE 통과, 활성 둘은 여전히 거부(#2104 · `047`과 같은 모양). 이름·시점·개수는 그대로 |
 
 조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
 (불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
@@ -1998,7 +2001,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `066`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `067`** | 무엇 |
 |---|---|---|---|
 | `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
@@ -2008,7 +2011,8 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
 > 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다), `066`은 해시 형식 4를 지우고
-> 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 066 적용 후 176 실측). `SELECT count(*)
+> 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 066 적용 후 176 실측), `067`도 활성-유니크 6을
+> 지우고 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 067 적용 후 176 실측). `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
@@ -2037,7 +2041,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2375,3 +2379,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-01 | `#2080` | §8.1.0 리비전 그래프의 끝과 §7.4 트리거 표의 열 머리를 **head `065`**로 — v1.39가 등재한 마이그레이션 065가 그래프에 반영되지 않아 `tests/test_dbschema_head_sync.py`가 「그래프는 064에서 끝나는데 head는 065」로 잡았다. **1단계에서 빠뜨린 것을 2단계가 채운 것**이라 버전은 올리지 않는다(`AGENTS §4.3` — 새 규정이 아니다). 065의 downgrade는 `migration_guard.REGENERABLE`로 분류했다 — 열은 재생되고 잃는 것은 올린 사진뿐이며 다시 올리면 돌아온다 (#2082) |
 | 2026-10-06 | `#2194` | **§2.23 「계산 경로와 격리된다」 각주에 `details.calculation_run_id`를 싣는 조건 명시** (#2099). 각주는 「챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`)가 `calculation_run.id`로 가리킨다」고 적었는데 호출부가 그 값을 넘기지 않았다. 싣는 도구는 저장된 실행을 읽는 `explain_screen_result` 하나이고, 읽어서 결과를 모델에게 준 경우에만 싣는다(실행을 찾지 못했거나 선박이 달라 오류 봉투를 낸 호출은 비운다). 계산을 저장하지 않는 도구(`calc_voyage_cii` 등 · `#1334`)와 조회 도구는 인용할 실행이 없어 키 자체를 싣지 않는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-06 | `#2226` | §7.4 **해시 형식 트리거 4개를 `REGEXP BINARY`로** (마이그레이션 066 · #2103). `a7d3e9b14f26`이 건 `trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`의 조건이 `REGEXP`라 — CUBRID는 기본이 대소문자 무시(`050` 실측) — 정본 `[S-7]`의 `~`(대소문자 구분)보다 넓었고, `'SHA256:' \|\| REPEAT('A', 64)`가 두 표 네 열에 모두 들어갔다(2026-10-06 `cii_test` INSERT 8건 통과 실측). `050`·`058`과 같은 `REGEXP BINARY`로 교체하고(`replace_trigger` — 지우지 못하면 멈춘다), downgrade는 옛 조건으로 되돌린다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`066` 적용 후 176 실측). 운영 영향 없음 — 트리거는 `BEFORE INSERT`뿐이고 두 표는 해시 열 UPDATE가 막혀 있으며, 해시를 만드는 경로는 전부 `calc/hash.py`(`hexdigest` — 소문자)다. 되살린 것 표·리비전 표·트리거 표 머리(head `066`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2103) |
+| 2026-10-06 | `#___` | §2.10 SQL·§7.2·§7.4 **활성-유니크 트리거 6개가 비활성 행을 통과시키게** (마이그레이션 067 · #2104). `054`가 `regulation_year`·`cii_reference_line`·`cii_rating_boundary`에 건 조건 `IF EXISTS (… is_active = 1 AND id <> new.id)`에 `new.is_active`가 없어, 활성 행이 있는 키에 **이행 행**(`is_active = 0`)을 INSERT하거나 이미 있는 이행 행의 다른 열을 UPDATE하는 것이 전부 거부됐다(2026-10-06 `cii_test`에서 세 표 모두 `-517` 실측 · 정본 §2.10 「활성 행끼리만 유일」과 어긋남). 운영의 두 쓰기 경로(`parameter_import._apply_versioned` — 활성 행을 끄고 → flush → 새 활성 행 · `seed._upsert_active` — 활성 행만 갱신·없으면 삽입)가 그 모양을 피해 가 드러나지 않았다. `047` 소프트 삭제와 같은 `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체(`replace_trigger` — 지우지 못하면 멈춘다)하고 downgrade는 `054` 조건으로 되돌린다. 거부 집합을 **좁히기만** 하므로 전에 통과하던 쓰기는 전부 그대로 통과하고, 활성 둘은 INSERT도 이행 행을 되살리는 UPDATE도 여전히 거부된다. 트리거는 `BEFORE INSERT`·`BEFORE UPDATE`라 기존 행은 다시 검사되지 않는다. 이름·시점·개수는 그대로라 §7.4 합계 176은 바뀌지 않는다(`067` 적용 후 176 실측). §2.10 SQL·§7.2 각주·리비전 표·트리거 표 머리(head `067`)·§8.1.0 그래프 갱신. `AGENTS §4.3`상 행 추가·값 정정이라 버전은 올리지 않는다 (#2104) |
