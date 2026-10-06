@@ -27,11 +27,12 @@ from sqlalchemy import bindparam, text
 from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.types import JSONText, UuidText
-from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
+from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse, ToolCall
 from cii_platform.services import chat as chat_service
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
     DISCLAIMER,
+    PROVIDER_ERROR_MESSAGE,
     REFUSAL_MESSAGE,
     TOOL_BUDGET_MESSAGE,
     TRUNCATED_MESSAGE,
@@ -431,6 +432,38 @@ async def test_refusal_is_reported_without_inventing_a_reason(migrated_db, app_f
             assert data["answer"] == REFUSAL_MESSAGE
     finally:
         await _cleanup()
+
+
+class _FailingProvider(FakeProvider):
+    """공급자가 상태 코드를 담은 ``LLMError``를 올린다 — 종전 `anthropic.py`의 문구 그대로."""
+
+    async def complete(self, *, messages, tools=None):  # noqa: ARG002
+        raise LLMError("챗봇 응답을 받지 못했습니다 (HTTP 529).")
+
+
+async def test_provider_failure_answers_with_the_fixed_message(migrated_db, app_fresh_engine):
+    """IT-CHAT-081 (`#2112`) — 외부 모델 실패의 답은 **고정 문구**이고 예외 원문이 아니다.
+
+    종전에는 ``str(exc)``가 그대로 답이 되어 「(HTTP 529)」가 화면에 나갔다. 문구는
+    ``PRD §6.3`` 표의 행과 글자 그대로 같아야 한다(IT-CHAT-025와 같은 대조).
+    """
+    from pathlib import Path
+
+    _use(_FailingProvider())
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            data = client.post("/api/v1/chat", json={"message": "..."}, headers=headers).json()[
+                "data"
+            ]
+            assert data["discarded"] is True
+            assert data["answer"] == PROVIDER_ERROR_MESSAGE
+            assert "HTTP" not in data["answer"] and "529" not in data["answer"]
+    finally:
+        await _cleanup()
+
+    prd = (Path(__file__).resolve().parents[1] / "PRD.md").read_text(encoding="utf-8")
+    assert f"`{PROVIDER_ERROR_MESSAGE}`" in prd
 
 
 async def test_tool_budget_stops_the_turn(migrated_db, app_fresh_engine):

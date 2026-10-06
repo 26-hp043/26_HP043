@@ -91,6 +91,15 @@ TRUNCATED_MESSAGE = "답변이 길어 중간에서 끊겼습니다. 질문을 �
 #: 모델이 답하기를 거절했을 때. **사유를 지어내지 않는다.**
 REFUSAL_MESSAGE = "이 질문에는 답변하지 않았습니다. 다르게 물어봐 주세요."
 
+#: 외부 모델 호출이 실패했을 때 (`#2112` · ``PRD §6.3`` 「챗봇 — 외부 모델 호출 실패」 행).
+#:
+#: ⚠️ **정본 문구다** — ``tests/test_chat_api_db.py``가 `PRD` 표와 글자 그대로 대조한다.
+#:
+#: 종전에는 공급자가 올린 ``LLMError``의 원문(「챗봇 응답을 받지 못했습니다 (HTTP 529).」)이
+#: 그대로 답이 됐다. **HTTP 상태 코드는 사용자가 읽을 말이 아니다** — 무엇이 일어났는지와
+#: 할 수 있는 일만 말한다(다른 폐기 문구의 원칙). 상태 코드는 ``llm/anthropic.py``가 로그에 남긴다.
+PROVIDER_ERROR_MESSAGE = "챗봇 응답을 받지 못했습니다. 잠시 뒤 다시 물어봐 주세요."
+
 #: 모든 응답에 붙는 면책 (``PRD §6.3`` 챗봇 행 · `#120` 완료 기준).
 #:
 #: ⚠️ **정본과 같아야 한다.** ``tests/test_chat_api_db.py``(`IT-CHAT-025`)가 `PRD` 표를 읽어
@@ -328,10 +337,11 @@ async def _answer_turn(
     for _ in range(MAX_TOOL_CALLS_PER_TURN + 1):
         try:
             response = await provider.complete(messages=messages, tools=tool_schemas())
-        except LLMError as exc:
-            # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`).
+        except LLMError:
+            # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`). 답은 고정
+            # 문구다 — 상태 코드 같은 진단은 공급자(`llm/anthropic.py`)가 로그에 남긴다 (`#2112`).
             return _result(
-                str(exc),
+                PROVIDER_ERROR_MESSAGE,
                 used_tools,
                 discarded=True,
                 discard_kind="provider-error",
