@@ -206,57 +206,41 @@ describe('타입 스케일 값을 리터럴로 적지 않는다 (#1781)', () => 
 })
 
 /**
- * `§15` 토큰 블록이 `§3` 표와 같다 (#1953).
+ * `§15`가 타입 스케일을 **두 번 적지 않는다** (#1953 → #2149).
  *
- * ## 왜 필요한가
+ * ## 이 검사가 뒤집힌 이유
  *
- * `§15`는 토큰 이름의 정본이고 예시 블록에 여덟 행을 값까지 적어 둔다. 그런데 **어느
- * 검사도 그 블록을 읽지 않아** 드리프트가 쌓였다 — `#1953` 시점에 `--font-body`가
- * `400 14px/20px`로 `§3`의 body 15(v2.26)보다 뒤처져 있었고, `page`(28) 행은 아예
- * 없었다. 같은 문서의 두 절이 같은 스케일을 다르게 적고 있었던 것이다.
+ * `#1953` 시점의 `§15`는 예시 블록에 여덟 행을 값까지 적어 두었고, **어느 검사도 그
+ * 블록을 읽지 않아** 드리프트가 쌓였다 — `--font-body`가 `400 14px/20px`로 `§3`의
+ * body 15(v2.26)보다 뒤처져 있었고 `page`(28) 행은 아예 없었다. 그래서 그때는
+ * `§3` ↔ `§15`를 **대조**했다.
  *
- * `typeScale.sync.test.ts`의 나머지는 `§3` ↔ `tokens.css`를 잇는다. 이 검사는
- * `§3` ↔ `§15`를 이어, 정본 안에서 갈라지는 길을 막는다.
+ * `#2149`가 그 블록을 걷었다 — 걷을 때 블록의 이름 **26개가 CSS에 정의된 적이 없었고**,
+ * 값의 소유는 생성 파일이다(`§0.2`). 값을 한 번만 적으면 두 절이 갈릴 수가 없으므로
+ * 대조할 상대가 사라진다. 남은 일은 **그 중복이 다시 생기지 않게 막는 것**이다.
  *
- * ## 무엇을 보는가
- *
- * `§15` 블록의 `--font-<행>: <굵기> <크기>px/<행간>px` 세 값이 `§3` 표의 같은 행과
- * 같은지만 본다. 자간(`--tracking-*`)은 이 블록에 없으므로 대상이 아니다.
+ * `§3`의 값이 실제 토큰과 같은지는 이 파일 맨 위 `#1691` 검사가 크기 · 굵기 · 행간
+ * 셋을 모두 본다 — 커버리지는 줄지 않는다.
  */
-describe('§15 토큰 블록이 §3 표와 같다 (#1953)', () => {
-  /** `§15`의 `--font-<행>: 500 32px/40px var(--font-sans);` 선언들. */
-  function section15Rows(): Map<string, { weight: number; size: number; lineHeight: number }> {
+describe('§15가 타입 스케일을 두 번 적지 않는다 (#2149)', () => {
+  it('§15에 `--font-<행>: <굵기> <크기>px/<행간>px` 선언이 없다', () => {
     const start = DOC.indexOf('## 15. 토큰 구현 규약')
     expect(start, 'DESIGN_SYSTEM §15를 찾지 못했습니다').toBeGreaterThan(-1)
-    const block = DOC.slice(start)
-    const rows = new Map<string, { weight: number; size: number; lineHeight: number }>()
-    for (const m of block.matchAll(/--font-([a-z]+):\s*(\d+)\s+(\d+)px\/(\d+)px/g)) {
-      rows.set(m[1], { weight: Number(m[2]), size: Number(m[3]), lineHeight: Number(m[4]) })
-    }
-    return rows
-  }
-
-  it('§3의 모든 행이 §15 블록에도 있다', () => {
-    const spec = specRows()
-    const fifteen = section15Rows()
-    expect(fifteen.size, '§15에서 `--font-<행>` 선언을 읽지 못했다').toBeGreaterThan(0)
-    const missing = [...spec.keys()].filter((name) => !fifteen.has(name))
-    expect(missing, '§3에 있는데 §15 블록에 없다').toEqual([])
+    const section = DOC.slice(start, DOC.indexOf('## 16. ', start))
+    const duplicated = [...section.matchAll(/--font-([a-z]+):\s*(\d+)\s+(\d+)px\/(\d+)px/g)].map(
+      (m) => m[0],
+    )
+    expect(
+      duplicated,
+      '§15가 다시 값을 들기 시작했다 — 값은 생성 토큰이 소유하고 §3이 표로 적는다(§0.2).',
+    ).toEqual([])
   })
 
-  it('두 절이 적은 크기 · 굵기 · 행간이 같다', () => {
-    const spec = specRows()
-    const fifteen = section15Rows()
-    const drift: string[] = []
-    for (const [name, row] of spec) {
-      const other = fifteen.get(name)
-      if (other === undefined) continue
-      if (other.size !== row.size) drift.push(`${name} 크기: §3 ${row.size} ≠ §15 ${other.size}`)
-      if (other.weight !== row.weight) drift.push(`${name} 굵기: §3 ${row.weight} ≠ §15 ${other.weight}`)
-      if (other.lineHeight !== row.lineHeight) {
-        drift.push(`${name} 행간: §3 ${row.lineHeight} ≠ §15 ${other.lineHeight}`)
-      }
-    }
-    expect(drift, '정본 안에서 §3과 §15가 갈렸다').toEqual([])
+  it('§15를 실제로 잘라 읽었다 — 파서가 조용히 빈 구간을 보지 않게', () => {
+    // 구간이 비면 위 검사가 「없으니 통과」로 초록을 낸다. §15는 네이밍 규칙을 적는다.
+    const start = DOC.indexOf('## 15. 토큰 구현 규약')
+    const section = DOC.slice(start, DOC.indexOf('## 16. ', start))
+    expect(section.length).toBeGreaterThan(2000)
+    expect(section).toContain('네이밍')
   })
 })
