@@ -183,6 +183,52 @@ def test_publish_truncates_cii_and_quantities_but_rounds_share():
     assert _publish(Decimal("12.35"), "share_percent") == "12.4"
 
 
+def test_fuel_rows_order_is_fixed_by_sent_values_then_fuel_name():
+    """유종 행의 순서는 **전송값**이 정한다 — 전송되지 않는 자릿수로 갈리지 않는다 (`#2282`).
+
+    진행 중 항차의 몫(``cii_current._split_fuel``)이 섞이면 톤은 50자리 값이고, 계획 연료가
+    1:1:1이면 마지막 몫만 ``…334``로 다르다. 전송값(2자리 절사)은 셋 다 같으므로 순서는
+    유종 이름으로 고정돼야 한다. 종전 키는 원값이라 **마지막 몫을 받은 유종이 앞**으로 갔다
+    (이슈의 예 — 8 kn · 3초 · 계획 연료 1:1:1 → ``[MGO, LNG, HFO]``).
+
+    셋을 본다 — ⑴ CO₂가 없는 해(톤이 1차 키)에서 전송값이 같은 세 유종이 이름순인가
+    ⑵ CO₂ 전송값이 다른 유종은 큰 것부터인가 ⑶ CO₂가 1차 키인 갈래에서도 **전송값은 같고
+    원값만 다른** 두 유종이 이름순인가 — LPG 프로판 0.506 t(CO₂ 1.518 t)와 부탄 0.5005 t
+    (CO₂ 1.5165 t)는 톤·CO₂ 모두 전송값이 ``0.50`` · ``1.51``로 같다.
+    """
+    from cii_platform.services.cii_current import _split_fuel
+    from cii_platform.services.cii_history import _fuel_rows, _publish
+
+    # ⑴ 진행 중 항차의 몫 — 마지막 몫(LNG)만 꼬리가 다르다. 종전 키는 LNG를 앞에 뒀다.
+    # (제품에서는 `_split_fuel`이 Layer 1 컨텍스트 안의 50자리에서 불리고 여기서는 기본
+    # 28자리에서 부른다. 마지막 몫만 다르다는 성질은 같다.)
+    third = Decimal(1) / Decimal(3)
+    split = (("DIESEL_GAS_OIL", third), ("HFO", third), ("LNG", third))
+    tons = dict(_split_fuel(Decimal("0.01"), split))
+    assert len({_publish(v, "fuel_ton") for v in tons.values()}) == 1, "전송값이 같아야 한다"
+    assert len(set(tons.values())) >= 2, "원값이 하나로 뭉치면 이 검사는 아무것도 잠그지 않는다"
+    rows = _fuel_rows(tons, None)
+    assert [row["fuel_type"] for row in rows] == ["DIESEL_GAS_OIL", "HFO", "LNG"]
+    assert all(row["co2_ton"] is None for row in rows)
+
+    # ⑵ 전송값이 다르면 큰 것부터 — CO₂가 1차 키다(톤은 HFO가 더 작아도).
+    rows = _fuel_rows(
+        {"HFO": Decimal("100"), "LNG": Decimal("110")},
+        {"HFO": Decimal("311400000"), "LNG": Decimal("302500000")},
+    )
+    assert [row["fuel_type"] for row in rows] == ["HFO", "LNG"]
+    assert [row["co2_ton"] for row in rows] == ["311.40", "302.50"]
+
+    # ⑶ CO₂ 1차 키 갈래 — 전송값은 둘 다 같고 원값만 다르다. 종전 키는 프로판을 앞에 뒀다.
+    rows = _fuel_rows(
+        {"LPG_PROPANE": Decimal("0.506"), "LPG_BUTANE": Decimal("0.5005")},
+        {"LPG_PROPANE": Decimal("1518000"), "LPG_BUTANE": Decimal("1516500")},
+    )
+    assert [row["co2_ton"] for row in rows] == ["1.51", "1.51"]
+    assert [row["fuel_ton"] for row in rows] == ["0.50", "0.50"]
+    assert [row["fuel_type"] for row in rows] == ["LPG_BUTANE", "LPG_PROPANE"]
+
+
 @pytest.mark.asyncio
 async def test_year_without_regulation_params_is_a_row(session):
     """파라미터가 없는 해 — 요청 전체가 409로 죽지 않고 그 해만 NO_REGULATION_PARAMS."""

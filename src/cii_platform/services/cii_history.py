@@ -184,15 +184,22 @@ def _fuel_rows(
                 ),
             }
         )
+
     # 큰 것부터 — 화면이 정렬을 다시 하지 않게 서버가 순서를 정한다. 배출량이 없는
     # 해는 톤으로 견주고, 같으면 유종 이름으로 고정한다(순서가 요청마다 흔들리면
     # 표를 눈으로 대조할 수 없다).
+    #
+    # 견주는 값은 **전송값**이다 (`#2282`) — 행에 실린 ``_publish`` 결과를 수로 되읽는다.
+    # 원값으로 견주면 전송되지 않는 자릿수가 순서를 정한다: 진행 중 항차의 몫은 50자리라
+    # 계획 연료 1:1:1의 세 유종이 ``…333`` · ``…333`` · ``…334``로 갈리는데, 전송값(2자리
+    # 절사)은 셋 다 같아 화면에는 같은 값이 다른 순서로 보였다. 문자열 그대로 견주지
+    # 않는 것은 사전순이 ``"9.99" > "10.00"``이기 때문이다.
+    def _sent(row: dict[str, object], field: str) -> Decimal:
+        value = row[field]
+        return Decimal(0) if value is None else Decimal(str(value))
+
     rows.sort(
-        key=lambda row: (
-            -(co2_breakdown_g or {}).get(str(row["fuel_type"]), Decimal(0)),
-            -ton_breakdown[str(row["fuel_type"])],
-            str(row["fuel_type"]),
-        )
+        key=lambda row: (-_sent(row, "co2_ton"), -_sent(row, "fuel_ton"), str(row["fuel_type"]))
     )
     return rows
 
