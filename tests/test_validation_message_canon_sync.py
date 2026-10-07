@@ -71,7 +71,7 @@ def test_val_002_names_the_field_and_its_storable_minimum() -> None:
     messages = _details(
         client,
         "/vessel",
-        {"imo_number": "9123456", "name": "x", "ship_type": "BULK_CARRIER", "gross_tonnage": 0},
+        {"imo_number": "9123453", "name": "x", "ship_type": "BULK_CARRIER", "gross_tonnage": 0},
     )
 
     assert messages["gross_tonnage"] == "총톤수(GT)는 0.01 이상이어야 합니다."
@@ -87,6 +87,25 @@ def test_val_003_separates_length_from_shape() -> None:
 
     assert short["imo_number"] == "IMO 번호는 7자 이상이어야 합니다."
     assert shape["imo_number"] == "IMO 번호 형식이 올바르지 않습니다."
+
+
+def test_val_003_check_digit_message_is_the_canon_sentence() -> None:
+    """VAL-003 검사숫자 (`#2134` · 결정 D-15) — 실제 문구가 정본 표의 문구와 같은가.
+
+    형식(숫자 7자리)은 맞고 마지막 자리만 틀린 번호다. 정본 표(`API_SPEC §11`)가 이 문장을
+    글자 그대로 들고 있어야 화면·서버·문서가 같은 말을 한다.
+    """
+    from cii_platform.imo_number import IMO_CHECK_DIGIT_MESSAGE
+
+    client = _app()
+    base = {"name": "x", "ship_type": "BULK_CARRIER"}
+    messages = _details(client, "/vessel", {**base, "imo_number": "1234568"})
+
+    assert messages["imo_number"] == IMO_CHECK_DIGIT_MESSAGE
+    text = (ROOT / "API_SPEC.md").read_text(encoding="utf-8")
+    start = text.index("## 11. 검증 규칙 요약")
+    row = next(line for line in text[start:].splitlines() if line.startswith("| VAL-003 |"))
+    assert f"`{IMO_CHECK_DIGIT_MESSAGE}`" in row, row
 
 
 def test_val_007_says_which_coordinate_and_which_bound() -> None:

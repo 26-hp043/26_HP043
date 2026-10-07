@@ -7,7 +7,7 @@ import type { Vessel } from './types'
 function vessel(overrides: Partial<Vessel> = {}): Vessel {
   return {
     id: '00000000-0000-4000-8000-0000000000a1',
-    imo_number: '9440001',
+    imo_number: '9440019',
     name: 'PACIFIC STAR',
     ship_type: 'BULK_CARRIER',
     gross_tonnage: null,

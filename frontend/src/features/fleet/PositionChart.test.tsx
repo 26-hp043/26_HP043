@@ -26,7 +26,7 @@ function vessel(over: Partial<FleetVessel> = {}): FleetVessel {
     id: 'v1',
     name: '샘플 벌크선',
     shipType: 'BULK_CARRIER',
-    imoNumber: '9100001',
+    imoNumber: '9100011',
     underwayState: 'UNDER_WAY',
     detailStatus: 'SAILING',
     lat: '35.1',

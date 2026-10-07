@@ -20,7 +20,7 @@ const VESSEL_BODY = {
   data: {
     id: 'v1',
     name: 'MV Test',
-    imo_number: '9100001',
+    imo_number: '9100011',
     ship_type: 'BULK_CARRIER',
     deadweight: 50000,
     gross_tonnage: 30000,
@@ -90,7 +90,7 @@ describe('정상 응답', () => {
     expect(snapshot.vessel).toMatchObject({
       id: 'v1',
       name: 'MV Test',
-      imoNumber: '9100001',
+      imoNumber: '9100011',
       underwayState: 'UNDER_WAY',
     })
     expect(snapshot.years).toHaveLength(2)

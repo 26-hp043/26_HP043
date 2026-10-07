@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.errors import ValidationError
+from cii_platform.imo_number import imo_check_digit
 from cii_platform.services.voyage import (
     create_voyage,
     get_voyage,
@@ -49,6 +50,15 @@ HEADER = (
     "planned_distance_nm,planned_speed_kn,fuel_type,planned_fuel_ton,"
     "planned_departure_at,planned_arrival_at"
 )
+
+
+def _imo() -> str:
+    """이 검사 전용 IMO — 시드(``0``·``9`` 시작)와 겹치지 않게 ``7``로 시작한다.
+
+    검사숫자를 맞춘다(`#2134`) — 등록 요청이 검사한다. 그래서 앞 여섯 자리만 무작위다.
+    """
+    head = f"7{uuid.uuid4().int % 100_000:05d}"
+    return head + str(imo_check_digit(head))
 
 
 @pytest_asyncio.fixture
@@ -276,7 +286,7 @@ async def test_http_create_and_patch_return_422_pointing_at_the_arrival_field(
             created = client.post(
                 f"{API_V1_PREFIX}/vessels",
                 json={
-                    "imo_number": f"7{uuid.uuid4().int % 1_000_000:06d}",
+                    "imo_number": _imo(),
                     "name": "TIME ORDER HTTP",
                     "ship_type": "BULK_CARRIER",
                 },

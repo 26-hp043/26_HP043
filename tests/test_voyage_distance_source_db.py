@@ -37,13 +37,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.api.schemas.voyage import DISTANCE_SOURCES
+from cii_platform.imo_number import imo_check_digit
 
 _BASE = "https://testserver"
 
 
 def _imo() -> str:
-    """이 검사 전용 IMO — 시드(``0``·``9`` 시작)와 겹치지 않게 ``8``로 시작한다."""
-    return f"8{uuid.uuid4().int % 1_000_000:06d}"
+    """이 검사 전용 IMO — 시드(``0``·``9`` 시작)와 겹치지 않게 ``8``로 시작한다.
+
+    검사숫자를 맞춘다(`#2134`) — 등록 요청이 검사한다. 그래서 앞 여섯 자리만 무작위다.
+    """
+    head = f"8{uuid.uuid4().int % 100_000:05d}"
+    return head + str(imo_check_digit(head))
 
 
 async def _insert_vessel(conn: AsyncConnection) -> str:

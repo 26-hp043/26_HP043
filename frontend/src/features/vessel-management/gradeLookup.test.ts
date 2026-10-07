@@ -23,7 +23,7 @@ function fleetVessel(overrides: Partial<FleetVessel> & { id: string }): FleetVes
   return {
     name: overrides.id,
     shipType: 'BULK_CARRIER',
-    imoNumber: '9000001',
+    imoNumber: '9000015',
     underwayState: null,
     detailStatus: null,
     lat: null,

@@ -22,7 +22,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const REGISTERED = {
   id: '00000000-0000-4000-8000-0000000000a1',
-  imo_number: '9000001',
+  imo_number: '9000015',
   name: '알파호',
   ship_type: 'BULK_CARRIER',
   gross_tonnage: 30000,
@@ -146,7 +146,7 @@ describe('등록 폼의 입력 순서 (#1423)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
 
     fireEvent.change(await screen.findByLabelText(/^샘플 선박에서 채우기/), {
       target: { value: 's1' },
@@ -157,7 +157,7 @@ describe('등록 폼의 입력 순서 (#1423)', () => {
     )
     expect((screen.getByLabelText(/^선종/) as HTMLSelectElement).value).toBe('BULK_CARRIER')
     // 이것이 이 자리로 옮긴 이유다 — 먼저 적은 식별 정보는 살아남는다.
-    expect((screen.getByLabelText(/^IMO 번호/) as HTMLInputElement).value).toBe('9000001')
+    expect((screen.getByLabelText(/^IMO 번호/) as HTMLInputElement).value).toBe('9000015')
     expect((screen.getByLabelText(/^선명/) as HTMLInputElement).value).toBe('알파호')
   })
 })
@@ -170,7 +170,7 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
 
     await screen.findByText('등록 완료')
@@ -194,7 +194,7 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
     await screen.findByText('등록 완료')
 
@@ -232,12 +232,12 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
     await screen.findByText('등록 완료')
 
     // 성공 뒤 폼은 비워진다. 같은 IMO를 다시 넣어 두 번째 등록을 시도한다.
-    fillRequired('9000001', '브라보호')
+    fillRequired('9000015', '브라보호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
 
     expect(await screen.findByText('이미 등록된 IMO 번호입니다.')).toBeTruthy()
@@ -263,7 +263,7 @@ describe('샘플 덮어쓰기 확인 (#1526)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillIdentity('9000001', '알파호')
+    fillIdentity('9000015', '알파호')
 
     fireEvent.change(await screen.findByLabelText(/^샘플 선박에서 채우기/), {
       target: { value: 's1' },
@@ -284,7 +284,7 @@ describe('샘플 덮어쓰기 확인 (#1526)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillIdentity('9000001', '알파호')
+    fillIdentity('9000015', '알파호')
     fireEvent.change(await screen.findByLabelText(/^재화중량톤수/), {
       target: { value: '12345' },
     })
@@ -308,7 +308,7 @@ describe('샘플 덮어쓰기 확인 (#1526)', () => {
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillIdentity('9000001', '알파호')
+    fillIdentity('9000015', '알파호')
     fireEvent.change(await screen.findByLabelText(/^재화중량톤수/), {
       target: { value: '12345' },
     })
@@ -370,7 +370,7 @@ describe('제원은 접어 두고, 스스로 펼치는 자리가 둘이다 (#178
         <VesselRegistration />
       </MemoryRouter>,
     )
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
 
     // 제원에 잘못된 값을 넣고 — 채워졌으니 한 번 펼쳐진다 — 사용자가 도로 접는다.
     fireEvent.change(screen.getByLabelText(/^재화중량톤수/), { target: { value: '-1' } })
@@ -413,7 +413,7 @@ describe('등록에 성공하면 상단 선택기를 다시 부르게 한다 (#2
     const refreshVessels = vi.fn()
     stubFetch([jsonResponse({ data: REGISTERED }, 201)])
     renderInShell(refreshVessels)
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
 
     await screen.findByText('등록 완료')
@@ -426,7 +426,7 @@ describe('등록에 성공하면 상단 선택기를 다시 부르게 한다 (#2
       jsonResponse({ error: { code: 'CONFLICT', message: '이미 등록된 IMO 번호입니다.' } }, 409),
     ])
     renderInShell(refreshVessels)
-    fillRequired('9000001', '알파호')
+    fillRequired('9000015', '알파호')
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
 
     await waitFor(() =>

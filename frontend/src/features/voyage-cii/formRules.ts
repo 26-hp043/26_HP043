@@ -1,5 +1,5 @@
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import { MAX_SPEED_KN } from '../vessel-registration/formRules'
+import { MAX_SPEED_KN, storableRange } from '../vessel-registration/formRules'
 import type { VoyageCiiRequest } from './types'
 import { VoyageCiiError } from './provider'
 
@@ -249,6 +249,28 @@ export function pickDefaultYear(
 }
 
 /**
+ * 거리·연료의 범위 — **항차 저장과 같다** (`#2134` · 결정 D-15).
+ *
+ * 서버 `api/schemas/bounds.py`의 `DISTANCE`(`NUMERIC(12,2)`)·`VOYAGE_FUEL`(`NUMERIC(12,4)`)과
+ * 같은 식이다. 종전에는 이 폼도 서버도 `> 0`만 봐서 연료 99,999,999t이 계산을 통과했고
+ * 「기준 대비 123,447,335,025.2%」가 지울 수 없는 계산 이력에 남았다 — 같은 값을 계획
+ * 저장으로 넘기면 그때서야 걸렸다. 비율 경고는 두지 않는다(같은 결정).
+ */
+export const DISTANCE_RANGE = storableRange(12, 2)
+export const FUEL_RANGE = storableRange(12, 4)
+
+/** 범위 밖 문구. 소수 자릿수는 그 컬럼의 scale만큼 보인다 — 끝자리가 반올림돼 보이지 않게. */
+function outOfRange(label: string, range: { min: number; max: number }, scale: number): string {
+  const text = (value: number) =>
+    value.toLocaleString('ko-KR', { maximumFractionDigits: scale })
+  return `${label} ${text(range.min)} ~ ${text(range.max)} 사이여야 합니다.`
+}
+
+function inRange(value: number, range: { min: number; max: number }): boolean {
+  return value >= range.min && value <= range.max
+}
+
+/**
  * 폼 전체를 검증한다. **위반을 전부 모아 반환한다.**
  *
  * 첫 위반에서 멈추는 검증이면 거리와 연료량이 둘 다 잘못돼도 하나만 보인다. 사용자가
@@ -273,6 +295,9 @@ export function validateForm(
   } else if (!(distance > 0)) {
     // VAL-002
     errors[FIELD.distanceNm] = '항해거리는 0보다 커야 합니다.'
+  } else if (!inRange(distance, DISTANCE_RANGE)) {
+    // VAL-002 — 항차 저장과 같은 범위 (#2134)
+    errors[FIELD.distanceNm] = outOfRange('항해거리는', DISTANCE_RANGE, 2)
   }
 
   const speed = toNumber(state.speedKn)
@@ -305,6 +330,9 @@ export function validateForm(
     } else if (!(fuelTon > 0)) {
       // VAL-002
       errors[FIELD.fuelTon] = '연료 사용량은 0보다 커야 합니다.'
+    } else if (!inRange(fuelTon, FUEL_RANGE)) {
+      // VAL-002 — 항차 저장과 같은 범위 (#2134)
+      errors[FIELD.fuelTon] = outOfRange('연료 사용량은', FUEL_RANGE, 4)
     }
   } else if (state.fuelMode === 'DAILY') {
     const daily = toNumber(state.dailyFuelTon)
@@ -320,6 +348,16 @@ export function validateForm(
     errors[FIELD.fuelTon] = '이 선박에는 기준 일일 연료소모량이 없습니다. 다른 방식으로 넣어 주세요.'
   } else if (voyageHours(state.distanceNm, state.speedKn) === null) {
     errors[FIELD.fuelTon] = '항해거리와 평균 속력을 먼저 입력해 주세요.'
+  }
+  /*
+   * 하루치·제원 방식은 **환산한 총량**이 서버로 간다 (#2134). 하루치가 멀쩡해도 거리가
+   * 크면 총량이 저장 범위를 넘고, 아주 짧은 항차는 소수 4자리 반올림에서 0이 된다.
+   */
+  if (state.fuelMode !== 'TOTAL' && errors[FIELD.fuelTon] === undefined) {
+    const total = effectiveFuelTon(state, vesselDailyFocTon)
+    if (total !== null && !inRange(total, FUEL_RANGE)) {
+      errors[FIELD.fuelTon] = outOfRange('환산한 연료 사용량은', FUEL_RANGE, 4)
+    }
   }
 
   if (state.vesselId === '') {

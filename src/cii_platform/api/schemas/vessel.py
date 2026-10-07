@@ -17,6 +17,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cii_platform.api.schemas.bounds import DAILY_FOC, REFERENCE_SPEED, storable, storable_from
+from cii_platform.imo_number import IMO_CHECK_DIGIT_MESSAGE, imo_check_digit_ok
 
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:
@@ -110,6 +111,7 @@ class VesselCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     # VAL-003: 7자리 숫자. 형식은 여기서, DB CHK 제약(chk_imo_format)과 이중 방어.
+    # 검사숫자는 아래 검증기가 본다(#2134) — DB는 형식만 본다.
     imo_number: Annotated[str, Field(pattern=r"^\d{7}$", min_length=7, max_length=7)]
     # VAL-001: 1~100자.
     name: Annotated[str, Field(min_length=1, max_length=100)]
@@ -135,6 +137,18 @@ class VesselCreateRequest(BaseModel):
     @classmethod
     def _call_sign(cls, value: object) -> str | None:
         return _normalize_call_sign(value)
+
+    @field_validator("imo_number")
+    @classmethod
+    def _imo_check_digit(cls, value: str) -> str:
+        """VAL-003 검사숫자 (`#2134` · 결정 D-15).
+
+        ``mode="after"``라 형식(숫자 7자리) 검사를 통과한 값만 온다 — 길이·형식 오류에
+        검사숫자 오류가 겹쳐 나가지 않는다. 식은 ``cii_platform.imo_number``가 갖는다.
+        """
+        if not imo_check_digit_ok(value):
+            raise ValueError(IMO_CHECK_DIGIT_MESSAGE)
+        return value
 
 
 class VesselUpdateRequest(BaseModel):

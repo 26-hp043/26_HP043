@@ -20,7 +20,7 @@ import type { VesselCreateRequest } from './types'
 /** `API_SPEC §2.1` 선박 객체. 제원 없이 등록된 경우를 기본값으로 둔다. */
 const CREATED = {
   id: '00000000-0000-4000-8000-0000000000a1',
-  imo_number: '9440001',
+  imo_number: '9440019',
   name: 'PACIFIC STAR',
   ship_type: 'BULK_CARRIER',
   gross_tonnage: null,
@@ -39,7 +39,7 @@ const CREATED = {
 }
 
 const REQUEST: VesselCreateRequest = {
-  imo_number: '9440001',
+  imo_number: '9440019',
   name: 'PACIFIC STAR',
   ship_type: 'BULK_CARRIER',
 }
@@ -132,7 +132,7 @@ describe('오류 매핑', () => {
   it('409 CONFLICT는 전용 코드로 남긴다 — 파라미터 문제와 섞지 않는다 (#286)', () => {
     const error = toVesselRegistrationError(
       409,
-      errorBody('CONFLICT', '이미 등록된 IMO 번호입니다: 9440001'),
+      errorBody('CONFLICT', '이미 등록된 IMO 번호입니다: 9440019'),
     )
     expect(error.code).toBe('CONFLICT')
   })

@@ -54,7 +54,7 @@ _TOUR_EMAIL = "tour@bluelog.local"
 
 #: 쓰기 시도에 쓸 선박 — **실제로 생성되면 안 된다**(정책이 그 앞에서 막는다).
 _VESSEL_PAYLOAD = {
-    "imo_number": "9999991",
+    "imo_number": "9999993",
     "name": "TOUR WRITE ATTEMPT",
     "ship_type": "BULK_CARRIER",
     "gross_tonnage": "10000",

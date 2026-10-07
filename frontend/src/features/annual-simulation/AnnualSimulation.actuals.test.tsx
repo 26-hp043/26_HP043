@@ -53,7 +53,7 @@ function detail(years: CiiYear[], name = '샘플 벌크선'): VesselDetail {
     vessel: {
       id: VESSEL_ID,
       name,
-      imoNumber: '9000001',
+      imoNumber: '9000015',
       shipType: 'BULK_CARRIER',
       deadweight: '50000',
       grossTonnage: null,

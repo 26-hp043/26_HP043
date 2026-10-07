@@ -34,7 +34,7 @@ import { DISPLAY_UNIT_DAILY_FUEL, formatCapacity } from '../../display/format'
 function vessel(overrides: Partial<Vessel> = {}): Vessel {
   return {
     id: '00000000-0000-4000-8000-000000000001',
-    imo_number: '0000001',
+    imo_number: '0000012',
     name: '샘플 벌크선',
     ship_type: 'BULK_CARRIER',
     gross_tonnage: 30000,
@@ -188,7 +188,7 @@ describe('deleteConfirmMessage — soft delete임을 밝힌다', () => {
   it('되돌릴 수 있다는 사실을 적는다 (#52 완료 기준)', () => {
     const message = deleteConfirmMessage(vessel())
     expect(message).toContain('샘플 벌크선')
-    expect(message).toContain('0000001')
+    expect(message).toContain('0000012')
     expect(message).toContain('이력은 보존')
     expect(message).toContain('다시 등록')
   })

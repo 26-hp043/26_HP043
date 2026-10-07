@@ -22,7 +22,7 @@ import {
 function vessel(overrides: Partial<Vessel> = {}): Vessel {
   return {
     id: '00000000-0000-4000-8000-000000000001',
-    imo_number: '0000001',
+    imo_number: '0000012',
     name: '샘플 벌크선',
     ship_type: 'BULK_CARRIER',
     gross_tonnage: 30000,

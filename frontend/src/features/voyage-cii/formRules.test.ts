@@ -1,6 +1,11 @@
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { storableRange } from '../vessel-registration/formRules'
 import {
+  DISTANCE_RANGE,
   FIELD,
+  FUEL_RANGE,
   initialFormState,
   toFormErrors,
   toRequest,
@@ -130,8 +135,10 @@ describe('validateForm — 경계값', () => {
   it.each([
     ['0', true],
     ['-1', true],
-    ['0.0001', false],
-  ])('distance_nm = %s → 오류 %s (VAL-002: > 0)', (value, shouldFail) => {
+    // #2134 — 하한은 `> 0`이 아니라 항차 저장과 같은 0.01이다(`NUMERIC(12,2)`)
+    ['0.0001', true],
+    ['0.01', false],
+  ])('distance_nm = %s → 오류 %s (VAL-002: 저장 하한 0.01)', (value, shouldFail) => {
     const errors = validateForm({ ...validState(), distanceNm: value })
     expect(FIELD.distanceNm in errors).toBe(shouldFail)
   })
@@ -490,5 +497,64 @@ describe('속력 상한 60kn — VAL-009 (#1269)', () => {
   it('60은 통과하고 60.01은 막는다 — 종전에는 이 화면만 상한이 없었다', () => {
     expect(validateForm({ ...validState(), speedKn: '60' })[FIELD.speedKn]).toBeUndefined()
     expect(validateForm({ ...validState(), speedKn: '60.01' })[FIELD.speedKn]).toBeDefined()
+  })
+})
+
+/**
+ * 거리·연료 범위는 **항차 저장과 같다** (`#2134` · 결정 D-15).
+ *
+ * 종전에는 `> 0`만 봐서 연료 99,999,999t이 계산을 통과했고, 같은 값을 계획 저장으로
+ * 넘기면 그때서야 걸렸다. 경계를 화면에 옮겨 적었으므로 **원본(ORM 컬럼 정밀도)과
+ * 어긋나면 실패하게** 한다 — `vessel-registration/specBounds.sync.test.ts`와 같은 취지다.
+ */
+describe('validateForm — 거리·연료 저장 범위 (#2134)', () => {
+  function numericOf(file: string, column: string): { precision: number; scale: number } {
+    const source = readFileSync(
+      new URL(`../../../../src/cii_platform/db/models/${file}`, import.meta.url),
+      'utf-8',
+    )
+    const match = new RegExp(
+      `${column}\\s*=\\s*sa\\.Column\\(sa\\.Numeric\\(precision=(\\d+),\\s*scale=(\\d+)\\)`,
+    ).exec(source)
+    expect(match, `${column}의 Numeric 선언을 찾지 못했습니다`).not.toBeNull()
+    return { precision: Number(match![1]), scale: Number(match![2]) }
+  }
+
+  it('화면 경계가 항차 저장 컬럼의 정밀도에서 나온 값과 같다', () => {
+    const distance = numericOf('voyage.py', 'planned_distance_nm')
+    const fuel = numericOf('voyage_fuel_use.py', 'planned_fuel_ton')
+    expect(DISTANCE_RANGE).toEqual(storableRange(distance.precision, distance.scale))
+    expect(FUEL_RANGE).toEqual(storableRange(fuel.precision, fuel.scale))
+  })
+
+  it('연료 99,999,999t은 범위 안이라 통과한다 — 비율 경고는 두지 않는다', () => {
+    expect(validateForm({ ...validState(), fuelTon: '99999999' })).not.toHaveProperty(FIELD.fuelTon)
+  })
+
+  it('연료가 저장 범위를 넘거나 하한 아래면 범위를 적어 잡는다', () => {
+    const over = validateForm({ ...validState(), fuelTon: '100000000' })[FIELD.fuelTon]
+    expect(over).toBe('연료 사용량은 0.0001 ~ 99,999,999.9999 사이여야 합니다.')
+    expect(validateForm({ ...validState(), fuelTon: '0.00001' })).toHaveProperty(FIELD.fuelTon)
+    expect(validateForm({ ...validState(), fuelTon: '0.0001' })).not.toHaveProperty(FIELD.fuelTon)
+  })
+
+  it('거리가 저장 범위를 넘거나 하한 아래면 범위를 적어 잡는다', () => {
+    const over = validateForm({ ...validState(), distanceNm: '10000000000' })[FIELD.distanceNm]
+    expect(over).toBe('항해거리는 0.01 ~ 9,999,999,999.99 사이여야 합니다.')
+    expect(validateForm({ ...validState(), distanceNm: '0.001' })).toHaveProperty(FIELD.distanceNm)
+    expect(validateForm({ ...validState(), distanceNm: '0.01' })).not.toHaveProperty(FIELD.distanceNm)
+  })
+
+  it('하루치 방식은 환산한 총량을 같은 범위로 본다 — 서버로 가는 값이 그것이다', () => {
+    const huge = {
+      ...validState(),
+      distanceNm: '9000000000',
+      speedKn: '1',
+      fuelMode: 'DAILY' as const,
+      dailyFuelTon: '1',
+    }
+    expect(validateForm(huge)[FIELD.fuelTon]).toContain('99,999,999.9999')
+    const fine = { ...validState(), fuelMode: 'DAILY' as const, dailyFuelTon: '23.04' }
+    expect(validateForm(fine)).not.toHaveProperty(FIELD.fuelTon)
   })
 })

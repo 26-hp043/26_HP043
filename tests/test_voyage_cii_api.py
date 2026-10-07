@@ -338,6 +338,47 @@ class TestValidationErrors:
         fields = [detail["field"] for detail in body["error"]["details"]]
         assert field in fields, fields
 
+    @pytest.mark.parametrize(
+        ("patch", "field", "message"),
+        [
+            (
+                {"fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 99999999}]},
+                None,
+                None,
+            ),
+            (
+                {"fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 100000000}]},
+                "fuel_uses[0].fuel_ton",
+                "연료 사용량은 99999999.9999 이하여야 합니다.",
+            ),
+            (
+                {"fuel_uses": [{"fuel_type": "HFO", "fuel_ton": "0.000000001"}]},
+                "fuel_uses[0].fuel_ton",
+                "연료 사용량은 0.0001 이상이어야 합니다.",
+            ),
+            (
+                {"distance_nm": 10000000000},
+                "distance_nm",
+                "항해거리는 9999999999.99 이하여야 합니다.",
+            ),
+            ({"distance_nm": "0.001"}, "distance_nm", "항해거리는 0.01 이상이어야 합니다."),
+        ],
+    )
+    def test_distance_and_fuel_use_the_voyage_storage_range(self, wired, patch, field, message):
+        """거리·연료는 **항차 저장과 같은 범위**다 (`#2134` · 결정 D-15).
+
+        종전에는 ``gt=0``뿐이라 99,999,999t·1e-9t이 계산을 통과해 지울 수 없는 계산 이력에
+        남았고, 같은 값을 계획 저장으로 넘기면 그때서야 걸렸다. 범위 안의 큰 값(첫 줄)은
+        여전히 계산된다 — 이 결정은 비율 경고를 두지 않았다.
+        """
+        resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, **patch})
+        if field is None:
+            assert resp.status_code == 200, resp.text
+            return
+        assert resp.status_code == 422, resp.text
+        details = {d["field"]: d["message"] for d in resp.json()["error"]["details"]}
+        assert details[field] == message
+
     def test_speed_exactly_one_knot_is_accepted(self, wired):
         """VAL-009는 **≥ 1.0**이다. 경계값이 거부되면 안 된다."""
         resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "speed_kn": 1.0})

@@ -117,6 +117,28 @@ export const NAME_MAX_LENGTH = 100
 const IMO_PATTERN = /^\d{7}$/
 
 /**
+ * IMO 번호 검사숫자 (VAL-003 · `#2134` 결정 D-15).
+ *
+ * 앞 여섯 자리에 왼쪽부터 7·6·5·4·3·2를 곱해 더한 값의 1의 자리가 마지막 자리와 같아야
+ * 한다. 예: `9074729` → `9×7 + 0×6 + 7×5 + 4×4 + 7×3 + 2×2 = 139` → 9.
+ *
+ * 서버 `cii_platform/imo_number.py`의 `imo_check_digit_ok`와 **같은 식**이다 — 한쪽만 다르면
+ * 화면이 통과시킨 번호를 서버가 422로 돌려보내거나 그 반대가 된다. 두 쪽 검사
+ * (`tests/test_imo_number.py` · `formRules.test.ts`)가 같은 표본을 쓴다.
+ *
+ * 숫자 7자리가 아니면 `false`다 — 형식 오류는 `IMO_PATTERN`이 먼저 말한다.
+ */
+export function imoCheckDigitOk(imo: string): boolean {
+  if (!IMO_PATTERN.test(imo)) return false
+  const weights = [7, 6, 5, 4, 3, 2]
+  const sum = weights.reduce((acc, weight, index) => acc + Number(imo[index]) * weight, 0)
+  return sum % 10 === Number(imo[6])
+}
+
+/** 검사숫자가 맞지 않을 때의 문구 — 서버 `IMO_CHECK_DIGIT_MESSAGE`와 글자 그대로 같다. */
+export const IMO_CHECK_DIGIT_MESSAGE = 'IMO 번호 검사숫자가 맞지 않습니다.'
+
+/**
  * 초기 폼 상태. **전부 빈 문자열이다.**
  *
  * 선종에 기본값을 넣지 않는다 — 13종 중 하나가 미리 선택돼 있으면 사용자가 고른 것과
@@ -281,6 +303,9 @@ export function validateForm(
   } else if (!IMO_PATTERN.test(imo)) {
     // VAL-003
     errors[FIELD.imoNumber] = 'IMO 번호는 숫자 7자리입니다.'
+  } else if (!imoCheckDigitOk(imo)) {
+    // VAL-003 검사숫자 (#2134) — 한 자리 오타는 형식을 그대로 통과한다
+    errors[FIELD.imoNumber] = IMO_CHECK_DIGIT_MESSAGE
   }
 
   const name = state.name.trim()
