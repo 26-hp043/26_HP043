@@ -263,7 +263,7 @@ def _fuel_shares(total: Decimal, weights: list[Decimal]) -> dict[int, Decimal]:
     풀려 있다.
     """
     if total < _FUEL_STEP or total != total.quantize(_FUEL_STEP):
-        raise ValueError(f"시나리오 연료 총량 {total}은(는) 저장 형식(0.0001 t 격자)의 값이 아니다")
+        raise ValueError(f"시나리오 연료 총량이 저장 형식(0.0001 t 격자)의 값이 아니다: {total}")
     weight_sum = sum(weights)
     positive = [index for index, weight in enumerate(weights) if weight > 0]
     shares: dict[int, Decimal] = {}
