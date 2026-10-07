@@ -2,18 +2,14 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
-import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
-import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeDistribution } from './GradeDistribution'
-import { VesselMark } from './VesselMark'
-import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
+import { AnchorIcon, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { formatTimestamp } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 import { UnconfirmedVoyages } from './UnconfirmedVoyages'
 import { CheckTable } from './CheckTable'
-import { PANEL_KEY, initialPanelOpen } from './panelState'
 import { VesselPopover, type PopoverAnchor } from './VesselPopover'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
@@ -31,21 +27,12 @@ import {
 } from '../parameters/referenceApiProvider'
 import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
 import {
-  actionsSummaryText,
-  fleetSummaryParts,
-  daysToDText,
   daysValueText,
-  showsDaysToD,
-  isAtRisk,
   plottedCount,
   relativeTime,
-  unavailableHint,
-  unavailableText,
-  ytdCiiText,
   warningBannerText,
 } from './fleetRules'
-import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import type { FleetSnapshot, FleetSort, FleetVessel } from './types'
+import type { FleetSnapshot, FleetSort } from './types'
 import './FleetDashboard.css'
 
 /**
@@ -110,11 +97,6 @@ export function FleetDashboard() {
    */
   const [appliedSort, setAppliedSort] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
-  /*
-   * 패널 접힘 (#1824). 첫 값은 저장된 선택 → 없으면 화면 폭으로 정한다
-   * (`initialPanelOpen`). 렌더 중 `window`를 읽지 않도록 초기화 함수로 넘긴다.
-   */
-  const [panelOpen, setPanelOpen] = useState(() => initialPanelOpen())
 
   /*
    * 마커 팝오버 (#1831) — **한 번에 하나.**
@@ -400,7 +382,6 @@ export function FleetDashboard() {
   const soonest = counts.soonestDEntry
   const hasActions = snapshot.actions.length > 0
   const missingGt = counts.missingGrossTonnage
-  const summaryParts = fleetSummaryParts(counts)
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
   const remaining = sorted.length - visible.length
 
@@ -803,10 +784,8 @@ function useMinuteClock(): Date {
 }
 
 function FleetHead({
-  asOf,
   regulationYear,
   total,
-  baseline = null,
 }: {
   asOf?: string
   regulationYear?: number
@@ -908,139 +887,7 @@ function FleetPlaceholder({
   )
 }
 
-function VesselRow({
-  vessel,
-  onLocate,
-}: {
-  vessel: FleetVessel
-  /** 지도에서 이 배를 보여 준다 (#1831). 지도가 없거나 좌표가 없으면 `undefined`다. */
-  onLocate?: () => void
-}) {
-  return (
-    <li className={isAtRisk(vessel) ? 'vessel vessel--risk' : 'vessel'}>
-      <Link className="vessel__link" to={`/vessels/${vessel.id}`}>
-        {/*
-         * 등급은 **왼쪽 마크**가 맡는다 (`#701` ④). 종전에는 축이 다른 배지 셋이
-         * 전부 이름 위에 가로로 깔려 이름이 네 번째 줄에 있었다.
-         *
-         * `GradeBadge`를 쓰지 않는다 — 색·패턴·문자 세 채널을 마크가 그대로 담고,
-         * 같은 등급을 두 번 말하지 않는다. 대신 이 화면은 위쪽 등급 분포와 **같은
-         * 배 모양**을 쓰게 되어, 두 블록이 하나의 언어로 읽힌다.
-         */}
-        <VesselMark vessel={vessel} />
 
-        <span className="vessel__body">
-          <span className="vessel__head">
-            <span className="vessel__name">{vessel.name}</span>
-            {/*
-              규제 플래그는 등급과 **별개 축**이다 (`§8`). 같은 D등급이라도 1년차와
-              3년차는 배지가 같고 플래그만 달라야 한다. 이름 옆에 두어 「이 배에
-              의무가 걸렸다」가 이름과 함께 읽히게 한다.
-            */}
-            <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
-          </span>
-
-          {/*
-            선종·상태·적용 여부를 한 줄에 둔다 — 셋 다 「이 배가 어떤 배이고 지금
-            무엇을 하고 있나」다. 상태만 칩으로 빼 형태로 드러낸다 (`#701` ⑤).
-          */}
-          <span className="vessel__meta">
-            <UnderwayChip vessel={vessel} />
-            <span className="vessel__type">{shipTypeLabel(vessel.shipType)}</span>
-            {/*
-              적용 대상 배지는 규제 플래그와 **또 다른 축**이다 (`#653`).
-              플래그는 「의무가 걸렸다」, 이 배지는 「애초에 규제 대상인가」다.
-            */}
-            <ApplicabilityBadge
-              isCiiApplicableHint={vessel.isCiiApplicableHint}
-              grossTonnage={vessel.grossTonnage}
-              vesselName={vessel.name}
-            />
-          </span>
-
-          <span className="vessel__stats">
-            <span>
-              <b className="vessel__k">YTD</b>
-              {/* 자릿수는 `DESIGN_SYSTEM §4.1`(🔒)이 정한다 — 원본은 4자리로 온다. */}
-              {ytdCiiText(vessel.ytdAttainedCii)}
-            </span>
-            {/*
-             * 값이 없는 선박에는 「D등급까지」 대신 **왜 없는지**를 쓴다 (`#419`).
-             * 종전에는 제원이 없어도 「실적 없음」으로 보여, 항차를 등록해도 해결되지
-             * 않는 선박을 사용자가 계속 들여다보게 됐다.
-             */}
-            {/*
-              이미 D 이하면 이 칸을 그리지 않는다 (#1569 · `showsDaysToD`) — 「D등급 이하」가
-              왼쪽 마크의 등급을 되풀이했다.
-            */}
-            {!vessel.dataAvailable || showsDaysToD(vessel.daysToD, vessel.daysToDReason) ? (
-              <span
-                className="vessel__days"
-                title={
-                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-                }
-                /*
-                 * `role` 없는 `<span>`의 `aria-label`은 무시된다 (#829 ⑸b).
-                 * 라벨이 붙는 조건과 **같은 조건**으로 준다 — 값이 있을 때는 본문
-                 * 텍스트가 그대로 읽히면 되므로 역할을 만들지 않는다.
-                 */
-                role={vessel.dataAvailable ? undefined : 'img'}
-                aria-label={
-                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-                }
-              >
-                {vessel.dataAvailable
-                  ? daysToDText(vessel.daysToD, vessel.daysToDReason)
-                  : unavailableText(vessel.unavailableReason)}
-              </span>
-            ) : null}
-          </span>
-        </span>
-      </Link>
-
-      {/*
-       * 지도로 가는 띠 (#1831) — **카드 링크 바깥**이다. `<a>` 안에 `<button>`을 겹칠 수
-       * 없고, 겹쳐 두면 행을 누르는 것이 어느 쪽인지도 흐려진다. 행 오른쪽 끝의 좁은
-       * 띠라 이름·수치가 쓰는 폭을 건드리지 않는다.
-       */}
-      {onLocate === undefined ? null : (
-        <button
-          type="button"
-          className="vessel__locate"
-          onClick={onLocate}
-          aria-label={`지도에서 ${vessel.name} 보기`}
-        >
-          <PinIcon />
-        </button>
-      )}
-
-      {/*
-       * 「기준값 없음」은 사용자가 할 수 있는 것이 없는 사유다 — 안내가 「운영자에게
-       * 문의하세요」로 끝나는데 그 운영자가 갈 자리가 없었다 (`#1516` · `#1239` 결정 A).
-       * 문구는 그대로 두고(`unavailableHint`) 그 자리로 가는 링크를 덧붙인다. 카드 링크
-       * 안에 링크를 겹칠 수 없으므로 카드 아래 한 줄이다.
-       */}
-      {!vessel.dataAvailable && vessel.unavailableReason === 'NO_PARAMETERS' ? (
-        <p className="vessel__note">
-          <span>{unavailableHint(vessel.unavailableReason)}</span>
-          <Link className="vessel__note-link" to={regulationParametersPath()}>
-            규제 기준값 보기
-          </Link>
-        </p>
-      ) : null}
-    </li>
-  )
-}
-
-/** 지도 핀 — 「지도에서 보기」 띠 안. 접근 가능한 이름은 버튼의 `aria-label`이 맡는다 (#1831). */
-function PinIcon() {
-  return (
-    <svg className="vessel__pin" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 21.5s7-6.6 7-11.5a7 7 0 1 0-14 0c0 4.9 7 11.5 7 11.5z" />
-      <circle cx="12" cy="10" r="2.6" />
-    </svg>
-  )
-}
 
 function WarnIcon() {
   return (

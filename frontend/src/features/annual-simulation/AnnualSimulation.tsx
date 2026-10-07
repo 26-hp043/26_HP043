@@ -1101,7 +1101,6 @@ function Result({
   vesselId,
   conditions,
   restored,
-  provider,
   mapGeometryProvider,
 }: {
   result: AnnualSimulationResult
@@ -1112,7 +1111,7 @@ function Result({
   provider: AnnualSimulationProvider
   mapGeometryProvider?: AnnualMapGeometryProvider
 }) {
-  const { deterministic: det, monte_carlo: mc, reduction_plan: cut, feedback } = result
+  const { deterministic: det, monte_carlo: mc, reduction_plan: cut } = result
   const risk = riskLabel(result.risk_level)
   const pDorE = probabilityOfDorE(mc.rating_probabilities)
   const flag = riskFlag(pDorE)
@@ -1167,8 +1166,8 @@ function Result({
           cutShown(cut)
             ? {
                 label: ANNUAL_COPY.verdictTargetLabel,
-                value: `연료 −${reductionCutText(cut!.required_cut_gco2, cut!.required_cut_fuel_ton).fuel}`,
-                note: `CO₂ −${reductionCutText(cut!.required_cut_gco2, cut!.required_cut_fuel_ton).co2} · 남은 계획 거리는 그대로`,
+                value: `연료 −${reductionCutText(cut!.required_cut_gco2 ?? '0', cut!.required_cut_fuel_ton ?? '0').fuel}`,
+                note: `CO₂ −${reductionCutText(cut!.required_cut_gco2 ?? '0', cut!.required_cut_fuel_ton ?? '0').co2} · 남은 계획 거리는 그대로`,
               }
             : undefined
         }
