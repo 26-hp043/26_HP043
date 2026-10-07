@@ -51,6 +51,7 @@ from cii_platform.auth.password import (
     password_login_disabled,
     validate_password,
 )
+from cii_platform.auth.role_bootstrap import promote_verified_initial_admin
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_token import (
@@ -229,6 +230,10 @@ async def confirm_email_verification(
     import datetime as dt
 
     user.email_verified_at = dt.datetime.now(dt.UTC)
+    # 최초 관리자 목록의 주소는 **인증을 마친 이 자리에서** 관리자가 된다 (#2108) — 가입은
+    # 항상 현장직이고, 메일함의 주인임이 확인된 지금이 올리는 시점이다. 같은 트랜잭션에서
+    # 감사 기록과 함께 커밋한다.
+    await promote_verified_initial_admin(session, user, ip_address=audit_client_ip(request))
     await session.commit()
 
     return _ok(request, "이메일 인증이 완료되었습니다.")
