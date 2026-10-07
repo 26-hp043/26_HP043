@@ -763,6 +763,51 @@ async def test_non_applicable_vessel_is_left_out_of_the_d_entry_alert(session):
 
 
 @pytest.mark.asyncio
+async def test_soonest_d_entry_and_the_alert_point_at_the_same_applicable_vessel(session):
+    """⚠️ 「D등급 진입 임박」 칸도 GT 4,999는 뺀다 — 종 버튼 첫 항목과 같은 배 (#2132 결정 2).
+
+    두 선박의 항차를 똑같이 두어 ``days_to_d``가 같게 하고, 적용 대상이 아닌 쪽 이름이 앞서게
+    했다(동점 2차 키가 이름이다). 그래서 거르지 않으면 칸은 적용 대상이 아닌 배를 고른다.
+    **선박 행의 ``days_to_d``는 두 척 다 그대로다** — 카드의 일수는 내부 관리용으로 남는다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    for imo, name, gt in [("9200121", "A SMALL SOON", 4999), ("9200122", "B BIG SOON", 30000)]:
+        vid = await _insert_vessel(
+            session,
+            imo=imo,
+            name=name,
+            gross_tonnage=gt,
+            underway_state="UNDER_WAY",
+            detail_status="SAILING",
+        )
+        await _insert_voyage(
+            session, vid, arrived=datetime(YEAR, 1, 20, tzinfo=UTC), distance=5000, fuel=200
+        )
+        await _insert_voyage(
+            session, vid, arrived=datetime(YEAR, 6, 20, tzinfo=UTC), distance=1000, fuel=300
+        )
+
+    as_of = datetime(YEAR, 6, 25, tzinfo=UTC)
+    result = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    rows = {r["name"]: r for r in result["vessels"]}
+    days = rows["B BIG SOON"]["days_to_d"]
+    assert isinstance(days, int)
+    assert rows["A SMALL SOON"]["days_to_d"] == days
+
+    soonest = result["summary"]["soonest_d_entry"]
+    assert soonest == {
+        "vessel_id": rows["B BIG SOON"]["vessel_id"],
+        "name": "B BIG SOON",
+        "days": days,
+    }
+
+    notes = await get_notifications(session, regulation_year=YEAR, as_of=as_of)
+    first = next(i for i in notes["items"] if i["kind"] == "D_ENTRY_SOON")
+    assert first["vessel_id"] == str(soonest["vessel_id"])
+
+
+@pytest.mark.asyncio
 async def test_numbers_are_strings(session):
     """`API_SPEC §1.7` — 수치는 문자열로 직렬화한다.
 
@@ -1562,15 +1607,38 @@ def test_soonest_d_entry_breaks_ties_by_name_then_id():
     요청을 다시 해도 같은 배를 가리켜야 배너가 안정적으로 읽힌다.
     """
     rows = [
-        {"vessel_id": "b", "name": "SAME", "days_to_d": 7},
-        {"vessel_id": "a", "name": "SAME", "days_to_d": 7},
-        {"vessel_id": "z", "name": "AAA", "days_to_d": 7},
+        {"vessel_id": "b", "name": "SAME", "days_to_d": 7, "gross_tonnage": 30000.0},
+        {"vessel_id": "a", "name": "SAME", "days_to_d": 7, "gross_tonnage": 30000.0},
+        {"vessel_id": "z", "name": "AAA", "days_to_d": 7, "gross_tonnage": 30000.0},
     ]
     assert fleet_summary._soonest_d_entry(rows) == {"vessel_id": "z", "name": "AAA", "days": 7}
     assert fleet_summary._soonest_d_entry([]) is None
-    assert (
-        fleet_summary._soonest_d_entry([{"vessel_id": "x", "name": "X", "days_to_d": None}]) is None
-    )
+    none_row = {"vessel_id": "x", "name": "X", "days_to_d": None, "gross_tonnage": 30000.0}
+    assert fleet_summary._soonest_d_entry([none_row]) is None
+
+
+def test_soonest_d_entry_skips_a_non_applicable_vessel():
+    """⚠️ CII 적용 대상이 아닌 선박이 가장 임박해도 칸은 **적용 대상 선박**을 고른다 (#2132 결정 2).
+
+    칸은 한 척만 보인다(``min``) — 의무가 없는 배(GT 4,999)가 1일로 가장 임박하면 의무가
+    걸린 배(GT 5,000 · 9일)의 임박이 가려졌다. GT를 모르는 선박(NULL)은 「적용 대상이
+    아니다」로 단정할 수 없어 후보로 남는다. 후보가 적용 대상 아님 선박뿐이면 ``null``이다.
+    """
+    small = {"vessel_id": "s", "name": "SMALL", "days_to_d": 1, "gross_tonnage": 4999.0}
+    limit = {"vessel_id": "l", "name": "LIMIT", "days_to_d": 9, "gross_tonnage": 5000.0}
+    no_gt = {"vessel_id": "n", "name": "NOGT", "days_to_d": 5, "gross_tonnage": None}
+
+    assert fleet_summary._soonest_d_entry([small, limit]) == {
+        "vessel_id": "l",
+        "name": "LIMIT",
+        "days": 9,
+    }
+    assert fleet_summary._soonest_d_entry([small, limit, no_gt]) == {
+        "vessel_id": "n",
+        "name": "NOGT",
+        "days": 5,
+    }
+    assert fleet_summary._soonest_d_entry([small]) is None
 
 
 def test_publish_cii_truncates_and_publish_rounds():

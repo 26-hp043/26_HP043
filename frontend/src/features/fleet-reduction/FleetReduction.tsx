@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
+import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -813,6 +814,17 @@ function VesselRow({
         <Link to={`/vessels/${vessel.vesselId}`} title={vessel.vesselName}>
           {vessel.vesselName}
         </Link>
+        {/*
+          CII 적용 대상 배지 — 선박을 식별하는 자리마다 같은 배지를 둔다 (`#653` · `#2132` 결정 3).
+          「위험 선박 0척」 목표에서 적용 대상이 아닌 선박은 E여도 「목표 달성」이다(`PRD §12.3.2`
+          ⑸). 그 이유를 같은 행에서 읽게 한다. 적용 대상이면 아무것도 그리지 않는다.
+          링크가 블록이라 배지는 이름 아래 줄에 놓인다 — 이름의 말줄임 폭을 빼앗지 않는다.
+        */}
+        <ApplicabilityBadge
+          isCiiApplicableHint={vessel.isCiiApplicableHint}
+          grossTonnage={vessel.grossTonnage}
+          vesselName={vessel.vesselName}
+        />
       </th>
       <td>
         {vessel.before && vessel.after ? (

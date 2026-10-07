@@ -52,6 +52,12 @@ function toVessel(raw: Json): VesselResult {
   return {
     vesselId: String(raw.vessel_id),
     vesselName: String(raw.vessel_name),
+    // CII 적용 대상 표시 (`#2132` 결정 3 · `§2.8` 선대 행과 같은 필드). 대시보드 매핑
+    // (`features/fleet/apiProvider.ts`)과 같이 `is_cii_applicable_hint`가 **없는 응답**이면
+    // `true`로 두어 배지를 그리지 않는다 — 서버가 판정을 보내지 않았는데 화면이
+    // 「대상 아님」을 단정하면 없는 사실을 만든다.
+    isCiiApplicableHint: (raw.is_cii_applicable_hint as boolean | undefined) ?? true,
+    grossTonnage: (raw.gross_tonnage as number | string | null | undefined) ?? null,
     unavailableReason: (raw.unavailable_reason as string | null) ?? null,
     before: projection(raw.before),
     after: projection(raw.after),

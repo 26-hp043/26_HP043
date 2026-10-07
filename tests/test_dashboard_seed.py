@@ -590,9 +590,9 @@ async def test_risk_narrative_survives_the_watch_vessel(conn):
     """관찰 대상 선박을 더해도 **위험 선박 서사가 그대로다** (#889).
 
     데모 데이터는 심사 서사 그 자체다. 한 척을 더하는 것이 기존 이야기를 흐리면
-    안 된다 — E 2척과 ``at_risk`` 1이 유지되고, 등급 분포에 C가 생겨 스택 바가
-    오히려 다양해진다. E 2척 중 DONGJIN ENDURANCE(GT 4,559)는 CII 적용 대상이 아니라
-    위험 선박에서 빠진다(#2132) — 등급은 E 그대로다.
+    안 된다 — E 2척이 유지되고, 등급 분포에 C가 생겨 스택 바가 오히려 다양해진다.
+    ``at_risk``는 2에서 **1로 줄었다**(#2132) — E 2척 중 DONGJIN ENDURANCE(GT 4,559)는
+    CII 적용 대상이 아니라 위험 선박에서 빠진다. 등급은 E 그대로다.
     """
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
         result = await get_fleet_summary(session, regulation_year=2026, as_of=DEMO_AS_OF)

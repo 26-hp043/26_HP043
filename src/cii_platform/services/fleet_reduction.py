@@ -50,6 +50,7 @@ from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
     UNAVAILABLE_NO_DATA,
     UNAVAILABLE_NO_PARAMETERS,
+    _spec_number,
     prior_confirmed_ratings,
     spec_gap,
 )
@@ -254,6 +255,12 @@ async def evaluate_reduction_plan(
             "vessel_id": vessel_id,
             "vessel_name": vessel.name,
             "speed_reduction_percent": _publish(reduction, 1),
+            # 「규제 대상 아님」 배지의 근거 (#2132 결정 3). `API_SPEC §2.8` 선대 요약 행과 **같은
+            # 이름·타입·뜻**이다 — 서버 판정(힌트)을 그대로 싣고, 「미해당」과 「GT가 없어 판정
+            # 불가」를 가를 수 있게 총톤수를 JSON number로 함께 낸다. 계산하지 못한 선박에도
+            # 싣는다(배지는 계산 여부와 무관하게 선박을 식별하는 자리에 붙는다).
+            "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
+            "gross_tonnage": _spec_number(vessel.gross_tonnage),
         }
         try:
             prior = await prior_confirmed_ratings(

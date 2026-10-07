@@ -1046,14 +1046,33 @@ def _aggregate_counts(rows: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
+def row_is_cii_non_applicable(row: dict[str, object]) -> bool:
+    """선대 행의 선박이 CII 적용 대상이 아닌가 — GT를 알고 5,000 미만일 때만 참 (#2132).
+
+    ``risk_reasons``(``evaluate_risk_reasons``)와 **같은 판정**(``applicability_state``)을
+    행에 실린 ``gross_tonnage``로 다시 부른다. 행의 값은 JSON number(float — ``_spec_number``)라
+    ``str``을 거쳐 ``Decimal``로 되돌린다. ``soonest_d_entry``와 알림의 ``D_ENTRY_SOON``
+    (``services/notifications.py``)이 이 함수 하나를 쓴다 — 두 자리가 다른 배를 가리키지 않게.
+    """
+    gross_tonnage = row["gross_tonnage"]
+    value = None if gross_tonnage is None else Decimal(str(gross_tonnage))
+    return applicability_state(value) == STATE_NOT_APPLICABLE
+
+
 def _soonest_d_entry(rows: list[dict[str, object]]) -> dict[str, object] | None:
-    """``days_to_d``가 있는 선박 중 남은 일수가 가장 짧은 것 하나.
+    """``days_to_d``가 있는 CII 적용 대상(또는 판정 불가) 선박 중 남은 일수가 가장 짧은 것 하나.
 
     ``vessel_id``를 함께 싣는다 — 이름만으로는 화면이 배를 특정할 수 없고(동명
     선박), 링크로 이어 줄 근거는 ID다. 종전 화면 계산에 없던 값이지만 「가」의
     이전 대상이 배너 보조 문구인 만큼 특정에 필요한 최소한만 더한다.
     """
-    candidates = [row for row in rows if row["days_to_d"] is not None]
+    # **CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 후보에서 뺀다** (#2132 결정 2).
+    # 이 칸은 한 척만 보이므로(``min``) 의무가 없는 배가 가장 임박하면 의무가 걸린 배의 임박이
+    # 가려진다. 판정은 ``risk_reasons``와 같은 ``applicability_state``이고, GT를 모르는 선박은
+    # 뺄 근거가 없어 둔다. 선박 행의 ``days_to_d``는 그대로 싣는다(내부 분석 — `PRD §3.1`).
+    candidates = [
+        row for row in rows if row["days_to_d"] is not None and not row_is_cii_non_applicable(row)
+    ]
     if not candidates:
         return None
     best = min(

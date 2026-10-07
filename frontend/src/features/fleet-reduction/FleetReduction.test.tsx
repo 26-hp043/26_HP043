@@ -30,6 +30,8 @@ function result(overrides: Partial<EvaluateResult> = {}): EvaluateResult {
       {
         vesselId: 'v1',
         vesselName: 'MV One',
+        isCiiApplicableHint: true,
+        grossTonnage: 30000,
         unavailableReason: null,
         before: { attainedCii: '8.9711', rating: 'E' },
         after: { attainedCii: '7.1000', rating: 'D' },
@@ -44,6 +46,8 @@ function result(overrides: Partial<EvaluateResult> = {}): EvaluateResult {
       {
         vesselId: 'v2',
         vesselName: 'MV Empty',
+        isCiiApplicableHint: true,
+        grossTonnage: 30000,
         unavailableReason: 'NO_DATA',
         before: null,
         after: null,
@@ -274,6 +278,45 @@ describe('함대 감축 계획 화면 (#513)', () => {
  * 지는 자리(전용 클래스)가 이름 칸에 붙어 있는지와, **잘려도 이름을 잃지 않는지**를
  * 본다 — 접근성 이름은 전체 텍스트이고, `title`이 마우스 보조로 같은 값을 든다.
  */
+/**
+ * 선박명 옆 CII 적용 대상 배지 (`#2132` 결정 3 · `DESIGN_SYSTEM §8.2` 「선박을 식별하는 자리마다」).
+ *
+ * 「위험 선박 0척」 목표에서 적용 대상이 아닌 선박은 E여도 「목표 달성」이다(`PRD §12.3.2` ⑸).
+ * 그 이유가 같은 행에 보이지 않으면 「E · 목표 달성」이 모순으로 읽힌다. 배지 문구는 표시
+ * 문구라 리터럴로 단언하지 않고(`AGENTS §4.6`) 공용 배지의 성질(`role="img"` · 접근성 이름에
+ * 선박명)과 **세 상태가 서로 다르게 그려지는가**로 본다.
+ */
+describe('선박명 옆에 CII 적용 대상 배지를 붙인다 (#2132)', () => {
+  const vessel = (over: Partial<EvaluateResult['vessels'][number]>) => ({
+    ...result().vessels[0],
+    ...over,
+  })
+
+  it('적용 대상이 아닌 선박(GT 4,999)과 판정 불가(GT 미입력) 선박의 행에 배지가 그려진다', async () => {
+    renderWith(
+      result({
+        vessels: [
+          vessel({ vesselId: 's', vesselName: 'MV Small', isCiiApplicableHint: false, grossTonnage: 4999 }),
+          vessel({ vesselId: 'n', vesselName: 'MV NoGT', isCiiApplicableHint: false, grossTonnage: null }),
+          vessel({ vesselId: 'b', vesselName: 'MV Big', isCiiApplicableHint: true, grossTonnage: 30000 }),
+        ],
+      }),
+    )
+
+    const rowOf = async (name: string) => (await screen.findByRole('link', { name })).closest('tr')!
+    const small = within(await rowOf('MV Small')).getByRole('img', { name: /MV Small/ })
+    const noGt = within(await rowOf('MV NoGT')).getByRole('img', { name: /MV NoGT/ })
+    // 두 상태(「미해당」 · 「판정 불가」)를 같은 말로 합치지 않는다 — `DESIGN_SYSTEM §8.2`.
+    expect(small.textContent).not.toBe('')
+    expect(noGt.textContent).not.toBe('')
+    expect(small.textContent).not.toBe(noGt.textContent)
+    // 배지는 선박명 칸(`th`)에 붙는다 — 선박을 식별하는 자리다.
+    expect(small.closest('th')?.className).toContain('fr__vessel')
+    // 적용 대상이면 아무것도 그리지 않는다.
+    expect(within(await rowOf('MV Big')).queryByRole('img', { name: /MV Big/ })).toBeNull()
+  })
+})
+
 describe('선박명은 한 줄로 고정된다 (#1427)', () => {
   const LONG = '샘플 로로 여객선 (25,000 GT)'
 
@@ -525,6 +568,8 @@ describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757 · #2314)', () => {
           {
             vesselId: 'v2',
             vesselName: 'MV Empty',
+            isCiiApplicableHint: true,
+            grossTonnage: 30000,
             unavailableReason: 'NO_DATA',
             before: null,
             after: null,

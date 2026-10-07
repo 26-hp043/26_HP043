@@ -269,6 +269,45 @@ async def test_all_c_target_still_counts_a_non_applicable_e_vessel(session, vess
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gross_tonnage", "hint"),
+    [(4999, False), (5000, True), (None, False)],
+    ids=["GT4999_not_applicable", "GT5000_applicable", "GT_NULL_unknown"],
+)
+async def test_each_vessel_row_carries_the_applicability_fields(
+    session, vessel_id, gross_tonnage, hint
+):
+    """⚠️ 선박 행에 ``is_cii_applicable_hint`` · ``gross_tonnage``가 실린다 (#2132 결정 3).
+
+    `API_SPEC §2.8` 선대 행과 **같은 이름·타입·뜻**이다 — 힌트는 저장된 서버 판정 그대로,
+    총톤수는 JSON number(NULL이면 ``None``). 화면이 「규제 대상 아님」과 「GT 미입력」을 이 둘로
+    가른다. GT 4,999와 NULL은 힌트가 둘 다 거짓이라 **총톤수가 없으면 두 상태를 가를 수 없다.**
+    ``meets_target``의 값 체계는 그대로다(``True``/``False``).
+    """
+    await session.execute(
+        text(
+            "UPDATE vessel SET gross_tonnage = :gt, is_cii_applicable_hint = :hint WHERE id = :vid"
+        ),
+        {"gt": gross_tonnage, "hint": hint, "vid": vessel_id},
+    )
+
+    result = await evaluate_reduction_plan(
+        session, regulation_year=YEAR, target="NO_AT_RISK", adjustments=[], prices={}
+    )
+    mine = _mine(result, vessel_id)
+
+    assert mine["is_cii_applicable_hint"] is hint
+    expected_gt = None if gross_tonnage is None else float(gross_tonnage)
+    assert mine["gross_tonnage"] == expected_gt
+    assert mine["gross_tonnage"] is None or isinstance(mine["gross_tonnage"], float)
+    assert mine["meets_target"] in (True, False)
+    # 계산하지 못한 선박 행에도 싣는다 — 배지는 계산 여부와 무관하게 선박을 식별하는 자리에 붙는다.
+    for row in result["vessels"]:
+        assert "is_cii_applicable_hint" in row, row
+        assert "gross_tonnage" in row, row
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_vessel_is_rejected(session, vessel_id):
     with pytest.raises(ValidationError):
         await evaluate_reduction_plan(
@@ -339,6 +378,13 @@ def test_the_routes_answer_over_http(migrated_db, app_fresh_engine):
             "costs",
             "warnings",
         }
+        # 선박 행에 「규제 대상 아님」 배지의 근거 두 필드가 실린다 (#2132 결정 3 · `§2.8`과 같은
+        # 이름·타입). 데모 시드의 실존 2척으로 두 상태를 HTTP 응답에서 본다.
+        by_name = {row["vessel_name"]: row for row in evaluated.json()["data"]["vessels"]}
+        assert by_name["DONGJIN ENDURANCE"]["is_cii_applicable_hint"] is False
+        assert by_name["DONGJIN ENDURANCE"]["gross_tonnage"] == 4559.0
+        assert by_name["STAR SKIPPER"]["is_cii_applicable_hint"] is True
+        assert by_name["STAR SKIPPER"]["gross_tonnage"] == 9520.0
 
         too_much = {
             **body,
