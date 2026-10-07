@@ -88,9 +88,8 @@ class ReductionPlanSaveRequest(ReductionPlanRequest):
     #: ``name``은 이미 「선명」이다. 같은 이름이면 계획 이름 오류가 「선명」으로 나간다.
     #:
     #: **앞뒤 공백을 먼저 걷고 길이를 잰다** (#1070 ⑴). 종전에는 공백만 있는 이름이
-    #: 검증을 통과한 뒤 서비스의 ``strip()``으로 빈 문자열이 되어 DB 제약
-    #: (``chk_fleet_reduction_plan_name``)에 걸렸고 **500**이 났다 — 그 전에 선대 전체
-    #: 계산도 한 번 돌았다.
+    #: 검증을 통과한 뒤 서비스의 ``strip()``으로 빈 문자열이 되었다. ``name`` 공백을 보는
+    #: DB 제약은 없어(``DB_SCHEMA §2.22``) 이 스키마가 그 규칙을 지키는 유일한 자리다.
     plan_name: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
     ]

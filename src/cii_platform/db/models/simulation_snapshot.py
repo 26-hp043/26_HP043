@@ -11,8 +11,8 @@ ORM으로 UPDATE/DELETE를 시도하면 DB 예외로 트랜잭션이 롤백된�
 
 - annual_simulation_run(§2.6)과의 관계는 annual_simulation_run.snapshot_id →
   simulation_snapshot(id) 방향(1:1)이다. 이 테이블에는 simulation_run_id를 두지
-  않는다(순환 의존 방지, 009 주석 참조). annual_simulation_run 테이블은 아직
-  마이그레이션이 없어 이번 범위 밖.
+  않는다(순환 의존 방지, 009 주석 참조). annual_simulation_run 테이블은
+  initial 마이그레이션(1c444a5c4819)이 만든다.
 """
 
 import uuid
