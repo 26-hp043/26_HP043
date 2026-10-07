@@ -56,7 +56,7 @@ from cii_platform.auth.password import (
 )
 from cii_platform.auth.reserved_emails import TOUR_EMAIL as _TOUR_EMAIL
 from cii_platform.auth.reserved_emails import is_reserved_email
-from cii_platform.auth.role_bootstrap import is_initial_admin
+from cii_platform.auth.role_bootstrap import promote_verified_initial_admin
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
     CSRF_COOKIE_NAME,
@@ -388,13 +388,16 @@ async def signup(
         email=email,
         password_hash=password_hash,
         display_name=_normalize_display_name(payload.display_name),
-        # 새 계정은 현장직이다. 최초 관리자 목록(`INITIAL_ADMIN_EMAILS`)에 든 이메일만
-        # 관리자로 시작한다 — 새 DB에서 관리자 0명이 되지 않게 (#672 · #1301).
+        # 새 계정은 **항상 현장직**이다. 최초 관리자 목록(`INITIAL_ADMIN_EMAILS`)에 든
+        # 이메일도 마찬가지다 — 가입은 메일함의 주인을 확인하지 않으므로, 관리자로 올리는
+        # 것은 **이메일 인증을 마친 뒤**(인증 확인 직후·로그인)다 (#2108 ·
+        # `auth/role_bootstrap.py`). 종전에는 목록의 주소로 먼저 가입한 사람이 곧바로
+        # 관리자였다.
         #
         # **가입 화면에서 역할을 고르게 하지 않는다.** 고르게 하면 가입 게이트만 통과한
         # 누구나 스스로 권한을 넓힐 수 있다(자기 신고) — 관리자가 올려 주는 지금 구조가
         # 그것을 막는다. 가입 시 선택은 `production` 전환·가입 게이트와 함께 본다.
-        role=ROLE_ADMIN if is_initial_admin(email) else ROLE_FIELD,
+        role=ROLE_FIELD,
     )
     session.add(user)
     try:
@@ -502,19 +505,11 @@ async def login(
     # 성공은 백오프를 즉시 초기화한다 (#1203) — 다음 실패는 다시 5회 여유부터.
     backoff.record_success(email)
 
-    # 최초 관리자 목록에 든 계정은 로그인할 때마다 관리자로 맞춘다 (#672 · #1301 ·
-    # `auth/role_bootstrap.py`). 044 이전에 가입했든 화면에서 강등됐든 — 목록이 「항상
-    # 관리자인 사람」이다. 실제로 바뀔 때만 감사 기록을 남긴다.
-    if user.role != ROLE_ADMIN and is_initial_admin(email):
-        await audit_svc.record_role_change(
-            session,
-            actor_user_id=str(user.id),
-            target_user_id=user.id,
-            role_before=user.role,
-            role_after=ROLE_ADMIN,
-            ip_address=audit_client_ip(request),
-        )
-        user.role = ROLE_ADMIN
+    # 최초 관리자 목록에 든 계정은 **인증을 마쳤다면** 로그인할 때마다 관리자로 맞춘다
+    # (#672 · #1301 · #2108 · `auth/role_bootstrap.py`). 044 이전에 가입했든 화면에서
+    # 강등됐든 — 목록이 「항상 관리자인 사람」이다. 미인증 계정은 로그인은 되지만 현장직에
+    # 머문다(`PRD §7.10`). 실제로 바뀔 때만 감사 기록을 남긴다.
+    await promote_verified_initial_admin(session, user, ip_address=audit_client_ip(request))
 
     session_token, csrf_token = await _issue_session(session, request, user)
     await audit_svc.record_login_success(

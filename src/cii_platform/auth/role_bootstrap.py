@@ -10,14 +10,24 @@
 
 ## 설정
 
-``INITIAL_ADMIN_EMAILS`` — 쉼표로 나눈 이메일 목록. 여기 든 이메일은 **가입할 때와 로그인할
-때** 관리자로 올린다(``routes/auth.py``). 부팅 시점에 DB를 고치지 않는 이유 — 앱 기동이 DB
-쓰기에 묶이면 DB 없이 뜨는 검사·헬스 체크 경로가 전부 그 쓰기에 걸린다. 로그인은 어차피 DB를
-읽는 자리다.
+``INITIAL_ADMIN_EMAILS`` — 쉼표로 나눈 이메일 목록. 여기 든 이메일은 **이메일 인증을 마친
+뒤에** 관리자로 올린다(#2108) — 인증 확인 직후(``routes/auth_tokens.py``)와 로그인할 때
+(``routes/auth.py``), 둘 다 :func:`promote_verified_initial_admin`을 지난다. 부팅 시점에 DB를
+고치지 않는 이유 — 앱 기동이 DB 쓰기에 묶이면 DB 없이 뜨는 검사·헬스 체크 경로가 전부 그
+쓰기에 걸린다. 로그인은 어차피 DB를 읽는 자리다.
 
-**목록에 있는 동안은 강등해도 다음 로그인에서 되돌아온다.** 그 계정을 관리자에서 빼려면 먼저
-목록에서 뺀다 — 목록은 「항상 관리자인 사람」이지 「처음 한 번」이 아니다. 처음 한 번으로
-만들면 그 한 번을 누가 기록했는지가 필요해지고, 그 기록이 사라지면 잠긴다.
+## 왜 인증 뒤인가 (#2108)
+
+가입은 이메일 소유를 확인하지 않는다(``PRD §7.10`` — 인증 전에도 로그인·이용을 허용한다).
+종전에는 목록에 든 주소로 **먼저 가입하는 사람이 곧바로 관리자**였다 — 목록을 아는 누구나
+(가입 게이트를 통과하면) 그 주소의 메일함이 없어도 관리자 계정을 만들 수 있었다. 그래서
+가입할 때는 항상 현장직으로 넣고, **인증 링크를 누른 계정**(메일함의 주인)만 올린다.
+미인증 로그인은 그대로 허용하되 그 계정은 현장직에 머문다.
+
+**목록에 있는 동안은 (인증된 계정이라면) 강등해도 다음 로그인에서 되돌아온다.** 그 계정을
+관리자에서 빼려면 먼저 목록에서 뺀다 — 목록은 「항상 관리자인 사람」이지 「처음 한 번」이
+아니다. 처음 한 번으로 만들면 그 한 번을 누가 기록했는지가 필요해지고, 그 기록이 사라지면
+잠긴다.
 
 ## 옛 이름은 거부한다
 
@@ -41,8 +51,16 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from cii_platform.config import is_production
+from cii_platform.db.models.app_user import ROLE_ADMIN
+from cii_platform.services import audit as audit_svc
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from cii_platform.db.models.app_user import AppUser
 
 ENV_NAME = "INITIAL_ADMIN_EMAILS"
 
@@ -83,6 +101,39 @@ def load_initial_admin_emails(environ: Mapping[str, str] | None = None) -> froze
 def is_initial_admin(email: str, environ: Mapping[str, str] | None = None) -> bool:
     """이 이메일(소문자 정규화된 값)이 최초 관리자 목록에 있는가."""
     return email.strip().lower() in load_initial_admin_emails(environ)
+
+
+async def promote_verified_initial_admin(
+    session: AsyncSession,
+    user: AppUser,
+    *,
+    ip_address: str | None = None,
+) -> bool:
+    """인증을 마친 최초 관리자 계정을 관리자로 올리고 감사 기록을 남긴다 (#2108).
+
+    **세 조건이 모두 맞을 때만** 올린다 — ⑴ ``email_verified_at``이 있다 ⑵ 이메일이 목록에
+    있다 ⑶ 이미 관리자가 아니다. 실제로 바뀔 때만 ``ROLE_CHANGE``를 남긴다(``ADMIN → ADMIN``이
+    쌓이면 진짜 변경을 못 찾는다). 커밋은 호출부가 한다.
+
+    인증 확인 직후와 로그인 두 자리가 **이 한 함수**를 지난다 — 조건이 두 곳에 따로 적히면
+    한쪽만 바뀌어 갈린다(`#2109`이 닫은 유형).
+
+    :return: 역할이 실제로 바뀌었는가.
+    """
+    if user.email_verified_at is None or user.role == ROLE_ADMIN:
+        return False
+    if not is_initial_admin(user.email):
+        return False
+    await audit_svc.record_role_change(
+        session,
+        actor_user_id=str(user.id),
+        target_user_id=user.id,
+        role_before=user.role,
+        role_after=ROLE_ADMIN,
+        ip_address=ip_address,
+    )
+    user.role = ROLE_ADMIN
+    return True
 
 
 def validate_initial_admin(environ: Mapping[str, str] | None = None) -> None:
