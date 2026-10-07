@@ -540,3 +540,21 @@ def test_표지_판정이_제_일을_한다() -> None:
     assert not any(m in bare for m in _HISTORY_MARKERS), "맨 줄에 표지가 있다고 읽혔다"
     assert any(m in recorded for m in _HISTORY_MARKERS), "경과 줄을 못 알아봤다"
     assert changelog.startswith("| 20"), "변경 이력 행 모양이 바뀌었다"
+
+
+def test_디렉터리_트리의_기능_폴더_수와_이름이_실제와_같다() -> None:
+    """`TECH_SPEC §16.2` 프론트엔드 트리의 「기능 단위 N종」과 이름 목록 (#2139).
+
+    「18종」이 실제 20개 앞에서 낡아 있었다 — 폴더가 늘어도 아무것도 깨지지 않아서다.
+    수와 이름을 `frontend/src/features`의 하위 폴더와 맞춘다. 새 기능 폴더를 만들면
+    트리에도 한 줄 넣어야 한다.
+    """
+    tree = _text(_ROOT / "TECH_SPEC.md")
+    found = re.search(r"기능 단위 (\d+)종 —(.*?)├── pages/", tree, re.DOTALL)
+    assert found, "`TECH_SPEC §16.2`에서 「기능 단위 N종」 줄을 찾지 못했다"
+
+    documented = set(re.findall(r"[a-z][a-z-]*[a-z]", found.group(2)))
+    actual = {p.name for p in (_ROOT / "frontend" / "src" / "features").iterdir() if p.is_dir()}
+
+    assert int(found.group(1)) == len(actual), (found.group(1), len(actual))
+    assert documented == actual, (sorted(documented - actual), sorted(actual - documented))

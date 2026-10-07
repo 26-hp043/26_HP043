@@ -426,7 +426,7 @@ def sample_triangular(rng, plan_value: float, params: dict) -> float:
 
 > 속도는 min/max를 ratio가 아닌 절대 오프셋(`plan ± 1kn`)으로 정의하며, 최소값 floor는 1.0kn이다.
 >
-> ⚠️ **[#1346] 이 행은 정의만 두고 Monte Carlo가 표본추출하지 않는다** — `PRD §12.4.1` 각주. `CII = M / (W · Dt)`에 속도가 없어 독립으로 뽑아도 결과가 바뀌지 않고, cubic model로 이으면 **독립 표본추출된 연료와 같은 변동을 두 번 센다**. 속도는 `PRD §12.6` one-at-a-time 민감도(`±1kn`)에서만 움직인다. `calc/annual_simulation.py`의 `_sample_band` 호출이 **거리·연료 둘뿐**인 것이 그 구현이다.
+> ⚠️ **[#1346] 이 행은 정의만 두고 Monte Carlo가 표본추출하지 않는다** — `PRD §12.4.1` 각주. `CII = M / (transport_capacity × Dt)`에 속도가 없어 독립으로 뽑아도 결과가 바뀌지 않고, cubic model로 이으면 **독립 표본추출된 연료와 같은 변동을 두 번 센다**. 속도는 `PRD §12.6` one-at-a-time 민감도(`±1kn`)에서만 움직인다. `calc/annual_simulation.py`의 `_sample_band` 호출이 **거리·연료 둘뿐**인 것이 그 구현이다.
 
 #### 2.3.3 SciPy 혼용 금지
 
@@ -493,7 +493,7 @@ def validate():
 | OS/Arch | Docker 컨테이너 사용 권장 |
 | BLAS/LAPACK | Monte Carlo 내부에 BLAS 의존 연산이 없으므로 영향 없음 |
 
-> **[#235] lock 파일은 도입하지 않는다 — 범위 핀으로 족하다.** 근거: §5.4 재현성 계약의 수치 경로는 **Python `Decimal`(stdlib, Python 버전에 귀속)과 `numpy`(정확 핀)** 만 거친다. 나머지 런타임 의존성(fastapi·sqlalchemy·asyncpg 등)은 프레임워크로서 계산 결과에 관여하지 않고 — 결과는 `result_json`에 문자열로 확정 저장된다 — 버전 표류는 동작 호환성 문제일 뿐 재현성 문제가 아니다. 따라서 **모든 런타임 의존성에 상한을 두고**(상한 밖 조합은 배제) 주간 dependabot이 갱신을 검수 받아 올린다. 프론트엔드가 `package-lock.json` + `npm ci`를 쓰는 것과 대조되지만, 이는 JS 생태계에 상한 의존성 표현이 없어 lock이 유일한 수단이기 때문이다 — Python 생태계는 `>=x,<y` 범위 핀이 표준이다. lock을 도입해야 하는 시점의 신호: 계산에 관여하는 새 의존성(예: scipy) 추가, 또는 「같은 커밋·다른 설치 시점에 다른 결과」 사례 실제 관측.
+> **[#235] lock 파일은 도입하지 않는다 — 범위 핀으로 족하다.** 근거: §5.4 재현성 계약의 수치 경로는 **Python `Decimal`(stdlib, Python 버전에 귀속)과 `numpy`(정확 핀)** 만 거친다. 나머지 런타임 의존성(fastapi·sqlalchemy·pycubrid 등)은 프레임워크로서 계산 결과에 관여하지 않고 — 결과는 `result_json`에 문자열로 확정 저장된다 — 버전 표류는 동작 호환성 문제일 뿐 재현성 문제가 아니다. 따라서 **모든 런타임 의존성에 상한을 두고**(상한 밖 조합은 배제) 주간 dependabot이 갱신을 검수 받아 올린다. 프론트엔드가 `package-lock.json` + `npm ci`를 쓰는 것과 대조되지만, 이는 JS 생태계에 상한 의존성 표현이 없어 lock이 유일한 수단이기 때문이다 — Python 생태계는 `>=x,<y` 범위 핀이 표준이다. lock을 도입해야 하는 시점의 신호: 계산에 관여하는 새 의존성(예: scipy) 추가, 또는 「같은 커밋·다른 설치 시점에 다른 결과」 사례 실제 관측.
 
 > **[#399 정정 · 2026-08-19] 위 결정은 「재현성 계약의 수단」에 관한 것이고, `uv.lock`은 그 수단이 아니라 개발 실행기의 산출물로 존재한다.**
 >
@@ -1099,7 +1099,7 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 넷은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴, `not_underway`(연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫 · `simulation_snapshot.not_underway_json` 그대로)는 `#1803`에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
 
-> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** 기능②의 `detour_waypoint`(`#1300`)도 같은 규약이다 — 경유지를 고른 요청에만 담긴다. 기능③의 `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway` 넷은 목록에 있어도 **그 선택을 실제로 한 실행에만**(`not_underway`는 **정박 기록이 있는 실행에만**) 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
+> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** 기능②의 `detour_waypoint`(`#1300`)도 같은 규약이다 — 경유지를 고른 요청에만 담긴다. 기능③의 `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway` 넷은 목록에 있어도 **그 선택을 실제로 한 실행에만**(`not_underway`는 **정박 기록이 있는 실행에만**) 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 네 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
 
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
@@ -1705,7 +1705,7 @@ class SimulationSnapshot:
 
 > **[#1923] 공적 기록으로 채우기.** 데이터 점검의 「이 값으로 채우기」(`API_SPEC §3.12`)는 공적 재항 기록의 시각을 항차·정박 구간에 옮긴다. `VOYAGE_TRANSITION`은 상태만 말하므로 **어떤 값이 어떤 값으로 바뀌었고 그 값이 어느 기항의 공적 기록에서 왔는지**는 `VOYAGE_ACTUALS_FILL`이 남긴다(`DB_SCHEMA §2.14`). 확정 항차면 되돌리기 전환(`VOYAGE_TRANSITION`) · 값 변경 · `VOYAGE_ACTUALS_FILL`이 **한 번의 커밋**이다 — 서비스(`services/public_record_fill.py`)와 거기서 부르는 전환·구간 수정은 flush까지만 하고 라우트가 감사 둘을 넣은 뒤 커밋한다(`#1625` 패턴). 화면이 전환과 실적 입력을 두 요청으로 보내면 둘째가 실패할 때 되돌려진 채 옛값이 남는다.
 
-> **[#277] 인증 주체·로그인 이벤트.** `user_id`는 인증 미들웨어가 `request.state`에 주입한 `app_user.id`다 — 라우트가 이 값을 뽑아 감사 서비스(`services/audit.py`)로 넘기며, 서비스는 `request` 객체를 알지 못한다(§16.1 계층). 로그인 이벤트 3종(`LOGIN_SUCCESS` · `LOGIN_FAILURE` · `LOGOUT`)도 기록한다: 실패는 사유 코드(`reason`)만 남기고 **자격 증명(`id_token` · `code` · state · 세션 토큰)은 `details_json`에 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 기록하며 `dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화 시만 기록한다(멱등 재호출 제외).
+> **[#277] 인증 주체·로그인 이벤트.** `user_id`는 인증 미들웨어가 `request.state`에 주입한 `app_user.id`다 — 라우트가 이 값을 뽑아 감사 서비스(`services/audit.py`)로 넘기며, 서비스는 `request` 객체를 알지 못한다(§16.1 계층). 로그인 이벤트 3종(`LOGIN_SUCCESS` · `LOGIN_FAILURE` · `LOGOUT`)도 기록한다: 실패는 사유 코드(`reason`)만 남기고 **자격 증명(비밀번호 · 세션 토큰 · 메일 인증·재설정 토큰)은 `details_json`에 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 기록하며 `dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화 시만 기록한다(멱등 재호출 제외).
 
 ### 13.2 성능 검증
 
@@ -1860,6 +1860,7 @@ class SimulationSnapshot:
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
 ├── config.py            ← 설정 (DATABASE_URL 등)
+├── log_config.py        ← 구조화(JSON) 로그 설정 (#827)
 ├── depcheck.py          ← dev 이미지 의존성 드리프트 검사 (#523)
 ├── api/
 │   ├── main.py          ← FastAPI app
@@ -1874,6 +1875,7 @@ src/cii_platform/
 ├── weather/             ← 기상 조회·보정 모델 (#102)
 ├── geocode/             ← 항만명 좌표 조회 캐시 (#768)
 ├── ais/                 ← 위치 스냅샷 수집 경로 (#764)
+├── port_calls/          ← 공적 재항 기록 — 제공자 계약·구현체·대조 규칙 (#1197)
 ├── llm/                 ← 챗봇 LLM 공급자 어댑터 (#121)
 └── db/
     ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
@@ -1902,12 +1904,13 @@ frontend/
     ├── display/         ← DESIGN_SYSTEM §4 구현. 자릿수·구분자·단위의 단일 출처 (#392)
     ├── design/          ← 디자인 산출물 파생 자산 관리
     ├── download/        ← 내보내기·다운로드 경로
+    ├── i18n/            ← 화면 문구 사전(한국어·영문)·언어 전환 (#1215)
     ├── theme/           ← 테마(라이트·다크) 전환
-    ├── features/        ← 기능 단위 18종 — account · annual-simulation · assistant ·
-    │                     auth · data-quality · fleet · fleet-reduction · not-underway ·
-    │                     parameters · ports · realtime-cii · reports · scenario-comparison ·
-    │                     vessel-detail · vessel-management · vessel-registration ·
-    │                     voyage-cii · voyage-management
+    ├── features/        ← 기능 단위 20종 — account · annual-simulation · assistant ·
+    │                     auth · data-quality · fleet · fleet-reduction · map ·
+    │                     not-underway · notifications · parameters · ports · realtime-cii ·
+    │                     reports · scenario-comparison · vessel-detail · vessel-management ·
+    │                     vessel-registration · voyage-cii · voyage-management
     ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
     ├── test/            ← 테스트 유틸리티
     └── styles/
@@ -2302,3 +2305,4 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 | 2026-10-06 | `#2195` | **§12.3 `COMPLETED_FUEL_UNFILLED` 행의 조건에 한 문장 추가** (#2095) — 연말 예상의 확정분 조립도 연간 누적과 같은 판정 함수로 같은 코드를 낸다. 종전에는 누적만 냈고, 같은 항차를 쓰는 조립은 거리만 더한 채 경고 없이 넘어갔다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-07 | `#2273` | **다른 내용을 가리키던 참조 셋 정정** (`#2138`). ⑴ §18.2의 「`§2`의 `DATABASE_URL`」 → **`src/cii_platform/config.py`의 `DATABASE_URL`(`#118`)** — 이 문서의 `§2`는 「Monte Carlo RNG 및 재현성」이고, 프로덕션에서 기본값으로 폴백하지 않는 가드는 정본 절이 아니라 그 모듈에 있다 ⑵ §19.4의 「`PRD §18.2` 면책 문구」 → **`PRD §6.3`** — `PRD §18.2`는 「기능 테스트」이고 리포트 문서 면책 문구는 `PRD §6.3` 표의 「리포트 문서 (PDF · CSV) 본문」 행이다 ⑶ §10.3 업그레이드 절차 2항의 시뮬레이션 bit-exact 검사 `UT-CII-008` → **`UT-RNG-002` · `AT-AS-004`** — `UT-CII-008`은 「plan_value = 0 가드」이고, `TEST_PLAN §8.3`이 `AC-F3-002`(동일 seed 재현성)에 대응시킨 케이스가 이 둘이다. `AGENTS §4.3`상 참조 정정이라 버전은 올리지 않는다 |
 | 2026-10-07 | `#2279` | **「`PRD §9.1`」 범위 표기를 `VAL-001~010` → `VAL-001~011`로** (`#2268`) — 목차 표(오류 전파 및 검증)와 §12.1 `ValidationError` 행. `PRD §9.1`이 `VAL-011`(호출부호 형식 오류)을 싣게 되어 `API_SPEC §11`·`TEST_PLAN`이 쓰던 범위와 맞춘다. `AGENTS §4.3`상 표기 정정이라 버전은 올리지 않는다 (#2268) |
+| 2026-10-07 | `#2301` | **낡은 서술 정정** (`#2139`). ⑴ `§16.2` 트리의 「기능 단위 18종」 → **20종**(`map`·`notifications` 추가)과 트리에 없던 `log_config.py`·`port_calls/`·`i18n/` 행 추가 — `tests/test_doc_cross_refs.py`가 수·이름을 `frontend/src/features`와 대조한다. ⑵ `§13.1` `[#277]` 각주의 자격 증명 예 `id_token`·`code`(OIDC)를 자체 인증의 **비밀번호·세션 토큰·메일 인증·재설정 토큰**으로(`PRD §20 O-14` · `#413`). ⑶ `[#235]` 각주의 `asyncpg` → `pycubrid`(`pyproject.toml`이 `#1058`로 `asyncpg`를 뺐다). ⑷ 선택 키 규약의 「기능③에서는 세 번 적용됐다」 → **네 번**(`calc/hash.py` `ANNUAL_INPUT_FIELDS`의 `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`). ⑸ `CII = M / (W · Dt)` 표기를 `M / (transport_capacity × Dt)`로 — 식의 뜻은 그대로다 (#2139) |

@@ -27,7 +27,7 @@ from cii_platform.services.llm_guard import OUTBOUND_WHITELIST, OutboundFieldErr
 
 
 def test_tool_schemas_cover_exactly_the_registered_tools() -> None:
-    """IT-CHAT-016 — `Q9`가 정한 4종 + `#1533` 화면 결과 읽기, **쓰기 도구가 없다**."""
+    """IT-CHAT-016 — 등록된 도구 목록이 스키마와 일치하고, **쓰기 도구가 없다**."""
     names = [schema["name"] for schema in chat_tools.tool_schemas()]
     assert names == list(chat_tools.TOOL_NAMES)
     # `#121` 본문의 `create_voyage`를 넣지 않기로 한 결정이 코드에 남아 있는지 본다.

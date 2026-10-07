@@ -246,7 +246,7 @@ export function blockedReasons(vessel: Vessel): BlockedReason[] {
  *
  * 이 판정이 세는 것은 **용량 · 기준속도 · 기준 일일 연료소모량** 셋인데, 서버의
  * `MISSING_SPEC`(「제원 미입력」)이 세는 것은 **선종 · DWT · GT**다. 겹치는 것은
- * **용량 하나**뿐이다 — CII는 `M / (W · Dt)`라 기준속도·일일 연료는 등급 계산에
+ * **용량 하나**뿐이다 — CII는 `M / (transport_capacity × Dt)`라 기준속도·일일 연료는 등급 계산에
  * 들어가지 않는다.
  *
  * 그래서 **기준속도만 빈 배는 이 칩에 걸리면서 등급은 멀쩡히 나온다.** 두 말을 다
