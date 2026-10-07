@@ -367,7 +367,7 @@ class TestValidationErrors:
     def test_distance_and_fuel_use_the_voyage_storage_range(self, wired, patch, field, message):
         """거리·연료는 **항차 저장과 같은 범위**다 (`#2134` · 결정 D-15).
 
-        종전에는 ``gt=0``뿐이라 99,999,999t·1e-9t이 계산을 통과해 지울 수 없는 계산 이력에
+        종전에는 ``gt=0``뿐이라 1억 t·1e-9t이 계산을 통과해 지울 수 없는 계산 이력에
         남았고, 같은 값을 계획 저장으로 넘기면 그때서야 걸렸다. 범위 안의 큰 값(첫 줄)은
         여전히 계산된다 — 이 결정은 비율 경고를 두지 않았다.
         """

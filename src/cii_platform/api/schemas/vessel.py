@@ -112,7 +112,7 @@ class VesselCreateRequest(BaseModel):
 
     # VAL-003: 7자리 숫자. 형식은 여기서, DB CHK 제약(chk_imo_format)과 이중 방어.
     # 검사숫자는 아래 검증기가 본다(#2134) — DB는 형식만 본다.
-    imo_number: Annotated[str, Field(pattern=r"^\d{7}$", min_length=7, max_length=7)]
+    imo_number: Annotated[str, Field(pattern=r"^[0-9]{7}$", min_length=7, max_length=7)]
     # VAL-001: 1~100자.
     name: Annotated[str, Field(min_length=1, max_length=100)]
     # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.

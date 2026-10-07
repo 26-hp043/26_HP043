@@ -478,6 +478,20 @@ class TestCreateVessel:
         assert detail["field"] == "imo_number"
         assert detail["message"] == "IMO 번호 검사숫자가 맞지 않습니다."
 
+    def test_fullwidth_digits_are_a_format_error_not_a_check_digit_error(self, create_wired):
+        """VAL-003 (`#2134`) — 전각 숫자는 **형식 오류**다.
+
+        pydantic-core의 정규식에서 ``\\d``는 전각·아랍 숫자에도 맞는다. 패턴이 ``\\d``이면
+        ``'１２３４５６７'``이 형식을 통과해 「검사숫자」 문구를 받는다 — 사용자는 마지막 자리를
+        고치려 든다. 패턴을 ``[0-9]``로 둔다.
+        """
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "imo_number": "１２３４５６７"})
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["error"]["details"][0]
+        assert detail["field"] == "imo_number"
+        assert detail["message"] == "IMO 번호 형식이 올바르지 않습니다."
+
     def test_zero_gross_tonnage_is_422(self, create_wired):
         """VAL-002 — gross_tonnage <= 0 → Pydantic 422."""
         client, _, _ = create_wired
