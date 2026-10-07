@@ -172,3 +172,44 @@ describe('「공적 기록과 다름」 띠 색 — `§2.3.1` 〔확정〕 2026-
     expect(chip('public_record')).not.toMatch(/danger|warning/)
   })
 })
+
+/**
+ * 「이 값으로 채우기」 버튼의 테두리 — `DESIGN_SYSTEM §2.3.1` 〔확정 2026-10-07 · `#2154`〕.
+ *
+ * ## 왜 토큰을 잠그나
+ *
+ * `§8` 텍스트 버튼 항목은 「**Secondary(아웃라인)로 대신하지 않는다**」를 정해 두었고, 그
+ * 사유는 `--color-border-strong`이 `1.4.11`에 미달이라는 것이다(라이트 `1.60` · 다크
+ * `1.57` · 기준 `3.0`). 이 버튼은 **아웃라인인데도 확정됐다** — 테두리가
+ * `--color-border-control`이라 그 사유가 걸리지 않기 때문이다(네 면 최소 `3.77` · `#1169`).
+ *
+ * 그래서 **그 토큰이 이 버튼의 확정 근거 자체**다. 값이 같은 다른 토큰으로 옮겨 가면 확정이
+ * 근거를 잃는데 화면은 그대로여서 드러나지 않는다 — `#1169`가 겪은 꼴이다. 이름을 잠근다.
+ */
+describe('「이 값으로 채우기」가 통과하는 경계 토큰을 쓴다 (#2154)', () => {
+  /**
+   * 그 선택자를 **그 자체로** 가진 규칙들의 본문을 모은다.
+   *
+   * ⚠️ 첫 규칙만 집으면 안 된다 — 이 두 버튼은 공유 규칙(여백·글자)과 각자 규칙(테두리·면)
+   * **둘로 나뉘어** 있고, 처음 쓴 검사가 공유 규칙만 보고 테두리를 못 찾았다.
+   */
+  const bodyOf = (selector: string): string => {
+    const bodies = RULES.filter((r) => r.selectors.includes(selector)).map((r) => r.body)
+    if (bodies.length === 0) throw new Error(`규칙을 찾지 못했습니다: ${selector}`)
+    return bodies.join('\n')
+  }
+
+  it('실행 버튼의 테두리는 --color-border-control이다', () => {
+    const body = bodyOf('.dq__fill-action')
+    expect(body).toMatch(/border:\s*1px solid var\(--color-border-control\)/)
+    expect(body).not.toMatch(/--color-border-strong/)
+  })
+
+  it('글자는 label이다 — 표 안의 보조 버튼이다', () => {
+    expect(bodyOf('.dq__fill-keep')).toMatch(/font-size:\s*var\(--font-size-label\)/)
+  })
+
+  it('「그만두기」는 테두리 없는 쌍둥이다 — 두 동작의 무게가 다르다', () => {
+    expect(bodyOf('.dq__fill-keep')).toMatch(/border:\s*1px solid transparent/)
+  })
+})

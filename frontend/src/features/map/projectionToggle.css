@@ -1,5 +1,5 @@
 /*
- * 지구본 ↔ 평면 전환 버튼 (#1976) — ⚠️ 자리·모양은 개발 임시안(`DESIGN_SYSTEM §9.5`).
+ * 지구본 ↔ 평면 전환 버튼 (#1976) — 자리·모양 〔**확정** 2026-10-07 · `#2154`〕(`DESIGN_SYSTEM §9.5`).
  *
  * MapLibre 컨트롤 묶음의 버튼은 29px 정사각형 아이콘 자리다. 이 버튼은 글자라 폭을 풀고
  * 좌우 여백만 준다. 새 토큰·새 색은 만들지 않는다(`§0.2`).
@@ -9,8 +9,12 @@
   min-width: 29px;
   padding-inline: var(--spacing-sm);
   font-family: inherit;
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
+  /*
+   * 누르는 것의 **이름**이라 `label`이다 — `caption`(12)은 `§3`에서 보조 설명·단위·
+   * 축 라벨의 크기다 (`DESIGN_SYSTEM §9.5` 〔확정 2026-10-07 `#2154`〕).
+   */
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
   color: var(--text-primary);
   white-space: nowrap;
 }
