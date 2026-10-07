@@ -31,11 +31,6 @@
   color: var(--text-secondary);
 }
 
-/* 선 문장과 마커 문장을 줄로 가른다 (#1853 ②). */
-.fleetmap__hint-line {
-  display: block;
-}
-
 /*
  * 좌표가 없어 지도에서 빠진 선박 (#1103).
  *
@@ -261,4 +256,89 @@ button.fleetmap__marker:focus-visible {
   outline: var(--focus-outline);
   outline-offset: 2px;
   border-radius: var(--radius-control);
+}
+
+/* 10/7 — 지도 아래 글을 작게 · 짧게. 고지 전문은 「항로선 안내」 접힘 안에 */
+.fleetmap__hint {
+  font-size: var(--font-size-caption);
+}
+
+.fleetmap__more {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fleetmap__more > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.fleetmap__more > p {
+  margin: var(--space-4) 0 0;
+}
+
+/* 지도 아래 줄 (10/7) — [읽는 법 ···· 항로선 안내 · 텍스트로 보기] / 출처 */
+.fleetmap__foot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-4) var(--spacing-lg);
+  margin-block-start: var(--spacing-sm);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.fleetmap__foot .fleetmap__hint {
+  font-size: inherit;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--spacing-md);
+}
+
+.fleetmap__hint-item b {
+  font-weight: var(--font-weight-strong);
+}
+
+.fleetmap__more-row {
+  display: flex;
+  gap: var(--spacing-md);
+  justify-content: flex-end;
+}
+
+.fleetmap__foot .map-alternative {
+  margin: 0;
+  font-size: inherit;
+}
+
+.fleetmap__foot summary {
+  font-weight: var(--font-weight-body);
+  color: var(--color-link);
+  cursor: pointer;
+  list-style: none;
+}
+
+.fleetmap__foot summary::-webkit-details-marker {
+  display: none;
+}
+
+.fleetmap__foot summary::after {
+  content: ' ▾';
+  font-size: 0.85em;
+}
+
+.fleetmap__foot details[open] {
+  grid-column: 1 / -1;
+}
+
+.fleetmap__foot details > p,
+.fleetmap__foot details > ul {
+  max-inline-size: 36em;
+  margin-block: var(--space-4) 0;
+  color: var(--text-secondary);
+}
+
+.fleetmap__foot .route-source {
+  grid-column: 1 / -1;
+  font-size: var(--font-size-micro);
+  color: var(--color-text-muted);
 }

@@ -1,0 +1,145 @@
+/* 「확인할 선박」 표 (10/7 시안 01) */
+.check__scroll {
+  overflow-x: auto;
+}
+
+.check {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-label);
+}
+
+.check th {
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-caption);
+  font-weight: 400;
+  color: var(--color-text-muted);
+  text-align: start;
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+  white-space: nowrap;
+}
+
+.check td {
+  padding: var(--spacing-md);
+  vertical-align: top;
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+}
+
+.check tr:last-child td {
+  border-block-end: 0;
+}
+
+.check th:first-child,
+.check td:first-child {
+  padding-inline-start: var(--spacing-xl);
+}
+
+.check th:last-child,
+.check td:last-child {
+  padding-inline-end: var(--spacing-xl);
+  text-align: end;
+}
+
+.check__name-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.check__name {
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.check__name:hover {
+  text-decoration: underline;
+}
+
+.check__locate {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.check__locate:hover {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}
+
+.check__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-block-start: 2px;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.check__grade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  white-space: nowrap;
+}
+
+.check__value {
+  font-variant-numeric: tabular-nums;
+}
+
+.check__why {
+  color: var(--text-secondary);
+}
+
+.check__why-main {
+  display: block;
+}
+
+.check__why-sub,
+.check__why-muted {
+  display: block;
+  color: var(--color-text-muted);
+}
+
+.check__why-sub {
+  font-size: var(--font-size-caption);
+}
+
+.check__next {
+  white-space: nowrap;
+}
+
+.check__none {
+  color: var(--color-text-muted);
+}
+
+.check td:first-child {
+  min-inline-size: 13em;
+}
+
+.check__meta > * {
+  white-space: nowrap;
+}
+
+/* 표 안에서는 상태 칩을 글자로만 — 칩 테두리가 행마다 서면 등급 배지와 무게를 다툰다 */
+.check__meta .vessel__state {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+}
+
+.check__why--inline {
+  display: block;
+  margin-block-start: var(--space-4);
+  font-size: var(--font-size-caption);
+}

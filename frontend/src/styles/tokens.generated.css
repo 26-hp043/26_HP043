@@ -35,16 +35,16 @@
   /* ── 모서리 (radius) ──────────────────────────────────────────── */
   --radius-badge: 4px;
   --radius-control: 8px;
-  --radius-card: 12px;
+  --radius-card: 8px;
   --radius-modal: 16px;
   /* ── 선 두께 (borderWidth) ────────────────────────────────────── */
   --borderWidth-default: 1px;
   /* ── 그리드 (grid) ────────────────────────────────────────────── */
   --grid-frame-width: 1920px;
   --grid-frame-min: 1440px;
-  --grid-gnb-expanded: 240px;
+  --grid-gnb-expanded: 224px;
   --grid-gnb-collapsed: 64px;
-  --grid-content-width: 1608px;
+  --grid-content-width: 1648px;
   --grid-columns: 12;
   --grid-gutter: 24px;
   --grid-margin: 24px;
@@ -105,9 +105,9 @@
   --surface-inset: #eef2f6;
   --surface-card: #ffffff;
   --surface-popover: #ffffff;
-  --text-primary: #1a1a18;
-  --text-secondary: #5f5e5a;
-  --text-muted: #8b8a83;
+  --text-primary: #16202e;
+  --text-secondary: #4e5c6e;
+  --text-muted: #6b7686;
   --border-default: #dce3ea;
   --border-strong: #c3ced9;
   --border-control: #6f7c8f;

@@ -362,10 +362,17 @@ export function FleetMap({
   }, [adapted.positions, focusVesselId, focusNonce])
   const rendererModel = useMemo<MapLibreMapModel>(() => {
     const points = adapted.positions
+    /*
+     * 첫 화면 범위는 **배가 있는 곳**이다 (#2292 · 10/7 시안 01). 종전에는 항로 양 끝(출발 ·
+     * 도착 항구)까지 넣어 부산–로테르담 같은 항로 하나가 범위를 세계로 넓혔고, 5척이 점으로만
+     * 보였다. 위치가 하나도 없을 때만 항로 끝점으로 범위를 잡는다.
+     */
     const bounds: [number, number][] = points.map(({ lon, lat }) => [lon, lat])
-    for (const { request } of asks) {
-      bounds.push([request.fromLon, request.fromLat], [request.toLon, request.toLat])
-      if (request.via) bounds.push([request.via.lon, request.via.lat])
+    if (bounds.length === 0) {
+      for (const { request } of asks) {
+        bounds.push([request.fromLon, request.fromLat], [request.toLon, request.toLat])
+        if (request.via) bounds.push([request.via.lon, request.via.lat])
+      }
     }
     return {
       mode: mapMode,
@@ -457,32 +464,36 @@ export function FleetMap({
         「육지를 가로지를 수 있다」는 더 이상 사실이 아니다. 대신 **실제 항해 계획이
         아니라는 것**을 말한다 — 경로망은 운항 계획·수심·기상을 모른다.
       */}
-      <p className="fleetmap__hint" id={hintId}>
-        {/*
-          #1853 ② (2026-09-27 디자인 확정) — **선 이야기와 마커 이야기를 줄로 가른다.** 한 문장에
-          둘이 붙어 있어 읽는 사람이 중간에 방향을 바꿔야 했다. 낭독은 한 문단 그대로다.
-        */}
-        {caption ?? (
-          <>
-            {/*
-              항로선이 **있을 때만** 선 이야기를 한다 (#2122). 종전에는 선이 한 줄도 없는
-              지도에도 「진행 중 항차의 항로선을 표시합니다」가 적혔다 — 바로 아래 출처 줄
-              (`RouteSourceNotice`)은 같은 조건으로 이미 숨는다.
-            */}
-            {asks.length > 0 ? (
-              <span className="fleetmap__hint-line">{disclosure.visibleText}</span>
-            ) : null}
-            <span className="fleetmap__hint-line">
-              <b>테두리가 굵은 배</b>는 주의 대상입니다.
-            </span>
-          </>
-        )}
-      </p>
-      {/* 항로선을 묻는 지도에만 — 선이 없는 지도(선박 상세의 한 척 등)에는 경로망 데이터가 없다. */}
-      {/* 지도 출처는 늘 · 경로망 출처는 항로선을 묻는 지도만 (#1853 ③). */}
-      <RouteSourceNotice source={asks.length > 0 ? ROUTE_SOURCE : null} />
-      <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
-        items={adapted.positions.map(({ vessel, lat, lon }) => alternativeItem(vessel, lat, lon))} />
+      {/*
+        지도 아래 줄 (10/7 디자인 결정) — 왼쪽에 읽는 법 한 줄, 오른쪽에 펼쳐 보는 것 둘, 그 아래
+        출처 한 줄. 항로선 고지 전문은 「항로선 안내」 안에 그대로 있다.
+      */}
+      <div className="fleetmap__foot">
+        <p className="fleetmap__hint" id={hintId}>
+          {caption ?? (
+            <>
+              {asks.length > 0 ? (
+                <span className="fleetmap__hint-item">점선 — 표시용 항로(실제 항적 아님)</span>
+              ) : null}
+              <span className="fleetmap__hint-item">
+                <b>굵은 테두리</b>는 주의 대상입니다.
+              </span>
+            </>
+          )}
+        </p>
+        <div className="fleetmap__more-row">
+          {caption === undefined && asks.length > 0 ? (
+            <details className="fleetmap__more">
+              <summary>항로선 안내</summary>
+              <p>{disclosure.visibleText}</p>
+            </details>
+          ) : null}
+          <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
+            items={adapted.positions.map(({ vessel, lat, lon }) => alternativeItem(vessel, lat, lon))} />
+        </div>
+        {/* 지도 출처는 늘 · 경로망 출처는 항로선을 묻는 지도만 (#1853 ③). */}
+        <RouteSourceNotice source={asks.length > 0 ? ROUTE_SOURCE : null} />
+      </div>
     </div>
   )
 }

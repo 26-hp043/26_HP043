@@ -383,7 +383,7 @@
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   color: var(--color-text);
   font-family: inherit;
   font-size: var(--font-size-body);
@@ -834,12 +834,6 @@
   min-height: 22rem;
 }
 
-.annual-sim__map-unavailable {
-  margin: var(--space-12) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-}
-
 .annual-sim__playback-hud {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -973,3 +967,213 @@
   transform: rotate(45deg);
 }
 
+/* ── 10/7 시안 03 ─────────────────────────────────────────────── */
+
+/* 등급 확률 막대 — 배지 색 · 각진 모서리 (대시보드 · 스케일 막대와 같은 표기) */
+.annual-sim__stack {
+  gap: 2px;
+  border: 0;
+  border-radius: 0;
+}
+
+.annual-sim__seg {
+  box-sizing: border-box;
+  border: 1px solid;
+}
+
+.annual-sim__seg-label {
+  background: none;
+  color: inherit;
+  font-weight: var(--font-weight-strong);
+}
+
+.annual-sim__seg--a { background: var(--cii-a-bg); border-color: var(--cii-a-border); color: var(--cii-a-text); }
+.annual-sim__seg--b { background: var(--cii-b-bg); border-color: var(--cii-b-border); color: var(--cii-b-text); }
+.annual-sim__seg--c { background: var(--cii-c-bg); border-color: var(--cii-c-border); color: var(--cii-c-text); }
+.annual-sim__seg--d { background: var(--cii-d-bg); border-color: var(--cii-d-border); color: var(--cii-d-text); }
+.annual-sim__seg--e { background: var(--cii-e-bg); border-color: var(--cii-e-border); color: var(--cii-e-text); }
+
+/* 띠 아래 줄들 — 조건 · 마지막 실행 · 추정 고지는 작은 회색 글씨로, 변수 한 줄만 본문 크기 */
+.annual-sim__under-verdict .annual-sim__conditions:not([data-testid='annual-sim-top-lever']),
+.annual-sim__under-verdict .annual-sim__notice {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__under-verdict .annual-sim__conditions strong {
+  font-weight: inherit;
+}
+
+.annual-sim__spread-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-8);
+  margin: var(--space-8) 0 0;
+}
+
+.annual-sim__spread-row dt {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__spread-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__spread-mid {
+  font-weight: var(--font-weight-strong);
+}
+
+/* 근거 — 연도별 실적은 결과 아래 카드로 (10/7 시안 03) */
+.annual-sim__column > .annual-sim__actuals {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+}
+
+/* ── 10/7 — 민감도 아래 정리 ─────────────────────────────────── */
+.annual-sim__footnote {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__footnote > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  inline-size: fit-content;
+}
+
+.annual-sim__footnote > p {
+  margin: var(--space-4) 0 0;
+  max-inline-size: 48em;
+}
+
+.annual-sim__next {
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-12);
+  border-block-start: 1px solid var(--color-border);
+}
+
+/* 재현 · 계산 근거 — 한 줄로: seed · 다시 실행 · 계산 근거 보기 */
+.annual-sim__basis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
+  padding: var(--space-12) 0 0;
+  border: 0;
+  border-block-start: 1px solid var(--color-border);
+  background: none;
+  box-shadow: none;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__basis > .annual-sim__reproduce {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.annual-sim__basis .annual-sim__repro {
+  display: flex;
+  gap: var(--space-4);
+  margin: 0;
+  font-size: var(--font-size-caption);
+}
+
+.annual-sim__basis .annual-sim__repro dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.annual-sim__basis > .annual-sim__reproduce > button {
+  block-size: 28px;
+  padding: 0 var(--space-12);
+  font-size: var(--font-size-caption);
+}
+
+.annual-sim__basis > .annual-sim__repro-details {
+  border: 0;
+  padding: 0;
+  margin-inline-start: auto;
+}
+
+.annual-sim__basis > .annual-sim__repro-details[open] {
+  flex: 1 1 100%;
+  margin-inline-start: 0;
+}
+
+.annual-sim__basis > .annual-sim__repro-details > summary {
+  font-size: var(--font-size-caption);
+  color: var(--color-link);
+  font-weight: var(--font-weight-body);
+}
+
+/* 근거 — 연도별 실적: 표 위 설명 · 아래 안내를 작게 */
+.annual-sim__actuals .annual-sim__caption {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__basis {
+  justify-content: flex-start;
+  inline-size: 100%;
+  box-sizing: border-box;
+}
+
+.annual-sim__basis > .annual-sim__reproduce {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}
+
+/* 값 줄이 이미 「seed …」로 시작해 머리 「seed」가 두 번 읽혔다 — 화면에서만 감춘다 */
+.annual-sim__basis .annual-sim__repro dt {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.annual-sim__basis {
+  flex-direction: row;
+}
+
+/* 띠 아래 줄 (10/7) — 변수 한 줄 · 이후 해 한 줄 · 조건 한 줄 */
+.annual-sim__meta-line {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.annual-sim__meta-line strong {
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+.annual-sim__meta-sub,
+.annual-sim__meta-line--muted {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__under-verdict {
+  gap: var(--space-4);
+}
+
+.annual-sim__block .annual-sim__warnings {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--text-secondary);
+}

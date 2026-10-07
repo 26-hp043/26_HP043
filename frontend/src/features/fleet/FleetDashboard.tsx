@@ -2,17 +2,14 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
-import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
-import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeDistribution } from './GradeDistribution'
-import { VesselMark } from './VesselMark'
-import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
+import { AnchorIcon, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { formatTimestamp } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 import { UnconfirmedVoyages } from './UnconfirmedVoyages'
-import { PANEL_KEY, initialPanelOpen } from './panelState'
+import { CheckTable } from './CheckTable'
 import { VesselPopover, type PopoverAnchor } from './VesselPopover'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
@@ -30,21 +27,12 @@ import {
 } from '../parameters/referenceApiProvider'
 import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
 import {
-  actionsSummaryText,
-  fleetSummaryParts,
-  daysToDText,
   daysValueText,
-  showsDaysToD,
-  isAtRisk,
   plottedCount,
   relativeTime,
-  unavailableHint,
-  unavailableText,
-  ytdCiiText,
   warningBannerText,
 } from './fleetRules'
-import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import type { FleetSnapshot, FleetSort, FleetVessel } from './types'
+import type { FleetSnapshot, FleetSort } from './types'
 import './FleetDashboard.css'
 
 /**
@@ -109,11 +97,6 @@ export function FleetDashboard() {
    */
   const [appliedSort, setAppliedSort] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
-  /*
-   * 패널 접힘 (#1824). 첫 값은 저장된 선택 → 없으면 화면 폭으로 정한다
-   * (`initialPanelOpen`). 렌더 중 `window`를 읽지 않도록 초기화 함수로 넘긴다.
-   */
-  const [panelOpen, setPanelOpen] = useState(() => initialPanelOpen())
 
   /*
    * 마커 팝오버 (#1831) — **한 번에 하나.**
@@ -399,7 +382,6 @@ export function FleetDashboard() {
   const soonest = counts.soonestDEntry
   const hasActions = snapshot.actions.length > 0
   const missingGt = counts.missingGrossTonnage
-  const summaryParts = fleetSummaryParts(counts)
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
   const remaining = sorted.length - visible.length
 
@@ -421,6 +403,27 @@ export function FleetDashboard() {
        * 배너가 말하는 배가 아닌 배**를 가리켰다. 배너가 없는 날(위험 0척)에는 함께
        * 사라지기도 했다. 요약 행의 한 칸으로 옮겼다.
        */}
+
+
+      {/*
+        KPI 행이 카드 밖 맨몸으로 페이지 위에 얹혀 있었다. 아래 두 블록은
+        칸인데 여기만 아니라, **가장 먼저 읽혀야 할 줄이 가장 약하게** 보였다.
+      */}
+      {/*
+        #1824 — **카드에서 꺼내 띠로.** 지도를 본문 전체로 펴면서 `§5` 카드 예산을
+        맞추려면(떠 있는 면 4개 이하) 요약이 면을 하나 차지하고 있을 수 없다.
+        요약은 **한 덩어리의 데이터가 아니라 서로 다른 여섯 값**이라 원래 카드가
+        어울리는 내용도 아니었다 — `§5`가 말하는 「카드는 한 덩어리의 데이터에만」이다.
+      */}
+      {/*
+        요약 문장 한 줄 (#2199) — 숫자 칸들 **위에** 답을 먼저 문장으로 적는다. 값은 아래 칸들과
+        같은 `counts`에서 온다(`fleetSummaryParts`). 강조는 수치와 등급만 — 색은 글자용
+        파생색(`--color-link`)이다. 경고 줄(배너)과 문구가 겹치지 않게 규제 용어 대신 등급과
+        일수로 말한다.
+      */}
+      {/* 10/7 시안 01 — 결론 문장과 경고를 한 줄에. 경고는 면이 아니라 글자 · 아이콘으로. */}
+      <div className="fleet__lead">
+      {/* 결론 문장은 걷었다 (10/7 디자인 결정) — 경고 줄 · 숫자 칸과 같은 정보를 한 화면에 두 번 말했다. */}
       {banner ? (
         <section className="warn" role="alert">
           <WarnIcon />
@@ -441,36 +444,7 @@ export function FleetDashboard() {
           )}
         </section>
       ) : null}
-
-      {/*
-        KPI 행이 카드 밖 맨몸으로 페이지 위에 얹혀 있었다. 아래 두 블록은
-        칸인데 여기만 아니라, **가장 먼저 읽혀야 할 줄이 가장 약하게** 보였다.
-      */}
-      {/*
-        #1824 — **카드에서 꺼내 띠로.** 지도를 본문 전체로 펴면서 `§5` 카드 예산을
-        맞추려면(떠 있는 면 4개 이하) 요약이 면을 하나 차지하고 있을 수 없다.
-        요약은 **한 덩어리의 데이터가 아니라 서로 다른 여섯 값**이라 원래 카드가
-        어울리는 내용도 아니었다 — `§5`가 말하는 「카드는 한 덩어리의 데이터에만」이다.
-      */}
-      {/*
-        요약 문장 한 줄 (#2199) — 숫자 칸들 **위에** 답을 먼저 문장으로 적는다. 값은 아래 칸들과
-        같은 `counts`에서 온다(`fleetSummaryParts`). 강조는 수치와 등급만 — 색은 글자용
-        파생색(`--color-link`)이다. 경고 줄(배너)과 문구가 겹치지 않게 규제 용어 대신 등급과
-        일수로 말한다.
-      */}
-      {summaryParts !== null ? (
-        <p className="fleet__summary" data-testid="fleet-summary">
-          {summaryParts.map((part, index) =>
-            part.em ? (
-              <b key={index} className="fleet__em">
-                {part.text}
-              </b>
-            ) : (
-              part.text
-            ),
-          )}
-        </p>
-      ) : null}
+      </div>
       <section className="fleet__strip" aria-label="선대 요약">
         <div className="kpi">
           <p className="kpi__label">운항 상태</p>
@@ -521,7 +495,7 @@ export function FleetDashboard() {
          */}
         <div className="kpi kpi--wide">
           <p className="kpi__label">등급 분포</p>
-          <GradeDistribution distribution={counts.ratingDistribution} />
+          <GradeDistribution distribution={counts.ratingDistribution} forceBar />
           {counts.noData > 0 ? (
             /*
              * 사유를 가리지 않은 수다 — 제원 미입력·기준값 없음도 포함되므로
@@ -563,6 +537,8 @@ export function FleetDashboard() {
           )}
         </div>
 
+        {/* 10/7 시안 01 — 0이면 칸을 두지 않는다. 할 일이 없는 칸이 숫자 칸 하나를 차지했다. */}
+        {missingGt > 0 ? (
         <div className="kpi">
           <p className="kpi__label">GT 미입력</p>
           <p className="kpi__value">{missingGt}</p>
@@ -575,6 +551,7 @@ export function FleetDashboard() {
             </p>
           ) : null}
         </div>
+        ) : null}
 
         {/*
           할 일 — 실적 확정 전 항차 (#1573 · #1824). 0건이면 스스로 그리지 않아
@@ -595,156 +572,17 @@ export function FleetDashboard() {
         세지 않는다(정본 v2.28).
       */}
       {/*
-        패널이 열려 있으면 무대에 표시를 단다 (`#1871`) — 지도 아래 문구 줄(결측 · 항로선
-        실패와 그 「다시 시도」 · 읽는 법)을 패널 폭만큼 비켜 두는 CSS가 이것을 본다.
+        10/7 시안 01 — **할 일 표와 지도를 나란히** (표 5 : 지도 7 · 디자인 결정). 종전에는 지도가
+        본문 전체를 차지하고(`#1824`) 조치 · 선박 목록이 그 위 좌측 패널에 떠 있어 목록을 보기
+        불편했다. 지도는 가장 큰 색 면으로 남겨 첫 화면의 무게를 지키고, 목록은 표로 꺼냈다.
+        ⚠️ `§9.5` v2.28(지도가 본문 전체를 차지할 때)과 9/22 A안(지도 중심)을 바꾸는 시안이다.
       */}
-      <div
-        className={`fleet__stage${panelOpen ? ' fleet__stage--panel-open' : ''}`}
-        ref={stageRef}
-      >
-        <div className="fleet__col">
-          <section aria-label="선박 위치">
-            <div className="fleet__chartbox">
-              {/*
-                지도 자산이 있으면 지도, 없으면 개략도다 (`#763` ⓑ).
-                **개략도를 지우지 않았다** — 지우면 자산이 없는 환경에서 위치 화면이
-                통째로 빈다. 그림 읽는 법은 각자가 스스로 적는다.
-              */}
-              {basemap === true ? (
-                // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
-                <Suspense fallback={<PositionChart vessels={vessels} />}>
-                  {/* 「다시 시도」가 못 받은 항로선도 다시 묻게 한다 (`#1856`). */}
-                  <FleetMap
-                    vessels={vessels}
-                    retryToken={retryKey}
-                    onRendererError={useMapFallback}
-                    onSelectVessel={setPickedId}
-                    focusVesselId={focusRequest.id}
-                    focusNonce={focusRequest.nonce}
-                  />
-                </Suspense>
-              ) : (
-                <>
-                  {basemap === false ? (
-                    <p className="fleet__note">{BASEMAP_MISSING_NOTICE}</p>
-                  ) : null}
-                  <PositionChart vessels={vessels} />
-                </>
-              )}
-            </div>
-          </section>
-
-          {/*
-            지도 칩 (#1824 · 정본 v2.28) — 걷어낸 카드 메타가 있던 자리를 대신한다.
-
-            ⚠️ **기준 시각은 싣지 않는다.** 정본 v2.28은 「기준 시각 · 척수 ·
-            「사용자 입력 기준」을 칩 한 줄」로 적었는데, **기준 시각은 이미 페이지 제목
-            블록에 있다**(`FleetHead`). 그 자리는 *「제목·부제목과 같은 「이 화면이
-            무엇을 언제 기준으로 보여 주는가」이므로 한 덩어리다」*라는 판단으로 옮겨
-            둔 것이고, **요약 띠의 숫자들도 같은 `as_of` 기준**이라 지도만의 값이 아니다.
-            칩에 다시 적으면 한 화면에 같은 시각이 두 번 선다.
-
-            칩은 **지도 자신의 메타**만 든다 — 위치가 어디서 왔는가(사용자 입력)와
-            **몇 척이 찍혔는가**. 정본의 그 한 줄은 이 PR에서 함께 정정한다.
-          */}
-          {/* 그려진 척수다 (#2121) — 위치 없는 배는 마커가 없으므로 세지 않는다. */}
-          <p className="fleet__chip">사용자 입력 기준 · {plottedCount(vessels)}척</p>
-        </div>
-
-        {/*
-          지도 위 좌측 패널 (#1824) — 선박 목록과 조치 필요가 여기로 들어온다.
-          접으면 버튼만 남고 지도가 전폭이 된다.
-        */}
-        <aside
-          ref={panelRef}
-          className={`fleet__panel${panelOpen ? '' : ' fleet__panel--closed'}`}
-          aria-label="선박 목록과 조치"
-          /*
-            지도에게 「내가 너를 덮고 있다」를 알린다 (#2051). 이 패널은
-            `position: absolute`라 지도의 레이아웃 폭에 잡히지 않아, 지도가 범위를
-            잡을 때 캔버스 전체를 쓸 수 있다고 믿고 선박을 이 패널 **밑에** 놓았다.
-            표시 이름은 지도 어댑터가 갖는다(`mapLibreRenderer.ts`의
-            `MAP_OVERLAY_ATTRIBUTE`) — 지도가 대시보드를 알지 않게 하기 위해서다.
-          */
-          data-map-overlay=""
-        >
-          <button
-            type="button"
-            className="fleet__panel-toggle"
-            aria-expanded={panelOpen}
-            onClick={() =>
-              setPanelOpen((v) => {
-                const next = !v
-                try {
-                  window.localStorage.setItem(PANEL_KEY, String(next))
-                } catch {
-                  // 저장이 막혀도 이번 세션 동안은 접힘이 유지된다.
-                }
-                return next
-              })
-            }
-          >
-            {panelOpen
-              ? '« 접기'
-              : /*
-                 * 두 수 모두 **선대 전체** 기준이다 (#2121). 종전의 `vessels.length`는
-                 * 불러온 페이지의 수(최대 100)라, 뒤의 「조치 필요」(선대 전체)와 나란히
-                 * 서면 「선박 100 · 조치 필요 130」 같은 줄이 됐다.
-                 */
-                `선박 ${snapshot.counts.total}${snapshot.actions.length > 0 ? ` · 조치 필요 ${snapshot.actions.length}` : ''}`}
-          </button>
-
-          <div className="fleet__panel-body" hidden={!panelOpen}>
-          {snapshot.actions.length > 0 ? (
-            <section id={ACTIONS_ID} aria-label="조치 필요">
-              {/*
-                결과 카드 순서 (#2200 · `DESIGN_SYSTEM §8` 결과 카드) — 제목 → 결론 한 줄 →
-                근거(목록) → 단서 → 다음 행동. 종전에는 이동 링크 둘이 **머리줄**에 있어
-                무엇이 문제인지 읽기도 전에 「어디로 갈지」가 먼저 보였다. 머리줄에는
-                규정 표기(메타)만 남긴다.
-              */}
-              <div className="card__head">
-                <h2 className="card__title">조치 필요</h2>
-                <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
-              </div>
-              {/* 대시보드에는 결론 띠(`§8.6`)가 없어 카드가 자기 결론을 적는다. */}
-              <p className="result-card__lead">{actionsSummaryText(snapshot.actions)}</p>
-              <ul className="actions">
-                {snapshot.actions.map((action) => (
-                  <li
-                    key={`${action.vesselId}-${action.reason}`}
-                    className={`action action--${action.severity}`}
-                  >
-                    <WarnIcon />
-                    <Link className="action__vessel" to={`/vessels/${action.vesselId}`}>
-                      {action.vesselName}
-                    </Link>
-                    <span className="action__msg">{action.message}</span>
-                  </li>
-                ))}
-              </ul>
-              {/*
-                단서 — `UIFLOW 2-11` 진입 조건. 조치 항목의 등급이 **실측이 아닌 값으로
-                계산됐는지** 확인하러 가는 길 (#1082). 근거에 붙는 확인이라 주 행동이 아니다.
-              */}
-              <p className="result-card__note">
-                등급이 실측이 아닌 값으로 계산됐는지는{' '}
-                <Link to={SCREEN_BY_ID.DATA_QUALITY.path}>{SCREEN_BY_ID.DATA_QUALITY.label}</Link>
-                에서 확인합니다.
-              </p>
-              {/*
-                다음 행동 — 카드 맨 아래 한 줄, 하나만. `UIFLOW 2-10` 진입 조건 — 위험 선박을
-                선대 단위 감속안으로 이어 준다 (#513). 문구는 확정(`#1052` ⑺)이라 바꾸지 않는다.
-              */}
-              <p className="result-card__next">
-                <Link to={SCREEN_BY_ID.FLEET_REDUCTION.path}>함대 감축 계획 세우기</Link>
-              </p>
-            </section>
-          ) : null}
-
-        <section className="fleet__list" aria-label="선박 목록">
+      <div className="fleet__grid">
+        <section className="fleet__card fleet__todo" id={ACTIONS_ID} aria-labelledby="fleet-todo-h">
           <div className="card__head">
-            <h2 className="card__title">선박</h2>
+            <h2 id="fleet-todo-h" className="card__title">
+              확인할 선박
+            </h2>
             <label className="sort">
               <span className="sr-only">정렬 기준</span>
               <select
@@ -760,16 +598,6 @@ export function FleetDashboard() {
               </select>
             </label>
           </div>
-
-          {/*
-            정렬 변경 실패는 **목록 자리**의 오류다 (`#1814`). 옛 정렬의 목록이 그대로 보이고,
-            「다시 시도」가 같은 정렬로 첫 페이지를 다시 묻는다. 한 줄(compact)인 것은
-            `PRD §6.4`의 「목록 옆 실패」 행이다. 셀렉트는 새 값을 가리키므로 **목록이 어느
-            정렬 그대로인지**를 안내가 말한다(`appliedSort`).
-
-            다시 묻는 동안은 오류 대신 진행 중 한 줄이다 — 「다시 시도」를 두 번 눌러 요청이
-            겹치지 않게 하고, 눌렀는데 아무 일도 없는 것처럼 보이지 않게 한다.
-          */}
           {failure !== null ? (
             sortLoading ? (
               <p className="fleet__note" role="status">
@@ -785,25 +613,16 @@ export function FleetDashboard() {
             )
           ) : null}
 
-          <ul className="vessels">
-            {visible.map((vessel) => (
-              <VesselRow
-                key={vessel.id}
-                vessel={vessel}
-                /*
-                  지도가 없으면(개략도 폴백) 옮길 곳이 없고, 좌표가 없는 배는 지도에
-                  찍히지 않는다 — 두 경우 모두 버튼을 **그리지 않는다.** 눌러도 아무 일도
-                  일어나지 않는 버튼은 고장으로 읽힌다.
-                */
-                onLocate={
-                  basemap === true && vessel.lat !== null && vessel.lon !== null
-                    ? () => setFocusRequest((f) => ({ id: vessel.id, nonce: f.nonce + 1 }))
-                    : undefined
-                }
-              />
-            ))}
-          </ul>
-
+          <CheckTable
+            vessels={visible}
+            actions={snapshot.actions}
+            compact
+            onLocate={(vessel) =>
+              basemap === true && vessel.lat !== null && vessel.lon !== null
+                ? () => setFocusRequest((f) => ({ id: vessel.id, nonce: f.nonce + 1 }))
+                : undefined
+            }
+          />
           {remaining > 0 ? (
             <button type="button" className="more" onClick={() => setExpanded(true)}>
               {remaining}척 더 보기
@@ -850,9 +669,67 @@ export function FleetDashboard() {
               </p>
             )
           ) : null}
+          <p className="fleet__todo-note">
+            등급이 실측이 아닌 값으로 계산됐는지는{' '}
+            <Link to={SCREEN_BY_ID.DATA_QUALITY.path}>{SCREEN_BY_ID.DATA_QUALITY.label}</Link>
+            에서 확인합니다.
+          </p>
         </section>
+
+        <section className="fleet__card fleet__mapcard" aria-labelledby="fleet-map-h">
+          <div className="card__head">
+            <h2 id="fleet-map-h" className="card__title">
+              현재 위치
+            </h2>
+            <span className="card__meta">사용자 입력 기준 · {plottedCount(vessels)}척</span>
           </div>
-        </aside>
+          <div className="fleet__stage" ref={stageRef}>
+        <div className="fleet__col">
+          <section aria-label="선박 위치">
+            <div className="fleet__chartbox">
+              {/*
+                지도 자산이 있으면 지도, 없으면 개략도다 (`#763` ⓑ).
+                **개략도를 지우지 않았다** — 지우면 자산이 없는 환경에서 위치 화면이
+                통째로 빈다. 그림 읽는 법은 각자가 스스로 적는다.
+              */}
+              {basemap === true ? (
+                // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
+                <Suspense fallback={<PositionChart vessels={vessels} />}>
+                  {/* 「다시 시도」가 못 받은 항로선도 다시 묻게 한다 (`#1856`). */}
+                  <FleetMap
+                    vessels={vessels}
+                    retryToken={retryKey}
+                    onRendererError={useMapFallback}
+                    onSelectVessel={setPickedId}
+                    focusVesselId={focusRequest.id}
+                    focusNonce={focusRequest.nonce}
+                  />
+                </Suspense>
+              ) : (
+                <>
+                  {basemap === false ? (
+                    <p className="fleet__note">{BASEMAP_MISSING_NOTICE}</p>
+                  ) : null}
+                  <PositionChart vessels={vessels} />
+                </>
+              )}
+            </div>
+          </section>
+
+          {/*
+            지도 칩 (#1824 · 정본 v2.28) — 걷어낸 카드 메타가 있던 자리를 대신한다.
+
+            ⚠️ **기준 시각은 싣지 않는다.** 정본 v2.28은 「기준 시각 · 척수 ·
+            「사용자 입력 기준」을 칩 한 줄」로 적었는데, **기준 시각은 이미 페이지 제목
+            블록에 있다**(`FleetHead`). 그 자리는 *「제목·부제목과 같은 「이 화면이
+            무엇을 언제 기준으로 보여 주는가」이므로 한 덩어리다」*라는 판단으로 옮겨
+            둔 것이고, **요약 띠의 숫자들도 같은 `as_of` 기준**이라 지도만의 값이 아니다.
+            칩에 다시 적으면 한 화면에 같은 시각이 두 번 선다.
+
+            칩은 **지도 자신의 메타**만 든다 — 위치가 어디서 왔는가(사용자 입력)와
+            **몇 척이 찍혔는가**. 정본의 그 한 줄은 이 PR에서 함께 정정한다.
+          */}
+        </div>
 
         {/*
           마커 팝오버 (#1831) — **무대 안**이다. 바깥에 두면 자리 기준이 달라져 페이지를
@@ -868,12 +745,18 @@ export function FleetDashboard() {
             onClose={handleClose}
           />
         )}
+          </div>
+        </section>
       </div>
 
       {/*
        * 면책은 결과 유무와 무관하게 상시 노출한다(`DESIGN_SYSTEM §13` 🔒).
        * YTD 등급은 연중 누적 예측값이지 공식 등급이 아니다(`PRD §3.3.7` 각주).
        */}
+      <FleetMeta
+        asOf={snapshot.asOf}
+        baseline={appliedBaselineText(regulationYears, snapshot.regulationYear)}
+      />
       <DisclaimerBanner estimate />
     </div>
   )
@@ -881,6 +764,7 @@ export function FleetDashboard() {
 
 /** 경고 배너가 가리키는 자리. 두 곳이 같은 문자열을 쓰므로 상수로 둔다. */
 const ACTIONS_ID = 'fleet-actions'
+
 
 
 /**
@@ -900,10 +784,8 @@ function useMinuteClock(): Date {
 }
 
 function FleetHead({
-  asOf,
   regulationYear,
   total,
-  baseline = null,
 }: {
   asOf?: string
   regulationYear?: number
@@ -911,7 +793,6 @@ function FleetHead({
   /** 「적용 기준 — 출처 · 연도 감축률」 한 줄. 그 연도의 활성 행이 없으면 `null`이고 그리지 않는다. */
   baseline?: string | null
 }) {
-  const now = useMinuteClock()
   return (
     <PageHeader screen="MAINBOARD">
       <p className="page-head__sub">
@@ -919,6 +800,26 @@ function FleetHead({
           ? `보유 선박 ${total}척 · ${regulationYear}년 누적(YTD) 기준`
           : '보유 선박 전체의 CII 등급과 위험 선박'}
       </p>
+
+    </PageHeader>
+  )
+}
+
+/**
+ * 데이터가 없을 때의 화면.
+ *
+ * 「불러오지 못했다」와 「아직 없다」를 **다른 화면으로** 보여 준다. 같은 문구를 쓰면
+ * 사용자가 새로고침해야 할지 선박을 등록해야 할지 알 수 없다.
+ */
+/*
+ * 기준 시각 · 적용 기준 (10/7 디자인 결정) — 페이지 머리에서 **맨 아래 면책 문구 곁으로** 옮겼다.
+ * 제목 아래 줄들이 경고 · 숫자보다 먼저 읽혀 첫 화면의 위쪽을 차지했다. 이 둘은 「이 화면의
+ * 값이 무엇을 기준으로 했나」라 면책과 한 무리다.
+ */
+function FleetMeta({ asOf, baseline = null }: { asOf?: string; baseline?: string | null }) {
+  const now = useMinuteClock()
+  return (
+    <footer className="fleet__meta">
       {/*
        * 기준 시각을 **제목 블록 안으로** 옮긴다. 종전에는 헤더 오른쪽 끝에
        * 따로 떠 있어 무엇에 붙는 값인지 보이지 않았다 — 제목·부제목과 같은
@@ -950,16 +851,10 @@ function FleetHead({
           </Link>
         </p>
       ) : null}
-    </PageHeader>
+    </footer>
   )
 }
 
-/**
- * 데이터가 없을 때의 화면.
- *
- * 「불러오지 못했다」와 「아직 없다」를 **다른 화면으로** 보여 준다. 같은 문구를 쓰면
- * 사용자가 새로고침해야 할지 선박을 등록해야 할지 알 수 없다.
- */
 function FleetPlaceholder({
   tone,
   message,
@@ -992,139 +887,7 @@ function FleetPlaceholder({
   )
 }
 
-function VesselRow({
-  vessel,
-  onLocate,
-}: {
-  vessel: FleetVessel
-  /** 지도에서 이 배를 보여 준다 (#1831). 지도가 없거나 좌표가 없으면 `undefined`다. */
-  onLocate?: () => void
-}) {
-  return (
-    <li className={isAtRisk(vessel) ? 'vessel vessel--risk' : 'vessel'}>
-      <Link className="vessel__link" to={`/vessels/${vessel.id}`}>
-        {/*
-         * 등급은 **왼쪽 마크**가 맡는다 (`#701` ④). 종전에는 축이 다른 배지 셋이
-         * 전부 이름 위에 가로로 깔려 이름이 네 번째 줄에 있었다.
-         *
-         * `GradeBadge`를 쓰지 않는다 — 색·패턴·문자 세 채널을 마크가 그대로 담고,
-         * 같은 등급을 두 번 말하지 않는다. 대신 이 화면은 위쪽 등급 분포와 **같은
-         * 배 모양**을 쓰게 되어, 두 블록이 하나의 언어로 읽힌다.
-         */}
-        <VesselMark vessel={vessel} />
 
-        <span className="vessel__body">
-          <span className="vessel__head">
-            <span className="vessel__name">{vessel.name}</span>
-            {/*
-              규제 플래그는 등급과 **별개 축**이다 (`§8`). 같은 D등급이라도 1년차와
-              3년차는 배지가 같고 플래그만 달라야 한다. 이름 옆에 두어 「이 배에
-              의무가 걸렸다」가 이름과 함께 읽히게 한다.
-            */}
-            <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
-          </span>
-
-          {/*
-            선종·상태·적용 여부를 한 줄에 둔다 — 셋 다 「이 배가 어떤 배이고 지금
-            무엇을 하고 있나」다. 상태만 칩으로 빼 형태로 드러낸다 (`#701` ⑤).
-          */}
-          <span className="vessel__meta">
-            <UnderwayChip vessel={vessel} />
-            <span className="vessel__type">{shipTypeLabel(vessel.shipType)}</span>
-            {/*
-              적용 대상 배지는 규제 플래그와 **또 다른 축**이다 (`#653`).
-              플래그는 「의무가 걸렸다」, 이 배지는 「애초에 규제 대상인가」다.
-            */}
-            <ApplicabilityBadge
-              isCiiApplicableHint={vessel.isCiiApplicableHint}
-              grossTonnage={vessel.grossTonnage}
-              vesselName={vessel.name}
-            />
-          </span>
-
-          <span className="vessel__stats">
-            <span>
-              <b className="vessel__k">YTD</b>
-              {/* 자릿수는 `DESIGN_SYSTEM §4.1`(🔒)이 정한다 — 원본은 4자리로 온다. */}
-              {ytdCiiText(vessel.ytdAttainedCii)}
-            </span>
-            {/*
-             * 값이 없는 선박에는 「D등급까지」 대신 **왜 없는지**를 쓴다 (`#419`).
-             * 종전에는 제원이 없어도 「실적 없음」으로 보여, 항차를 등록해도 해결되지
-             * 않는 선박을 사용자가 계속 들여다보게 됐다.
-             */}
-            {/*
-              이미 D 이하면 이 칸을 그리지 않는다 (#1569 · `showsDaysToD`) — 「D등급 이하」가
-              왼쪽 마크의 등급을 되풀이했다.
-            */}
-            {!vessel.dataAvailable || showsDaysToD(vessel.daysToD, vessel.daysToDReason) ? (
-              <span
-                className="vessel__days"
-                title={
-                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-                }
-                /*
-                 * `role` 없는 `<span>`의 `aria-label`은 무시된다 (#829 ⑸b).
-                 * 라벨이 붙는 조건과 **같은 조건**으로 준다 — 값이 있을 때는 본문
-                 * 텍스트가 그대로 읽히면 되므로 역할을 만들지 않는다.
-                 */
-                role={vessel.dataAvailable ? undefined : 'img'}
-                aria-label={
-                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-                }
-              >
-                {vessel.dataAvailable
-                  ? daysToDText(vessel.daysToD, vessel.daysToDReason)
-                  : unavailableText(vessel.unavailableReason)}
-              </span>
-            ) : null}
-          </span>
-        </span>
-      </Link>
-
-      {/*
-       * 지도로 가는 띠 (#1831) — **카드 링크 바깥**이다. `<a>` 안에 `<button>`을 겹칠 수
-       * 없고, 겹쳐 두면 행을 누르는 것이 어느 쪽인지도 흐려진다. 행 오른쪽 끝의 좁은
-       * 띠라 이름·수치가 쓰는 폭을 건드리지 않는다.
-       */}
-      {onLocate === undefined ? null : (
-        <button
-          type="button"
-          className="vessel__locate"
-          onClick={onLocate}
-          aria-label={`지도에서 ${vessel.name} 보기`}
-        >
-          <PinIcon />
-        </button>
-      )}
-
-      {/*
-       * 「기준값 없음」은 사용자가 할 수 있는 것이 없는 사유다 — 안내가 「운영자에게
-       * 문의하세요」로 끝나는데 그 운영자가 갈 자리가 없었다 (`#1516` · `#1239` 결정 A).
-       * 문구는 그대로 두고(`unavailableHint`) 그 자리로 가는 링크를 덧붙인다. 카드 링크
-       * 안에 링크를 겹칠 수 없으므로 카드 아래 한 줄이다.
-       */}
-      {!vessel.dataAvailable && vessel.unavailableReason === 'NO_PARAMETERS' ? (
-        <p className="vessel__note">
-          <span>{unavailableHint(vessel.unavailableReason)}</span>
-          <Link className="vessel__note-link" to={regulationParametersPath()}>
-            규제 기준값 보기
-          </Link>
-        </p>
-      ) : null}
-    </li>
-  )
-}
-
-/** 지도 핀 — 「지도에서 보기」 띠 안. 접근 가능한 이름은 버튼의 `aria-label`이 맡는다 (#1831). */
-function PinIcon() {
-  return (
-    <svg className="vessel__pin" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 21.5s7-6.6 7-11.5a7 7 0 1 0-14 0c0 4.9 7 11.5 7 11.5z" />
-      <circle cx="12" cy="10" r="2.6" />
-    </svg>
-  )
-}
 
 function WarnIcon() {
   return (

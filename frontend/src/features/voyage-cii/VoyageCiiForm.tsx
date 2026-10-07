@@ -95,6 +95,8 @@ interface VoyageCiiFormProps {
 
 const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없어 첫 번째 선박으로 바꿨습니다. 확인해 주세요.'
 
+const SPEED_HINT = 'CII는 바뀌지 않습니다. 계획으로 저장하면 계획 속력 · 도착 예정 시각에 쓰입니다.'
+
 export function VoyageCiiForm({
   onStateChange,
   onStaleChange,
@@ -505,6 +507,8 @@ export function VoyageCiiForm({
           />
         )}
 
+        {/* 거리 · 속력을 한 줄에 (10/7 시안 02) */}
+        <div className="voyage-cii-form__pair">
         <Field
           id="distance"
           label="항해거리"
@@ -542,7 +546,8 @@ export function VoyageCiiForm({
           labelEn="Speed"
           unit={DISPLAY_UNITS.speed}
           error={errors[FIELD.speedKn]}
-          hint="CII는 연료·거리로 정해져 속력만 바꿔도 같습니다. 다만 「계획 저장」 시 이 값이 계획 속력·도착 예정 시각이 되니 실제 운항 속력을 넣어 주세요."
+          hint={SPEED_HINT}
+          hintHidden
         >
           {(control) => (
             <input
@@ -557,6 +562,14 @@ export function VoyageCiiForm({
             />
           )}
         </Field>
+        </div>
+        {/*
+          속력 풀이는 두 칸 아래 전폭 한 줄로 보인다. 칸 안의 풀이는 낭독용으로만 남겨
+          `aria-describedby` 배선을 그대로 둔다 — 칸 안에 보이게 두면 왼쪽 칸 오류와 겹친다.
+        */}
+        <p className="voyage-cii-form__pair-hint" aria-hidden="true">
+          {SPEED_HINT}
+        </p>
 
         {/* 연료 종류 — 규제연도와 같은 규칙. 로딩·실패를 빈 선택지와 구분해 보인다 (#542) */}
         {fuelsLoading ? (
@@ -608,6 +621,7 @@ export function VoyageCiiForm({
           (`DESIGN_SYSTEM §8.4` 사용 조건). 라디오 · 비활성 사유 배선은 그대로다.
         */}
         <ChoiceCards
+          variant="segmented"
           name="fuel-mode"
           legend="연료 입력 방식"
           legendClassName="voyage-cii-form__label"

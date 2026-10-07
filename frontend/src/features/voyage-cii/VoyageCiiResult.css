@@ -185,7 +185,6 @@
  * `VesselDetail.css` 한 화면이라 이 경로에서는 아예 불러와지지 않기 때문이다
  * (#709 · #719 · #723 · #725와 같은 「이름은 전역, 소유자는 한 화면」).
  */
-.voyage-cii-result__targets-table,
 .voyage-cii-result__basis-table {
   inline-size: 100%;
   border-collapse: collapse;
@@ -193,8 +192,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.voyage-cii-result__targets-table th,
-.voyage-cii-result__targets-table td,
 .voyage-cii-result__basis-table th,
 .voyage-cii-result__basis-table td {
   padding: var(--space-8) var(--space-12);
@@ -203,23 +200,18 @@
 }
 
 /* 첫 칸은 행의 이름이다 — 숫자 열과 같은 오른쪽 정렬이면 이름과 값이 섞여 보인다. */
-.voyage-cii-result__targets-table th:first-child,
-.voyage-cii-result__targets-table td:first-child,
 .voyage-cii-result__basis-table th:first-child,
 .voyage-cii-result__basis-table td:first-child {
   text-align: left;
   padding-left: 0;
 }
 
-.voyage-cii-result__targets-table thead th,
 .voyage-cii-result__basis-table thead th {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
 }
 
-.voyage-cii-result__targets-table tbody tr:last-child th,
-.voyage-cii-result__targets-table tbody tr:last-child td,
 .voyage-cii-result__basis-table tbody tr:last-child th,
 .voyage-cii-result__basis-table tbody tr:last-child td {
   border-bottom: 0;
@@ -343,4 +335,79 @@
 .voyage-cii-result__basis-link {
   margin: var(--space-12) 0 0;
   font-size: var(--font-size-label);
+}
+
+/* ── 10/7 시안 02 ─────────────────────────────────────────────── */
+.voyage-cii-result__estimate-notice--caption {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.voyage-cii-result__estimate-notice--caption strong {
+  font-weight: inherit;
+}
+
+.voyage-cii-result__target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.voyage-cii-result__target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-label);
+}
+
+.voyage-cii-result__target-chip b {
+  font-weight: var(--font-weight-strong);
+}
+
+.voyage-cii-result__targets .voyage-cii-result__targets-note {
+  margin-block-start: var(--spacing-sm);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+/*
+ * 계산 결과 넷을 한 줄 칸으로 (10/7) — 2열 「라벨 ······ 값」 목록이 넓은 칸에서 라벨과 값 사이를
+ * 비워 두어 오른쪽 기둥이 휑해 보였다. 대시보드 숫자 칸과 같은 모양(라벨 위 · 값 아래 · 세로선)이다.
+ */
+.voyage-cii-result__list {
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  column-gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.voyage-cii-result__list > .voyage-cii-result__row {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: var(--space-12) var(--space-16);
+  border-bottom: 0;
+}
+
+.voyage-cii-result__list > .voyage-cii-result__row + .voyage-cii-result__row {
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.voyage-cii-result__list .voyage-cii-result__row dt {
+  font-size: var(--font-size-caption);
+}
+
+.voyage-cii-result__list .voyage-cii-result__row dd {
+  text-align: start;
+  font-size: var(--font-size-heading);
 }

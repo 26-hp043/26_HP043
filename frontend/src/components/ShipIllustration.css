@@ -1,0 +1,24 @@
+/* 선종 일러스트 (10/7) — 그림 전용 토큰 `--ship-*`만 쓴다 */
+.ship-ill {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  overflow: visible;
+}
+
+.ship-ill__hull { fill: var(--ship-hull); }
+.ship-ill__boot { fill: var(--ship-boot); }
+.ship-ill__house { fill: var(--ship-house); stroke: var(--ship-line); stroke-width: 0.5; }
+.ship-ill__window { fill: var(--ship-hull); }
+.ship-ill__window--soft { opacity: 0.35; }
+.ship-ill__funnel { fill: var(--ship-cargo-2); }
+.ship-ill__deck { fill: var(--ship-deck); stroke: var(--ship-line); stroke-width: 0.4; }
+.ship-ill__line { fill: var(--ship-line); }
+.ship-ill__dome { fill: var(--ship-house); stroke: var(--ship-line); stroke-width: 0.6; }
+.ship-ill__box { stroke: var(--ship-house); stroke-width: 0.35; }
+.ship-ill__cargo-1 { fill: var(--ship-cargo-1); }
+.ship-ill__cargo-2 { fill: var(--ship-cargo-2); }
+.ship-ill__cargo-3 { fill: var(--ship-cargo-3); }
+.ship-ill__boom { fill: none; stroke: var(--ship-hull); stroke-width: 0.9; stroke-linecap: round; }
+.ship-ill__sea { fill: var(--ship-sea); }
+.ship-ill__wave { fill: none; stroke: var(--ship-line); stroke-width: 0.4; opacity: 0.5; }

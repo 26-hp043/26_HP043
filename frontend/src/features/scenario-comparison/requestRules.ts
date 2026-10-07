@@ -118,6 +118,10 @@ export type FormErrors = Record<string, string>
  * 목적항은 여기 없다 — `#1454`로 **선택 필드**가 됐지만 표기용이라 「위치」 묶음에
  * 현재 위치와 나란히 둔다. 항만을 고르면 좌표가 여기(현재 좌표)로 채워진다.
  */
+/*
+ * 우회 경유지 셋은 「항로」 묶음(겉)으로 나왔지만(#2315) 오류 맵에서는 남긴다 — 경유지 오류의
+ * 해법(현재 위도·경도)이 접힌 칸 안에 있어 펼쳐야 한다(#1858). 접힌 요약 수에서는 뺀다(아래).
+ */
 const ADVANCED_FIELDS = [
   FIELD.detourDistanceNm,
   FIELD.detourWaypointName,
@@ -145,7 +149,6 @@ export function hasAdvancedError(errors: FormErrors): boolean {
 export function countAdvancedFilled(form: ComparisonFormState): number {
   return [
     form.detourDistanceNm.trim() !== '',
-    form.detourWaypointName.trim() !== '',
     form.slowSpeedKn.trim() !== '',
     form.weatherModel !== 'NONE',
     form.currentLat.trim() !== '',

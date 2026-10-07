@@ -61,15 +61,6 @@
   background: var(--color-border-strong);
 }
 
-/* 패턴은 구간 색 위에 겹친다 — 타일 배경이 투명이라 색이 비쳐 보인다. */
-.grade-scale-bar__pattern {
-  position: absolute;
-  inset: 0;
-  inline-size: 100%;
-  block-size: 100%;
-  display: block;
-}
-
 .grade-scale-bar__marker {
   position: absolute;
   inset-block: -3px;
@@ -93,21 +84,35 @@
   color: var(--color-text);
 }
 
-.grade-scale-bar__axis {
-  display: flex;
-}
-
-.grade-scale-bar__axis-label {
-  flex-basis: 0;
-  min-width: 0;
-  text-align: center;
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
-  color: var(--color-text-muted);
-}
-
 .grade-scale-bar__unavailable {
   margin: 0;
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
+}
+
+/* ── 10/7 — 배지 색 · 구간 안 문자 · 각진 모서리 ───────────────────── */
+.grade-scale-bar__track {
+  height: 24px;
+}
+
+.grade-scale-bar__bands {
+  border-color: var(--color-border);
+  border-radius: 0;
+}
+
+.grade-scale-bar__band + .grade-scale-bar__band::before {
+  background: var(--color-surface);
+  inline-size: 2px;
+}
+
+.grade-scale-bar__band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.grade-scale-bar__band-label {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-strong);
+  line-height: 1;
 }

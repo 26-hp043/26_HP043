@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VesselRegistration } from './VesselRegistration'
 import { EMPTY_SHELL_CONTEXT } from '../../layout/shellContext'
@@ -174,9 +174,13 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
     fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
 
     await screen.findByText('등록 완료')
-    // `dd`의 값 전체가 「벌크선」이다. 선택지의 「벌크선 (BULK_CARRIER)」와는 다르다.
-    expect(screen.getByText('벌크선')).toBeTruthy()
-    expect(screen.queryByText('BULK_CARRIER')).toBeNull()
+    /*
+     * 결과 카드 안에서만 본다 — 선종 선택지도 이제 한글명만 보이므로(코드 병기 없음)
+     * 화면 전체에서 찾으면 선택지와 겹친다. `dd`의 값 전체가 「벌크선」이다.
+     */
+    const card = within(screen.getByText('등록 완료').closest('.vessel-registration__result') as HTMLElement)
+    expect(card.getByText('벌크선')).toBeTruthy()
+    expect(card.queryByText('BULK_CARRIER')).toBeNull()
   })
 
   /**

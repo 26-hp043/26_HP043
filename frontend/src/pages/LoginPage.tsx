@@ -164,12 +164,8 @@ export function LoginPage() {
       title="로그인"
       disclaimer
       intro
-      footer={
-        <>
-          계정이 없으신가요? <Link to={SIGNUP_PATH}>회원가입</Link>
-        </>
-      }
     >
+      <p className="auth-lead">회사 계정으로 들어갑니다.</p>
       <form className="auth-form" onSubmit={submit} noValidate>
         {failure ? <AuthAlert tone="error">{failure}</AuthAlert> : null}
 
@@ -190,7 +186,12 @@ export function LoginPage() {
           onChange={setPassword}
           error={errors.password}
           autoComplete="current-password"
+          revealable
         />
+
+        <p className="auth-links auth-links--end">
+          <Link to={PASSWORD_RESET_PATH}>비밀번호를 잊으셨나요?</Link>
+        </p>
 
         <button
           className="auth-submit"
@@ -202,21 +203,26 @@ export function LoginPage() {
         </button>
       </form>
 
-      {showTour ? (
-        <button
-          className="auth-secondary"
-          type="button"
-          disabled={busy}
-          onClick={() => void submitTour()}
-          data-testid="tour-submit"
-        >
-          {busy ? '둘러보기 여는 중…' : '로그인 없이 둘러보기'}
-        </button>
-      ) : null}
-
-      <p className="auth-links">
-        <Link to={PASSWORD_RESET_PATH}>비밀번호를 잊으셨나요?</Link>
+      {/* 계정이 없다면 (10/7) — 둘러보기 · 회원가입을 같은 무게의 두 단추로 */}
+      <p className="auth-divider">
+        <span>계정이 없다면</span>
       </p>
+      <div className="auth-alt">
+        {showTour ? (
+          <button
+            className="auth-secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => void submitTour()}
+            data-testid="tour-submit"
+          >
+            {busy ? '둘러보기 여는 중…' : '로그인 없이 둘러보기'}
+          </button>
+        ) : null}
+        <Link className="auth-secondary" to={SIGNUP_PATH}>
+          회원가입
+        </Link>
+      </div>
     </AuthShell>
   )
 }

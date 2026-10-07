@@ -235,3 +235,19 @@ a {
   white-space: nowrap;
   border: 0;
 }
+
+/*
+ * 셀렉트 화살표 (10/7) — 기본 화살표를 걷고 `--select-chevron`을 오른쪽 12px 안쪽에 그린다.
+ *
+ * ⚠️ 선택자에 `:not(#\#)`를 붙여 **id 한 단계의 특이도**를 준다. 화면마다 셀렉트 규칙이
+ * `padding: 0 10px` · `background: …` 같은 축약으로 오른쪽 여백과 배경 그림을 덮어쓰고 있어,
+ * 요소 선택자 하나로는 화살표 자리가 지켜지지 않는다. 바꾸는 속성은 아래 넷뿐이다.
+ */
+select:not([multiple]):not([size]):not(#\#) {
+  appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+  padding-inline-end: 36px;
+}

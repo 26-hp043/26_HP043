@@ -3,7 +3,7 @@ import { useRef, useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
 import { ScenarioAdoptPanel } from './ScenarioAdoptPanel'
-import { VoyageRouteMap } from './VoyageRouteMap'
+import { ScenarioMapCards } from './ScenarioMapCards'
 import {
   FIELD,
   MIN_SPEED_KN,
@@ -66,7 +66,6 @@ import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
   deltaFromDirect,
   isZeroDelta,
-  lowestSummary,
   type ScenarioDelta,
 } from './comparisonRules'
 import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
@@ -604,217 +603,13 @@ export function ScenarioComparison({
 
         고급 칸에 값을 **미리 채우지 않는다** — 빈 칸이 서버 기본이다(`requestRules.ts`).
       */}
+      {/*
+        10/7 시안 05 — **항로를 먼저.** 출발 · 목적항을 고르면 바로 아래 「추정 거리 넣기」가 열린다.
+        종전에는 직항 거리 칸이 위에, 그 거리를 채워 줄 항구 칸이 한참 아래 「위치」에 있어 버튼이
+        왜 잠겼는지 따라 내려가야 했다.
+      */}
       <fieldset className="scenario-comparison__group">
-        <legend className="scenario-comparison__form-subtitle">필수 입력</legend>
-        <Field
-          id="sc-vesselId"
-          label="선박"
-          error={errors[FIELD.vesselId]}
-          hint={
-            replacedShellVesselFor !== null && form.vesselId === replacedShellVesselFor
-              ? SHELL_VESSEL_REPLACED
-              : undefined
-          }
-        >
-          {(control) => (
-            <select
-              {...control}
-              className="scenario-comparison__control"
-              value={form.vesselId}
-              onChange={(e) => selectVesselId(e.target.value || null)}
-              disabled={vesselsState !== 'ready' || noVessel}
-            >
-              {/* 실패를 「선택」으로 말하지 않는다 — 고를 것이 없다 (`#1093` ⑵). */}
-              <option value="">
-                {vesselsState === 'loading'
-                  ? '선박 목록을 불러오는 중…'
-                  : vesselsState === 'failed'
-                    ? '선박 목록을 불러오지 못했습니다'
-                    : '선택'}
-              </option>
-              {(vessels ?? []).map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.displayName}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-
-        {/*
-          * 규제연도 — 다른 두 화면과 같은 규칙 (`#632`).
-          * 로딩·실패를 **빈 선택지와 구분해** 보인다. 셋을 한 문구로 뭉치면
-          * 「목록이 아직 안 왔다」와 「등록된 해가 없다」를 사용자가 가를 수 없다.
-          *
-          * ⚠️ 이 칸은 **컨트롤이 없을 수도 있다.** 그래서 `Field`의 자식 함수가
-          * 조건 전체를 돌려준다 — `control`(=`id`·`aria-*`)은 `<select>`가 실제로
-          * 그려지는 가지에서만 쓴다 (`#936`).
-          */}
-        <Field id="sc-regulationYear" label="규제연도" error={errors[FIELD.regulationYear]}>
-          {(control) =>
-            yearsLoading ? (
-              <span className="scenario-comparison__field-note">규제연도 목록을 불러오는 중…</span>
-            ) : yearsFailed ? (
-              <span className="scenario-comparison__field-note">규제연도 목록을 불러오지 못했습니다</span>
-            ) : years.length > 0 ? (
-              <select
-                {...control}
-                className="scenario-comparison__control"
-                value={form.regulationYear}
-                onChange={(e) => setForm((prev) => ({ ...prev, regulationYear: e.target.value }))}
-              >
-                {years.map((year) => (
-                  <option key={year} value={String(year)}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            ) : !form.vesselId ? (
-              /*
-               * ⚠️ **「선박을 아직 안 골랐다」와 「그 선박에 연도가 없다」는 다르다** (#829 계열).
-               *
-               * `useYearOptions`는 선박이 없으면 조회하지 않고 **빈 목록**을 돌려준다. 종전에는
-               * 그때도 「등록된 규제연도가 없습니다」가 떴는데, **사실이 아니다** — 연도는
-               * 등재되어 있고 선박을 고르지 않았을 뿐이다. 화면에 처음 들어온 사용자는 그것을
-               * **데이터가 없다**로 읽고 선박을 고를 생각을 못 한다(2026-09-13 실측 5/5 재현).
-               *
-               * 보고서 화면(`ReportsView`)이 이미 `vesselId &&`로 같은 구분을 하고 있다 —
-               * 그 형태에 맞춘다.
-               */
-              <span className="scenario-comparison__field-note">{SELECT_VESSEL_FIRST}</span>
-            ) : (
-              <span className="scenario-comparison__field-note">{YEAR_STATE_COPY.empty}</span>
-            )
-          }
-        </Field>
-
-        <Field
-          id="sc-baseDistanceNm"
-          label={`직항 거리 (${DISPLAY_UNITS.distance})`}
-          error={errors[FIELD.baseDistanceNm]}
-        >
-          {(control) => (
-            <>
-              <input
-                {...control}
-                className="scenario-comparison__control"
-                inputMode="decimal"
-                value={form.baseDistanceNm}
-                onChange={(e) => {
-                  /*
-                   * 손으로 고친 값은 더 이상 추정이 아니다 (#1750). 표시를 떼지 않으면
-                   * 사용자가 넣은 숫자에 「좌표 기반 추정 거리」가 붙은 채로 남는다.
-                   */
-                  estimatedRef.current = false
-                  setDistanceNotice('')
-                  setForm((prev) => ({ ...prev, baseDistanceNm: e.target.value }))
-                }}
-              />
-              {/*
-                항구를 고르면 거리를 **손으로 넣지 않아도 된다** (#1750). 누를 때만 부른다 —
-                입력 중 자동 조회는 공개 Nominatim 사용 정책 위반이다(#768).
-
-                좌표가 없으면 비활성하고 **그 사유를 적는다**(`§14` 비활성 사유).
-              */}
-              <button
-                type="button"
-                className="scenario-comparison__lookup"
-                onClick={estimateDistance}
-                disabled={!canEstimate || estimating}
-                // §14 — 잠긴 사유를 낭독에도 잇는다 (#1170 ⑵).
-                aria-describedby={canEstimate ? undefined : 'sc-estimate-blocked'}
-              >
-                {estimating ? '추정하는 중…' : '추정 거리 넣기'}
-              </button>
-              {!canEstimate && (
-                <span id="sc-estimate-blocked" className="scenario-comparison__field-hint">
-                  현재 위치와 목적항의 좌표가 모두 있어야 추정할 수 있습니다.
-                </span>
-              )}
-              {distanceNotice !== '' && (
-                <span className="scenario-comparison__field-hint" role="status">
-                  {distanceNotice}
-                </span>
-              )}
-              {/* 비우면 좌표로 계산한다는 것을 **누르기 전에** 알린다 (#1005 · `PRD §15.2`).
-                  조건부라 `Field`의 `hint`가 아니라 여기 둔다 — `role="status"`로 떠야 한다. */}
-              {usesCoordinateDistance(form) && (
-                <span className="scenario-comparison__field-hint" role="status">
-                  비워 두면 현재 위치와 목적항 좌표로 계산합니다(좌표 기반 추정 거리).
-                </span>
-              )}
-            </>
-          )}
-        </Field>
-
-        <Field
-          id="sc-baseSpeedKn"
-          label={`현재 속력 (${DISPLAY_UNITS.speed})`}
-          error={errors[FIELD.baseSpeedKn]}
-        >
-          {(control) => (
-            <input
-              {...control}
-              className="scenario-comparison__control"
-              inputMode="decimal"
-              value={form.baseSpeedKn}
-              onChange={(e) => setForm((prev) => ({ ...prev, baseSpeedKn: e.target.value }))}
-            />
-          )}
-        </Field>
-
-        {/* 단위는 `§4.2` 「일일 연료소모량」 행이 소유한다 — 질량이 아니라
-            질량유량이다(`DB_SCHEMA`의 `ton/day`). 종전에 화면마다 `(t)`와
-            `t/일`로 갈려 있던 것은 그 행이 없어서였다 (#592 → `#858`).
-
-            `PRD §11.4` 우선순위 ⑴이 이 칸이다. 선박에 `reference_daily_foc_ton`이
-            없어도 여기 값을 넣으면 계산된다 — 데모 선박 4척이 모두 그 상태다. */}
-        <Field
-          id="sc-baseDailyFocTon"
-          label={`기준 일일 연료소모량 (${DISPLAY_UNIT_DAILY_FUEL})`}
-          hint={dailyFocHint}
-          error={errors[FIELD.baseDailyFocTon]}
-        >
-          {(control) => (
-            <input
-              {...control}
-              className="scenario-comparison__control"
-              inputMode="decimal"
-              value={form.baseDailyFocTon}
-              onChange={(e) => setForm((prev) => ({ ...prev, baseDailyFocTon: e.target.value }))}
-            />
-          )}
-        </Field>
-
-        <Field id="sc-fuelType" label="연료 종류" error={errors[FIELD.fuelType]}>
-          {(control) => (
-            <select
-              {...control}
-              className="scenario-comparison__control"
-              value={form.fuelType}
-              onChange={(e) => setForm((prev) => ({ ...prev, fuelType: e.target.value }))}
-              disabled={fuelsLoading || fuelsFailed}
-            >
-              {/* 로딩·실패를 「선택」과 구분해 보인다 — 빈 목록과 못 불러온 것은 다른 상태다 (#542) */}
-              <option value="">
-                {fuelsLoading
-                  ? '연료 목록을 불러오는 중…'
-                  : fuelsFailed
-                    ? '연료 목록을 불러오지 못했습니다'
-                    : '선택'}
-              </option>
-              {fuels.map((fuel) => (
-                <option key={fuel.code} value={fuel.code}>
-                  {fuelTypeText(fuel.code)}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-      </fieldset>
-
-      <fieldset className="scenario-comparison__group">
-        <legend className="scenario-comparison__form-subtitle">위치</legend>
+        <legend className="scenario-comparison__form-subtitle">항로</legend>
         {/* 샘플 항만 선택지 (#1005) — 현재 위치·목적항 두 칸이 같이 쓴다. */}
         <datalist id="sc-ports">
           {ports.map((port) => (
@@ -822,7 +617,7 @@ export function ScenarioComparison({
           ))}
         </datalist>
 
-        <Field id="sc-currentPort" label="현재 위치 (항만에서 고르기)">
+        <Field id="sc-currentPort" label="출발 · 현재 위치">
           {(control) => (
             <>
               <input
@@ -912,7 +707,272 @@ export function ScenarioComparison({
             </>
           )}
         </Field>
+        {/* 우회 경유지를 항로 묶음으로 (10/7) — 고르면 지도에 우회선을 그린다. 비우면 거리 +5%로만 계산 */}
+{/*
+          우회 경유지 (`#1300` E-6 ⓓ · `PRD §11.3` · `UIFLOW 2-2`). 샘플 항만에서 고르면 좌표가
+          붙고, 그때 서버가 우회 거리를 「현재 위치 → 경유지 → 목적항」 대권거리의 합으로 내며
+          지도가 우회 선을 따로 그린다. 목적항과 같은 규칙 — **정확히 같은 이름일 때만** 좌표를
+          붙인다. 우회 거리 칸을 채우면 그쪽이 우선이다(`API_SPEC §5.1`).
+        */}
+        <Field
+          id="sc-detourWaypoint"
+          label="우회 경유지 (선택)"
+          hint="고르면 우회 거리는 경유지를 지나는 대권거리의 합이 되고, 지도에 우회 선이 따로 그려집니다."
+          error={
+            // 서버가 짚는 칸은 `detour_waypoint_lat`/`_lon`이다 — 한 입력창이 셋을 받는다
+            // (#1097 ⑶ 「서버가 짚은 칸에 붙인다」).
+            errors[FIELD.detourWaypointName] ??
+            errors[FIELD.detourWaypointLat] ??
+            errors[FIELD.detourWaypointLon]
+          }
+        >
+          {(control) => (
+            <>
+              <input
+                {...control}
+                className="scenario-comparison__control"
+                list="sc-ports"
+                value={form.detourWaypointName}
+                onChange={(e) => {
+                  const match = matchSamplePort(ports, e.target.value)
+                  setForm((prev) => ({
+                    ...prev,
+                    detourWaypointName: match ? match.name : e.target.value,
+                    detourWaypointLat: match ? String(match.lat) : '',
+                    detourWaypointLon: match ? String(match.lon) : '',
+                  }))
+                }}
+                placeholder="예: SINGAPORE — 비워 두면 직항 × 1.05"
+              />
+              {form.detourWaypointLat !== '' && (
+                <span className="scenario-comparison__field-hint">
+                  샘플 항만 — 좌표가 함께 쓰입니다.
+                </span>
+              )}
+              {form.detourWaypointName.trim() !== '' && form.detourWaypointLat === '' && (
+                <span className="scenario-comparison__field-hint" role="status">
+                  샘플 항만 목록에 없는 이름입니다 — 좌표가 없어 우회 거리는 기본 규칙으로 계산합니다.
+                </span>
+              )}
+            </>
+          )}
+        </Field>
+        <Field
+          id="sc-baseDistanceNm"
+          label="직항 거리"
+          unit={DISPLAY_UNITS.distance}
+          error={errors[FIELD.baseDistanceNm]}
+        >
+          {(control) => (
+            <>
+              <input
+                {...control}
+                className="scenario-comparison__control"
+                inputMode="decimal"
+                value={form.baseDistanceNm}
+                onChange={(e) => {
+                  /*
+                   * 손으로 고친 값은 더 이상 추정이 아니다 (#1750). 표시를 떼지 않으면
+                   * 사용자가 넣은 숫자에 「좌표 기반 추정 거리」가 붙은 채로 남는다.
+                   */
+                  estimatedRef.current = false
+                  setDistanceNotice('')
+                  setForm((prev) => ({ ...prev, baseDistanceNm: e.target.value }))
+                }}
+              />
+              {/*
+                항구를 고르면 거리를 **손으로 넣지 않아도 된다** (#1750). 누를 때만 부른다 —
+                입력 중 자동 조회는 공개 Nominatim 사용 정책 위반이다(#768).
+
+                좌표가 없으면 비활성하고 **그 사유를 적는다**(`§14` 비활성 사유).
+              */}
+              <button
+                type="button"
+                className="scenario-comparison__lookup"
+                onClick={estimateDistance}
+                disabled={!canEstimate || estimating}
+                // §14 — 잠긴 사유를 낭독에도 잇는다 (#1170 ⑵).
+                aria-describedby={canEstimate ? undefined : 'sc-estimate-blocked'}
+              >
+                {estimating ? '추정하는 중…' : '추정 거리 넣기'}
+              </button>
+              {!canEstimate && (
+                <span id="sc-estimate-blocked" className="scenario-comparison__field-hint">
+                  현재 위치와 목적항의 좌표가 모두 있어야 추정할 수 있습니다.
+                </span>
+              )}
+              {distanceNotice !== '' && (
+                <span className="scenario-comparison__field-hint" role="status">
+                  {distanceNotice}
+                </span>
+              )}
+              {/* 비우면 좌표로 계산한다는 것을 **누르기 전에** 알린다 (#1005 · `PRD §15.2`).
+                  조건부라 `Field`의 `hint`가 아니라 여기 둔다 — `role="status"`로 떠야 한다. */}
+              {usesCoordinateDistance(form) && (
+                <span className="scenario-comparison__field-hint" role="status">
+                  비워 두면 현재 위치와 목적항 좌표로 계산합니다(좌표 기반 추정 거리).
+                </span>
+              )}
+            </>
+          )}
+        </Field>
       </fieldset>
+      <fieldset className="scenario-comparison__group">
+        <legend className="scenario-comparison__form-subtitle">배 · 연료</legend>
+        <Field
+          id="sc-vesselId"
+          label="선박"
+          error={errors[FIELD.vesselId]}
+          hint={
+            replacedShellVesselFor !== null && form.vesselId === replacedShellVesselFor
+              ? SHELL_VESSEL_REPLACED
+              : undefined
+          }
+        >
+          {(control) => (
+            <select
+              {...control}
+              className="scenario-comparison__control"
+              value={form.vesselId}
+              onChange={(e) => selectVesselId(e.target.value || null)}
+              disabled={vesselsState !== 'ready' || noVessel}
+            >
+              {/* 실패를 「선택」으로 말하지 않는다 — 고를 것이 없다 (`#1093` ⑵). */}
+              <option value="">
+                {vesselsState === 'loading'
+                  ? '선박 목록을 불러오는 중…'
+                  : vesselsState === 'failed'
+                    ? '선박 목록을 불러오지 못했습니다'
+                    : '선택'}
+              </option>
+              {(vessels ?? []).map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.displayName}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+
+        {/*
+          * 규제연도 — 다른 두 화면과 같은 규칙 (`#632`).
+          * 로딩·실패를 **빈 선택지와 구분해** 보인다. 셋을 한 문구로 뭉치면
+          * 「목록이 아직 안 왔다」와 「등록된 해가 없다」를 사용자가 가를 수 없다.
+          *
+          * ⚠️ 이 칸은 **컨트롤이 없을 수도 있다.** 그래서 `Field`의 자식 함수가
+          * 조건 전체를 돌려준다 — `control`(=`id`·`aria-*`)은 `<select>`가 실제로
+          * 그려지는 가지에서만 쓴다 (`#936`).
+          */}
+        <Field id="sc-regulationYear" label="규제연도" error={errors[FIELD.regulationYear]}>
+          {(control) =>
+            yearsLoading ? (
+              <span className="scenario-comparison__field-note">규제연도 목록을 불러오는 중…</span>
+            ) : yearsFailed ? (
+              <span className="scenario-comparison__field-note">규제연도 목록을 불러오지 못했습니다</span>
+            ) : years.length > 0 ? (
+              <select
+                {...control}
+                className="scenario-comparison__control"
+                value={form.regulationYear}
+                onChange={(e) => setForm((prev) => ({ ...prev, regulationYear: e.target.value }))}
+              >
+                {years.map((year) => (
+                  <option key={year} value={String(year)}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            ) : !form.vesselId ? (
+              /*
+               * ⚠️ **「선박을 아직 안 골랐다」와 「그 선박에 연도가 없다」는 다르다** (#829 계열).
+               *
+               * `useYearOptions`는 선박이 없으면 조회하지 않고 **빈 목록**을 돌려준다. 종전에는
+               * 그때도 「등록된 규제연도가 없습니다」가 떴는데, **사실이 아니다** — 연도는
+               * 등재되어 있고 선박을 고르지 않았을 뿐이다. 화면에 처음 들어온 사용자는 그것을
+               * **데이터가 없다**로 읽고 선박을 고를 생각을 못 한다(2026-09-13 실측 5/5 재현).
+               *
+               * 보고서 화면(`ReportsView`)이 이미 `vesselId &&`로 같은 구분을 하고 있다 —
+               * 그 형태에 맞춘다.
+               */
+              <span className="scenario-comparison__field-note">{SELECT_VESSEL_FIRST}</span>
+            ) : (
+              <span className="scenario-comparison__field-note">{YEAR_STATE_COPY.empty}</span>
+            )
+          }
+        </Field>
+
+
+        {/* 속력 · 일일 연료를 한 줄에 (10/7 시안 05) */}
+        <div className="scenario-comparison__pair">
+        <Field
+          id="sc-baseSpeedKn"
+          label="현재 속력"
+          unit={DISPLAY_UNITS.speed}
+          error={errors[FIELD.baseSpeedKn]}
+        >
+          {(control) => (
+            <input
+              {...control}
+              className="scenario-comparison__control"
+              inputMode="decimal"
+              value={form.baseSpeedKn}
+              onChange={(e) => setForm((prev) => ({ ...prev, baseSpeedKn: e.target.value }))}
+            />
+          )}
+        </Field>
+
+        {/* 단위는 `§4.2` 「일일 연료소모량」 행이 소유한다 — 질량이 아니라
+            질량유량이다(`DB_SCHEMA`의 `ton/day`). 종전에 화면마다 `(t)`와
+            `t/일`로 갈려 있던 것은 그 행이 없어서였다 (#592 → `#858`).
+
+            `PRD §11.4` 우선순위 ⑴이 이 칸이다. 선박에 `reference_daily_foc_ton`이
+            없어도 여기 값을 넣으면 계산된다 — 데모 선박 4척이 모두 그 상태다. */}
+        <Field
+          id="sc-baseDailyFocTon"
+          label="기준 일일 연료소모량"
+          unit={DISPLAY_UNIT_DAILY_FUEL}
+          hint={dailyFocHint}
+          error={errors[FIELD.baseDailyFocTon]}
+        >
+          {(control) => (
+            <input
+              {...control}
+              className="scenario-comparison__control"
+              inputMode="decimal"
+              value={form.baseDailyFocTon}
+              onChange={(e) => setForm((prev) => ({ ...prev, baseDailyFocTon: e.target.value }))}
+            />
+          )}
+        </Field>
+        </div>
+
+        <Field id="sc-fuelType" label="연료 종류" error={errors[FIELD.fuelType]}>
+          {(control) => (
+            <select
+              {...control}
+              className="scenario-comparison__control"
+              value={form.fuelType}
+              onChange={(e) => setForm((prev) => ({ ...prev, fuelType: e.target.value }))}
+              disabled={fuelsLoading || fuelsFailed}
+            >
+              {/* 로딩·실패를 「선택」과 구분해 보인다 — 빈 목록과 못 불러온 것은 다른 상태다 (#542) */}
+              <option value="">
+                {fuelsLoading
+                  ? '연료 목록을 불러오는 중…'
+                  : fuelsFailed
+                    ? '연료 목록을 불러오지 못했습니다'
+                    : '선택'}
+              </option>
+              {fuels.map((fuel) => (
+                <option key={fuel.code} value={fuel.code}>
+                  {fuelTypeText(fuel.code)}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+      </fieldset>
+
 
       {/*
         고급 설정 (`#1417`). 요약에 **기본에서 벗어난 칸의 수**를 적는다 — 안에 값이
@@ -942,7 +1002,8 @@ export function ScenarioComparison({
           </p>
           <Field
             id="sc-detourDistanceNm"
-            label={`우회 거리 (${DISPLAY_UNITS.distance})`}
+            label="우회 거리"
+            unit={DISPLAY_UNITS.distance}
             error={errors[FIELD.detourDistanceNm]}
           >
             {(control) => (
@@ -957,61 +1018,13 @@ export function ScenarioComparison({
             )}
           </Field>
 
-          {/*
-            우회 경유지 (`#1300` E-6 ⓓ · `PRD §11.3` · `UIFLOW 2-2`). 샘플 항만에서 고르면 좌표가
-            붙고, 그때 서버가 우회 거리를 「현재 위치 → 경유지 → 목적항」 대권거리의 합으로 내며
-            지도가 우회 선을 따로 그린다. 목적항과 같은 규칙 — **정확히 같은 이름일 때만** 좌표를
-            붙인다. 우회 거리 칸을 채우면 그쪽이 우선이다(`API_SPEC §5.1`).
-          */}
-          <Field
-            id="sc-detourWaypoint"
-            label="우회 경유지 (항만에서 고르기)"
-            hint="고르면 우회 거리는 경유지를 지나는 대권거리의 합이 되고, 지도에 우회 선이 따로 그려집니다."
-            error={
-              // 서버가 짚는 칸은 `detour_waypoint_lat`/`_lon`이다 — 한 입력창이 셋을 받는다
-              // (#1097 ⑶ 「서버가 짚은 칸에 붙인다」).
-              errors[FIELD.detourWaypointName] ??
-              errors[FIELD.detourWaypointLat] ??
-              errors[FIELD.detourWaypointLon]
-            }
-          >
-            {(control) => (
-              <>
-                <input
-                  {...control}
-                  className="scenario-comparison__control"
-                  list="sc-ports"
-                  value={form.detourWaypointName}
-                  onChange={(e) => {
-                    const match = matchSamplePort(ports, e.target.value)
-                    setForm((prev) => ({
-                      ...prev,
-                      detourWaypointName: match ? match.name : e.target.value,
-                      detourWaypointLat: match ? String(match.lat) : '',
-                      detourWaypointLon: match ? String(match.lon) : '',
-                    }))
-                  }}
-                  placeholder="예: SINGAPORE — 비워 두면 직항 × 1.05"
-                />
-                {form.detourWaypointLat !== '' && (
-                  <span className="scenario-comparison__field-hint">
-                    샘플 항만 — 좌표가 함께 쓰입니다.
-                  </span>
-                )}
-                {form.detourWaypointName.trim() !== '' && form.detourWaypointLat === '' && (
-                  <span className="scenario-comparison__field-hint" role="status">
-                    샘플 항만 목록에 없는 이름입니다 — 좌표가 없어 우회 거리는 기본 규칙으로 계산합니다.
-                  </span>
-                )}
-              </>
-            )}
-          </Field>
-
+          
           {/* `PRD §9.1` VAL-009 — floor가 1.0kn이라는 사실을 넣기 전에 알린다.
               도달했을 때의 경고(`SLOW_SPEED_FLOOR`)는 서버가 결과에 붙인다. */}
           <Field
             id="sc-slowSpeedKn"
-            label={`감속 속력 (${DISPLAY_UNITS.speed})`}
+            label="감속 속력"
+            unit={DISPLAY_UNITS.speed}
             hint={`최소 ${MIN_SPEED_KN}kn까지 내릴 수 있습니다.`}
             error={errors[FIELD.slowSpeedKn]}
           >
@@ -1159,7 +1172,6 @@ export function ScenarioComparison({
 
   const { response, snapshot } = state
   const unit = ciiUnit(response.transport_capacity_basis)
-  const summary = lowestSummary(response.scenarios)
   const shownWarnings = displayWarnings(response.warnings)
 
   /*
@@ -1195,24 +1207,6 @@ export function ScenarioComparison({
    * 늘어도 자동으로 포함된다.
    */
   const stale = !sameInputs(snapshot.inputs, form)
-
-  const nameOf = (type: string | null) =>
-    response.scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—'
-
-  /*
-   * 동률이면 **전부 적고 동률임을 밝힌다** (`PRD §11.2`, `#799`).
-   *
-   * 같은 값 중 하나만 지목하는 것은 그 자체가 추천이다 — 사용자는 두 시나리오의
-   * CII가 표에 같게 찍혀 있는데 한쪽만 「가장 낮은」으로 불리는 것을 보고 그쪽이
-   * 낫다고 읽는다. 「(동률)」을 붙이는 이유는 이름 두 개만으로는 **둘 다 최소인지**
-   * **둘을 함께 추천하는지** 읽는 사람이 가릴 수 없기 때문이다.
-   */
-  const namesOf = (types: readonly string[]) =>
-    types.length === 0
-      ? '—'
-      : types.length === 1
-        ? nameOf(types[0])
-        : `${types.map(nameOf).join(' · ')} (동률)`
 
   return (
     <section className="scenario-comparison">
@@ -1285,17 +1279,27 @@ export function ScenarioComparison({
           (`BUSAN`)를 담는다 — 항차 입력 폼(`VoyagePanel`·`VoyageCiiActions`)과 같은
           패턴이라 그대로 둔다. 지도는 표시 자리이므로 `portDisplayName`을 거친다(`#1742`).
         */}
-        <VoyageRouteMap
-          currentLat={snapshot.inputs.currentLat}
-          currentLon={snapshot.inputs.currentLon}
-          destinationLat={snapshot.inputs.destinationLat}
-          destinationLon={snapshot.inputs.destinationLon}
-          destinationName={portDisplayName(ports, snapshot.inputs.destinationPortName)}
-          detourWaypointLat={snapshot.inputs.detourWaypointLat}
-          detourWaypointLon={snapshot.inputs.detourWaypointLon}
-          detourWaypointName={portDisplayName(ports, snapshot.inputs.detourWaypointName)}
-          samplePorts={ports}
-        />
+        {/* 10/7 — 한 지도에 겹치지 않고 시나리오마다 카드 · 지도 하나 (`ScenarioMapCards`) */}
+        {snapshot.inputs.currentLat !== '' &&
+        snapshot.inputs.currentLon !== '' &&
+        snapshot.inputs.destinationLat !== '' &&
+        snapshot.inputs.destinationLon !== '' ? (
+          <ScenarioMapCards
+            scenarios={response.scenarios}
+            unit={unit}
+            map={{
+              currentLat: snapshot.inputs.currentLat,
+              currentLon: snapshot.inputs.currentLon,
+              destinationLat: snapshot.inputs.destinationLat,
+              destinationLon: snapshot.inputs.destinationLon,
+              destinationName: portDisplayName(ports, snapshot.inputs.destinationPortName),
+              detourWaypointLat: snapshot.inputs.detourWaypointLat,
+              detourWaypointLon: snapshot.inputs.detourWaypointLon,
+              detourWaypointName: portDisplayName(ports, snapshot.inputs.detourWaypointName),
+              samplePorts: ports,
+            }}
+          />
+        ) : null}
 
         {/*
           결과는 면 하나다 (`§5` 카드 예산 · #1745). 표와 「지표별 최소값」은 같은 것을
@@ -1317,23 +1321,11 @@ export function ScenarioComparison({
           />
 
           {/*
-            항목별 미니 막대 (#2202) — 표의 한 항목을 길이로 한 번 더. 같은 면 안에 둔다
-            (`§5` 카드 예산 — 결과는 면 하나). 정렬 · 강조 없음(`ScenarioBars` 머리주석).
+            항목별 비교 타일 (#2202 · 10/7) — CII · 소요시간 · 연료를 한 줄에. 지표별 최소값
+            (`PRD §11.2`)을 각 타일 안에 적어, 종전 표 아래 3줄 요약을 대신한다.
           */}
           <ScenarioBars scenarios={response.scenarios} ciiUnit={unit} />
 
-          {/*
-            PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
-            하나를 고르지 않으므로 세 줄의 답이 서로 다를 수 있다.
-          */}
-          <dl className="scenario-comparison__lowest">
-            {summary.map((item) => (
-              <div key={item.metric} className="scenario-comparison__lowest-row">
-                <dt>{item.label}</dt>
-                <dd>{namesOf(item.scenarioTypes)}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
 
         {/*

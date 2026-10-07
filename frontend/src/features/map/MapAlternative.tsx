@@ -17,7 +17,8 @@ export function MapAlternative({ id, title, items, failure = null, onRetry }: Ma
       {onRetry ? <button type="button" onClick={onRetry}>지도 다시 시도</button> : null}
     </div> : null}
     <details open={failure !== null}>
-      <summary>{title} 텍스트 정보</summary>
+      {/* 보이는 이름은 짧게(10/7), 낭독 이름은 무엇의 텍스트인지까지 */}
+      <summary aria-label={`${title} 텍스트 정보`}>텍스트로 보기</summary>
       <ul>{items.map((item, index) => <li key={`${index}:${item}`}>{item}</li>)}</ul>
     </details>
   </section>

@@ -92,7 +92,7 @@
     },
     "card": {
       "$type": "number",
-      "$value": 12,
+      "$value": 8,
       "$description": "카드",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:269",
@@ -150,7 +150,7 @@
     },
     "gnb-expanded": {
       "$type": "number",
-      "$value": 240,
+      "$value": 224,
       "$extensions": {
         "com.figma.variableId": "VariableID:1:274",
         "com.figma.scopes": [
@@ -170,8 +170,8 @@
     },
     "content-width": {
       "$type": "number",
-      "$value": 1608,
-      "$description": "1920 - 24(외곽) - 240(사이드바) - 24(gap) - 24(외곽)",
+      "$value": 1648,
+      "$description": "1920 - 224(사이드바 · 화면 끝에 붙음) - 24(gap) - 24(외곽)",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:276",
         "com.figma.scopes": [

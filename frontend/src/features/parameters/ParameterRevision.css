@@ -45,10 +45,22 @@
 }
 
 .param-revision__row select {
+  /* 다른 셀렉트와 같은 모양 (10/7) — 높이 · 테두리 · 모서리 · 면 */
   font: inherit;
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-body);
   color: var(--text-primary);
-  min-inline-size: 0;
+  min-inline-size: 240px;
+  block-size: var(--target-row);
+  padding-inline-start: var(--space-12);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background-color: var(--color-control-bg);
+  cursor: pointer;
+}
+
+.param-revision__row select:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /*

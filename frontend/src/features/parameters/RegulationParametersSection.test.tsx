@@ -16,6 +16,7 @@ import type {
 import { REGULATION_PARAMETERS_ANCHOR } from './referenceRules'
 import { misalignedColumns } from '../../test/tableColumns'
 import { SettingsPage } from '../../pages/SettingsPage'
+import { settingsSection } from '../../pages/settingsSections'
 import * as session from '../../auth/session'
 
 /**
@@ -243,6 +244,10 @@ describe('조회는 세 역할 모두 (`#1239` 결정 D)', () => {
       </MemoryRouter>,
     )
 
+    // 설정은 탭 셋으로 나뉘었다(10/7 결정 · #2321) — 현장직에게도 규제 기준값 탭이 있고, 열면 절이 있다.
+    fireEvent.click(
+      screen.getByRole('tab', { name: settingsSection(REGULATION_PARAMETERS_ANCHOR).label }),
+    )
     expect(document.getElementById(REGULATION_PARAMETERS_ANCHOR)).not.toBeNull()
     await waitFor(() => expect(bodyRows('regp-table-years')).toHaveLength(YEARS.length))
     // 역할 가드 문구로 대체되지 않았다.

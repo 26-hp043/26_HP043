@@ -379,12 +379,14 @@ describe('고급 설정의 상태 (#1417)', () => {
     const form = { ...initialFormState(), slowSpeedKn: '10', weatherModel: 'SIMPLE_RULE' }
     expect(countAdvancedFilled(form)).toBe(2)
     expect(countAdvancedFilled({ ...initialFormState(), detourDistanceNm: '   ' })).toBe(0)
+    // 겉으로 나온 경유지 칸은 접힌 요약에 세지 않는다 (#2315)
+    expect(countAdvancedFilled({ ...initialFormState(), detourWaypointName: 'HONOLULU' })).toBe(0)
   })
 
   it('고급 칸의 오류만 고급 오류다 — 필수 칸 오류로 펼치지 않는다', () => {
     expect(hasAdvancedError({ [FIELD.slowSpeedKn]: 'x' })).toBe(true)
     expect(hasAdvancedError({ [FIELD.currentLat]: 'x' })).toBe(true)
-    // 경유지 경도만 짚힌 서버 오류도 고급 설정을 펼친다 (`#1858`).
+    // 경유지 경도만 짚힌 서버 오류도 고급 설정을 펼친다 (`#1858`) — 해법인 현재 좌표가 그 안에 있다.
     expect(hasAdvancedError({ [FIELD.detourWaypointLon]: 'x' })).toBe(true)
     expect(hasAdvancedError({ [FIELD.baseSpeedKn]: 'x' })).toBe(false)
     expect(hasAdvancedError({})).toBe(false)
@@ -451,8 +453,8 @@ describe('우회 경유지 (#1300)', () => {
     expect(hasAdvancedError(errors)).toBe(true)
   })
 
-  it('고급 칸 수에 든다', () => {
-    expect(countAdvancedFilled(state({ ...WAYPOINT }))).toBe(1)
+  it('고급 칸 수에 들지 않는다 — 경유지는 겉의 「항로」 묶음에 있다 (#2315)', () => {
+    expect(countAdvancedFilled(state({ ...WAYPOINT }))).toBe(0)
   })
 
   it('경유지가 어느 끝과 같으면 막고, 어느 쪽인지 말한다 — 서버와 같은 갈래', () => {

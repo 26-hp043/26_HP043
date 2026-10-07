@@ -134,6 +134,11 @@ const NO_STYLE: Readonly<Record<string, string>> = {
   'require-auth__pending': '보이지 않는 자리 표시(aria-busy 전용)',
   // 등급 색을 `fill` 속성으로 직접 받는다 — CSS로 줄 것이 없다.
   history__bar: 'fill을 인라인으로 받는다(등급 색)',
+  // 10/7 화면 개편 — 기본 클래스가 모양을 주고, 이 이름은 자리·변종 표식이다.
+  'check__next-h': '.check th가 모양을 준다 — 「다음 작업」 머리 칸 이름표 (#2311)',
+  'scenario-maps__map': '자식 VoyageRouteMap이 모양을 갖는 껍데기 (#2315)',
+  'voyage-route-map__swatch--direct': 'voyage-route-map__swatch의 기본값이 직항 선이다 — 변종 이름표 (#2315)',
+  'vd__stat--grade': 'vd__stat이 모양을 준다 — 등급 칸 이름표 (#2317)',
 }
 
 /**

@@ -2,7 +2,9 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
+import { percentChangeFixed } from '../../display/decimal'
+import { DISPLAY_DIGITS } from '../../display/format'
 import { ScenarioBars } from './ScenarioBars'
 import type { ScenarioResult } from './types'
 
@@ -36,38 +38,84 @@ const SCENARIOS = [
   scenario('SLOW_STEAMING', '감속', { fuel_ton: '50.00' }),
 ]
 
-function rows() {
-  return within(screen.getByRole('list')).getAllByRole('listitem')
+/** 타일 하나 — 제목(지표 이름)으로 찾는다. */
+function tile(label: RegExp) {
+  return screen.getByRole('region', { name: label })
 }
 
-describe('항목별 미니 막대 (#2202)', () => {
-  it('표와 같은 순서로 놓는다 — 값으로 정렬하지 않는다 (§11 중립)', () => {
+function rowsOf(region: HTMLElement) {
+  return within(region).getAllByRole('listitem')
+}
+
+const TILES = [/^CII/, /^소요시간/, /^연료/]
+
+/*
+ * 10/7 디자인 결정(#2315) — 드롭다운으로 항목 하나를 고르던 막대가 **지표별 타일 셋**으로
+ * 바뀌었고, 표 아래 따로 있던 지표별 최소값 3줄이 타일 안으로 들어왔다. 그래서 「최소 표시를
+ * 붙이지 않는다」는 더 이상 이 부품의 성질이 아니다 — 대신 `PRD §11.2` 중립(추천 없음 ·
+ * 지표마다 따로 · 동률이면 전부)을 타일에서 지킨다.
+ */
+describe('항목별 비교 타일 (#2202 · 10/7)', () => {
+  it('표와 같은 순서로 놓는다 — 어느 타일도 값으로 정렬하지 않는다 (§11 중립)', () => {
     render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
-    fireEvent.change(screen.getByLabelText('막대로 볼 항목'), { target: { value: 'fuel_ton' } })
-    expect(rows().map((row) => row.textContent?.split(/\d/)[0])).toEqual(['직항', '우회', '감속'])
+    for (const label of TILES) {
+      expect(rowsOf(tile(label)).map((row) => row.textContent?.split(/\d/)[0])).toEqual(['직항', '우회', '감속'])
+    }
   })
 
-  it('항목을 바꾸면 값과 길이가 바뀐다 — 길이는 최댓값에 대한 비율이다', () => {
-    const { container } = render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
-    fireEvent.change(screen.getByLabelText('막대로 볼 항목'), { target: { value: 'fuel_ton' } })
-    const widths = [...container.querySelectorAll<HTMLElement>('.scenario-bars__fill')].map(
-      (el) => el.style.inlineSize,
-    )
+  it('타일마다 막대 길이는 그 지표 최댓값에 대한 비율이다', () => {
+    render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
+    const fuel = tile(/^연료/)
+    const widths = [...fuel.querySelectorAll<HTMLElement>('.scenario-tile__fill')].map((el) => el.style.inlineSize)
     expect(widths).toEqual(['80%', '100%', '50%'])
-    expect(rows()[1].textContent).toContain('100.0')
+    expect(rowsOf(fuel)[1].textContent).toContain('100.0')
   })
 
-  it('「최소」 · 「추천」 같은 표시를 붙이지 않는다', () => {
+  it('「추천」은 없고, 최소값은 지표마다 따로 표시한다 (PRD §11.2)', () => {
+    const { container } = render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
+    expect(container.textContent).not.toMatch(/추천 시나리오|추천합니다|최적/)
+    // 연료는 감속 하나만 가장 적다 — 그 행만 표시한다
+    const fuelRows = rowsOf(tile(/^연료/))
+    expect(fuelRows.map((row) => row.classList.contains('scenario-tile__row--lowest'))).toEqual([false, false, true])
+    const foot = tile(/^연료/).querySelector('.scenario-tile__best')!
+    expect(foot.textContent).toContain('감속')
+    expect(foot.textContent).not.toContain('동률')
+  })
+
+  it('동률이면 전부 표시하고 동률임을 적는다 — 하나만 지목하지 않는다 (#799)', () => {
+    // CII는 세 시나리오가 같은 값이다(기본 6.614000)
     render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
-    fireEvent.change(screen.getByLabelText('막대로 볼 항목'), { target: { value: 'fuel_ton' } })
-    expect(screen.getByRole('list').textContent).not.toMatch(/최소|최저|추천|최적|가장/)
+    const cii = tile(/^CII/)
+    expect(rowsOf(cii).every((row) => row.classList.contains('scenario-tile__row--lowest'))).toBe(true)
+    const foot = cii.querySelector('.scenario-tile__best')!.textContent ?? ''
+    for (const name of ['직항', '우회', '감속']) expect(foot).toContain(name)
+    expect(foot).toContain('동률')
+    // 동률에는 하나를 기준으로 한 증감률을 붙이지 않는다
+    expect(cii.querySelector('.scenario-tile__change')).toBeNull()
+  })
+
+  it('최소값이 직항이 아니면 직항 대비 증감률을 표시값끼리 계산해 적는다', () => {
+    render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
+    const change = tile(/^연료/).querySelector('.scenario-tile__change')
+    const expected = percentChangeFixed('50.00', '80.00', DISPLAY_DIGITS.fuelTon)!
+    expect(change?.textContent).toContain(expected.replace(/^-/, ''))
+    expect(change?.textContent).toMatch(/−/)
   })
 
   it('막대는 장식이고, 이름과 값은 글자로 읽힌다', () => {
     const { container } = render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
-    for (const track of container.querySelectorAll('.scenario-bars__track')) {
-      expect(track.getAttribute('aria-hidden')).toBe('true')
-    }
-    expect(rows()[0].textContent).toMatch(/직항.*6\.614/)
+    const tracks = container.querySelectorAll('.scenario-tile__track')
+    expect(tracks.length).toBe(9)
+    for (const track of tracks) expect(track.getAttribute('aria-hidden')).toBe('true')
+    expect(rowsOf(tile(/^CII/))[0].textContent).toMatch(/직항.*6\.614/)
+  })
+
+  it('막대 색은 시나리오별이다 — 세 행이 서로 다른 시나리오 변형을 단다', () => {
+    render(<ScenarioBars scenarios={SCENARIOS} ciiUnit="gCO₂/(DWT·nm)" />)
+    const variants = rowsOf(tile(/^연료/)).map((row) =>
+      [...row.classList].find((name) => /^scenario-tile__row--(direct|detour|slow)/.test(name)),
+    )
+    expect(new Set(variants).size).toBe(3)
+    expect(variants.every(Boolean)).toBe(true)
   })
 })

@@ -111,6 +111,8 @@ describe('역할 — 현장직은 제원 수정·삭제를 보지 않는다 (#67
     const row = name.closest('.vm__item') as HTMLElement
     expect(within(row).queryByRole('button', { name: '수정' })).toBeNull()
     expect(within(row).queryByRole('button', { name: '삭제' })).toBeNull()
+    // 10/7 — 수정·삭제가 ⋯ 메뉴로 들어갔다. 메뉴 자체가 없어야 한다.
+    expect(within(row).queryByRole('button', { name: /더보기$/ })).toBeNull()
     // 등록 버튼 가드(#1353)도 같은 문구를 쓰므로 이 화면에는 두 번 나타난다 — 행 안으로 좁혀 확인한다.
     expect(within(row).getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
   })
@@ -123,7 +125,12 @@ describe('역할 — 현장직은 제원 수정·삭제를 보지 않는다 (#67
       </MemoryRouter>,
     )
     await screen.findByText('샘플 벌크선')
-    expect(screen.getByRole('button', { name: '수정' })).toBeTruthy()
+    // 10/7 — 두 동작은 행 끝 ⋯ 메뉴 안에 있다. 메뉴를 열면 둘 다 보인다.
+    const toggle = screen.getByRole('button', { name: '샘플 벌크선 더보기' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: '제원 수정' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '삭제' })).toBeTruthy()
     expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
   })
@@ -313,6 +320,40 @@ function rowOf(name: string): HTMLElement {
   return row
 }
 
+/*
+ * ── 10/7 개편 (#2316) ─────────────────────────────────────────────────
+ *
+ * 수정·삭제가 행 끝 ⋯ 메뉴(「제원 수정」·「삭제」)로 들어갔고, 수정 폼은 목록 오른쪽
+ * 패널(`aside.vm-edit`) **한 장**이 됐다 — 한 번에 한 척이다. 아래 도우미가 그 조작을
+ * 대신한다. 검사의 의도(응답은 요청 당시 선박에만 · 삭제는 확인을 받는다 · 오류는 그 칸에)는
+ * 종전 그대로다.
+ */
+
+/** 그 행의 ⋯ 메뉴 버튼. 이름은 선박명을 담는다 — 행마다 같은 아이콘이라 이름으로 가른다. */
+function menuToggle(name: string): HTMLButtonElement {
+  return within(rowOf(name)).getByRole('button', { name: `${name} 더보기` }) as HTMLButtonElement
+}
+
+function chooseFromMenu(name: string, item: '제원 수정' | '삭제') {
+  fireEvent.click(menuToggle(name))
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: item }))
+}
+
+/** ⋯ → 「제원 수정」. 오른쪽 패널이 그 선박으로 열린다. */
+const editFrom = (name: string) => chooseFromMenu(name, '제원 수정')
+/** ⋯ → 「삭제」. 확인(`confirm`)을 거친다. */
+const deleteFrom = (name: string) => chooseFromMenu(name, '삭제')
+
+/** 제원 수정 패널 — 화면에 하나뿐이다. */
+function editPanel(): HTMLElement {
+  const panel = document.querySelector('aside.vm-edit')
+  if (!(panel instanceof HTMLElement)) throw new Error('제원 수정 패널이 열려 있지 않다')
+  return panel
+}
+
+/** 패널이 지금 어느 선박의 것인지 — 머리 제목이 선박명을 담는다. */
+const panelTitle = () => within(editPanel()).getByRole('heading').textContent ?? ''
+
 describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에만 반영된다 (#1102)', () => {
   it('A 저장 성공이 B의 폼을 닫지 않는다 — 입력이 남는다', async () => {
     const patchA = deferred()
@@ -320,16 +361,17 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), {
+    editFrom('알파호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), {
       target: { value: '알파호 개명' },
     })
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
-    await within(rowOf('알파호')).findByRole('button', { name: '저장 중…' })
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
+    await within(editPanel()).findByRole('button', { name: '저장 중…' })
 
-    // 응답이 오기 전에 B의 폼을 연다. 이 시점에 A의 폼은 닫힌다(폼은 하나다).
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('브라보호')).getByLabelText('선명'), {
+    // 응답이 오기 전에 B의 폼을 연다. 패널은 한 장이라 B로 바뀐다.
+    editFrom('브라보호')
+    expect(panelTitle()).toContain('브라보호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), {
       target: { value: '브라보호 개명' },
     })
 
@@ -341,7 +383,8 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
     expect(await screen.findByText('알파호 개명')).toBeTruthy()
     expect(screen.getByRole('status').textContent).toContain('알파호 개명')
     // B의 폼은 그대로, 입력도 그대로다 — 종전에는 여기서 사라졌다.
-    const bName = within(rowOf('브라보호')).getByLabelText('선명') as HTMLInputElement
+    expect(panelTitle()).toContain('브라보호')
+    const bName = within(editPanel()).getByLabelText('선명') as HTMLInputElement
     expect(bName.value).toBe('브라보호 개명')
   })
 
@@ -351,14 +394,14 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), {
+    editFrom('알파호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), {
       target: { value: '알파호 개명' },
     })
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
-    await within(rowOf('알파호')).findByRole('button', { name: '저장 중…' })
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
+    await within(editPanel()).findByRole('button', { name: '저장 중…' })
 
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '수정' }))
+    editFrom('브라보호')
 
     await act(async () => {
       patchA.resolve(
@@ -377,9 +420,10 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
 
     // 폼 밖에서 A의 이름으로 실패를 말한다 — 조용히 버리면 A가 저장된 줄 안다.
     expect(await screen.findByText(/알파호.*선명이 너무 깁니다/)).toBeTruthy()
-    // B의 폼(선명 칸)에는 오류가 없다.
-    const bRow = rowOf('브라보호')
-    expect(within(bRow).queryByRole('alert')).toBeNull()
+    // 패널은 B의 것이고, B의 폼(선명 칸)에는 오류가 없다.
+    expect(panelTitle()).toContain('브라보호')
+    const bForm = editPanel()
+    expect(within(bForm).queryByRole('alert')).toBeNull()
     /*
      * **「invalid가 아니다」를 단언한다 — 표현을 단언하지 않는다** (`#936`).
      *
@@ -388,7 +432,7 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
      * 곧 `false`**이므로 의미는 같다. 검사의 의도는 「B 칸에 A의 오류가 붙지 않았다」이지
      * 어느 표현을 쓰느냐가 아니다.
      */
-    expect(within(bRow).getByLabelText('선명').getAttribute('aria-invalid')).not.toBe('true')
+    expect(within(bForm).getByLabelText('선명').getAttribute('aria-invalid')).not.toBe('true')
   })
 
   it('폼이 아직 그 선박이면 오류는 종전대로 폼 안 그 칸에 붙는다', async () => {
@@ -407,13 +451,13 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), {
+    editFrom('알파호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), {
       target: { value: '알파호 개명' },
     })
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
 
-    const alert = await within(rowOf('알파호')).findByRole('alert')
+    const alert = await within(editPanel()).findByRole('alert')
     expect(alert.textContent).toBe('선명이 너무 깁니다.')
     // 폼 밖 안내는 없다 — 같은 실패를 두 번 말하지 않는다.
     expect(screen.queryByText(/알파호의 정보를 저장하지 못했습니다/)).toBeNull()
@@ -425,17 +469,23 @@ describe('⑵ 삭제 진행 상태는 선박별이다 (#1102)', () => {
     vi.stubGlobal('confirm', () => true)
   })
 
-  it('A 삭제가 끝나도 B의 「삭제 중…」은 풀리지 않는다', async () => {
+  /*
+   * 10/7 — 삭제 중에는 그 행의 ⋯ 메뉴 버튼이 잠긴다(종전의 「삭제 중…」 버튼 자리).
+   * 문구가 아니라 **잠김(`disabled`)** 을 본다 — 다시 눌러 404를 받지 않게 하는 것이 의도다.
+   */
+  it('A 삭제가 끝나도 B의 삭제 중 잠김은 풀리지 않는다', async () => {
     const delA = deferred()
     const delB = deferred()
     stubFetch({ [`DELETE /vessels/${A.id}`]: delA, [`DELETE /vessels/${B.id}`]: delB })
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '삭제' }))
-    expect(within(rowOf('알파호')).getByRole('button', { name: '삭제 중…' })).toBeTruthy()
-    expect(within(rowOf('브라보호')).getByRole('button', { name: '삭제 중…' })).toBeTruthy()
+    deleteFrom('알파호')
+    // A가 삭제 중이어도 B의 메뉴는 열린다 — 잠김은 선박별이다.
+    expect(menuToggle('브라보호').disabled).toBe(false)
+    deleteFrom('브라보호')
+    expect(menuToggle('알파호').disabled).toBe(true)
+    expect(menuToggle('브라보호').disabled).toBe(true)
 
     await act(async () => {
       delA.resolve(jsonResponse(null, 204))
@@ -444,8 +494,7 @@ describe('⑵ 삭제 진행 상태는 선박별이다 (#1102)', () => {
     // A는 사라지고, B는 **여전히** 삭제 중이다 — 종전에는 여기서 「삭제」로 돌아가
     // 다시 누르면 404였다.
     await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
-    const bButton = within(rowOf('브라보호')).getByRole('button', { name: '삭제 중…' })
-    expect((bButton as HTMLButtonElement).disabled).toBe(true)
+    expect(menuToggle('브라보호').disabled).toBe(true)
 
     await act(async () => {
       delB.resolve(jsonResponse(null, 204))
@@ -464,12 +513,12 @@ describe('⑵ 삭제 진행 상태는 선박별이다 (#1102)', () => {
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('알파호')
     expect(await screen.findByText('항차가 이 선박을 참조합니다.')).toBeTruthy()
-    // 실패한 배는 목록에 남고 버튼은 다시 「삭제」다.
-    expect(within(rowOf('알파호')).getByRole('button', { name: '삭제' })).toBeTruthy()
+    // 실패한 배는 목록에 남고 메뉴는 다시 열린다.
+    expect(menuToggle('알파호').disabled).toBe(false)
 
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('브라보호')
     await waitFor(() => expect(screen.queryByText('브라보호')).toBeNull())
     expect(screen.getByRole('status').textContent).toContain('브라보호')
     expect(screen.queryByText('항차가 이 선박을 참조합니다.')).toBeNull()
@@ -512,9 +561,9 @@ describe('⑶ 불러온 수는 전체 수가 아니다 (#1102)', () => {
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('알파호')
     await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('브라보호')
     await waitFor(() => expect(screen.queryByText('브라보호')).toBeNull())
 
     expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull()
@@ -533,8 +582,12 @@ describe('⑶ 불러온 수는 전체 수가 아니다 (#1102)', () => {
  *
  * 이름은 보조 기술에만 남긴다. `—`가 스크린 리더에서 「비었다」로 읽힌다는 보장이
  * 없어, 그 사용자에게는 `#511` 이후의 문장이 그대로 필요하다.
+ *
+ * **10/7 개편(#2316)** — 경고 줄 자체가 없어지고 「데이터」 칸이 그 자리를 맡았다. 칸에는
+ * 빠진 항목의 **짧은 이름**만 보이고, 막히는 결과 문장은 `title`과 `sr-only`로 간다.
+ * 지키는 것은 같다 — 행 높이를 쌓지 않는다 · 결과 문장을 잃지 않는다.
  */
-describe('제원 경고 — 열이 말한 것을 반복하지 않는다 (#1277)', () => {
+describe('제원 경고 — 데이터 칸 한 자리에 (#1277 · #2316)', () => {
   function stubBareVessel() {
     vi.stubGlobal(
       'fetch',
@@ -563,23 +616,28 @@ describe('제원 경고 — 열이 말한 것을 반복하지 않는다 (#1277)'
     )
   }
 
+  /** 그 배 행의 「데이터」 칸. */
+  async function dataCell(container: HTMLElement): Promise<HTMLElement> {
+    await screen.findByText('제원 없는 배')
+    const cell = container.querySelector('li.vm__item .vm__data')
+    expect(cell).toBeTruthy()
+    return cell as HTMLElement
+  }
+
+  /** 눈에 보이는 글자만 — `sr-only`를 뺀다. */
+  function visibleText(el: Element): string {
+    return [...el.childNodes]
+      .map((node) =>
+        node instanceof Element
+          ? node.classList.contains('sr-only')
+            ? ''
+            : visibleText(node)
+          : (node.textContent ?? ''),
+      )
+      .join('')
+  }
+
   it('⚠️ 이유 둘이 한 요소에 들어간다 — 줄이 쌓이면 행 높이가 갈린다', async () => {
-    stubBareVessel()
-    render(
-      <MemoryRouter>
-        <VesselManagement />
-      </MemoryRouter>,
-    )
-
-    const line = (await screen.findByText(/CII 등급을 산출할 수 없습니다/)).closest('p')
-    expect(line).toBeTruthy()
-    // 같은 요소가 두 결과를 모두 갖는다 = 한 줄이다.
-    expect(line?.textContent).toContain('감속 민감도가 산출되지 않습니다')
-    // 리스트로 되돌아가면 이 단언이 깨진다.
-    expect(line?.querySelector('li')).toBeNull()
-  })
-
-  it('보이는 것은 결과뿐 — 빠진 항목 이름은 보조 기술 몫이다', async () => {
     stubBareVessel()
     const { container } = render(
       <MemoryRouter>
@@ -587,12 +645,55 @@ describe('제원 경고 — 열이 말한 것을 반복하지 않는다 (#1277)'
       </MemoryRouter>,
     )
 
-    await screen.findByText(/CII 등급을 산출할 수 없습니다/)
+    /*
+     * 10/7(#2316) — 행 아래 경고 줄이 「데이터」 칸 하나로 바뀌었다. 결과 문장 둘은 그 칸의
+     * `title`(툴팁)과 `sr-only`에 **한 덩어리로** 들어간다. 리스트로 되돌아가면 깨진다.
+     */
+    const cell = await dataCell(container)
+    const why = cell.getAttribute('title') ?? ''
+    expect(why).toMatch(/CII 등급을 산출할 수 없습니다/)
+    expect(why).toContain('감속 민감도가 산출되지 않습니다')
+    expect(cell.querySelector('li')).toBeNull()
+    // 행 밖에 따로 경고 줄을 세우지 않는다 — 행 높이를 지키는 것이 이 검사의 의도다.
+    expect(container.querySelector('.vm__blocked')).toBeNull()
+  })
 
-    // 이름은 sr-only로 남아 있다 (`#511` 이후의 문장을 잃지 않는다).
-    const hidden = [...container.querySelectorAll('.vm__blocked .sr-only')].map((n) => n.textContent)
-    expect(hidden.join('')).toContain('재화중량톤수(DWT) 없음')
-    expect(hidden.join('')).toContain('기준속도 · 기준 일일 연료소모량 없음')
+  it('보이는 것은 빠진 항목의 짧은 이름 — 막히는 결과 문장은 보조 기술·툴팁 몫이다', async () => {
+    stubBareVessel()
+    const { container } = render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+
+    const cell = await dataCell(container)
+    const shown = visibleText(cell)
+    // 결과 문장은 눈에 보이지 않는다 — 칸은 훑는 자리다.
+    expect(shown).not.toMatch(/CII 등급을 산출할 수 없습니다/)
+    // 이름은 짧은 형태다 — 수정 패널의 긴 라벨을 그대로 쓰지 않는다.
+    expect(shown).not.toContain('재화중량톤수(DWT)')
+    expect(shown).not.toContain('기준 일일 연료소모량')
+    expect(shown.trim()).not.toBe('')
+
+    // 결과 문장은 sr-only로 남아 있다 (`#511` 이후의 문장을 잃지 않는다).
+    const hidden = [...cell.querySelectorAll('.sr-only')].map((n) => n.textContent).join('')
+    expect(hidden).toMatch(/CII 등급을 산출할 수 없습니다/)
+    expect(hidden).toContain('감속 민감도가 산출되지 않습니다')
+  })
+
+  it('제원이 다 찬 배의 데이터 칸은 빈 배와 다른 말이고, 결과 문장을 달지 않는다', async () => {
+    const full = rawVessel('03', '가득호')
+    stubFetch({
+      'GET /vessels': jsonResponse({
+        data: [{ ...full, reference_speed_kn: 14, reference_daily_foc_ton: 20 }, A],
+      }),
+    })
+    renderScreen()
+    await screen.findByText('가득호')
+    const cellOf = (name: string) => rowOf(name).querySelector('.vm__data') as HTMLElement
+    expect(visibleText(cellOf('가득호'))).not.toBe(visibleText(cellOf('알파호')))
+    expect(cellOf('가득호').getAttribute('title')).toBeNull()
+    expect(cellOf('알파호').getAttribute('title')).not.toBeNull()
   })
 })
 
@@ -972,10 +1073,10 @@ describe('올해 누적 등급 열 (#2018)', () => {
     await renderScreen()
     await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('failed'))
 
-    // 목록은 그대로 — 세 척 모두 있고 수정 버튼도 있다. 화면 단위 오류가 아니다.
+    // 목록은 그대로 — 세 척 모두 있고 수정·삭제 메뉴도 있다. 화면 단위 오류가 아니다.
     expect(screen.getByText('나제원호')).toBeTruthy()
     expect(screen.getByText('다신규호')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: '수정' })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: /더보기$/ })).toHaveLength(3)
     expect(screen.queryByRole('alert')).toBeNull()
 
     // 칸은 세 척 모두 같은 `—` — 값이 없는 다른 칸(기준속도 등)과 같은 표시다.
@@ -1057,17 +1158,22 @@ describe('올해 누적 등급 열 (#2018)', () => {
    * 목록은 `<table>`이 아니라 `<ul>` + 그리드라 `test/tableColumns.ts`(thead 기준)를 쓸 수
    * 없다 — 같은 대조를 머리줄(`.vm__head`)의 칸과 각 행(`.vm__row`)의 같은 번째 칸으로 한다.
    */
-  it('등급 칸은 「선박」 다음 · 「선종」 앞이고, 머리글과 값이 같은 정렬 클래스를 받는다', async () => {
+  /*
+   * 10/7 개편(#2316)으로 열이 다섯이 됐다 — 선종은 이름 아래 제원 줄로 들어가고, 등급 칸은
+   * 머리글 「올해 누적」으로 「선박」과 「운항」 사이에 선다. 지키는 것은 그대로다:
+   * 등급 칸이 선박 바로 다음이고, 머리글과 값이 같은 열·같은 정렬 클래스다.
+   */
+  it('등급 칸(「올해 누적」)은 「선박」 다음 · 「운항」 앞이고, 머리글과 값이 같은 정렬 클래스를 받는다', async () => {
     stubServer()
     await renderScreen()
     await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
 
     const heads = [...document.querySelectorAll('.vm__head > *')]
     const labels = heads.map((el) => (el.textContent ?? '').trim())
-    const at = labels.indexOf('올해 누적 등급')
+    const at = labels.indexOf('올해 누적')
     expect(at).toBeGreaterThan(0)
     expect(labels[at - 1]).toBe('선박')
-    expect(labels[at + 1]).toBe('선종')
+    expect(labels[at + 1]).toBe('운항')
 
     // 같은 번째 칸이 행마다 등급 칸이다 — 머리글과 값이 한 열에 선다.
     const rows = [...document.querySelectorAll('.vm__row')]
@@ -1139,11 +1245,11 @@ describe('올해 누적 등급 열 (#2018)', () => {
 
   /** 가등급호의 제원을 저장한다 — 기준속도만 바꾼다. */
   async function saveRatedVessel() {
-    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('가등급호')).getByLabelText(/기준속도/), {
+    editFrom('가등급호')
+    fireEvent.change(within(editPanel()).getByLabelText(/기준속도/), {
       target: { value: '13' },
     })
-    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '저장' }))
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
     await screen.findByText(/가등급호의 정보를 저장했습니다/)
   }
 
@@ -1364,15 +1470,15 @@ describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119
     renderInShell(shell)
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('브라보호')).getByLabelText('선명'), { target: { value: '브라보호 개명' } })
-    fireEvent.click(within(rowOf('브라보호')).getByRole('button', { name: '저장' }))
-    await within(rowOf('브라보호')).findByRole('alert')
+    editFrom('브라보호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), { target: { value: '브라보호 개명' } })
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
+    await within(editPanel()).findByRole('alert')
     expect(refreshVessels).not.toHaveBeenCalled()
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), { target: { value: '알파호 개명' } })
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+    editFrom('알파호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), { target: { value: '알파호 개명' } })
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
     await screen.findByText('알파호 개명')
     expect(refreshVessels).toHaveBeenCalledTimes(1)
   })
@@ -1383,7 +1489,7 @@ describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119
     renderInShell(shell)
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('알파호')
     await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
     expect(refreshVessels).toHaveBeenCalledTimes(1)
     expect(selectVesselId).not.toHaveBeenCalled()
@@ -1395,7 +1501,7 @@ describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119
     renderInShell(shell)
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('알파호')
     await waitFor(() => expect(screen.queryByText('알파호')).toBeNull())
     expect(selectVesselId).toHaveBeenCalledWith(null)
     expect(refreshVessels).toHaveBeenCalledTimes(1)
@@ -1409,7 +1515,7 @@ describe('목록을 바꾸면 상단 선택기를 다시 부르게 한다 (#2119
     renderInShell(shell)
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '삭제' }))
+    deleteFrom('알파호')
     await screen.findByText('지울 수 없습니다.')
     expect(refreshVessels).not.toHaveBeenCalled()
     expect(selectVesselId).not.toHaveBeenCalled()
@@ -1433,13 +1539,13 @@ describe('서버 오류의 자리와 연료 목록 실패 (#2126)', () => {
     renderScreen()
     await screen.findByText('알파호')
 
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
-    fireEvent.change(within(rowOf('알파호')).getByLabelText('선명'), {
+    editFrom('알파호')
+    fireEvent.change(within(editPanel()).getByLabelText('선명'), {
       target: { value: '알파호 개명' },
     })
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '저장' }))
+    fireEvent.click(within(editPanel()).getByRole('button', { name: '저장' }))
 
-    const alert = await within(rowOf('알파호')).findByRole('alert')
+    const alert = await within(editPanel()).findByRole('alert')
     expect(alert.textContent).toContain('SERVER-SAID-THIS')
     // 폼 밖에 같은 실패를 한 번 더 말하지 않는다.
     expect(screen.queryByText(/알파호의 정보를 저장하지 못했습니다/)).toBeNull()
@@ -1457,13 +1563,13 @@ describe('서버 오류의 자리와 연료 목록 실패 (#2126)', () => {
     )
     renderScreen()
     await screen.findByText('알파호')
-    fireEvent.click(within(rowOf('알파호')).getByRole('button', { name: '수정' }))
+    editFrom('알파호')
 
-    const select = (await within(rowOf('알파호')).findByLabelText('기본 연료')) as HTMLSelectElement
+    const select = (await within(editPanel()).findByLabelText('기본 연료')) as HTMLSelectElement
     // 상태 값(HFO)이 그대로이고, 화면이 고른 옵션도 그 값이다 — 첫 옵션(실패 안내)이 아니다.
     expect(select.value).toBe('HFO')
     expect(select.selectedOptions[0]?.value).toBe('HFO')
     // 목록 실패는 칸 곁에 따로 적힌다.
-    await within(rowOf('알파호')).findByText(FUEL_LIST_FAILED_HINT)
+    await within(editPanel()).findByText(FUEL_LIST_FAILED_HINT)
   })
 })

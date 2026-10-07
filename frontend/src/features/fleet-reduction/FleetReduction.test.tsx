@@ -108,6 +108,10 @@ function renderWith(evaluated: EvaluateResult = result()) {
   return provider
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -115,11 +119,18 @@ afterEach(() => {
 })
 
 describe('함대 감축 계획 화면 (#513)', () => {
-  it('결정론 안내를 항상 보인다 — 연간 등급 관리와 달라 보이는 이유(`PRD §6.3`)', async () => {
+  /*
+   * 10/7 디자인 결정(#2314) — 안내는 결과 맨 아래 한 줄로 옮겼다. 설명할 연말 등급이 있을 때
+   * 서는 문장이라 결과와 함께 나온다. 문구는 정본(`PRD §6.3`) 원문 그대로 단언한다.
+   */
+  it('결과가 있으면 결정론 안내가 결과 맨 아래에 선다 — 연간 등급 관리와 달라 보이는 이유(`PRD §6.3`)', async () => {
     renderWith()
 
-    expect(screen.getByText(FLEET_REDUCTION_COPY.deterministicNotice)).toBeTruthy()
     expect(await screen.findByText('MV One')).toBeTruthy()
+    const notice = screen.getByText(FLEET_REDUCTION_COPY.deterministicNotice)
+    // 결과(표 카드)보다 뒤에 있다
+    const table = document.querySelector('.fr__table-card') as HTMLElement
+    expect(table.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('⚠️ 슬라이더를 움직이면 그 감속률로 다시 묻는다', async () => {
@@ -134,11 +145,63 @@ describe('함대 감축 계획 화면 (#513)', () => {
     })
   })
 
-  it('⚠️ 단가가 없는 비용 칸은 0이 아니라 「단가 입력 필요」다', async () => {
+  /*
+   * 10/7(#2314) — 「단가 입력 필요」 한 문장에서 **무엇이 빠졌는지**를 말하는 문장으로 바뀌었다.
+   * 지키려던 것은 그대로다: 빈 비용은 0으로 보이지 않고, 입력이 필요하다고 말한다.
+   */
+  it('⚠️ 단가가 없는 비용 칸은 0이 아니라 무엇이 빠졌는지 말한다', async () => {
     renderWith()
+    await screen.findByText('MV One')
 
-    expect(await screen.findAllByText(FLEET_REDUCTION_COPY.needsPrice)).toHaveLength(2)
+    const hero = document.querySelector('.fr-hero') as HTMLElement
+    // 고정표: 일일 용선료만 비었다(`missingCharterRates: ['v1']`) — 순손익과 용선료 손실이 빈다
+    const net = hero.querySelector('.fr-hero__value') as HTMLElement
+    expect(net.classList.contains('fr-hero__value--empty')).toBe(true)
+    expect(net.textContent).toMatch(/용선료.*입력 필요/)
+    expect(net.textContent).not.toMatch(/연료 단가/)
+    expect(net.textContent).not.toMatch(/\d/)
+    const charter = within(hero.querySelector('.fr-hero__breakdown') as HTMLElement)
+      .getByText(FLEET_REDUCTION_COPY.charterLoss).closest('div') as HTMLElement
+    expect(charter.querySelector('dd')?.textContent).toMatch(/용선료.*입력 필요/)
+    expect(charter.querySelector('dd')?.textContent).not.toMatch(/\d/)
+    // 단가가 있는 칸은 값이다
     expect(screen.getByText('75,468 USD')).toBeTruthy()
+    // 빈 선박의 이름과 해당 칸으로 가는 버튼
+    expect(hero.textContent).toContain('MV One')
+    expect(within(hero).getByRole('button', { name: '용선료 입력' })).toBeTruthy()
+  })
+
+  it('연료 단가가 비면 「연료 단가 입력」이 연료 단가 접기를 연다', async () => {
+    renderWith(result({ costs: { ...result().costs, missingCharterRates: [], missingFuelPrices: ['HFO'] } }))
+    await screen.findByText('MV One')
+
+    const hero = document.querySelector('.fr-hero') as HTMLElement
+    expect(hero.querySelector('.fr-hero__value--empty')?.textContent).toMatch(/연료 단가.*입력 필요/)
+    const prices = screen.getByText(new RegExp(escapeRegExp(FLEET_REDUCTION_COPY.fuelPricesTitle)))
+      .closest('details') as HTMLDetailsElement
+    expect(prices.open).toBe(false)
+    fireEvent.click(within(hero).getByRole('button', { name: '연료 단가 입력' }))
+    await waitFor(() => expect(prices.open).toBe(true))
+  })
+
+  it('순손익은 부호를 붙여 크게 적고, 환율을 넣으면 원화를 곁에 적어 이 브라우저에 기억한다', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+    renderWith(result({ costs: { ...result().costs, charterLoss: '100000.00', net: '-24532.00', missingCharterRates: [] } }))
+    await screen.findByText('MV One')
+
+    const hero = document.querySelector('.fr-hero') as HTMLElement
+    expect(hero.querySelector('.fr-hero__value')?.textContent).toMatch(/^−24,532/)
+    // 환율을 넣기 전에는 원화를 지어내지 않는다
+    expect(hero.querySelector('.fr-hero__krw')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('환율 (원/USD)'), { target: { value: '1400' } })
+    await waitFor(() => expect(hero.querySelector('.fr-hero__krw')?.textContent).toMatch(/^≈ −/))
+    expect(store.get('bluelog.fleetReduction.krwPerUsd')).toBe('1400')
   })
 
   it('등급이 바뀌면 전이를 그리고(`DESIGN_SYSTEM §8.3`), 계산 못 한 선박은 사유와 비활성 슬라이더', async () => {
@@ -162,7 +225,7 @@ describe('함대 감축 계획 화면 (#513)', () => {
 
     // 같은 값을 넣었으므로 두 자리의 표기가 **글자까지 같아야** 한다 — 종전에는 힌트만
     // 단위를 붙여 쓰고(`305.5t`) 자릿수도 따로 박았다.
-    const cell = [...document.querySelectorAll('td')]
+    const cell = [...document.querySelectorAll('td.fr__num')]
       .map((td) => td.textContent ?? '')
       .find((text) => text.endsWith(` ${DISPLAY_UNITS.fuel}`))
     expect(cell).toBeTruthy()
@@ -413,16 +476,45 @@ describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)',
  * 한 줄짜리 상태 문장이었다. 여기서 보는 것은: 척수가 맞게 세어지는가(계산 못 한 선박을
  * 실패로 세지 않는가), 위험도 pill을 두지 않는가, 오른쪽 기둥이 없어졌는가.
  */
-describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757)', () => {
-  const strip = () => document.querySelector('.verdict-strip') as HTMLElement
+/*
+ * 10/7 디자인 결정(#2314) — 결론의 주인공이 척수에서 **순손익**으로 바뀌었다(`.fr-hero`).
+ * 척수는 오른쪽 「미달 N척 · 충족 N척」으로 남는다. 세는 규칙(계산 못 한 선박을 세지 않는다)은
+ * 그대로 지킨다.
+ */
+describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757 · #2314)', () => {
+  const strip = () => document.querySelector('.fr-hero') as HTMLElement
+  const target = () => document.querySelector('.fr-hero__target') as HTMLElement
 
-  it('주 결론은 목표 달성 척수다 — 계산 못 한 선박은 분모에도 넣지 않는다', async () => {
+  it('목표 척수는 계산할 수 있는 선박만 센다 — 계산 못 한 선박은 미달로도 충족으로도 세지 않는다', async () => {
     renderWith()
     await screen.findByText('MV One')
 
-    /* 고정표: 계산 가능 1척(v1 · 달성) + 계산 불가 1척(v2). 「1 / 2」가 아니라 「1 / 1」이다. */
-    expect(strip().textContent).toContain('1 / 1')
-    expect(strip().textContent).toContain('척')
+    /* 고정표: 계산 가능 1척(v1 · 달성) + 계산 불가 1척(v2). 충족 1척이고 미달은 없다. */
+    expect(target().textContent).toContain('충족 1척')
+    expect(target().textContent).not.toContain('2척')
+    expect(target().querySelector('.fr-hero__missed')).toBeNull()
+  })
+
+  it('미달 선박이 있으면 「미달 N척」을 먼저, 그 선박 이름과 함께 적는다', async () => {
+    const base = result().vessels[0]
+    renderWith(
+      result({
+        vessels: [
+          { ...base, vesselId: 'v3', vesselName: 'MV Short', meetsTarget: false, requiredCutFuelTon: '12.30' },
+          base,
+        ],
+      }),
+    )
+    await screen.findByText('MV Short')
+
+    const missed = target().querySelector('.fr-hero__missed') as HTMLElement
+    expect(missed.textContent).toContain('1척')
+    expect(target().textContent).toContain('충족 1척')
+    expect(target().textContent).toContain('MV Short')
+    // 표에서도 미달 행이 먼저다
+    const rows = [...document.querySelectorAll('.fr__table tbody tr')]
+    expect(rows[0].textContent).toContain('MV Short')
+    expect(rows[0].classList.contains('fr__row--missed')).toBe(true)
   })
 
   it('계산할 수 있는 선박이 0척이면 척수를 지어내지 않는다', async () => {
@@ -449,20 +541,24 @@ describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757)', () => {
     )
     await screen.findByText('MV Empty')
 
-    expect(strip().textContent).toContain('—')
-    expect(strip().textContent).not.toContain('0 / 0')
+    expect(target().querySelector('.fr-hero__status')?.textContent).toBe('—')
+    // 목표 이름(「위험 선박 0척」)은 척수가 아니다 — 판정 줄에 「충족 0척」 같은 수를 지어내지 않는다
+    expect(target().textContent).not.toMatch(/(충족|미달) 0척/)
     /* 상태 문장은 `<strong>목표</strong> — 문구` 꼴이라 텍스트가 두 노드로 갈린다. */
     expect(document.querySelector('.fr__status')?.textContent).toContain(
       FLEET_REDUCTION_COPY.statusNoVessel,
     )
   })
 
-  it('⚠️ 보조는 순손익이고, 단가가 비면 0이 아니라 「단가 입력 필요」다 (PRD §12.3.2)', async () => {
+  it('⚠️ 주 결론은 순손익이고, 단가가 비면 0이 아니라 입력이 필요하다고 말한다 (PRD §12.3.2)', async () => {
     renderWith()
     await screen.findByText('MV One')
 
-    expect(strip().textContent).toContain(FLEET_REDUCTION_COPY.net)
-    expect(strip().textContent).toContain(FLEET_REDUCTION_COPY.needsPrice)
+    const cost = strip().querySelector('.fr-hero__cost') as HTMLElement
+    expect(cost.querySelector('.fr-hero__label')?.textContent).toContain(FLEET_REDUCTION_COPY.net)
+    const value = cost.querySelector('.fr-hero__value') as HTMLElement
+    expect(value.textContent).toMatch(/입력 필요/)
+    expect(value.textContent).not.toMatch(/\d/)
   })
 
   it('위험도 pill을 두지 않는다 — 이 화면의 데이터에 위험도 값이 없다 (§8.6 v2.23)', async () => {
@@ -472,11 +568,11 @@ describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757)', () => {
     expect(document.querySelector('.verdict-strip__risk')).toBeNull()
   })
 
-  it('나머지 비용 셋은 띠 아래 2열 목록이다 — 카드로 감싸지 않는다 (§8.6)', async () => {
+  it('비용 내역 셋은 순손익 바로 아래 목록이다 — 카드로 감싸지 않는다 (§8.6)', async () => {
     renderWith()
     await screen.findByText('MV One')
 
-    const costs = document.querySelector('.fr__costs') as HTMLElement
+    const costs = document.querySelector('.fr-hero__breakdown') as HTMLElement
     expect(costs.tagName).toBe('DL')
     expect(costs.closest('.card')).toBeNull()
     expect(costs.textContent).toContain(FLEET_REDUCTION_COPY.extraDays)
@@ -504,7 +600,7 @@ describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757)', () => {
  */
 describe('도구 줄 — 연료 단가 · 계획 저장 (#1757)', () => {
   const toolByName = (name: RegExp) =>
-    (screen.getByText(name).closest('details') as HTMLDetailsElement)
+    (screen.getByText(name, { selector: 'summary' }).closest('details') as HTMLDetailsElement)
 
   it('연료 단가는 접혀 있고, 채운 칸 수를 겉에서 말한다', async () => {
     renderWith(
@@ -710,7 +806,7 @@ describe('수치·단위 표시 (§4.2 · #1813)', () => {
     renderWith()
     await screen.findByText('MV One')
 
-    const costs = document.querySelector('.fr__costs dd.fr__num') as HTMLElement
+    const costs = document.querySelector('.fr-hero__breakdown dd.fr__num') as HTMLElement
     const [rowDays] = vesselCells()
     for (const text of [costs.textContent?.trim() ?? '', rowDays]) {
       /* 숫자와 단위 사이는 한 칸 띄운다 — `§4.2` 예시 「232 일」. */

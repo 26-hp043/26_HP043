@@ -393,12 +393,49 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     void makePreview(target)
   }, [kind, vesselId, voyageId, year, preview, makePreview])
 
+  /*
+    처음 열 때도 미리보기를 바로 만든다 (10/7 디자인 결정) — 종전에는 「미리보기」를 눌러야 해서
+    첫 화면 절반이 빈 면이었다. 같은 조건으로는 한 번만 시도한다(실패해도 되풀이하지 않는다).
+  */
+  const autoTried = useRef<string | null>(null)
+  useEffect(() => {
+    if (preview !== null || busy !== null || yearBlocked) return
+    const target = targetOf(kind, { vesselId, voyageId, year })
+    if (typeof target === 'string') return
+    const key = targetKey(target)
+    if (autoTried.current === key) return
+    autoTried.current = key
+    void makePreview(target)
+  }, [kind, vesselId, voyageId, year, preview, busy, yearBlocked, makePreview])
+
   return (
     <div className="rp">
       <PageHeader screen="REPORTS">
         <p className="page-head__sub">
-          항차 완료 리포트와 연간 실적 리포트를 만들고 PDF·CSV로 내려받습니다.
+          <b>내부 보고용</b> · 고르면 오른쪽 문서가 바로 바뀌고, 그대로 PDF · CSV로 내려받습니다.
         </p>
+        <div className="rp__actions rp__head-actions">
+          <button
+            type="button"
+            className="rp__action"
+            onClick={() => void run('csv')}
+            disabled={busy !== null || yearBlocked}
+            aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
+            data-testid="csv-button"
+          >
+            {busy === 'csv' ? '만드는 중…' : 'CSV 내려받기'}
+          </button>
+          <button
+            type="button"
+            className="rp__action rp__primary"
+            onClick={() => void run('pdf')}
+            disabled={busy !== null || yearBlocked}
+            aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
+            data-testid="pdf-button"
+          >
+            {busy === 'pdf' ? '만드는 중…' : 'PDF 내려받기'}
+          </button>
+        </div>
       </PageHeader>
 
       {/*
@@ -586,38 +623,6 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             )}
           </div>
 
-          <div className="rp__actions">
-            <button
-              type="button"
-              className="rp__action"
-              onClick={() => void run('preview')}
-              disabled={busy !== null || yearBlocked}
-              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
-              data-testid="preview-button"
-            >
-              {busy === 'preview' ? '만드는 중…' : '미리보기'}
-            </button>
-            <button
-              type="button"
-              className="rp__action rp__primary"
-              onClick={() => void run('pdf')}
-              disabled={busy !== null || yearBlocked}
-              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
-              data-testid="pdf-button"
-            >
-              {busy === 'pdf' ? '만드는 중…' : 'PDF 내려받기'}
-            </button>
-            <button
-              type="button"
-              className="rp__action"
-              onClick={() => void run('csv')}
-              disabled={busy !== null || yearBlocked}
-              aria-describedby={yearBlocked ? 'rp-year-state' : undefined}
-              data-testid="csv-button"
-            >
-              {busy === 'csv' ? '만드는 중…' : 'CSV 내려받기'}
-            </button>
-          </div>
 
           {failure ? (
             <ErrorState level="region" size="compact" message={failure} />
@@ -656,7 +661,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
              */
             <div className="rp__placeholder">
               <p className="rp__placeholder-lead">
-                {ready ? '「미리보기」를 누르면 문서가 여기에 나옵니다' : blocking}
+                {ready ? (busy === 'preview' ? '문서를 만드는 중입니다…' : '문서를 만들지 못했습니다 — 왼쪽 안내를 확인해 주세요') : blocking}
               </p>
               <p className="rp__placeholder-note">
                 내려받는 PDF와 <b>같은 문서</b>입니다. 한 번 만든 뒤에는 조건을 바꾸면
@@ -676,9 +681,6 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
         리포트의 **성격**만 말한다(`PRD §25.1`). 종전 뒷문장 「대관 제출용 공식 문서가
         아닙니다」는 바로 위 배너의 「규제 제출용 공식 결과가 아닙니다」와 같은 말이었다 (#1578).
       */}
-      <p className="rp__note">
-        리포트는 <b>내부 보고용</b>입니다.
-      </p>
     </div>
   )
 }

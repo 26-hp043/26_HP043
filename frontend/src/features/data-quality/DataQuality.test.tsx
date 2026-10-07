@@ -109,12 +109,22 @@ describe('데이터 점검 화면 (#513)', () => {
      * 아니다** — 요약 띠의 칸이 그 자리를 이어받는다. 「확인했고 0건이다」가 화면에
      * 남아 있는지는 그대로 본다(지우면 「확인 안 함」과 구분되지 않는다).
      */
-    const tiles = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    /*
+     * 10/7(#2319) — 같은 크기 타일 여섯이 요약 영역(처리할 일 · 완결성 + 거르기 칩)으로 바뀌었다.
+     * 0건 심각도는 지우지 않고 흐린 칩 하나에 「이름 0」으로 모은다.
+     */
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
     for (const title of Object.values(SEVERITY_TITLE)) {
-      expect(within(tiles).getByText(title), title).toBeTruthy()
+      expect(hero.textContent, title).toContain(title)
     }
-    // 계산 불가·실적 확정 전·공적 기록과 다름은 0건 — 칸이 남아 0을 보인다.
-    expect(within(tiles).getAllByText('0')).toHaveLength(3)
+    // 계산 불가·실적 확정 전·공적 기록과 다름은 0건 — 지우지 않고 0을 보인다.
+    const zero = hero.querySelector('.dq-chip--zero')?.textContent ?? ''
+    for (const severity of ['UNAVAILABLE', 'UNCONFIRMED', 'PUBLIC_RECORD'] as const) {
+      expect(zero).toContain(`${SEVERITY_TITLE[severity]} 0`)
+    }
+    // 건수가 있는 것은 0 칩에 섞이지 않는다
+    expect(zero).not.toContain(SEVERITY_TITLE.SUBSTITUTED)
+    expect(zero).not.toContain(SEVERITY_TITLE.ANOMALY)
   })
 
   it('완결성은 무엇의 비율인지 함께 말한다', async () => {
@@ -139,12 +149,17 @@ describe('데이터 점검 화면 (#513)', () => {
     expect(screen.getByText(DATA_QUALITY_COPY.impactCaption)).toBeTruthy()
   })
 
-  it('영향을 낼 수 없으면 0이 아니라 사유를 적는다 — 칸은 짧게, 이유는 표 아래 (#1580)', async () => {
+  it('영향을 낼 수 없으면 0으로 적지 않는다 — 숫자가 있을 때만 영향 줄을 단다 (#1580 · 10/7)', async () => {
     renderWith(SNAPSHOT)
 
     const group = await listSection()
-    expect(within(group).getByText('비교 불가*')).toBeTruthy()
-    expect(within(group).getByText('* 선박의 유일한 항차라 빼고 비교할 누적 CII가 없습니다.')).toBeTruthy()
+    // 10/7(#2319) — 할 일 카드에서 CII 영향은 숫자일 때만 보인다(표 아래 각주는 없앴다).
+    const withImpact = group.querySelector('.dq-task--substituted') as HTMLElement // 영향 +0.2234
+    const withoutImpact = group.querySelector('.dq-task--anomaly') as HTMLElement // ONLY_VOYAGE — 낼 수 없다
+    expect(withImpact.querySelector('.dq-task__detail')?.textContent).toContain('+0.223')
+    const detail = withoutImpact.querySelector('.dq-task__detail')?.textContent ?? ''
+    expect(detail).not.toContain('영향')
+    expect(detail).not.toMatch(/(^|\s)[+-]?0(\.0+)?(\s|$)/)
   })
 
   it('항차가 없는 선박은 「계산 불가」가 아니라 「실적 항차 없음」이다', async () => {
@@ -157,11 +172,14 @@ describe('데이터 점검 화면 (#513)', () => {
     renderWith(SNAPSHOT)
 
     // 코드 원문 `(HFO)`가 아니라 연료 칸과 같은 표기다 — 같은 연료가 한 화면에서 두 이름이 되지 않는다.
-    const item = await screen.findByText(
-      (text, node) => node?.tagName === 'LI' && text.endsWith(fuelTypeText('HFO')),
-    )
+    // 10/7(#2319) — 서버 사유 문장은 할 일 카드의 「상세」 줄에 남는다.
+    const group = await listSection()
+    const details = [...group.querySelectorAll('.dq-task__detail')].map((node) => node.textContent ?? '')
+    const item = details.find((text) => text.includes(fuelTypeText('HFO')))
+    expect(item).toBeTruthy()
+    expect(item).not.toContain('FUEL:HFO')
     // 사유 문구가 앞에 있다 — 연료 이름만 남지 않는다.
-    expect(item.textContent).not.toBe(fuelTypeText('HFO'))
+    expect(item!.indexOf(fuelTypeText('HFO'))).toBeGreaterThan(item!.indexOf('상세') + 2)
   })
 })
 
@@ -178,15 +196,16 @@ describe('데이터 점검 화면 (#513)', () => {
  * 실적 미확정 0건.
  */
 describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
-  it('⚠️ 건수가 있는 것만 심각도 변형을 단다 — 타일', async () => {
+  it('⚠️ 건수가 있는 것만 심각도 변형을 단다 — 요약 칩', async () => {
     const { container } = renderWith(SNAPSHOT)
     await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
 
-    expect(container.querySelector('.dq__tile--substituted')).toBeTruthy() // 1건
-    expect(container.querySelector('.dq__tile--anomaly')).toBeTruthy() // 1건
-    expect(container.querySelector('.dq__tile--unavailable')).toBeNull() // 0건
-    expect(container.querySelector('.dq__tile--unconfirmed')).toBeNull() // 0건
-    expect(container.querySelector('.dq__tile--public_record')).toBeNull() // 0건
+    // 10/7(#2319) — 타일이 거르기 칩이 됐다. 색(심각도 변형)은 건수가 있는 칩에만 붙는다.
+    expect(container.querySelector('.dq-chip--substituted')).toBeTruthy() // 1건
+    expect(container.querySelector('.dq-chip--anomaly')).toBeTruthy() // 1건
+    expect(container.querySelector('.dq-chip--unavailable')).toBeNull() // 0건
+    expect(container.querySelector('.dq-chip--unconfirmed')).toBeNull() // 0건
+    expect(container.querySelector('.dq-chip--public_record')).toBeNull() // 0건
   })
 
   it('⚠️ 표의 심각도 칩은 늘 색을 단다 — 행이 있다는 것이 곧 볼 것이 있다는 뜻이다 (#1766)', async () => {
@@ -202,12 +221,38 @@ describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
     expect(container.querySelector('.dq__severity--unavailable')).toBeNull() // 행이 없다
   })
 
-  it('색을 뺀 자리에도 기본 띠는 남는다 — 중립 클래스를 새로 만들지 않았다', async () => {
+  it('색을 뺀 자리에도 기본 칩 모양은 남는다 — 0건 칩도 같은 칩이다', async () => {
     const { container } = renderWith(SNAPSHOT)
-    await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
 
-    // 타일 여섯 — 심각도 다섯 + 완결성. `#1197`이 「공적 기록과 다름」 칸을 더했다.
-    expect(container.querySelectorAll('.dq__tile')).toHaveLength(6)
+    // 모든 칩이 같은 기본 클래스를 갖는다 — 0건 칩은 심각도 변형만 빠진다.
+    const chips = [...hero.querySelectorAll('.dq-chip')]
+    expect(chips.length).toBeGreaterThan(0)
+    const zero = container.querySelector('.dq-chip--zero')!
+    expect(zero.classList.contains('dq-chip')).toBe(true)
+    expect([...zero.classList].some((name) => /^dq-chip--(substituted|anomaly|unavailable|unconfirmed|public_record)$/.test(name))).toBe(false)
+  })
+
+  it('칩으로 거르면 그 심각도의 할 일만 남고, 누른 칩이 눌림 상태를 말한다', async () => {
+    renderWith(SNAPSHOT)
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    const group = await listSection()
+    const chipFor = (title: string) =>
+      within(hero).getByRole('button', { name: new RegExp(`^${title}`) })
+    const all = within(hero).getAllByRole('button').find((chip) => chip.getAttribute('aria-pressed') === 'true')!
+    expect(group.querySelectorAll('.dq-task')).toHaveLength(2)
+
+    fireEvent.click(chipFor(SEVERITY_TITLE.ANOMALY))
+    expect(chipFor(SEVERITY_TITLE.ANOMALY).getAttribute('aria-pressed')).toBe('true')
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    const left = [...group.querySelectorAll('.dq-task')]
+    expect(left).toHaveLength(1)
+    expect(left[0].classList.contains('dq-task--anomaly')).toBe(true)
+
+    // 다시 누르면 풀린다
+    fireEvent.click(chipFor(SEVERITY_TITLE.ANOMALY))
+    expect(group.querySelectorAll('.dq-task')).toHaveLength(2)
+    expect(all.getAttribute('aria-pressed')).toBe('true')
   })
 })
 
@@ -220,9 +265,13 @@ describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
 describe('점검 행에서 그 항차로 (#1549)', () => {
   it('항차 행은 그 항차로 간다 — 경로를 값으로 고정한다', async () => {
     renderWith(SNAPSHOT)
-    const link = await screen.findByRole('link', { name: '이 항차로 — MV One B' })
+    const group = await listSection()
+    const link = within(group).getByRole('link', { name: /MV One B$/ })
     expect(link.getAttribute('href')).toBe('/vessels/v1?actuals=voy-2')
-    expect(link.textContent).toBe('이 항차로')
+    // 10/7(#2319) — 버튼 글은 「할 일」이다. 낭독 이름이 보이는 글로 시작해야 둘이 어긋나지 않는다.
+    const visible = (link.textContent ?? '').replace(/\s*→\s*$/, '')
+    expect(visible.length).toBeGreaterThan(0)
+    expect(link.getAttribute('aria-label')?.startsWith(visible)).toBe(true)
   })
 
   it('선박 단위 행은 가리킬 항차가 없어 선박 상세로 간다', async () => {
@@ -243,58 +292,11 @@ describe('점검 행에서 그 항차로 (#1549)', () => {
         },
       ],
     })
-    const link = await screen.findByRole('link', { name: '선박 상세' })
-    expect(link.getAttribute('href')).toBe('/vessels/v2')
-    expect(screen.queryByRole('link', { name: /이 항차로/ })).toBeNull()
-  })
-})
-
-describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
-  function issue(voyageId: string, ciiReason: string | null) {
-    return {
-      severity: 'ANOMALY' as const,
-      vesselId: `v-${voyageId}`,
-      vesselName: `선박 ${voyageId}`,
-      voyageId,
-      voyageNo: voyageId,
-      codes: ['FUEL_VS_MODEL'],
-      cii: null,
-      ciiReason,
-      publicRecord: null,
-    }
-  }
-
-  it('같은 사유가 다섯 행이어도 긴 문장은 표 아래 한 번이다', async () => {
-    renderWith({ ...SNAPSHOT, issues: ['a', 'b', 'c', 'd', 'e'].map((id) => issue(id, 'ONLY_VOYAGE')) })
-
     const group = await listSection()
-    expect(within(group).getAllByText('비교 불가*')).toHaveLength(5)
-    expect(within(group).getAllByText(/유일한 항차라/)).toHaveLength(1)
-  })
-
-  it('사유마다 표시가 다르고, 표에 나온 사유만 적는다', async () => {
-    renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'BASE_UNAVAILABLE')] })
-
-    const group = await listSection()
-    expect(within(group).getAllByText('계산 불가**')).toHaveLength(2)
-    expect(within(group).getByText('** 선박 누적 CII를 계산할 수 없어 차이를 낼 수 없습니다.')).toBeTruthy()
-    expect(within(group).queryByText(/유일한 항차라/)).toBeNull()
-  })
-
-  it('두 사유가 섞이면 정해진 순서로 둘 다 적는다', async () => {
-    renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'ONLY_VOYAGE')] })
-
-    const group = await listSection()
-    const notes = group.querySelectorAll('.dq__footnotes li')
-    expect(Array.from(notes, (li) => li.textContent?.slice(0, 2))).toEqual(['* ', '**'])
-  })
-
-  it('모르는 사유는 코드 그대로 칸에 — 표 아래에는 적지 않는다', async () => {
-    renderWith({ ...SNAPSHOT, issues: [issue('a', 'NEW_REASON')] })
-
-    const group = await listSection()
-    expect(within(group).getByText('NEW_REASON')).toBeTruthy()
-    expect(group.querySelector('.dq__footnotes')).toBeNull()
+    const links = within(group.querySelector('.dq-tasks') as HTMLElement).getAllByRole('link')
+    expect(links).toHaveLength(1)
+    expect(links[0].getAttribute('href')).toBe('/vessels/v2')
+    expect(links[0].textContent?.trim()).not.toBe('')
   })
 })
 
@@ -341,13 +343,13 @@ describe('공적 기록과 다름 (#1197)', () => {
     }
   }
 
-  it('요약 띠에 다섯째 칸으로 보인다', async () => {
+  it('요약에 다섯째 심각도 칩으로 보인다', async () => {
     renderWith(snapshotWithPublicRecord())
 
-    const tiles = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
-    const tile = tiles.querySelector('.dq__tile--public_record')
-    expect(tile?.textContent).toContain(SEVERITY_TITLE.PUBLIC_RECORD)
-    expect(tile?.textContent).toContain('1')
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    const chip = hero.querySelector('.dq-chip--public_record')
+    expect(chip?.textContent).toContain(SEVERITY_TITLE.PUBLIC_RECORD)
+    expect(chip?.textContent).toContain('1')
   })
 
   it('행마다 어긋남을 한 줄로 적는다 — 입력·공적 기록·항만청·차이', async () => {

@@ -191,20 +191,6 @@
 }
 
 /*
- * 패널 안의 절 머리 (#1824) — 360 폭에서는 가로로 늘어놓을 수 없다. 카드였을 때는
- * 제목 옆에 메타와 링크 둘이 한 줄로 섰는데, 패널에서는 네 줄로 접혀 목록을 밀어냈다.
- */
-.fleet__panel .card__head {
-  display: grid;
-  gap: var(--spacing-xs);
-  justify-items: start;
-}
-
-.fleet__panel .card__head .card__meta {
-  font-size: var(--font-size-caption);
-}
-
-/*
  * 타일이 자기 패딩을 갖지 않는다. 바깥이 `.card`가 되면서 패딩은 카드가 준다 —
  * 둘 다 가지면 안쪽 여백이 두 겹이 되고, 같은 화면의 다른 카드들과 글자
  * 시작점이 어긋난다.
@@ -300,7 +286,6 @@
   text-decoration: underline;
 }
 
-
 /* ── 선박 행 — 마크 열 + 본문 2열 (#701 ④) ──────────────────────── */
 
 /*
@@ -334,121 +319,6 @@
 
 .fleet__col > section {
   block-size: 100%;
-  min-inline-size: 0;
-}
-
-/* 오버레이는 지도의 일부다 — §5 예산에서 세지 않는다(정본 v2.28). */
-.fleet__panel {
-  position: absolute;
-  inset-block: var(--spacing-md);
-  inset-inline-start: var(--spacing-md);
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  inline-size: min(360px, calc(100% - var(--spacing-xl)));
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-overlay);
-  background: var(--surface-card);
-  padding: var(--spacing-md);
-}
-
-/* 접으면 버튼만 남는다 — 지도가 전폭이 된다. */
-.fleet__panel--closed {
-  inset-block-end: auto;
-  inline-size: auto;
-  padding: var(--spacing-sm);
-}
-
-/*
- * 패널이 열려 있으면 지도 아래 문구 줄을 패널 폭만큼 비켜 둔다 (#1871).
- *
- * 패널은 무대의 위아래를 다 차지하는데(`inset-block`), 무대 안에는 지도 캔버스만이
- * 아니라 **그 아래 문구 줄**(좌표 미기록 · 항로선 실패와 「다시 시도」 · 읽는 법)도
- * 들어 있다. 그래서 1440 기본 화면에서 세 줄의 왼쪽 360px가 패널 밑에 깔렸고,
- * `#1967`이 넣은 「다시 시도」는 **통째로 가려 누를 수 없었다**(실측: 버튼 중심의
- * `elementFromPoint`가 패널 안 선박 링크). 패널을 접으면 셋 다 보였다. 그 아래
- * 「지도 텍스트 정보」(`MapAlternative`)도 윗단 8px가 패널 끝과 겹치고, 펼치면 목록이
- * 그 자리로 내려오므로 함께 비킨다. 경로망 출처 한 줄(`.route-source` · `#1853` ③)도 같은 줄에 선다.
- *
- * 들여쓰기 폭은 패널의 `inset-inline-start` + `inline-size` + 한 칸 간격이다 —
- * 위 `.fleet__panel`과 같은 식을 쓴다. 접힌 패널은 버튼 하나라 비킬 것이 없다.
- */
-.fleet__stage--panel-open .fleetmap__missing,
-.fleet__stage--panel-open .fleetmap__hint,
-.fleet__stage--panel-open .route-source,
-.fleet__stage--panel-open .map-alternative {
-  padding-inline-start: calc(
-    var(--spacing-md) + min(360px, calc(100% - var(--spacing-xl))) + var(--spacing-md)
-  );
-}
-
-.fleet__panel-toggle {
-  align-self: flex-start;
-  /*
-   * 경계가 **테두리뿐인 컨트롤**이라 `--border-control`을 쓴다 (§14 · 1.4.11 3:1 ·
-   * `#1202`). `--border-default`는 카드 면 위에서 `1.29`라 미달이고,
-   * `tokens.sync.test.ts`가 그 짝을 잡는다.
-   */
-  border: var(--borderWidth-default) solid var(--border-control);
-  border-radius: var(--radius-control);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-family: inherit;
-  font-size: var(--font-size-label);
-  cursor: pointer;
-}
-
-.fleet__panel-toggle:hover {
-  background: var(--surface-inset);
-}
-
-.fleet__panel-toggle:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: 2px;
-}
-
-/* 패널 안이 길어지면 패널 안에서 스크롤한다 — 페이지를 늘리지 않는다. */
-/*
- * ⚠️ `[hidden]`을 되살린다. 아래 `display: flex`가 UA의 `[hidden] { display: none }`을
- * **특정도로 이긴다** — `#1774`의 탭 패널에서 이미 한 번 밟은 자리다. 이 줄이 없으면
- * 접어도 목록이 그대로 보이고, 접힘은 화면에서 아무 일도 하지 않는다.
- */
-.fleet__panel-body[hidden] {
-  display: none;
-}
-
-.fleet__panel-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
-  min-block-size: 0;
-  overflow-y: auto;
-}
-
-/*
- * 지도 칩 (#1824) — 걷어낸 카드 메타가 있던 자리. 기준 시각은 싣지 않는다
- * (페이지 제목 블록이 갖는다 · 이 PR이 정본을 그렇게 정정했다).
- * 지도의 확대·축소 컨트롤이 우상단에 있으므로 그만큼 비켜 둔다.
- */
-.fleet__chip {
-  position: absolute;
-  inset-block-start: var(--spacing-md);
-  inset-inline-start: calc(var(--spacing-md) + min(360px, 50%) + var(--spacing-md));
-  z-index: 1;
-  margin: 0;
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-pill);
-  background: var(--surface-card);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-}
-
-/* 부 영역 — 선박 목록. 이제 패널 안이라 칸을 차지하지 않는다. */
-.fleet__list {
   min-inline-size: 0;
 }
 
@@ -498,87 +368,6 @@
   border-radius: var(--radius-control);
   background: var(--surface-card);
   transition: border-color 120ms ease;
-}
-
-/*
- * hover는 **위험 카드에 닿지 않는다** (`#2148` — 검사를 넣고 새로 드러난 자리).
- *
- * ⚠️ `.vessel:hover`(0-2-0)가 `.vessel--risk`(0-1-0)를 이겨, 위험 선박의 **빨간
- * 테두리가 손을 올린 동안 회색으로 바뀌었다.** 위험 표시가 사라지는 때가 하필
- * **사용자가 그 배를 짚은 때**다.
- *
- * 위험 카드는 hover로 바뀌지 않는다 — 테두리가 말하는 것이 「누를 수 있다」가 아니라
- * 「이 배가 위험하다」이기 때문이다. 누를 수 있다는 것은 커서와 초점 테두리가 말한다.
- */
-.vessel:not(.vessel--risk):hover {
-  border-color: var(--border-strong);
-}
-
-/*
- * 위험 선박은 테두리로도 드러낸다 — 등급 칩 색만으로 구분하지 않는다(`§14`).
- *
- * ## 등급 축이 아니라 **위험 축**이다 — 2026-09-18 확정 ⓐ (`#1168`)
- *
- * 종전에는 `--cii-e-border`였는데 **이 클래스가 붙는 조건은 등급이 아니다.**
- *
- *     riskReasons: 'E_THIS_YEAR' | 'D_THIRD_YEAR'   (`fleetRules.isAtRisk`)
- *
- * `D등급 3년 연속` 선박도 참이므로 **마크에 `D`가 찍힌 행에 등급 E 색 테두리**가
- * 붙었다 — `§0.2` 제약 2가 「등급 색은 A~E 문자와 **함께**」라고 한 그 어긋남이다.
- * `.action--critical`이 등급 색을 지킨 근거(문구에 등급 문자가 늘 함께 있다)가
- * 여기서는 성립하지 않는다.
- *
- * **사유 둘이 같은 테두리를 공유한다는 것 자체가 등급 축이 아니라는 증거다.**
- * 이 선이 말하는 것은 「이 배는 E등급이다」가 아니라 「조치가 필요하다」이고,
- * 그것은 `§2.3`이 「UI 피드백 전용」으로 둔 시맨틱의 자리다.
- *
- * ## 대비도 함께 고쳐졌다
- *
- * 종전 `--cii-e-border`는 카드(`--surface-card`) 위에서 **라이트 2.67 · 다크
- * 2.17**으로 `1.4.11` 비텍스트 `3:1`에 **미달**이었다. 보조 채널로 세운 선이
- * 정작 보이지 않았던 것이다. `--color-danger`는 **4.13 / 5.40**으로 넘는다.
- */
-.vessel--risk {
-  border-color: var(--color-danger);
-}
-
-/*
- * 실제 배치는 아래 「선박 행 — 배지 + 본문 2열」 절의 `.vessel__link`가 정한다.
- * 종전에는 여기에도 같은 셀렉터가 `1fr auto`로 있었으나 뒤엣것(`auto 1fr`)이
- * 이겨서 **한 번도 적용되지 않았다.** 읽는 사람이 왼쪽 정렬이라 착각하게 되므로
- * 지운다. 포커스 링은 배치와 무관하므로 여기 남긴다.
- */
-.vessel__link:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: 2px;
-}
-
-.vessel__name {
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-heading);
-  color: var(--text-primary);
-  letter-spacing: var(--letterSpacing-snug);
-}
-
-/*
- * `grid-column`을 두지 않는다. 이 요소는 `.vessel__body`(flex) 안이라 그 속성이
- * 아무 일도 하지 않는다 — 남겨 두면 읽는 사람이 그리드 자식으로 착각한다.
- * 같은 파일에서 `.vessel__link`가 겪은 것과 같은 종류다.
- */
-.vessel__stats {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  margin-top: var(--spacing-xs);
-  font-size: var(--font-size-label);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.vessel__k {
-  font-weight: var(--font-weight-body);
-  color: var(--text-secondary);
-  margin-right: var(--spacing-xs);
 }
 
 .more {
@@ -633,31 +422,6 @@
   stroke-width: var(--icon-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
-}
-
-.action--critical {
-  /*
-   * §0.2 제약 2 — 등급 색은 A~E 문자와 **함께** 둔다. 이 자리는 문구가
-   * 「E등급 1년차 — SEEMP Part III 시정조치계획 대상」이라(`fleet_summary._ACTION_TEXT`)
-   * 등급 문자가 항상 옆에 있다. 제약이 금지하는 것은 **문자 없는 등급 색**이지
-   * 등급 색 자체가 아니다 (#748 되돌림).
-   */
-  background: var(--cii-e-bg);
-  color: var(--cii-e-text);
-}
-
-.action--warning {
-  background: var(--cii-c-bg);
-  color: var(--cii-c-text);
-}
-
-.action__vessel {
-  font-weight: var(--font-weight-label);
-}
-
-.action__msg {
-  color: inherit;
-  opacity: 0.9;
 }
 
 /*
@@ -861,38 +625,6 @@
   color: var(--text-secondary);
 }
 
-/*
- * `align-items`를 `center`에서 `start`로 바꾼다. 본문이 세 줄이 되면서 마크가
- * 가운데 뜨면 **어느 줄에 붙는 값인지** 보이지 않는다. 이름 줄에 맞춘다.
- */
-.vessel__link {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--spacing-md);
-  align-items: start;
-  padding: var(--spacing-md);
-  text-decoration: none;
-  color: inherit;
-  border-radius: var(--radius-control);
-}
-
-.vessel__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-inline-size: 0;
-}
-
-/* 이름과 규제 플래그를 한 줄에. 플래그는 이름을 밀지 않고 남는 자리에 붙는다. */
-.vessel__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  min-inline-size: 0;
-}
-
 /* ── 선박 마크 (배 실루엣 + 등급 문자) ──────────────────────────── */
 
 .vessel__mark {
@@ -952,47 +684,6 @@
    * `#1169`가 준 값이 여기서도 넉넉하다 — 배지면 위 라이트 `3.77` · 다크 `4.12`.
    */
   border: var(--borderWidth-default) solid var(--color-border-control);
-}
-
-/* ── 선종 · 상태 · 적용 여부 한 줄 (#701 ⑤) ─────────────────────── */
-
-.vessel__meta {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  font-size: var(--font-size-label);
-  color: var(--text-secondary);
-}
-
-.vessel__type {
-  color: var(--text-secondary);
-}
-
-.vessel__days {
-  color: var(--text-secondary);
-}
-
-/*
- * 「기준값 없음」 선박 카드 아래 안내 + 링크 (#1516). 카드 링크(`.vessel__link`) 밖에
- * 놓이므로 같은 안쪽 여백을 주어 카드 본문과 줄이 맞는다.
- */
-/* 카드 아래 안내는 두 칸을 가로지른다 — 지도 띠 옆으로 밀리지 않는다 (#1831). */
-.vessel__note {
-  grid-column: 1 / -1;
-  margin: 0;
-  padding: 0 var(--spacing-md) var(--spacing-md);
-  display: flex;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-  font-size: var(--font-size-caption);
-  color: var(--text-secondary);
-  word-break: keep-all;
-}
-
-.vessel__note-link {
-  color: var(--color-link);
-  white-space: nowrap;
 }
 
 /*
@@ -1070,67 +761,167 @@
   color: var(--text-secondary);
 }
 
-/*
- * 지도로 가는 띠 (#1831) — 행 오른쪽 끝의 좁은 칸.
- *
- * 경계가 `--border-control`인 것은 카드 면(`--surface-card`) 위에서 `--border-default`가
- * **1.29**라 `1.4.11` 비텍스트 `3:1`에 미달하기 때문이다 (`§14` · `#1202`).
- *
- * ⚠️ **호버로만 나타나게 하지 않는다.** 손가락으로 쓰는 화면에는 호버가 없고, 그러면
- * 이 길이 마우스 사용자에게만 있는 길이 된다.
- */
-.vessel__locate {
-  /*
-   * ⚠️ **두 자리를 모두 명시한다.** `grid-row`만 주면 이 띠가 **왼쪽 칸으로 간다** —
-   * 격자 자동 배치는 행이 정해진 항목을 **자동 배치 항목보다 먼저** 놓으므로, 띠가
-   * (1행, 1열)을 먼저 차지하고 카드 링크가 2열로 밀린다. 실측에서 열 폭이
-   * `80px 252px`가 되고 핀이 이름 왼쪽에 섰다(1440 · 09-25).
-   */
-  grid-column: 2;
-  grid-row: 1;
+/* ══════════════════════════════════════════════════════════════════════
+ * 10/7 시안 01 — 결론 줄 · 숫자 칸 카드 · 「확인할 선박」 표 + 지도 카드
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/* 결론 문장(왼쪽)과 경고(오른쪽)를 한 줄에 */
+.fleet__lead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  inline-size: 34px;
+  justify-content: space-between;
+  gap: var(--spacing-sm) var(--spacing-xl);
+}
+
+/* 경고는 면도 띠도 없이 글자 · 아이콘으로 (`§2.3` 「면은 중립」) */
+.fleet__lead .warn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
   padding: 0;
   border: 0;
-  border-inline-start: var(--borderWidth-default) solid var(--border-control);
+}
+
+.fleet__lead .warn .action__icon {
+  inline-size: var(--icon-default);
+  block-size: var(--icon-default);
+}
+
+.fleet__lead .warn__main {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-body);
+}
+
+/* 숫자 칸 — 칸 사이 세로선이 있는 한 장의 카드. 값은 왼쪽 정렬로 라벨 아래에 */
+.fleet__strip {
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  justify-items: stretch;
+  gap: 0;
+  padding: 0;
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.fleet__strip > * {
+  padding: var(--spacing-lg) var(--spacing-xl);
+  border-inline-end: var(--borderWidth-default) solid var(--border-default);
+  text-align: start;
+}
+
+.fleet__strip > *:last-child {
+  border-inline-end: 0;
+}
+
+.fleet__strip .kpi__label {
+  margin-block-end: var(--spacing-xs);
+  font-size: var(--font-size-label);
+}
+
+.fleet__strip .kpi__states {
+  justify-content: flex-start;
+}
+
+/* 표(주) + 지도(부) */
+.fleet__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: var(--shell-gutter, 24px);
+  align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  .fleet__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fleet__card {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.fleet__card > .card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-xl) var(--spacing-sm);
+}
+
+.fleet__todo .more {
+  margin: var(--spacing-sm) var(--spacing-xl) 0;
+}
+
+.fleet__todo-note {
+  margin: auto 0 0;
+  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-lg);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fleet__mapcard .fleet__stage {
+  flex: 1;
+  block-size: auto;
+  min-block-size: 520px;
+  margin: 0 var(--spacing-md) var(--spacing-md);
+}
+
+.fleet__mapcard .fleet__chartbox {
+  border-radius: var(--radius-control);
+}
+
+.fleet__lead {
+  justify-content: flex-start;
+}
+
+/* 등급 분포 막대 — 등급 배지와 같은 표기 (10/7): 연한 면 · 테두리 · 진한 글자, 무늬 없음 */
+.dist__bar--badge {
+  gap: 2px;
   background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
+  border: 0;
+  border-radius: 0;
 }
 
-.vessel__locate:hover {
-  color: var(--text-primary);
+.dist__bar--badge .dist__seg {
+  min-inline-size: 3em;
+  box-sizing: border-box;
+  border: var(--borderWidth-default) solid;
+  border-radius: 0;
 }
 
-/* 링은 **안쪽**으로 그린다 — 띠가 카드 테두리에 붙어 있어 바깥 링이 잘린다. */
-.vessel__locate:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: -2px;
-}
-
-.vessel__pin {
-  inline-size: 16px;
-  block-size: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-}
-
-/*
- * 요약 문장 한 줄 (#2199) — 숫자 칸들 위. 본문보다 한 단 큰 글자로 답을 먼저 읽게 하되 결론 띠
- * (`§8.6` display)만큼 키우지 않는다 — 대시보드에는 결론 띠가 없고, 이 줄은 띠가 아니다.
- * 강조는 수치와 등급만: 굵기 500 + 글자용 파생색(Primary를 글자에 그대로 쓰면 다크 4.31로 미달).
- */
-.fleet__summary {
-  margin: 0;
-  font-size: var(--font-size-heading);
-  line-height: var(--line-height-heading);
-  color: var(--text-primary);
-}
-
-.fleet__em {
+.dist__bar--badge .dist__seg-label {
   font-weight: var(--font-weight-strong);
-  color: var(--color-link);
+  text-shadow: none;
+}
+
+.dist__bar--badge .dist__seg--a { background: var(--cii-a-bg); border-color: var(--cii-a-border); color: var(--cii-a-text); }
+.dist__bar--badge .dist__seg--b { background: var(--cii-b-bg); border-color: var(--cii-b-border); color: var(--cii-b-text); }
+.dist__bar--badge .dist__seg--c { background: var(--cii-c-bg); border-color: var(--cii-c-border); color: var(--cii-c-text); }
+.dist__bar--badge .dist__seg--d { background: var(--cii-d-bg); border-color: var(--cii-d-border); color: var(--cii-d-text); }
+.dist__bar--badge .dist__seg--e { background: var(--cii-e-bg); border-color: var(--cii-e-border); color: var(--cii-e-text); }
+.dist__bar--badge .dist__seg-label { color: inherit; }
+
+/* 기준 시각 · 적용 기준 — 면책 문구 바로 위 */
+.fleet__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4) var(--spacing-xl);
+  margin-block-start: var(--spacing-md);
+  padding-block-start: var(--spacing-md);
+  border-block-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+.fleet__meta .fleet__asof-rel,
+.fleet__meta .fleet__asof-abs {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
 }

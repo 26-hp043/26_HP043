@@ -23,7 +23,7 @@ export interface SettingsSection {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
-  { id: 'account-info', label: '계정 정보' },
+  { id: 'account-info', label: '프로필' },
   /*
    * 표시 이름은 **자기 절**이다 (#2074).
    *
@@ -34,8 +34,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
    * 이름은 `UIFLOW 2-6` 구성 표의 표현을 따른다(「프로필 · 계정 관리」 ·
    * `rlatnals4114` 2026-09-30 확정 · `AGENTS §7.3`).
    */
-  { id: 'profile', label: '프로필' },
-  { id: 'account-role', label: '계정 · 역할', adminOnly: true },
+  { id: 'account-role', label: '팀 계정 · 역할', adminOnly: true },
   { id: 'password', label: '비밀번호 변경' },
   { id: 'withdrawal', label: '탈퇴' },
   { id: REGULATION_PARAMETERS_ANCHOR, label: '규제 기준값' },

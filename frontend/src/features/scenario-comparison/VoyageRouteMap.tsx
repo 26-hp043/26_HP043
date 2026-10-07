@@ -12,6 +12,7 @@ import './VoyageRouteMap.css'
 import type { SamplePort } from '../ports/samplePorts'
 import { HarborTransitionShell } from '../map/HarborTransitionShell'
 import { MapAlternative } from '../map/MapAlternative'
+import '../fleet/FleetMap.css'
 import { classifyMapFailure, type MapFailure } from '../map/mapFailure'
 
 /**
@@ -80,6 +81,14 @@ interface VoyageRouteMapProps {
   detourWaypointName?: string
   /** 부모 화면이 이미 조회한 항만 목록. 지도 때문에 같은 API를 다시 호출하지 않는다. */
   samplePorts?: readonly SamplePort[]
+  /** 한 노선만 그린다 (10/7 · 시나리오별 지도 카드). 없으면 직항 · 우회를 함께 그린다. */
+  only?: 'DIRECT' | 'DETOUR'
+  /** 앞으로 낼 노선 (10/7) — 시나리오 카드에서 고른 쪽 */
+  highlight?: 'DIRECT' | 'DETOUR' | 'SLOW' | null
+  /** 카드 안 작은 지도 — 범례 · 아래 줄(읽는 법 · 출처)을 그리지 않는다. 부모가 한 번 그린다. */
+  compact?: boolean
+  /** 범례만 숨긴다 (10/7 · 실시간 CII — 노선이 하나라 범례가 필요 없다). 출처 줄은 남는다. */
+  hideLegend?: boolean
   /**
    * 대체 정보(접힌 텍스트)의 제목 (`#1949`).
    *
@@ -102,6 +111,10 @@ export function VoyageRouteMap({
   detourWaypointName = '',
   samplePorts = [],
   alternativeTitle = '항로 비교 지도',
+  only,
+  compact = false,
+  hideLegend = false,
+  highlight = null,
 }: VoyageRouteMapProps) {
   const [basemap, setBasemap] = useState<boolean | null>(null)
   const [rendererFailure, setRendererFailure] = useState<MapFailure | null>(null)
@@ -118,11 +131,12 @@ export function VoyageRouteMap({
   }, [])
 
   const routes = useMemo<RouteLine[]>(() => {
-    return [...adaptComparisonRoutes({
+    const all = [...adaptComparisonRoutes({
       currentLat, currentLon, destinationLat, destinationLon, destinationName,
       detourWaypointLat, detourWaypointLon, detourWaypointName,
     })]
-  }, [currentLat, currentLon, destinationLat, destinationLon, destinationName, detourWaypointLat, detourWaypointLon, detourWaypointName])
+    return only === undefined ? all : all.filter((route) => (route.kind === 'DETOUR') === (only === 'DETOUR'))
+  }, [currentLat, currentLon, destinationLat, destinationLon, destinationName, detourWaypointLat, detourWaypointLon, detourWaypointName, only])
 
   const adapted = useMemo(() => adaptRouteMap(routes, samplePorts), [routes, samplePorts])
   const asks = adapted.routes
@@ -141,10 +155,10 @@ export function VoyageRouteMap({
       return coordinates
     })
     return {
-      mode: 'comparison', markers: [], ports: adapted.ports,
+      mode: 'comparison', markers: [], ports: adapted.ports, highlight,
       routes: { data: routeFeatureCollection(asks, lines), attribution: getKnownRouteSource('searoute/marnet')!.attribution, bounds },
     }
-  }, [adapted.ports, asks, lines])
+  }, [adapted.ports, asks, lines, highlight])
   const handleRendererEvent = useCallback((event: MapRendererEvent) => {
     if (event.type === 'ready') setRendererFailure(null)
     if (event.type === 'error') setRendererFailure(classifyMapFailure(event.error))
@@ -160,7 +174,7 @@ export function VoyageRouteMap({
   })
 
   return (
-    <div className="voyage-route-map">
+    <div className={compact ? 'voyage-route-map voyage-route-map--compact' : 'voyage-route-map'}>
       <HarborTransitionShell onGlobeEvent={handleRendererEvent} renderGlobe={(onEvent) => (
         <MapRendererHost
           key={rendererAttempt}
@@ -176,13 +190,46 @@ export function VoyageRouteMap({
           onEvent={onEvent}
         />
       )} />
+      {/*
+        범례 (10/7) — 이 지도의 목적은 직항과 우회를 **한눈에 가르는 것**이다. 감속은 길이 같아
+        직항선 위에 겹친다는 것도 여기서 말한다. 우회 경유지를 고르지 않았으면 우회는 거리만 늘려
+        계산하고 지도에는 그리지 않는다 — 그 사실을 범례가 대신 적는다.
+      */}
+      {compact || hideLegend ? null : (
+      <ul className="voyage-route-map__legend" role="list" aria-label="항로 범례">
+        <li><span className="voyage-route-map__swatch voyage-route-map__swatch--direct" aria-hidden="true" />직항 · 감속 <span className="voyage-route-map__legend-sub">(같은 길)</span></li>
+        <li>
+          <span className="voyage-route-map__swatch voyage-route-map__swatch--detour" aria-hidden="true" />
+          우회{' '}
+          <span className="voyage-route-map__legend-sub">
+            {detour ? '(경유지 지남)' : '— 경유지를 고르면 그립니다'}
+          </span>
+        </li>
+      </ul>
+      )}
       {routeFailure === null ? null : <p className="voyage-route-map__status">{routeFailure}</p>}
-      <p className="voyage-route-map__hint" id={hintId}>{disclosure.visibleText}</p>
-      <RouteSourceNotice source={source} />
-      <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
-        failure={rendererFailure}
-        onRetry={() => { setRendererFailure(null); setRendererAttempt((value) => value + 1) }}
-        items={routes.map((route) => `${route.kind === 'DETOUR' ? '우회' : '직항'}: 출발 ${route.departureLat}, ${route.departureLon} · 도착 ${route.arrivalLat}, ${route.arrivalLon}`)} />
+      {/*
+        지도 아래 줄 (10/7 · 대시보드와 같은 꼴) — 읽는 법 한 줄 · 펼쳐 보기 둘 · 출처 한 줄.
+        고지 전문은 「항로선 안내」 안에 그대로 있고 낭독 설명(`hintId`)도 전문을 가리킨다.
+      */}
+      {compact ? null : (
+      <div className="fleetmap__foot">
+        <p className="fleetmap__hint">
+          <span className="fleetmap__hint-item">표시용 항로(실제 항적 아님)</span>
+        </p>
+        <div className="fleetmap__more-row">
+          <details className="fleetmap__more">
+            <summary>항로선 안내</summary>
+            <p id={hintId}>{disclosure.visibleText}</p>
+          </details>
+          <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
+            failure={rendererFailure}
+            onRetry={() => { setRendererFailure(null); setRendererAttempt((value) => value + 1) }}
+            items={routes.map((route) => `${route.kind === 'DETOUR' ? '우회' : '직항'}: 출발 ${route.departureLat}, ${route.departureLon} · 도착 ${route.arrivalLat}, ${route.arrivalLon}`)} />
+        </div>
+        <RouteSourceNotice source={source} />
+      </div>
+      )}
     </div>
   )
 }

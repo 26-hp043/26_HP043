@@ -70,7 +70,7 @@
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   color: var(--color-text);
   font-family: inherit;
   font-size: var(--font-size-body);
@@ -314,28 +314,6 @@
   border-left-color: var(--color-warning);
 }
 
-/*
- * 띠 아래 2열 「라벨 · 값」 목록 (`§8.6` · #1757). 종전에는 「비용 요약」 카드였다 —
- * 순손익은 띠의 보조로 올라갔고 나머지 셋이 여기 남는다. 타일로 감싸지 않는다.
- */
-.fr__costs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
-  gap: var(--space-12);
-  margin: 0;
-}
-
-.fr__costs dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-}
-
-.fr__costs dd {
-  margin: var(--space-4) 0 0;
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-heading);
-}
-
 .fr__prices {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(8rem, 100%), 1fr));
@@ -375,7 +353,231 @@
 
 /* 재계산 중 (#2120) — 보이는 결과는 이전 입력의 것이다. 옅게 해 새 입력의 결과로 읽히지 않게 한다. */
 .fr--stale .fr__table-card,
-.fr--stale .fr__status,
-.fr--stale .fr__costs {
+.fr--stale .fr__status {
   opacity: 0.55;
+}
+
+/* ── 10/7 시안 04 ─────────────────────────────────────────────── */
+
+/* 미달 행 — 면은 중립(§2.3), 왼쪽 띠와 상태 글자로만 */
+.fr__row--missed > :first-child {
+  box-shadow: inset 3px 0 0 var(--color-danger);
+}
+
+.fr__row--missed .fr__hint {
+  color: var(--color-danger-text);
+}
+
+/* 상태 문장 — 띠가 답을 말하므로 작은 안내 한 줄로 */
+.fr__status {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fr__status strong {
+  font-weight: var(--font-weight-body);
+}
+
+.fr__notice--foot {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+/* ── 10/7 — 비용이 주인공인 머리 카드 ───────────────────────────── */
+.fr-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+@media (max-width: 900px) {
+  .fr-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fr-hero__cost,
+.fr-hero__target {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding: var(--space-24);
+  min-inline-size: 0;
+}
+
+.fr-hero__target {
+  border-inline-start: 1px solid var(--border-default);
+  justify-content: center;
+}
+
+.fr-hero__label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.fr-hero__formula {
+  margin-inline-start: var(--space-8);
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fr-hero__value {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.fr-hero__unit {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-body);
+  color: var(--text-secondary);
+}
+
+.fr-hero__value--empty {
+  align-items: center;
+  font-size: var(--font-size-title);
+  color: var(--text-secondary);
+}
+
+.fr-hero__price-btn {
+  block-size: 32px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--color-link);
+  font: inherit;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-body);
+  cursor: pointer;
+}
+
+.fr-hero__breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: var(--space-8) 0 0;
+  border-block-start: 1px solid var(--border-default);
+}
+
+.fr-hero__breakdown > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-12) var(--space-12) 0 0;
+}
+
+.fr-hero__breakdown > div + div {
+  padding-inline-start: var(--space-12);
+  border-inline-start: 1px solid var(--border-default);
+}
+
+.fr-hero__breakdown dt {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fr-hero__breakdown dd {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.fr-hero__breakdown .fr__muted {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-body);
+}
+
+.fr-hero__status {
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+}
+
+.fr-hero__status b {
+  font-weight: var(--font-weight-strong);
+}
+
+.fr-hero__missed {
+  color: var(--color-danger-text);
+}
+
+.fr-hero__met {
+  color: var(--text-secondary);
+}
+
+.fr-hero__note {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.fr-hero__note b {
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+/* 도구 줄 — 펼친 단가 · 저장 칸은 줄 아래 전폭으로 (10/7). 접힌 겉은 셀렉트와 바닥을 맞춘다 */
+.fr__tools {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.fr__tools > .fr__tool[open] {
+  flex: 1 1 100%;
+  order: 10;
+  padding: var(--space-16);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.fr__tools > .fr__tool:not([open]) {
+  align-self: center;
+}
+
+/* 원화 환산 (10/7) — USD 아래 작게 */
+.fr-hero__krw {
+  font-size: var(--font-size-heading);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fr-hero__krw-rate {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.fr__krw {
+  display: block;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--color-text-muted);
+}
+
+/* 펼친 단가 칸 — 칸을 넉넉하게 (10/7) */
+.fr__tools > .fr__tool[open] .fr__tool-body {
+  max-inline-size: none;
+}
+
+.fr__tools > .fr__tool[open] .fr__prices {
+  grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 240px));
+  gap: var(--space-12) var(--space-24);
+}
+
+.fr__tools > .fr__tool[open] .fr__prices .fr__control {
+  inline-size: 100%;
+  box-sizing: border-box;
 }

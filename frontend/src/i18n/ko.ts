@@ -31,6 +31,8 @@ export const ko = {
 
   /** 사이드바 — 미구현·사무직 전용 항목에 붙는 꼬리표 */
   'shell.navTag': '준비 중',
+  'shell.navGroup.analysis': '분석',
+  'shell.navGroup.manage': '관리',
   'shell.navTagOffice': '사무직 전용',
 
   /** 상단바 — 로그아웃 (#278) */

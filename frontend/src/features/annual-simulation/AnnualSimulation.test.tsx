@@ -341,7 +341,8 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     const section = screen.getByRole('heading', { name: ANNUAL_COPY.sensitivityTitle }).closest('section')!
     expect(within(section).queryByRole('table')).toBeNull()
     expect(within(section).queryByText('개별 효과만 표시합니다.')).toBeNull()
-    expect(section.querySelectorAll('p')).toHaveLength(1)
+    // 10/7(#2313) — 다음 행동 링크가 이 카드 맨 아래로 들어왔다. 그것을 빼면 안내 한 줄뿐이다.
+    expect(section.querySelectorAll('p:not(.result-card__next)')).toHaveLength(1)
   })
 
   it('잔여 계획이 있으면 표와 서버 설명을 그대로 둔다 (#1580)', async () => {
@@ -388,17 +389,21 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     renderScreen()
     await runOnce()
 
-    const next = document.querySelector('.result-card__next')
-    expect(next).not.toBeNull()
-    const links = next!.querySelectorAll('a')
+    // 10/7(#2313) — 다음 행동은 민감도 카드 안 맨 아래 한 줄이다. 여전히 하나뿐이다.
+    const nexts = document.querySelectorAll('.result-card__next')
+    expect(nexts).toHaveLength(1)
+    const next = nexts[0]
+    const section = screen.getByRole('heading', { name: ANNUAL_COPY.sensitivityTitle }).closest('section')!
+    expect(section.lastElementChild).toBe(next)
+    const links = next.querySelectorAll('a')
     expect(links).toHaveLength(1)
-    expect(links[0].textContent).toBe('항로 비교')
+    expect(links[0].textContent).toContain('항로 비교')
     expect(links[0].getAttribute('href')).toBe(`/route-comparison?vessel_id=${VESSEL_ID}`)
   })
 
-  it('다음 행동은 결과 영역의 마지막 요소이고 「재현 · 계산 근거」 바로 위에 놓인다 (#2222 · #2297)', async () => {
-    // 이슈 문구는 「결과 맨 아래」인데 화면은 「계산 근거」 섹션을 그 아래에 둔다 —
-    // 근거 섹션은 카드 밖 바닥이라 결과 영역의 끝은 다음 행동이다. 그 자리를 잠근다.
+  it('다음 행동은 민감도 카드의 마지막 요소이고 결과 본문 · 레버 줄 뒤에 온다 (#2222 · #2297 · #2313)', async () => {
+    // 10/7(#2313) — 다음 행동을 카드 안 맨 아래로 옮기고, 「계산 근거」는 「근거 — 연도별 실적」
+    // 카드 안으로 옮겼다. 다음 행동이 결과 요소 사이에 끼지 않는다는 원래 뜻을 새 자리에서 잠근다.
     stubWith(
       withSensitivity({
         speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
@@ -408,21 +413,17 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     await runOnce()
 
     const next = document.querySelector('.result-card__next') as HTMLElement
-    const basis = document.querySelector('.annual-sim__basis') as HTMLElement
     expect(next).not.toBeNull()
-    expect(basis).not.toBeNull()
-    // 바로 아래 형제가 계산 근거다
-    expect(next.nextElementSibling).toBe(basis)
-    // 결과 본문(`.annual-sim__results`)과 「가장 크게 움직이는 변수」 줄 뒤에 온다
+    // 다음 행동 뒤에 이어지는 형제가 없다 — 그 카드의 마지막이다
+    expect(next.nextElementSibling).toBeNull()
     for (const before of ['.annual-sim__results', '[data-testid="annual-sim-top-lever"]']) {
       const el = document.querySelector(before)
       expect(el, `${before}가 그려졌다`).not.toBeNull()
       expect(el!.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     }
-    // 다음 행동 뒤에 이어지는 형제는 근거 섹션뿐이다 — 결과 요소가 더 오지 않는다
-    const after: Element[] = []
-    for (let el = next.nextElementSibling; el; el = el.nextElementSibling) after.push(el)
-    expect(after.every((el) => el.classList.contains('annual-sim__basis'))).toBe(true)
+    // 계산 근거는 다음 행동과 같은 카드에 있지 않다 — 실적 카드 안이다
+    const basis = document.querySelector('.annual-sim__basis')
+    if (basis) expect(next.parentElement?.contains(basis)).toBe(false)
   })
 
   it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {
@@ -626,6 +627,13 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
     achievable: true,
   } satisfies Omit<ReductionPlanBlock, 'required_cut_gco2' | 'required_cut_fuel_ton'>
 
+  /** 결론 띠의 「목표까지」 칸 (10/7 시안 03). */
+  function targetSlot(): HTMLElement {
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    const label = within(verdict).getByText(ANNUAL_COPY.verdictTargetLabel)
+    return label.closest('.verdict-strip__sub') as HTMLElement
+  }
+
   it('줄여야 하는 양이 있으면 CO₂와 연료를 함께 보인다', async () => {
     stubWith(
       withPlan({ ...BASE, required_cut_gco2: '330900000.000000', required_cut_fuel_ton: '36.260000' }),
@@ -633,12 +641,12 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
     renderScreen()
     await runOnce()
 
-    expect(screen.getByText(ANNUAL_COPY.reductionTitle)).toBeTruthy()
-    expect(screen.getByText(ANNUAL_COPY.reductionCutLabel)).toBeTruthy()
+    // 10/7 시안 03(#2313) — 줄일 양이 있으면 결론 띠의 셋째 칸 「목표까지」로 올라간다.
+    const third = targetSlot()
     // §4.2 — CO₂는 tCO₂ · 1자리, 연료는 t · 1자리 (#1539). 종전에는 `330900000 g` · `36.26 t`였다.
-    expect(screen.getByText('330.9 tCO₂')).toBeTruthy()
-    expect(screen.getByText('36.3 t')).toBeTruthy()
-    expect(screen.queryByText(/\d g$/)).toBeNull()
+    expect(third.textContent).toContain('330.9 tCO₂')
+    expect(third.textContent).toContain('36.3 t')
+    expect(third.textContent).not.toMatch(/\d g\b/)
   })
 
   it('⚠️ 무엇을 고정했는지 말한다 — 「항차를 줄여도 되지 않나」로 읽히지 않게', async () => {
@@ -652,7 +660,8 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
     renderScreen()
     await runOnce()
 
-    expect(screen.getByText(ANNUAL_COPY.reductionCaption)).toBeTruthy()
+    // 띠의 셋째 칸이 그 전제를 함께 말한다 — 거리는 그대로 두고 연료를 줄이는 값이다.
+    expect(targetSlot().querySelector('.verdict-strip__note')?.textContent).toMatch(/거리.*그대로/)
   })
 
   it('이미 목표 안이면 0을 보이지 않고 그렇다고 말한다', async () => {
@@ -1373,14 +1382,19 @@ describe('대상 선박과 결과의 조건 (#1553)', () => {
     expect(within(targetLine()).getByText(ANNUAL_COPY.targetVesselLoading)).toBeTruthy()
   })
 
-  it('결과 머리에 이 결과의 조건이 있다 — 결과만 캡처해도 어느 배인지 읽힌다', async () => {
+  /*
+   * 10/7(#2313) — 조건 · 실행 시각 · 추정 고지가 띠 아래 **한 줄**(`annual-sim-last-run`)로
+   * 합쳐졌다. 앞머리 「이 결과의 조건」은 걷혔다. 지키려던 것 — 결과만 캡처해도 어느 배 · 어느
+   * 해 · 어느 목표인지 읽힌다 — 은 그대로다.
+   */
+  it('결론 띠 바로 아래에 이 결과의 조건이 있다 — 결과만 캡처해도 어느 배인지 읽힌다', async () => {
     stubServer()
     renderScreen()
     await runOnce()
-    const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
+    const line = screen.getByTestId('annual-sim-last-run')
     expect(line.textContent).toContain('샘플 벌크선 · 2026년 · 목표 등급 C')
-    // 결과 영역의 맨 위다 — 추정 고지보다 먼저.
-    expect(line.previousElementSibling).toBeNull()
+    const under = line.closest('.annual-sim__under-verdict') as HTMLElement
+    expect(under.previousElementSibling).toBe(screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel }))
   })
 
   it('⚠️ 실행 뒤 목표를 바꿔도 결과 줄은 실행 때의 목표다', async () => {
@@ -1389,7 +1403,7 @@ describe('대상 선박과 결과의 조건 (#1553)', () => {
     await runOnce()
     fireEvent.click(screen.getByRole('radio', { name: 'A' }))
 
-    const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
+    const line = screen.getByTestId('annual-sim-last-run')
     expect(line.textContent).toContain('목표 등급 C')
     expect(line.textContent).not.toContain('목표 등급 A')
   })
@@ -1401,8 +1415,9 @@ describe('결과 위 추정 고지 (#1578 · `DESIGN_SYSTEM §11`)', () => {
     renderScreen()
     await runOnce()
 
+    // 10/7(#2313) — 고지는 조건 줄 끝에 짧게 붙는다. 추정 성격과 기준 시각(`§11`)은 그대로 담는다.
     const notice = await screen.findByText(/잔여 계획을 전제로 한 추정값/)
-    expect(notice.textContent).toContain(`기준 시각은 ${formatTimestamp(AS_OF)}입니다.`)
+    expect(notice.textContent).toContain(formatTimestamp(AS_OF)!)
     expect(notice.textContent).not.toMatch(/예측값/)
   })
 })
@@ -1545,18 +1560,42 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
     expect(details.closest('.annual-sim__block')).toBeNull()
   })
 
-  it('목표까지 · 분포 요약은 확률 분포 카드 안의 「라벨 · 값」 목록이다', async () => {
+  /*
+   * 10/7 시안 03(#2313) — 줄일 양이 있으면 「목표까지」는 결론 띠의 셋째 칸으로 올라가고, 분포
+   * 카드에는 분포 요약만 남는다. 같은 값을 두 자리에 적지 않는다.
+   */
+  it('줄일 양이 있으면 「목표까지」는 띠의 셋째 칸이고, 분포 카드에는 분포 요약만 남는다', async () => {
     stubWith(fullPayload())
     renderScreen()
     await runOnce()
 
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    const third = within(verdict).getByText(ANNUAL_COPY.verdictTargetLabel).closest('.verdict-strip__sub')!
+    expect(third.textContent).toContain('330.9 tCO₂')
+
+    const distribution = screen
+      .getByRole('heading', { name: ANNUAL_COPY.probabilityTitle })
+      .closest('section')!
+    expect(within(distribution).queryByRole('heading', { level: 3, name: ANNUAL_COPY.reductionTitle })).toBeNull()
+    expect(within(distribution).getByRole('heading', { level: 3, name: ANNUAL_COPY.spreadTitle })).toBeTruthy()
+    expect(within(distribution).queryByText(/330\.9 tCO₂/)).toBeNull()
+  })
+
+  it('이미 목표 안이면 「목표까지」 칸이 없고, 분포 카드의 목록이 그렇다고 말한다', async () => {
+    const payload = fullPayload()
+    payload.data.reduction_plan = { ...payload.data.reduction_plan, required_cut_gco2: '0', required_cut_fuel_ton: '0.000000' }
+    stubWith(payload)
+    renderScreen()
+    await runOnce()
+
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    expect(within(verdict).queryByText(ANNUAL_COPY.verdictTargetLabel)).toBeNull()
     const distribution = screen
       .getByRole('heading', { name: ANNUAL_COPY.probabilityTitle })
       .closest('section')!
     expect(within(distribution).getByRole('heading', { level: 3, name: ANNUAL_COPY.reductionTitle })).toBeTruthy()
-    expect(within(distribution).getByRole('heading', { level: 3, name: ANNUAL_COPY.spreadTitle })).toBeTruthy()
-    expect(within(distribution).getByText('330.9 tCO₂').closest('dl')).toBeTruthy()
-    expect(within(distribution).getByText(`${ANNUAL_COPY.reductionBoundaryLabel} (B)`)).toBeTruthy()
+    expect(within(distribution).getByText(`${ANNUAL_COPY.reductionBoundaryLabel} (B)`).closest('dl')).toBeTruthy()
+    expect(within(distribution).getByText(ANNUAL_COPY.reductionNoneNeeded)).toBeTruthy()
   })
 
   it('「복합 효과 미포함」은 민감도 절에 한 번만 나온다 — 맨 아래 경고 목록에 다시 서지 않는다', async () => {
@@ -1618,13 +1657,16 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     return fetchImpl
   }
 
-  it('그 배의 마지막 결과와 「마지막 실행」 시각을 보인다 — 자동 실행하지 않는다', async () => {
+  /*
+   * 10/7(#2313) — 「마지막 실행」 앞머리는 조건 · 실행 시각 · 추정 고지 한 줄로 합쳐졌다.
+   * 복원한 결과는 **그 실행의 시각**을 그 줄에 적는다.
+   */
+  it('그 배의 마지막 결과와 그 실행 시각을 보인다 — 자동 실행하지 않는다', async () => {
     const fetchImpl = stubWithLast(LAST)
     renderScreen()
 
     const lastRun = await screen.findByTestId('annual-sim-last-run')
-    expect(lastRun.textContent).toContain(ANNUAL_COPY.lastRunLabel)
-    expect(lastRun.textContent).toContain(formatTimestamp(LAST.created_at))
+    expect(lastRun.textContent).toContain(formatTimestamp(LAST.created_at)!)
     expect(screen.getByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeTruthy()
     // 실행(POST)은 한 번도 나가지 않았다 — 조회만 했다
     expect(fetchImpl.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(false)
@@ -1651,10 +1693,11 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     expect(screen.getByText(ANNUAL_COPY.empty)).toBeTruthy()
   })
 
-  it('새로 실행하면 「마지막 실행」 표지가 사라진다 — 방금 돌린 결과와 구분한다', async () => {
+  it('새로 실행하면 복원한 실행의 시각과 재계산 안내가 사라진다 — 방금 돌린 결과와 구분한다', async () => {
     const fetchImpl = stubWithLast(LAST)
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
+    expect(screen.getByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeTruthy()
 
     await submitRestored(fetchImpl)
 
@@ -1676,7 +1719,11 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     expect(
       await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 }),
     ).toBeTruthy()
-    expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
+    // 줄은 남되(조건 줄) 복원한 실행의 시각을 더 적지 않는다 — 방금 돌린 실행의 기준 시각이다.
+    const line = screen.getByTestId('annual-sim-last-run')
+    expect(line.textContent).not.toContain(formatTimestamp(LAST.created_at)!)
+    expect(line.textContent).toContain(formatTimestamp(AS_OF)!)
+    expect(screen.queryByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeNull()
   }, WAITS_FOR_RESULT_MS)
 })
 
@@ -2079,8 +2126,12 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
     expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
   })
 
-  it('같은 등급이 이어져도 해마다 따로 적는다 — 「2027–2029 D」로 묶지 않는다 (#2056 C③)', async () => {
-    // 기준선이 해마다 내려간다는 사실은 해마다 적어야 보인다.
+  /*
+   * 10/7 디자인 결정(#2313)이 `#2056` C③(「묶지 않는다」)을 바꿨다 — 남은 해가 **모두** 같은
+   * 등급이면 「2027–2029년 모두 D」 한 항목으로 줄인다. 등급이 하나라도 다르면 위 검사대로
+   * 해마다 적는다.
+   */
+  it('남은 해가 모두 같은 등급이면 「첫 해–끝 해 모두 등급」 한 항목으로 줄인다 (10/7 · #2056 C③ 변경)', async () => {
     const sameRating = OUTLOOK.slice(0, 3).map((row) => ({ ...row, projected_rating: 'D' as const }))
     stubWith(withOutlook(sameRating))
     renderScreen()
@@ -2088,13 +2139,10 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
 
     const line = screen.getByTestId('annual-sim-future-years')
     const years = within(line).getAllByTestId('annual-sim-future-year')
-    expect(years).toHaveLength(3)
-    years.forEach((node, index) => {
-      expect(node.textContent).toContain(String(sameRating[index].regulation_year))
-      expect(within(node).getByText('D')).toBeTruthy()
-    })
-    // 구간 표기(연도–연도)가 어디에도 없다.
-    expect(line.textContent).not.toMatch(/\d{4}\s*[–\-~]\s*\d{4}/)
+    expect(years).toHaveLength(1)
+    // 첫 해와 끝 해를 모두 적는다 — 구간이 어디서 어디까지인지 빠지지 않는다
+    expect(years[0].textContent).toMatch(/2027\s*[–-]\s*2029/)
+    expect(within(years[0]).getByText('D')).toBeTruthy()
   })
 
   it('가정 문구는 줄 바로 아래에 있고 하단 면책 배너에 합쳐지지 않는다 (#2056 C④)', async () => {
@@ -2104,8 +2152,11 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
 
     const line = screen.getByTestId('annual-sim-future-years')
     const assumption = within(line).getByText(ANNUAL_COPY.futureYearsAssumption)
-    // 「이대로면 …」 줄의 **바로 다음** 요소다 — 한정하는 대상에서 떨어지면 무엇에 대한 가정인지 사라진다.
-    expect(assumption.previousElementSibling?.textContent).toContain(ANNUAL_COPY.futureYearsLabel)
+    // 10/7(#2313) — 가정은 「이대로면 …」 줄 **안**에 붙는다(짧은 꼬리 + 전문은 풀이·낭독).
+    // 한정하는 대상과 같은 줄이라 무엇에 대한 가정인지 떨어지지 않는다.
+    const row = assumption.closest('p') as HTMLElement
+    expect(row.textContent).toContain(ANNUAL_COPY.futureYearsLabel)
+    expect(row.getAttribute('title')).toBe(ANNUAL_COPY.futureYearsAssumption)
     // 배너(`role="note"` · `.disclaimer-banner`) 안에 있지 않다.
     expect(assumption.closest('[role="note"], .disclaimer-banner')).toBeNull()
     for (const banner of document.querySelectorAll('[role="note"], .disclaimer-banner')) {

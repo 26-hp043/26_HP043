@@ -653,8 +653,8 @@ export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProp
       두 그림이 갈리는데, 읽는 법이 다르면 사용자는 다른 그림으로 읽는다.
     */}
     <p className="position-chart__note">
-      대략적인 위치입니다. 배 색과 무늬는 올해 누적(YTD) 등급이고, 테두리가 굵은 배는
-      주의 대상입니다.
+      대략적인 위치입니다. 배 색과 무늬는 올해 누적(YTD) 등급이고, 굵은 테두리는 주의
+      대상입니다.
       {spread ? ' 가까운 배는 겹치지 않게 조금 벌려 그렸습니다.' : ''}
     </p>
     </>

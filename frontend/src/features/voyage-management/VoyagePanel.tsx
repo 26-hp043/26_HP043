@@ -204,6 +204,17 @@ export function VoyagePanel({
     onChanged?.()
   }
 
+  /* 다음 계획 항차 — 항차 번호가 가장 이른 계획 확정 하나만 「항해 시작」을 받는다 (10/7) */
+  const nextPlannedId =
+    (voyages ?? [])
+      .filter((v) => v.status === 'PLANNED')
+      .sort((a, b) => (a.voyageNo ?? '').localeCompare(b.voyageNo ?? ''))[0]?.id ?? null
+  const todo = (voyages ?? [])
+    .filter((v) => v.status === 'IN_PROGRESS' || v.status === 'COMPLETED')
+    .map((v) =>
+      `${v.voyageNo ?? NO_VALUE} ${v.status === 'IN_PROGRESS' ? '도착 실적 입력' : '실적 확정'}`,
+    )
+
   return (
     <section className="card vy" aria-label="항차 기록">
       <div className="vy__head">
@@ -218,10 +229,17 @@ export function VoyagePanel({
         </button>
       </div>
 
+      {/*
+        지금 할 일 (10/7 디자인 결정) — 버튼이 모든 계획 행에 서 있어 무엇이 먼저인지 보이지
+        않았다. 할 일이 있는 항차만 한 줄로 모아 적는다.
+      */}
+      {voyages !== null && todo.length > 0 ? (
+        <p className="vy__todo">
+          <b>지금 할 일 {todo.length}</b> — {todo.join(' · ')}
+        </p>
+      ) : null}
       <p className="vy__why">
-        계획을 먼저 만들고, 항해가 끝나면 실적을 입력합니다. 계획값은 실적을 넣어도 그대로
-        남습니다 — 계획 대비 실적 차이가 다음 항차의 예측을 다듬는 근거입니다. 아래 수치는{' '}
-        <b>계획 → 실적</b> 순입니다.
+        아래 수치는 <b>계획 → 실적</b> 순입니다. 계획값은 실적을 넣어도 그대로 남아 다음 항차 예측의 근거가 됩니다.
       </p>
 
       {failure ? (
@@ -286,6 +304,13 @@ export function VoyagePanel({
               {voyages.map((voyage) => (
                 <VoyageRow
                   key={voyage.id}
+                  mode={
+                    voyage.status === 'PLANNED'
+                      ? voyage.id === nextPlannedId
+                        ? 'next'
+                        : 'wait'
+                      : 'normal'
+                  }
                   voyage={voyage}
                   api={api}
                   ports={ports}
@@ -337,7 +362,10 @@ function VoyageRow({
   ports,
   onChange,
   openOnMount = false,
+  mode = 'normal',
 }: {
+  /** 계획 행의 표시 (10/7) — 다음 계획만 글자 링크, 나머지는 「대기」 */
+  mode?: 'normal' | 'next' | 'wait'
   voyage: ManagedVoyage
   api: VoyageManagementProvider
   /** 보이는 항구 이름에 쓴다 (#1742). 못 받았으면 빈 배열이고, 그때는 저장값 그대로다. */
@@ -430,6 +458,9 @@ function VoyageRow({
 
   const primary = primaryAction(voyage)
   const primaryTo = primary?.kind === 'transition' ? primary.to : null
+  /* 「항해 시작」 글자 링크(10/7)도 잠긴 사유를 곁에 적고 낭독에 잇는다 (`§14` · `#1170` ⑵). */
+  const primaryBlocker = primaryTo === null ? null : transitionBlocker(voyage, primaryTo)
+  const primaryBlockerId = `vy-blocker-${voyage.id}-${primaryTo}`
   const otherTransitions = nextStatuses(voyage.status).filter(
     (to) => to !== primaryTo && to !== 'CANCELLED' && !isRevert(voyage.status, to),
   )
@@ -485,7 +516,7 @@ function VoyageRow({
       onClick={() => setActualsOpen((open) => !open)}
       aria-expanded={actualsOpen}
     >
-      {actualsOpen ? '실적 닫기' : '실적 입력'}
+      {actualsOpen ? '실적 닫기' : voyage.status === 'IN_PROGRESS' ? '도착 실적 입력' : '실적 입력'}
     </button>
   )
 
@@ -542,9 +573,34 @@ function VoyageRow({
           )}
         </td>
         <td className="vy__row-actions">
-          {/* 다음에 누를 것 하나만 행에 둔다 (#1551). 나머지는 펼침 줄이다. */}
-          {primary?.kind === 'actuals' ? actualsToggle(!actualsOpen) : null}
-          {primaryTo !== null ? transitionButton(primaryTo, true) : null}
+          {/*
+            다음에 누를 것 하나만 행에 둔다 (#1551). 나머지는 펼침 줄이다.
+            10/7 — 채움 버튼은 항해 중 행만. 완료 행은 외곽선, 다음 계획은 글자 링크,
+            나머지 계획은 「대기」(전환은 펼침 줄에 그대로 있다).
+          */}
+          {primary?.kind === 'actuals' ? actualsToggle(!actualsOpen && voyage.status === 'IN_PROGRESS') : null}
+          {primaryTo !== null && mode === 'normal'
+            ? transitionButton(primaryTo, voyage.status === 'IN_PROGRESS')
+            : null}
+          {primaryTo !== null && mode === 'next' ? (
+            <span className="vy__action">
+              <button
+                type="button"
+                className="vy__text-action vy__start"
+                disabled={busy || primaryBlocker !== null}
+                aria-describedby={primaryBlocker ? primaryBlockerId : undefined}
+                onClick={(event) => request(primaryTo, event.currentTarget)}
+              >
+                항해 시작
+              </button>
+              {primaryBlocker ? (
+                <span id={primaryBlockerId} className="vy__blocker">
+                  {primaryBlocker}
+                </span>
+              ) : null}
+            </span>
+          ) : null}
+          {mode === 'wait' ? <span className="vy__wait">대기</span> : null}
           <button
             type="button"
             className="vy__text-action"

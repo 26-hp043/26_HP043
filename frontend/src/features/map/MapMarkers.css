@@ -42,3 +42,50 @@
 @media (max-width: 40rem) {
   .map-port__label { max-width: 6rem; }
 }
+
+/* 위치 핀 (10/7) — 원 안 글자 대신 핀 모양 · 역할은 이름표 앞 글자로 */
+.map-port__pin {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--color-link);
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 25%));
+}
+
+.map-port--waypoint .map-port__pin {
+  color: var(--color-warning-text);
+}
+
+.map-port__label {
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.map-port__role {
+  font-weight: var(--font-weight-strong);
+  color: var(--color-link);
+}
+
+.map-port--waypoint .map-port__role {
+  color: var(--color-warning-text);
+}
+
+/*
+ * 이름표가 선을 가리지 않게 (10/7) — 흰 상자 대신 글자에 바탕색 테두리(halo)만 둔다. 선이 글자 사이로
+ * 보이고, 글자는 어느 바탕에서도 읽힌다. 이름표는 눌러지는 자리가 아니라 핀이 그 역할을 한다.
+ */
+.map-port__label {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  pointer-events: none;
+  text-shadow:
+    0 0 2px var(--color-surface),
+    0 0 2px var(--color-surface),
+    0 0 3px var(--color-surface),
+    0 0 4px var(--color-surface);
+}

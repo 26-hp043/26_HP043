@@ -72,7 +72,15 @@ export const FUEL_TYPE_LABELS: Readonly<Record<string, string>> = {
  *
  * 모르는 코드는 `HFO (HFO)`가 되지 않도록 코드 하나만 낸다.
  */
+/**
+ * 괄호에 병기하는 것은 **업계가 원어로 쓰는 약어**뿐이다 (`DESIGN_SYSTEM §3` 🔒 · #2294).
+ * `DIESEL_GAS_OIL` · `LPG_BUTANE` 같은 계약 코드는 약어가 아니라 서버 식별자라 화면에 내지
+ * 않는다 — 셀렉트에서 「(GENERAL_CARGO_S」처럼 잘려 보이던 것도 이 괄호였다.
+ */
+const FUEL_ABBREVIATIONS: ReadonlySet<string> = new Set(['HFO', 'LFO', 'LNG'])
+
 export function fuelTypeText(code: string): string {
   const label = FUEL_TYPE_LABELS[code]
-  return label === undefined ? code : `${label} (${code})`
+  if (label === undefined) return code
+  return FUEL_ABBREVIATIONS.has(code) ? `${label} (${code})` : label
 }

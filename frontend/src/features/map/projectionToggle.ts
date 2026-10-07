@@ -22,10 +22,11 @@ const PROJECTION_STORAGE_KEY = 'bluelog.map.projection'
 
 export function readProjectionPreference(): MapProjection {
   try {
-    return globalThis.localStorage?.getItem(PROJECTION_STORAGE_KEY) === 'mercator' ? 'mercator' : 'globe'
+    // 첫 화면은 평면이다 (#2292 · 10/7 시안 01) — 지구본은 사용자가 고른 경우에만 기억해 연다.
+    return globalThis.localStorage?.getItem(PROJECTION_STORAGE_KEY) === 'globe' ? 'globe' : 'mercator'
   } catch {
     // 저장소를 막은 환경(사생활 보호 창 등) — 기본값으로 연다.
-    return 'globe'
+    return 'mercator'
   }
 }
 

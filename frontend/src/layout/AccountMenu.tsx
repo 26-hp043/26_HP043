@@ -86,12 +86,17 @@ export function AccountMenu({
   const trigger = useRef<HTMLButtonElement>(null)
   const { pathname } = useLocation()
   /** 패널의 화면 좌표 — 열 때와 창이 바뀔 때 카드 아래로 맞춘다. */
-  const [place, setPlace] = useState<{ top: number; left: number } | null>(null)
+  const [place, setPlace] = useState<{ top?: number; bottom?: number; left: number } | null>(null)
 
   const measure = useCallback(() => {
     const rect = trigger.current?.getBoundingClientRect()
     if (!rect) return
-    setPlace({ top: rect.bottom + 8, left: rect.left })
+    // 화면 아래쪽에 있으면 위로 연다 (10/7 · 사이드바 맨 아래 계정 시안)
+    setPlace(
+      rect.top > window.innerHeight / 2
+        ? { bottom: window.innerHeight - rect.top + 8, left: rect.left }
+        : { top: rect.bottom + 8, left: rect.left },
+    )
   }, [])
 
   useLayoutEffect(() => {
@@ -175,7 +180,7 @@ export function AccountMenu({
         className="account-menu__panel"
         id={panelId}
         hidden={!open}
-        style={place === null ? undefined : { top: place.top, left: place.left }}
+        style={place === null ? undefined : { top: place.top, bottom: place.bottom, left: place.left }}
         data-testid="account-panel"
       >
         {/*

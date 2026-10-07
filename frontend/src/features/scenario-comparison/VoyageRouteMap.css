@@ -15,9 +15,57 @@
   width: 100%;
 }
 
-.voyage-route-map__hint,
 .voyage-route-map__status {
   color: var(--text-secondary);
   font-size: var(--font-size-label);
   margin: 0;
+}
+
+/* 10/7 시안 05 — 지도는 띠로. 표가 첫 화면에 들어오게 높이를 고정한다 */
+.voyage-route-map__canvas {
+  aspect-ratio: auto;
+  block-size: clamp(340px, 46vh, 460px);
+}
+
+.voyage-route-map {
+  position: relative;
+}
+
+/* 범례 — 지도 왼쪽 위에 얹는다 (10/7) */
+.voyage-route-map__legend {
+  position: absolute;
+  inset-block-start: var(--space-12);
+  inset-inline-start: var(--space-12);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  list-style: none;
+  background: color-mix(in srgb, var(--surface-card) 92%, transparent);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-caption);
+  color: var(--text-primary);
+}
+
+.voyage-route-map__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.voyage-route-map__legend-sub {
+  color: var(--color-text-muted);
+}
+
+.voyage-route-map__swatch {
+  inline-size: 28px;
+  block-size: 0;
+  border-block-start: 3px solid var(--semantic-primary);
+}
+
+.voyage-route-map__swatch--detour {
+  border-block-start: 3px dashed var(--color-warning-text);
 }

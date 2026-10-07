@@ -65,7 +65,7 @@
 .sort select {
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: var(--font-size-label);
@@ -82,26 +82,11 @@
  * 결과 카드 (#2200 · `DESIGN_SYSTEM §8` 「결과 카드」) — 카드 안 순서를 한 가지로 둔다:
  * 제목(`card__head`) → 결론 한 줄 → 근거 → 단서 → 다음 행동.
  *
- * - `__lead`: 결론 띠(`§8.6`)가 **없는** 화면의 카드만 쓴다. 띠가 있으면 같은 답이 두
- *   자리에 생기므로 두지 않는다. 본문 크기 · 굵기 강조 — 띠처럼 크게 키우지 않는다
- * - `__note`: 근거에 붙는 확인 길(글자 링크). 주 행동이 아니다
  * - `__next`: 카드 맨 아래 한 줄, 주 행동 하나. **버튼이 아니라 글자 링크**다 — 폭을 채운
  *   버튼은 그 화면의 주 버튼과 같은 무게로 경쟁한다(`§8` 텍스트 버튼과 같은 이유)
+ *
+ * `__lead` · `__note` 규칙은 10/7 화면 개편으로 쓰는 곳이 없어져 지웠다(#831 죽은 CSS 가드).
  */
-.result-card__lead {
-  margin: 0 0 var(--spacing-md);
-  font-size: var(--font-size-body);
-  line-height: var(--line-height-body);
-  font-weight: var(--font-weight-strong);
-  color: var(--text-primary);
-}
-
-.result-card__note {
-  margin: var(--spacing-sm) 0 0;
-  font-size: var(--font-size-caption);
-  color: var(--text-secondary);
-}
-
 .result-card__next {
   margin: var(--spacing-md) 0 0;
   padding-top: var(--spacing-sm);

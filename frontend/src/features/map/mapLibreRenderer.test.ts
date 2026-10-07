@@ -26,6 +26,7 @@ vi.mock('maplibre-gl', () => {
     getLayer = vi.fn().mockReturnValue(undefined)
     addSource = vi.fn()
     addLayer = vi.fn()
+    setPaintProperty = vi.fn()
     setProjection = vi.fn(() => {
       if (projectionFailure.enabled) throw new Error('globe unavailable')
       return this
@@ -94,11 +95,33 @@ describe('MapLibre renderer adapter', () => {
     load()
     expect(emit).toHaveBeenCalledWith({ type: 'ready' })
     expect(map.addLayer).toHaveBeenCalledTimes(2)
-    expect(map.setProjection).toHaveBeenCalledWith({ type: 'globe' })
+    // 첫 화면은 평면이다 (#2292 · 10/7) — 고른 기록이 없으면 mercator로 연다.
+    expect(map.setProjection).toHaveBeenCalledWith({ type: 'mercator' })
 
     session.update(model(mode))
     session.destroy()
     expect(map.remove).toHaveBeenCalledTimes(1)
+  })
+
+  it('비교 지도는 고른 노선을 앞으로 내고 나머지를 흐리게 한다 (#2315 · 10/7)', () => {
+    const session = mapLibreRenderer.mount(document.createElement('div'), model('comparison'), vi.fn())
+    const map = maps[0]
+    map.getLayer.mockReturnValue({})
+    const load = map.on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    load()
+    const opacityOf = (layer: string) =>
+      map.setPaintProperty.mock.calls.filter(([id, prop]) => id === layer && prop === 'line-opacity').at(-1)?.[2] as number
+
+    session.update({ ...model('comparison'), highlight: 'DETOUR' as const })
+    expect(opacityOf('routes')).toBeLessThan(opacityOf('routes-detour'))
+
+    session.update({ ...model('comparison'), highlight: 'DIRECT' as const })
+    expect(opacityOf('routes-detour')).toBeLessThan(opacityOf('routes'))
+
+    // 고른 것이 없으면 어느 쪽도 흐리지 않는다.
+    session.update({ ...model('comparison'), highlight: null })
+    expect(opacityOf('routes')).toBe(opacityOf('routes-detour'))
+    session.destroy()
   })
 
   it('날짜변경선 bounds·모바일 padding·resize를 globe camera에 반영한다', () => {
@@ -235,37 +258,49 @@ describe('MapLibre renderer adapter', () => {
   }
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-  it('버튼이 있고 처음은 지구본 — 누르면 평면으로, 다시 누르면 지구본으로 (#1976)', () => {
+  it('버튼이 있고 처음은 평면 — 누르면 지구본으로, 다시 누르면 평면으로 (#1976 · #2292)', () => {
     const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())
     const map = maps[0]
-    expect(mapOptions[0]).toMatchObject({ pitch: 18, dragRotate: true })
+    // 10/7(#2292) — 첫 화면은 평면이다. 지구본은 사용자가 고른 경우에만 기억해 연다.
+    expect(mapOptions[0]).toMatchObject({ pitch: 0, dragRotate: false })
     fireLoad(map)
-    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
     const button = toggleOf(map)!
     /*
-     * 문구는 **표시 문구**라 리터럴로 적지 않는다(`AGENTS §4.6` · `#1992`) — `#1940` ⑥에서
-     * 디자인 확정을 기다리는 중이라 바뀔 수 있다. 지키려는 것은 「**누르면 무엇이 되는가**를
-     * 말한다」이므로, 문구를 만드는 함수에서 기대값을 가져온다.
+     * 문구는 **표시 문구**라 리터럴로 적지 않는다(`AGENTS §4.6` · `#1992`). 지키려는 것은
+     * 「**누르면 무엇이 되는가**를 말한다」이므로, 문구를 만드는 함수에서 기대값을 가져온다.
      */
+    const mercatorLabel = button.getAttribute('aria-label')
+    expect(mercatorLabel).toBe(projectionToggleText('mercator').name)
+
+    button.click()
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
+    expect((map.dragRotate as unknown as { enable: ReturnType<typeof vi.fn> }).enable).toHaveBeenCalled()
+    expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 18, animate: false })
+    expect(window.localStorage.getItem('bluelog.map.projection')).toBe('globe')
     const globeLabel = button.getAttribute('aria-label')
     expect(globeLabel).toBe(projectionToggleText('globe').name)
+    // 두 상태의 문구가 **서로 다르다** — 같으면 무엇이 되는지 알 수 없다.
+    expect(globeLabel).not.toBe(mercatorLabel)
 
     button.click()
     expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
     expect((map.dragRotate as unknown as { disable: ReturnType<typeof vi.fn> }).disable).toHaveBeenCalled()
     expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 0, bearing: 0, animate: false })
     expect(window.localStorage.getItem('bluelog.map.projection')).toBe('mercator')
-    const mercatorLabel = button.getAttribute('aria-label')
-    expect(mercatorLabel).toBe(projectionToggleText('mercator').name)
-    // 두 상태의 문구가 **서로 다르다** — 같으면 무엇이 되는지 알 수 없다.
-    expect(mercatorLabel).not.toBe(globeLabel)
-
-    button.click()
-    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
-    expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 18, animate: false })
-    expect(window.localStorage.getItem('bluelog.map.projection')).toBe('globe')
     // 두 번 누르면 처음 문구로 돌아온다.
-    expect(button.getAttribute('aria-label')).toBe(globeLabel)
+    expect(button.getAttribute('aria-label')).toBe(mercatorLabel)
+    session.destroy()
+  })
+
+  it('고른 방식(지구본)을 기억해 다음에는 지구본으로 연다 (#1976)', () => {
+    window.localStorage.setItem('bluelog.map.projection', 'globe')
+    const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())
+    const map = maps[0]
+    expect(mapOptions[0]).toMatchObject({ pitch: 18, dragRotate: true })
+    fireLoad(map)
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
+    expect(toggleOf(map)!.getAttribute('aria-label')).toBe(projectionToggleText('globe').name)
     session.destroy()
   })
 
@@ -298,6 +333,8 @@ describe('MapLibre renderer adapter', () => {
   })
 
   it('평면으로 바꾸면 3D 선체를 걷고, 지구본으로 오면 다시 올린다 (#1976)', async () => {
+    // 첫 화면이 평면이 됐으므로(#2292) 지구본을 고른 기록에서 시작한다.
+    window.localStorage.setItem('bluelog.map.projection', 'globe')
     const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
     const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
     const map = maps[0]
@@ -315,6 +352,7 @@ describe('MapLibre renderer adapter', () => {
   })
 
   it('선체를 불러오는 사이 평면으로 바꾸면 올리지 않는다 (#1976)', async () => {
+    window.localStorage.setItem('bluelog.map.projection', 'globe')
     const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
     const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
     const map = maps[0]

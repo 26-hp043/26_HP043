@@ -53,8 +53,11 @@ import type { Rating } from '../voyage-cii/types'
  */
 export function GradeDistribution({
   distribution,
+  forceBar = false,
 }: {
   distribution: Readonly<Record<Rating, number>>
+  /** 척수가 적어도 그림 대신 막대로 그린다 (10/7 시안 01 — 시연 때 보인 막대). */
+  forceBar?: boolean
 }) {
   const segments = gradeDistributionSegments(distribution)
   const zeros = zeroRatings(distribution)
@@ -64,7 +67,7 @@ export function GradeDistribution({
     return <p className="dist__none">집계된 등급이 없습니다.</p>
   }
 
-  if (usesPictogram(segments)) {
+  if (!forceBar && usesPictogram(segments)) {
     /*
      * 0척인 등급도 **같은 줄에 같은 형식으로** 세운다 — 배 마크만 없다.
      *
@@ -104,10 +107,15 @@ export function GradeDistribution({
        * `role`을 `img`가 아니라 `group`으로 둔다. `img`는 하위 트리를 통째로
        * presentational로 만들어 **구간마다 붙인 이름이 보조기술에 닿지 않는다.**
        */}
-      <div className="dist__bar" role="group" aria-label={`등급 분포 — ${distributionAria(segments)}`}>
+      <div className={forceBar ? 'dist__bar dist__bar--badge' : 'dist__bar'} role="group" aria-label={`등급 분포 — ${distributionAria(segments)}`}>
         {segments.map((seg) => {
-          const pattern = gradePatternUrl(seg.rating)
-          const inline = showsInlineLabel(seg.percent)
+          /*
+           * 막대 고정(`forceBar`)일 때는 **등급 배지와 같은 표기**다 (10/7 디자인 결정) — 연한 면 ·
+           * 테두리 · 진한 글자, 무늬 없음. 무늬를 빼는 근거는 `§2.4.4` 「패턴 미적용」(등급 문자가
+           * 색면 안에 놓이는 자리)이고, 그래서 **글자를 항상** 그린다 — 좁은 칸은 최소 폭으로 받친다.
+           */
+          const pattern = forceBar ? null : gradePatternUrl(seg.rating)
+          const inline = forceBar || showsInlineLabel(seg.percent)
           const text = `${seg.rating} ${seg.count}`
 
           return (

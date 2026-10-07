@@ -450,6 +450,28 @@ export function RealtimeCiiView({
       </p>
 
       {/*
+        경고를 화면 맨 아래에서 결론 띠 바로 아래로 올렸다 (10/7 디자인 결정) — 「누적이 어디까지만
+        반영됐다」는 위 숫자를 읽는 법이라, 숫자에서 멀면 안 읽힌다. 실적 입력 길을 같이 둔다.
+      */}
+      {shownWarnings.length > 0 ? (
+        <div className="rt__alert" role="status">
+          <ul className="rt__warnings">
+            {shownWarnings.map((code) => (
+              <li key={code}>{warningText(code)}</li>
+            ))}
+          </ul>
+          {data.currentVoyage && vesselId ? (
+            <Link
+              className="rt__alert-action"
+              to={voyageActualsPath(vesselId, data.currentVoyage.voyageId)}
+            >
+              도착 실적 입력
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/*
         ── 띠의 근거 둘 (#1949 · `§5` 카드 예산 · `§8.6`) ──────────────
 
         **카드를 걷고 바닥에 놓았다.** `§5`는 카드를 「한 덩어리의 데이터」에만 쓰고
@@ -605,7 +627,12 @@ export function RealtimeCiiView({
               arrivalPortName={data.currentVoyage.arrivalPortName}
             />
             <div className="rt__voyage-figures-col">
-              <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
+              <VoyagePanel
+                data={data}
+                unit={unit}
+                vesselId={vesselId}
+                actionAbove={shownWarnings.length > 0}
+              />
             </div>
           </div>
         ) : (
@@ -639,14 +666,6 @@ export function RealtimeCiiView({
         면책은 화면 하단 배너 한 곳에서만 말한다 (#1416). `REFERENCE_ONLY`는 그 배너
         (`DESIGN_SYSTEM §13` 🔒)와 같은 말이라 거른다 — 기능①·항로 비교와 같은 함수다.
       */}
-      {shownWarnings.length > 0 ? (
-        <ul className="rt__warnings">
-          {shownWarnings.map((code) => (
-            <li key={code}>{warningText(code)}</li>
-          ))}
-        </ul>
-      ) : null}
-
       {/*
         다음 행동 — 결과 맨 아래 한 줄, 하나만 (#2224 · `DESIGN_SYSTEM §8` 결과 카드). 띠의 보조
         결론 「연말 예상」을 **목표 달성 확률**로 이어 보는 곳이 연간 등급 관리다 — 같은 배가
@@ -741,6 +760,8 @@ function VoyageMapBlock({
           「항로 비교 지도 텍스트 정보」가 나온다 — 실측에서 그렇게 나왔다.
         */
         alternativeTitle="이번 항차 지도"
+        only="DIRECT"
+        hideLegend
       />
       {/*
         **마지막으로 받은 위치**임을 말한다. 「지금 여기 있다」가 아니다 — 진행률과
@@ -1199,10 +1220,13 @@ function VoyagePanel({
   data,
   unit,
   vesselId,
+  actionAbove = false,
 }: {
   data: RealtimeCii;
   unit: string;
   vesselId?: string;
+  /** 위 경고 박스가 이미 「도착 실적 입력」을 들고 있으면 여기서는 그리지 않는다 (10/7) */
+  actionAbove?: boolean;
 }) {
   const voyage = data.currentVoyage!;
   const ratio = voyageProgressRatio(data);
@@ -1319,7 +1343,7 @@ function VoyagePanel({
         **계획 거리를 다 채웠으면(남은 거리 0) 채움 버튼이다** — 그때 이 화면에서 할 다음
         일이 그것뿐이다. 아직 가는 중이면 보조 링크다.
       */}
-      {vesselId ? (
+      {vesselId && !actionAbove ? (
         <Link
           className={
             remaining === 0 ? "rt__actuals rt__actuals--primary" : "rt__actuals"
@@ -1371,44 +1395,21 @@ function YtdConfidence({ data }: { data: RealtimeCii }) {
  * 표기·클래스는 `YtdAxis`와 같은 것을 쓴다. 같은 뜻의 값을 화면 안에서 두 가지
  * 모양으로 보여 주면, 나란히 놓인 두 카드가 서로 다른 지표처럼 읽힌다.
  */
+/* 10/7 — 연말 예상 쪽 위험도 칸을 걷었다. 결론 띠의 위험도와 같은 「심각」이 한 화면에 두 번 읽혔다. */
 function ProjectionAxis({ projection }: { projection: YearEndProjection }) {
-  const risk = ytdRisk(projection);
-  const riskText = risk === null ? null : riskLabel(risk);
   const ratio = formatOrNull(
     projection.ratioToRequired,
     (v) => `${formatPercent(v)}%`,
   );
 
-  // 둘 다 없으면 빈 격자만 남는다 — 그 자리는 「값이 0」으로 읽힌다.
-  if (ratio === null && riskText === null) return null;
+  // 없으면 빈 격자만 남는다 — 그 자리는 「값이 0」으로 읽힌다.
+  if (ratio === null) return null;
 
   return (
     <dl className="rt__axis-facts rt__axis-facts--projection">
       <div>
         <dt>기준 대비</dt>
         <dd className={ratio ? "num" : "num muted"}>{ratio ?? "—"}</dd>
-      </div>
-      <div>
-        <dt>위험도</dt>
-        <dd
-          className={
-            riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : "muted"
-          }
-        >
-          {riskText ? (
-            <>
-              {riskText.withIcon ? (
-                // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
-                <span className="rt__risk-icon">
-                  <Icon glyph={AlertTriangle} size="inline" />
-                </span>
-              ) : null}
-              {riskText.text}
-            </>
-          ) : (
-            "—"
-          )}
-        </dd>
       </div>
     </dl>
   );

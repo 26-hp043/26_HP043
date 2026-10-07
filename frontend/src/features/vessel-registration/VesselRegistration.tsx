@@ -272,7 +272,7 @@ export function VesselRegistration() {
                   {/* 목록은 `shipTypes.ts`가 갖고, `capacity.py`와의 일치는 CI가 지킨다 */}
                   {SHIP_TYPES.map((type) => (
                     <option key={type.code} value={type.code}>
-                      {type.label} ({type.code})
+                      {type.label}
                     </option>
                   ))}
                 </select>

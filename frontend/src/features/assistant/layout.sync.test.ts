@@ -15,7 +15,6 @@ import { describe, expect, it } from 'vitest'
  */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const CSS_PATH = join(HERE, 'AssistantOverlay.css')
-const VM_GUARD = join(HERE, '..', 'vessel-management', 'layout.sync.test.ts')
 
 /** 주석 안의 언급이 근거가 되지 않게 걷어낸다 — `deadCss.test.ts`와 같은 이유다. */
 function code(path: string): string {
@@ -112,81 +111,27 @@ describe('빈 대화에서 입력 줄이 패널 안에 남는다 (#2158)', () =>
 })
 
 /**
- * 패널이 본문을 덮지 않는 폭이 **선박 관리 목록을 담을 만큼** 남기는지 (#1818 · #1788 · #2018).
+ * 패널이 본문을 덮지 않는다 — 오른쪽에 붙는 패널 (#2322 · 10/7 디자인 결정).
  *
- * 종전 값 `1366`은 본문에 `650px`만 남겼다 — 당시 목록 최소 폭 `890`에 한참 못 미친다.
- * 그 파일 주석이 「약 900px 남는다」고 적고 있었는데 **사이드바와 여백을 빼지 않은
- * 계산**이었다. 그래서 `#1818`이 전역 전환점을 `1640`으로 올렸다.
- *
- * `#2018`(등급 칸)로 목록 최소 폭이 `1006`이 됐다. 전역 값을 따라 올리면 목록과 무관한
- * 화면까지 1640~1755에서 패널에 덮이므로, **선박 관리 화면에서만** 비키는 시점을 늦춘다.
- * 그래서 전환점이 둘이고 각각 떨어지는 값이어야 한다.
- *
- * ⚠️ 현재 목록 최소 폭은 **숫자를 새로 적지 않는다** — `#1788`의 가드에서 읽고, 패널 폭은
- * CSS 변수에서 읽는다. 한쪽을 바꾸면 여기서 걸린다. 전역 전환점의 근거인 `890`만은
- * `#2018` 이전의 실측이라 그 가드에 더는 없어 여기 적는다.
+ * 종전에는 떠 있는 창이라 넓은 화면(1640 · 선박 관리 1756)에서만 셸이 비켰다. 패널이 화면
+ * 오른쪽에 위아래로 붙으면서 **1280 이상 모든 화면에서** 셸이 패널 폭만큼 비킨다. 그 폭에서
+ * 선박 관리 목록(최소 760)이 본문에 다 들어가지 않을 수 있으므로, 목록은 카드 안에서 가로로
+ * 스크롤한다(`#1788`) — 아래 두 번째 검사가 그 넘침 처리가 풀리지 않게 잠근다.
  */
-describe('패널을 비우는 폭이 목록 최소 폭을 남긴다 (#1818 · #1788 · #2018)', () => {
-  /** `#1788`이 브라우저에서 잰 현재 목록 최소 폭. 그 가드가 소유한다. */
-  const LIST_MIN = (() => {
-    const match = /const MEASURED_MIN = (\d+)/.exec(readFileSync(VM_GUARD, 'utf-8'))
-    expect(match, '선박 관리 가드에서 MEASURED_MIN을 읽지 못했습니다').not.toBeNull()
-    return Number(match![1])
-  })()
-
-  /** `#1818`이 전역 전환점을 정할 때의 목록 최소 폭(`#1788` 실측 · 등급 칸 이전). */
-  const LIST_MIN_1818 = 890
-
-  /** 패널 폭. 셸이 비우는 폭과 **같은 변수**여야 한다(`launcherReserve.sync.test.ts`). */
-  const PANEL = (() => {
-    const match = /--assistant-panel-width:\s*(\d+)px/.exec(CSS)
-    expect(match, '패널 폭 선언을 읽지 못했습니다').not.toBeNull()
-    return Number(match![1])
-  })()
-
-  /*
-   * 아래 셋은 브라우저에서 잰 고정분이다(1440 · 라이트 · 시연 데이터).
-   * 본문 폭 = 화면 폭 − (사이드바 + 셸 여백 + 패널과 그 여백)이고,
-   * 목록이 들어가는 칸은 거기서 카드 좌우 패딩만큼 더 좁다.
-   */
-  const SIDEBAR = 240 // --layout-sidebar-width (--grid-gnb-expanded)
-  const SHELL_GUTTERS = 48 // 셸 padding 24 + 사이드바와 본문 사이 gap 24
-  const CARD_PADDING = 34 // 목록 카드 좌우 패딩 16 + 테두리 1, 양쪽
-  const RESERVE = 24 * 2 + PANEL // --shell-gutter * 2 + 패널 폭
-  const FIXED = CARD_PADDING + SHELL_GUTTERS + SIDEBAR + RESERVE
-
-  const NEEDED_GLOBAL = LIST_MIN_1818 + FIXED
-  const NEEDED_VM = LIST_MIN + FIXED
-
-  /** `min-width` 미디어 규칙 안에서 주어진 선택자가 여는 전환점. */
-  function breakpoint(selector: string): number {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const match = new RegExp(`@media\\s*\\(min-width:\\s*(\\d+)px\\)\\s*\\{\\s*${escaped}\\s*\\{`).exec(
-      CSS,
-    )
-    expect(match, `${selector} 미디어 규칙이 없습니다`).not.toBeNull()
-    return Number(match![1])
-  }
-
-  it('전역 산술이 1640으로 떨어진다 — 고른 값이 아니다', () => {
-    expect(NEEDED_GLOBAL).toBe(1640)
-  })
-
-  it('선박 관리 산술이 1756으로 떨어진다 — 고른 값이 아니다', () => {
-    expect(NEEDED_VM).toBe(1756)
-  })
-
-  it('전역 전환점은 1640 그대로다 — 목록과 무관한 화면을 덮지 않는다', () => {
+describe('패널이 본문을 덮지 않는다 (#2322)', () => {
+  it('1280 이상에서 셸이 패널 폭만큼 비킨다', () => {
     expect(
-      breakpoint('.app-shell--assistant-open:not(:has(.vessel-management))'),
-      '전역 전환점이 옮겨 가면 다른 화면이 그 폭에서 패널에 덮이거나 목록을 담지 못합니다.',
-    ).toBe(NEEDED_GLOBAL)
+      /@media\s*\(min-width:\s*1280px\)\s*\{[\s\S]*?\.app-shell--assistant-open[^{]*\{\s*padding-inline-end:\s*var\(--assistant-panel-width\)/.test(CSS),
+    ).toBe(true)
   })
 
-  it('선박 관리에서는 그 폭 아래로 비키지 않는다', () => {
-    expect(
-      breakpoint('.app-shell--assistant-open'),
-      `선박 관리의 전환점이 ${NEEDED_VM} 밑이면 본문이 목록(${LIST_MIN})을 담지 못해 목록이 가로로 스크롤됩니다.`,
-    ).toBeGreaterThanOrEqual(NEEDED_VM)
+  it('선박 관리 목록의 넘침 처리는 패널이 열려 있으면 풀리지 않는다', () => {
+    const vmCss = readFileSync(join(HERE, '..', 'vessel-management', 'VesselManagement.css'), 'utf-8')
+    const visible = vmCss.match(/[^{}]*\{[^{}]*overflow:\s*visible[^{}]*\}/g) ?? []
+    for (const block of visible.filter((b) => b.includes('.vm__list-wrap'))) {
+      expect(block, '패널이 열린 셸에서 목록 넘침을 풀면 페이지가 가로로 밀린다(#1788)').toContain(
+        ':not(.app-shell--assistant-open)',
+      )
+    }
   })
 })

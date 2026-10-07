@@ -45,6 +45,11 @@ interface ChoiceCardsProps<T extends string> {
   readonly onChange: (value: T) => void
   /** 카드 아래에 붙는 것 — 비활성 사유 등. */
   readonly children?: ReactNode
+  /**
+   * `segmented` (10/7 시안 02) — 좁은 폼에서 선택지를 한 줄 세그먼트로 두고, 풀이는 **고른 것
+   * 하나만** 아래에 보인다. 선택지마다의 풀이는 낭독용으로 남아 `aria-describedby` 배선이 같다.
+   */
+  readonly variant?: 'cards' | 'segmented'
 }
 
 export function ChoiceCards<T extends string>({
@@ -55,11 +60,12 @@ export function ChoiceCards<T extends string>({
   value,
   onChange,
   children,
+  variant = 'cards',
 }: ChoiceCardsProps<T>) {
   const baseId = useId()
 
   return (
-    <fieldset className="choice-cards">
+    <fieldset className={variant === 'segmented' ? 'choice-cards choice-cards--segmented' : 'choice-cards'}>
       <legend className={legendClassName}>{legend}</legend>
       <div className="choice-cards__grid">
         {options.map((option) => {
@@ -99,6 +105,11 @@ export function ChoiceCards<T extends string>({
           )
         })}
       </div>
+      {variant === 'segmented' ? (
+        <p className="choice-cards__selected-desc" aria-hidden="true">
+          {options.find((option) => option.value === value)?.description}
+        </p>
+      ) : null}
       {children}
     </fieldset>
   )

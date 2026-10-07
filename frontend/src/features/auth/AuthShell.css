@@ -260,7 +260,7 @@
   padding: 0 var(--spacing-md);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
@@ -547,4 +547,95 @@
 .verify-banner__failure {
   color: var(--color-danger-text);
   font-size: var(--font-size-caption);
+}
+
+/* ── 10/7 디자인 결정 — 로그인 ─────────────────────────────────────── */
+.auth-lead {
+  margin: calc(var(--space-4) * -1) 0 var(--space-16);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.auth-input {
+  block-size: 44px;
+}
+
+.auth-submit {
+  block-size: 48px;
+}
+
+/* 비밀번호 보기 */
+.auth-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.auth-input--reveal {
+  inline-size: 100%;
+  padding-inline-end: 48px;
+  box-sizing: border-box;
+}
+
+.auth-reveal {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 4px;
+  margin-block: auto;
+  display: grid;
+  place-items: center;
+  inline-size: var(--target-button);
+  block-size: var(--target-button);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.auth-reveal:hover {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}
+
+.auth-reveal:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* 비밀번호 찾기 — 비밀번호 칸 바로 아래 오른쪽 */
+.auth-links--end {
+  justify-content: flex-end;
+  margin: calc(var(--space-4) * -1) 0 var(--space-4);
+}
+
+/* 계정이 없다면 */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin: var(--space-24) 0 var(--space-12);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  block-size: 1px;
+  background: var(--border-default);
+}
+
+.auth-alt {
+  display: flex;
+  gap: var(--space-8);
+}
+
+.auth-alt .auth-secondary {
+  flex: 1;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+  font-size: var(--font-size-label);
 }

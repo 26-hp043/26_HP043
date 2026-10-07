@@ -23,9 +23,13 @@ describe('공용 항로 disclosure', () => {
 
   it('우회가 있으면 어느 결이 어느 선인지 이름을 적는다 (#1853 ① · 디자인 확정)', () => {
     const text = routeDisclosure({ mode: 'comparison', source: SOURCE, kinds: ['DIRECT', 'DETOUR'] }).visibleText
-    // 직항은 긴 점선, 우회는 짧은 점선 — 매칭을 「꺾인 쪽이 우회」라는 추론에 맡기지 않는다
-    expect(text).toMatch(/직항선\(긴 점선\)/)
-    expect(text).toMatch(/우회선\(짧은 점선\)/)
+    // 매칭을 「꺾인 쪽이 우회」라는 추론에 맡기지 않는다 — 각 선 이름 옆에 그 결을 적고, 둘은 달라야 한다.
+    // 결의 문안 자체(10/7 진한 실선 · 주황 점선)는 표시 문구라 리터럴로 묶지 않는다 (AGENTS §4.6).
+    const direct = text.match(/직항선\(([^)]+)\)/)?.[1]
+    const detour = text.match(/우회선\(([^)]+)\)/)?.[1]
+    expect(direct).toBeTruthy()
+    expect(detour).toBeTruthy()
+    expect(direct).not.toBe(detour)
     expect(text).toContain('실제 항해 계획이 아닙니다')
   })
 

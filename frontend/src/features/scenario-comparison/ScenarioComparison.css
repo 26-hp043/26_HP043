@@ -50,18 +50,10 @@
  */
 .scenario-comparison__form {
   /*
-   * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 — 위 틈 +
-   * 최소 높이 `--shell-topbar-height` + 아래 틈. 고급 설정을 펼치면 기둥이 창보다 길어질 수 있어 높이를
-   * 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래 「비교하기」에 닿지 못한다.
+   * 입력 기둥은 따라 내려오지 않고 길게 선다 (#2315 · 10/7 디자인 결정). 종전에는 `§8.7`대로
+   * sticky 상단바 아래에 붙어 따라오며 기둥 안에서 스크롤했다 — 입력 칸이 늘면서 기둥 안
+   * 스크롤이 칸을 가렸다.
    */
-  --scenario-comparison-sticky-top: var(--shell-topbar-offset);
-
-  position: sticky;
-  top: var(--scenario-comparison-sticky-top);
-  max-block-size: calc(
-    100vh - var(--scenario-comparison-sticky-top) - var(--shell-gutter, var(--grid-gutter))
-  );
-  overflow-y: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -184,7 +176,7 @@
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   color: var(--color-text);
 }
 
@@ -358,25 +350,15 @@
  * 있는 사실의 요약**을 따로 띄우면 면만 하나 늘고 표와의 관계가 흐려진다(`§5`).
  */
 /*
- * 항목별 미니 막대 (#2202) — 표와 최소값 줄 사이, 같은 면 안(구분선으로 나눈다 · §5).
- *
- * 막대 색은 하나다 — 시나리오마다 색을 달리하면 한 안이 눈에 띈다(§11 중립). 트랙은
- * Primary Subtle, 채움은 Primary. 시나리오는 줄 앞 이름 글자가 가른다(§14).
+ * 항목별 비교 타일 (#2202 · 10/7) — 표 아래, 같은 면 안(구분선으로 나눈다 · §5).
+ * 막대 색은 지도 칩과 같은 시나리오 3색. 최솟값은 굵은 글자 + 태그가 말한다(§14).
  */
 .scenario-bars {
   border-block-start: 1px solid var(--color-border);
   padding: var(--space-16);
   display: flex;
   flex-direction: column;
-  gap: var(--space-8);
-}
-
-.scenario-bars__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-8);
+  gap: var(--space-12);
 }
 
 .scenario-bars__title {
@@ -386,84 +368,128 @@
   color: var(--color-text);
 }
 
-.scenario-bars__list {
+.scenario-bars__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: var(--space-12);
+}
+
+.scenario-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-inline-size: 0;
+  padding: var(--space-16);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  background: var(--surface-card);
+}
+
+.scenario-tile__title {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-strong);
+  color: var(--color-text);
+}
+
+.scenario-tile__unit {
+  font-weight: var(--font-weight-body);
+  color: var(--color-text-muted);
+}
+
+.scenario-tile__list {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: var(--space-8) var(--space-12);
+  gap: var(--space-8) var(--space-8);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* 줄마다 세 칸을 부모 격자에 맞춘다 — 이름 · 막대 · 값의 열이 줄끼리 나란해야 길이를 비교한다. */
-.scenario-bars__row {
+.scenario-tile__row {
+  --scenario-color: var(--semantic-primary);
   display: contents;
 }
 
-.scenario-bars__name {
+.scenario-tile__row--detour { --scenario-color: var(--color-warning-text); }
+.scenario-tile__row--slow_steaming { --scenario-color: var(--route-slow); }
+
+.scenario-tile__name,
+.scenario-tile__value {
   font-size: var(--font-size-label);
-  color: var(--color-text);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.scenario-bars__track {
+.scenario-tile__value {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.scenario-tile__row--lowest .scenario-tile__name,
+.scenario-tile__row--lowest .scenario-tile__value {
+  color: var(--color-text);
+  font-weight: var(--font-weight-strong);
+}
+
+.scenario-tile__track {
   display: block;
-  block-size: 10px;
+  block-size: 8px;
   min-inline-size: 0;
-  border-radius: var(--radius-pill);
-  background: var(--color-primary-subtle);
+  background: var(--color-border);
   overflow: hidden;
 }
 
-.scenario-bars__fill {
+.scenario-tile__fill {
   display: block;
   block-size: 100%;
-  border-radius: var(--radius-pill);
-  background: var(--color-primary);
+  background: var(--scenario-color);
 }
 
-.scenario-bars__value {
-  font-size: var(--font-size-label);
+.scenario-tile__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4) var(--space-8);
+  margin: 0;
+  margin-block-start: auto;
+  padding-block-start: var(--space-12);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.scenario-tile__tag {
+  flex-basis: 100%;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.scenario-tile__best {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
+  color: var(--color-text);
+}
+
+.scenario-tile__change {
+  margin-inline-start: auto;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
   font-variant-numeric: tabular-nums;
   color: var(--color-text);
-  text-align: end;
   white-space: nowrap;
 }
 
-.scenario-bars__unit,
-.scenario-bars__note {
+.scenario-tile__change small {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
   color: var(--color-text-muted);
 }
 
 .scenario-bars__note {
   margin: 0;
   font-size: var(--font-size-caption);
-}
-
-.scenario-comparison__lowest {
-  border-block-start: 1px solid var(--color-border);
-  padding: var(--space-16);
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-}
-
-.scenario-comparison__lowest-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-12);
-  font-size: var(--font-size-body);
-}
-
-.scenario-comparison__lowest-row dt {
   color: var(--color-text-muted);
-}
-
-.scenario-comparison__lowest-row dd {
-  margin: 0 0 0 auto;
-  font-weight: var(--font-weight-label);
 }
 
 .scenario-comparison__warnings {
@@ -647,7 +673,7 @@
  * 경고가 아니므로 상태색 스트라이프를 쓰지 않는다. 사실 설명이지 문제 제기가 아니다.
  */
 .scenario-table__same {
-  margin: var(--space-12) var(--space-16) 0;
+  margin: var(--space-12) var(--space-16) var(--space-16);
   background: var(--color-surface-2);
   border-radius: var(--radius-control);
   padding: var(--space-8) var(--space-12);
@@ -758,4 +784,39 @@
     max-block-size: none;
     overflow-y: visible;
   }
+}
+
+/* 속력 · 일일 연료 한 줄 (10/7 시안 05) */
+.scenario-comparison__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+  align-items: start;
+}
+
+/* 결과 위 안내 — 띠 상자 대신 작은 글씨 (10/7) */
+.scenario-comparison__notice {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+/* 표 머리 글리프를 지도 선과 같은 말로 (10/7) — 직항 · 감속 진한 실선, 우회 주황 점선 */
+.scenario-glyph__path {
+  stroke: var(--semantic-primary);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+
+th:has(.scenario-glyph) .scenario-glyph path.scenario-glyph__path,
+.scenario-glyph path.scenario-glyph__path {
+  stroke: var(--color-warning-text);
+  stroke-dasharray: 5 4;
+}
+
+/* 감속 글리프 — 감속 색 (10/7) */
+.scenario-glyph line.scenario-glyph__path--slow {
+  stroke: var(--route-slow);
 }

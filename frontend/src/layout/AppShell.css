@@ -35,8 +35,9 @@
 .app-shell {
   display: flex;
   min-height: 100%;
-  gap: var(--shell-gutter);
-  padding: var(--shell-gutter);
+  /* 10/7 시안 00 — 셸을 화면 끝에 붙인다. 여백은 스택이 갖는다. */
+  gap: 0;
+  padding: 0;
 
   /*
    * 어시스턴트 런처가 우하단에 고정으로 떠 있어(`AssistantOverlay.css`) 바닥까지
@@ -48,7 +49,6 @@
    * 값을 여기 적지 않는다 — 런처를 아는 파일이 갖는다. 폴백 `0px`은 그 CSS가
    * 없는 경로(셸 밖에서 쓰이는 조각)를 위한 것이다.
    */
-  padding-block-end: calc(var(--shell-gutter) + var(--assistant-launcher-reserve, 0px));
 
   /* 사이드바와 스택이 함께 읽어야 하므로 공통 조상에 둔다. */
   --shell-gutter: var(--grid-gutter);
@@ -59,7 +59,7 @@
    * (`stickyTop.sync.test.ts`가 잠갔다). 높이 리터럴은 **여기 한 곳**에만 둔다.
    */
   --shell-topbar-height: 56px;
-  --shell-topbar-offset: calc(var(--shell-gutter) * 2 + var(--shell-topbar-height));
+  --shell-topbar-offset: calc(var(--shell-topbar-height) + var(--shell-gutter));
 }
 
 /*
@@ -96,18 +96,20 @@
  * 둔다. 없으면 아래쪽 항목이 잘려 **접근할 방법이 사라진다.**
  */
 .app-shell__sidebar {
+  /* 10/7 시안 — 계정 카드를 사이드바 맨 아래로 (flex 순서로 옮긴다) */
+  display: flex;
+  flex-direction: column;
   flex: 0 0 var(--layout-sidebar-width);
   width: var(--layout-sidebar-width);
   align-self: flex-start;
   position: sticky;
-  top: var(--shell-gutter);
-  max-block-size: calc(100vh - var(--shell-gutter) * 2);
+  top: 0;
+  block-size: 100vh;
+  max-block-size: 100vh;
   overflow-y: auto;
   padding: var(--space-16) var(--space-12);
   background: var(--surface-card);
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
+  border-inline-end: var(--borderWidth-default) solid var(--border-default);
 }
 
 /* 접힘 상태 — 클래스 토글용 폭 전환. 창 폭에 따른 접힘은 아래 `1100px` 규칙이 맡는다 */
@@ -154,6 +156,7 @@
   flex: 1;
   min-width: 0;
   gap: var(--shell-gutter);
+  padding: 0 var(--shell-gutter) calc(var(--shell-gutter) + var(--assistant-launcher-reserve, 0px));
 }
 
 /* `§7.1` 폭 정책 — 최대 폭만 남는다. 좌우 여백은 셸이 한 값으로 준다. */
@@ -236,19 +239,23 @@
   flex-wrap: wrap;
   row-gap: var(--spacing-sm);
   min-height: var(--shell-topbar-height);
-  padding: var(--spacing-sm) var(--spacing-xl);
+  padding: var(--spacing-sm) var(--shell-gutter);
   background: var(--surface-card);
   color: var(--text-primary);
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+  /* 10/7 시안 00 — 스택 여백을 넘어 본문 열 전체에 붙는 띠 */
+  margin-inline: calc(var(--shell-gutter) * -1);
+  width: calc(100% + var(--shell-gutter) * 2);
+  max-width: none;
+  box-sizing: border-box;
   position: sticky;
-  top: var(--shell-gutter);
+  top: 0;
   z-index: 10;
 }
 
 /* 스티키 상단바 위 틈을 덮는 띠 — 위 주석 참조. 보이는 색은 페이지 배경이다. */
 .app-shell__topbar::before {
+  display: none;
   content: '';
   position: absolute;
   left: calc(var(--shell-gutter) * -1);
@@ -290,11 +297,12 @@
   flex: 0 1 auto;
   min-inline-size: 0;
   height: 32px;
-  max-width: 180px;
+  /* 10/7 — 셀렉트 화살표 자리(오른쪽 36px)가 늘어난 만큼 선명 「DONGJIN ENDURANCE」가 잘리지 않게 */
+  max-width: 216px;
   padding: 0 var(--spacing-sm);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   font-size: var(--font-size-label);
 }
@@ -617,4 +625,53 @@
     white-space: nowrap;
     border: 0;
   }
+}
+
+/*
+ * 사이드바 무리 제목 (10/7 시안 00) — 「분석」 · 「관리」. 링크가 아니라 구획 표시라
+ * 링크 글자보다 작고 옅게 두고, 위쪽 틈으로 앞 무리와 떼어 놓는다.
+ */
+.app-shell__nav-group {
+  padding: var(--spacing-md) var(--spacing-md) var(--space-4);
+  font-size: var(--font-size-micro);
+  line-height: 16px;
+  color: var(--color-text-muted);
+  list-style: none;
+}
+
+@media (max-width: 1100px) {
+  /* 아이콘만 남는 좁은 사이드바에서는 제목 대신 가는 선으로 구획만 남긴다 */
+  .app-shell__nav-group {
+    block-size: 0;
+    padding: 0;
+    margin: var(--space-8) var(--space-8);
+    overflow: hidden;
+    border-block-start: var(--borderWidth-default) solid var(--border-default);
+  }
+}
+
+/* 상단바 셀렉트는 높이 32의 작은 컨트롤 — 화살표를 조금 작게 · 오른쪽 8px 안쪽에 (10/7) */
+select.app-shell__util-select:not(#\#) {
+  background-position: right 8px center;
+  background-size: 14px 14px;
+  padding-inline-end: 28px;
+  min-inline-size: 9.5em;
+}
+
+/* 계정 카드 — 사이드바 맨 아래 (10/7 시안) */
+.app-shell__sidebar > .account-menu {
+  order: 99;
+  margin-block: auto 0;
+  padding-block: var(--space-12) 0;
+  border-block-end: 0;
+  border-block-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+/* 아래에 있으니 화살표는 위를 본다 — 열리면 아래로 */
+.app-shell__sidebar > .account-menu .account-menu__chevron {
+  transform: rotate(180deg);
+}
+
+.app-shell__sidebar > .account-menu [aria-expanded='true'] .account-menu__chevron {
+  transform: rotate(0deg);
 }

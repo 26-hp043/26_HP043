@@ -18,13 +18,6 @@
   gap: var(--space-16);
 }
 
-.vessel-management__actions {
-  display: flex;
-  gap: var(--space-12);
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .vessel-management__primary-link {
   background: var(--color-primary);
   color: var(--color-surface);
@@ -36,10 +29,6 @@
 
 .vessel-management__primary-link:hover {
   background: var(--color-primary-hover);
-}
-
-.vessel-management__link {
-  color: var(--color-link);
 }
 
 .vessel-management__notice {
@@ -72,20 +61,6 @@
   text-align: center;
 }
 
-/*
- * 배 실루엣 — 중립 회색이다(`VesselSilhouette` 주석 참조).
- *
- * `--text-secondary`를 쓴다. `--border-strong`은 흰 카드 위 1.3:1이라 40px에서도
- * 거의 안 보이고, 등급색은 이 화면에 없는 축을 끌어들인다.
- */
-.vessel-management__glyph {
-  flex: none;
-  /* 열 폭(32px)과 같다 — 다르면 뒤 열이 통째로 밀린다. */
-  inline-size: 32px;
-  block-size: 32px;
-  fill: var(--text-secondary);
-}
-
 .vessel-management__buttons {
   display: flex;
   gap: var(--space-8);
@@ -113,19 +88,6 @@
   cursor: not-allowed;
 }
 
-/*
- * 삭제는 평상시 중립이다 (#719).
- *
- * 종전에는 붉은 테두리가 **상시** 켜져 있어 목록 오른쪽 끝에 빨간 상자가 줄줄이
- * 섰다. `수정`과 크기·무게가 같아 둘 중 어느 쪽이 흔한 조작인지도 읽히지 않았다.
- * 위험 신호는 **손이 그쪽으로 갔을 때** 켠다 — hover·포커스가 그 순간이다.
- */
-.vessel-management__button--danger:hover:not(:disabled),
-.vessel-management__button--danger:focus-visible {
-  border-color: var(--color-danger);
-  color: var(--color-danger-text);
-}
-
 .vessel-management__submit {
   font-size: var(--font-size-body);
   height: var(--target-row);
@@ -145,31 +107,6 @@
 .vessel-management__submit:disabled {
   background: var(--color-text-disabled);
   cursor: not-allowed;
-}
-
-/*
- * 「이 배로 지금 할 수 없는 것」. 목록에서 바로 보여야 하는 정보다 —
- * 등급이 `—`인 이유를 사용자가 다른 화면에서 찾게 두지 않는다.
- */
-.vm__blocked {
-  /*
-   * 이름 열부터 시작한다 — 마크 열(32) + 거터(12)만큼 들여쓴다. 종전에는 행 전체
-   * 폭을 차지해 **1576px을 가로지르는데 실제 글자는 550px**이었고, 목록에서 가장
-   * 큰 면적을 경고가 먹었다.
-   *
-   * 문구는 손대지 않는다 — `#630`이 「연간 시뮬레이션이 실패한다」가 사실과 다른
-   * 것을 확인하고 고친 문장이다.
-   */
-  margin: var(--space-8) 0 0 calc(32px + var(--space-12));
-  padding: var(--space-8) var(--space-12);
-  border-left: 3px solid var(--color-warning);
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  font-size: var(--font-size-caption);
-  /*
-   * 이유가 둘이어도 한 줄이다 (`#1277`). 종전에는 세로로 쌓여 제원이 빈 행만
-   * 두 배 높이가 됐다 — 목록의 용건이 「제원을 채우는 것」이라 그런 행이 많다.
-   */
 }
 
 .vessel-management__form {
@@ -209,7 +146,7 @@
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   color: var(--color-text);
 }
 
@@ -284,18 +221,16 @@
    * 목록을 `200px`로 좁혀 읽은 각 행의 `scrollWidth`가 두 상태 모두 `1006`이다. 등급 칸은
    * 최소 `104`로 섰고, 배지와 CII를 쌓아도 행 높이는 쌓지 않은 행과 같은 `42`였다.
    */
-  min-inline-size: 1006px;
+  /* 10/7 — 열을 다섯으로 줄였다(선종 · 용량은 이름 아래 한 줄, 기준속도 · 일일 연료는 「데이터」로). */
+  min-inline-size: 760px;
 
   --vm-cols:
-    32px
-    minmax(170px, 2.2fr)
-    minmax(104px, 1.2fr)
-    minmax(84px, 1fr)
-    minmax(96px, 1.1fr)
-    minmax(84px, 1fr)
-    minmax(84px, 1fr)
-    minmax(124px, 1.4fr)
-    132px;
+    100px
+    minmax(200px, 2.2fr)
+    minmax(80px, 0.8fr)
+    minmax(156px, 1.2fr)
+    minmax(112px, 1.2fr)
+    40px;
 
   list-style: none;
   margin: 0;
@@ -351,7 +286,8 @@
   padding-bottom: 0;
 }
 
-.vm__item:hover {
+/* 수정 중인 행의 면을 hover가 덮지 않게 뺀다 (#2148) */
+.vm__item:not(.vm__item--editing):hover {
   background: var(--surface-inset);
 }
 
@@ -493,20 +429,10 @@
   outline-offset: 2px;
 }
 
-.vm__imo {
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-}
-
 .vm__cell {
   min-inline-size: 0;
   font-size: var(--font-size-label);
   color: var(--text-primary);
-}
-
-.vm__cell--num {
-  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -561,12 +487,6 @@
   color: var(--text-secondary);
 }
 
-/* 단위는 값에 딸린 것이라 값보다 가볍게 둔다 — 열을 훑을 때 숫자가 먼저 잡힌다. */
-.vm__unit {
-  color: var(--text-secondary);
-  font-size: var(--font-size-caption);
-}
-
 .vm__actions {
   display: flex;
   gap: var(--space-8);
@@ -612,7 +532,7 @@
   padding: 0 var(--spacing-sm);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
@@ -629,7 +549,7 @@
   padding: 0 var(--spacing-sm);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-label);
@@ -670,4 +590,240 @@
 .vm__filter:focus-visible {
   outline: var(--focus-outline);
   outline-offset: 2px;
+}
+
+/* ── 10/7 디자인 결정 — 머리 한 줄 · 데이터 칸 · ⋯ 메뉴 · 오른쪽 수정 패널 ─────────── */
+
+.vessel-management > .page-head {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-12);
+}
+
+.vm__count {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vm__register {
+  margin-inline-start: auto;
+  align-self: center;
+}
+
+.vm__spec {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-inline-size: 0;
+}
+
+.vm__data {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vm__data--gap {
+  color: var(--color-warning-text);
+}
+
+.vm__item--editing {
+  background: var(--color-primary-subtle);
+}
+
+.vm__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.vm-menu {
+  position: relative;
+}
+
+.vm-menu__toggle {
+  display: grid;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.vm-menu__toggle:hover,
+.vm-menu__toggle[aria-expanded='true'] {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}
+
+.vm-menu__toggle:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.vm-menu__list {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: calc(100% + 4px);
+  z-index: 5;
+  min-inline-size: 132px;
+  margin: 0;
+  padding: var(--space-4);
+  list-style: none;
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-lv2);
+}
+
+.vm-menu__item {
+  display: block;
+  inline-size: 100%;
+  padding: var(--space-8) var(--space-12);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-label);
+  text-align: start;
+  cursor: pointer;
+}
+
+.vm-menu__item:hover,
+.vm-menu__item:focus-visible {
+  background: var(--surface-inset);
+}
+
+.vm-menu__item--danger {
+  color: var(--color-danger-text);
+}
+
+/* 목록 + 수정 패널 */
+.vm-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-16);
+  align-items: start;
+}
+
+.vm-layout--editing {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+}
+
+@media (max-width: 1100px) {
+  .vm-layout--editing {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 패널이 열리면 목록 칸이 좁아진다 — 표는 카드 안에서 가로로 스크롤한다(#1788) */
+.vm-edit {
+  position: sticky;
+  inset-block-start: calc(var(--shell-topbar-offset, 0px) + var(--space-16));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.vm-edit__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.vm-edit__title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-edit__close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  inline-size: 32px;
+  block-size: 32px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.vm-edit__close:hover {
+  background: var(--surface-inset);
+}
+
+.vm-edit .vessel-management__form {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.vm-edit .vessel-management__form > .field:first-of-type,
+.vm-edit .vessel-management__form > .vm-edit__more {
+  grid-column: 1 / -1;
+}
+
+.vm-edit__more > summary {
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vm-edit__more-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+  margin-top: var(--space-12);
+}
+
+.vm-edit .vessel-management__buttons {
+  justify-content: flex-end;
+}
+
+/* 넓은 창에서는 표가 넘치지 않는다(최소 720) — ⋯ 메뉴가 래퍼에 잘리지 않게 넘침 처리를 푼다 */
+@media (min-width: 1280px) {
+  /* 패널(제원 수정 · 어시스턴트)이 열려 있으면 목록 칸이 760보다 좁아질 수 있어 넘침 처리를 둔다 */
+  .app-shell:not(.app-shell--assistant-open) .vm-layout:not(.vm-layout--editing) .vm__list-wrap {
+    overflow: visible;
+  }
+}
+
+.vm-edit__gap {
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  border-inline-start: 3px solid var(--color-warning-text);
+  color: var(--text-primary);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.vm-edit__gap strong {
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-strong);
+}
+
+/* 선종 일러스트 썸네일 (10/7) */
+.vm__thumb {
+  display: block;
+  inline-size: 100px;
+  padding: 8px 6px 4px;
+  border-radius: var(--radius-control);
+  background: var(--ship-sea);
+  box-sizing: border-box;
 }

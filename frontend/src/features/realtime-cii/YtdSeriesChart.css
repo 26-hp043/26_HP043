@@ -135,3 +135,14 @@
 .ytds__sub {
   color: var(--text-secondary);
 }
+
+/* 값 표 접기 (10/7) */
+.ytds__more > summary {
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.ytds__more[open] > summary {
+  margin-block-end: var(--space-8);
+}

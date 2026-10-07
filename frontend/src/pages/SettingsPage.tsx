@@ -2,7 +2,9 @@ import { AccountPanel } from '../features/account/AccountPanel'
 import { RegulationParametersSection } from '../features/parameters/RegulationParametersSection'
 import { PageHeader } from '../components/PageHeader'
 import { isAdmin, useAuthUser } from '../auth/session'
-import { visibleSections } from './settingsSections'
+import { Tabs, type TabDef } from '../components/Tabs'
+import { REGULATION_PARAMETERS_ANCHOR } from '../features/parameters/referenceRules'
+import { useEffect, useState } from 'react'
 import './SettingsPage.css'
 
 /**
@@ -19,43 +21,49 @@ import './SettingsPage.css'
  * 시작되는 세 자리가 이 절로 링크한다. 조회는 세 역할 모두이므로(결정 D) 이 화면에는
  * 역할 가드가 없다 — 적재·기록(`#1517`)만 사무직이다.
  */
+type SettingsTab = 'account' | 'team' | 'regulation'
+
+/**
+ * 탭 셋 (10/7 디자인 결정) — 절 여섯이 한 장에 쌓여 2.24 화면이던 것을 「내 계정 · 팀 · 역할 ·
+ * 규제 기준값」으로 가른다. 밖에서 오는 `#regulation-parameters` 링크(`regulationParametersPath`)는
+ * 규제 기준값 탭을 연다 — 앵커가 가리키던 절이 그 탭 안에 그대로 있다.
+ */
+function initialTab(admin: boolean): SettingsTab {
+  if (typeof window === 'undefined') return 'account'
+  const fromQuery = new URLSearchParams(window.location.search).get('tab')
+  if (fromQuery === 'regulation' || window.location.hash === `#${REGULATION_PARAMETERS_ANCHOR}`) return 'regulation'
+  if (fromQuery === 'team' && admin) return 'team'
+  return 'account'
+}
+
 export function SettingsPage() {
-  const sections = visibleSections(isAdmin(useAuthUser()))
+  const admin = isAdmin(useAuthUser())
+  const [tab, setTab] = useState<SettingsTab>(() => initialTab(admin))
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash === `#${REGULATION_PARAMETERS_ANCHOR}`) setTab('regulation')
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+
+  const items: TabDef[] = [
+    { id: 'account', label: '내 프로필', render: () => <AccountPanel part="account" /> },
+    ...(admin
+      ? [{ id: 'team', label: '팀 · 역할', render: () => <AccountPanel part="team" /> }]
+      : []),
+    { id: 'regulation', label: '규제 기준값', render: () => <RegulationParametersSection /> },
+  ]
 
   return (
-    <div className="page">
-      <PageHeader screen="SETTINGS">
-        <p className="page-head__sub">
-          계정 정보와 비밀번호를 관리하고, CII 계산이 쓰는 규제 기준값을 확인합니다.
-        </p>
-      </PageHeader>
-
-      {/*
-        ── 절 목차 (#1791) ────────────────────────────────────────────────
-
-        이 화면은 절이 여섯이고 **2.24 화면**이다 — 실측(1440 × 900)으로 문서 높이
-        `2,012px`이고 **규제 기준값이 `1,021px`(1.13 화면) 아래**에서 시작한다. 이 화면에서
-        가장 자주 찾는 절이 첫 화면에 없고 내려가는 길이 스크롤뿐이었다.
-
-        **하위 메뉴를 만들지 않는다**(`#1239` 결정 A·B) — 「네 표 50행을 1년에 한두 번 보는
-        화면에 사이드바 탭은 과하다」. 실제 불편은 「스크롤이 길다」 하나이므로 그만 덜어낸다.
-
-        밖에서 들어오는 링크(`regulationParametersPath()` · `#1239`의 세 자리)는 이미
-        동작한다 — 이 줄은 **화면 안에서** 내려가는 길이다.
-
-        목록은 `settingsSections`가 소유한다. 절도 같은 목록에서 제목과 `id`를 가져가므로
-        목차에 없는 절이나 없는 자리로 가는 링크가 생길 자리가 없다.
-      */}
-      <nav className="settings-toc" aria-label="설정 절 바로가기">
-        {sections.map((section) => (
-          <a key={section.id} className="settings-toc__link" href={`#${section.id}`}>
-            {section.label}
-          </a>
-        ))}
-      </nav>
-
-      <AccountPanel />
-      <RegulationParametersSection />
+    <div className="page settings">
+      <PageHeader screen="SETTINGS" />
+      <Tabs
+        label="설정 구획"
+        items={items}
+        current={tab}
+        onSelect={(id) => setTab(id as SettingsTab)}
+      />
     </div>
   )
 }

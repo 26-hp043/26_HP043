@@ -147,7 +147,7 @@
 .rp select {
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-body);
@@ -299,12 +299,6 @@
   color: var(--text-secondary);
 }
 
-.rp__note {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  color: var(--text-secondary);
-}
-
 /*
  * 1100 이하에서는 조건이 위, 문서가 아래로 접힌다(`§8.7`). 접힌 뒤에는 따라오지 않는다
  * — 문서 위에 조건이 덮이면 문서를 읽을 수 없다.
@@ -328,4 +322,45 @@
   .rp__frame {
     block-size: 70vh;
   }
+}
+
+/* ── 10/7 디자인 결정 — 머리 버튼 · 세로 종류 카드 · 종이 미리보기 ───────── */
+.rp > .page-head {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+
+.rp > .page-head .page-head__title {
+  flex-basis: 100%;
+}
+
+.rp__head-actions {
+  display: flex;
+  gap: var(--space-8);
+}
+
+.rp__kinds {
+  grid-template-columns: 1fr;
+}
+
+.rp__doc .rp__frame,
+.rp__doc .rp__placeholder {
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.rp__doc {
+  background: var(--surface-inset);
+}
+
+.rp__frame {
+  inline-size: 100%;
+  max-inline-size: 820px;
+  margin-inline: auto;
+  min-block-size: calc(100vh - 220px);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-lv2);
 }

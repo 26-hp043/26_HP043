@@ -92,9 +92,9 @@ export function AnnualPlayback({ result, geometryProvider, projectedYear, vessel
   }, [])
 
   if (currentGeometryState.status === 'loading') return null
-  if (currentGeometryState.status === 'unavailable') return <p className="annual-sim__map-unavailable" role="status">
-    이 실행의 스냅샷에는 항로 좌표가 없어 지도와 재생 제어를 표시하지 않습니다.
-  </p>
+  // 좌표가 없는 실행은 지도 자리를 비운다 (10/7 · A7) — 「스냅샷에 항로 좌표가 없어…」는 개발 쪽 사정이라
+  // 사용자가 할 일이 없는 문장이었다. 결과 숫자는 이 지도와 무관하게 그대로 있다.
+  if (currentGeometryState.status === 'unavailable') return null
   if (currentGeometryState.status === 'error') return <section className="annual-sim__playback" aria-label="항로 재생">
     <p role="alert">항로 좌표를 불러오지 못했습니다. {currentGeometryState.message}</p>
     <button type="button" onClick={() => setAttempt((value) => value + 1)}>다시 시도</button>

@@ -55,6 +55,11 @@ export interface MapLibreMapModel {
   readonly qualityTier?: MapQualityTier
   /** 「이 배를 보여 달라」 (#1831). 생략하면 아무 일도 하지 않는다. */
   readonly focus?: MapFocusModel | null
+  /**
+   * 항로 비교에서 한 노선을 앞으로 (10/7) — 고른 쪽은 그대로 · 굵게, 나머지는 흐리게. `null` ·
+   * 생략이면 둘 다 기본 모양이다.
+   */
+  readonly highlight?: 'DIRECT' | 'DETOUR' | 'SLOW' | null
 }
 
 function ensureProtocol(): void {
@@ -281,6 +286,7 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
         const directStyle = routeStyle(model.mode === 'fleet' ? 'fleet-current' : 'comparison-direct')
         const detourStyle = routeStyle('comparison-detour')
         const accent = getComputedStyle(document.documentElement).getPropertyValue(directStyle.colorToken).trim()
+        const detourColor = getComputedStyle(document.documentElement).getPropertyValue(detourStyle.colorToken).trim()
         const directPaint = {
           ...(accent === '' ? {} : { 'line-color': accent }),
           'line-width': directStyle.width, 'line-opacity': directStyle.opacity,
@@ -296,11 +302,27 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
           filter: ['==', ['get', 'kind'], 'DETOUR'],
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           paint: {
-            ...(accent === '' ? {} : { 'line-color': accent }),
+            ...(detourColor === '' ? {} : { 'line-color': detourColor }),
             'line-width': detourStyle.width, 'line-opacity': detourStyle.opacity,
             'line-dasharray': [...detourStyle.dash],
           },
         })
+      }
+      if (model.mode === 'comparison' && map.getLayer?.('routes') !== undefined) {
+        const direct = routeStyle('comparison-direct')
+        const detour = routeStyle('comparison-detour')
+        const pick = model.highlight ?? null
+        const DIM = 0.22
+        const css = getComputedStyle(document.documentElement)
+        // 감속은 직항과 같은 길 — 고르면 그 선을 감속 색으로 바꾼다(`--route-slow`).
+        const lineColor = css.getPropertyValue(pick === 'SLOW' ? '--route-slow' : direct.colorToken).trim()
+        if (lineColor !== '') map.setPaintProperty('routes', 'line-color', lineColor)
+        map.setPaintProperty('routes', 'line-opacity', pick === 'DETOUR' ? DIM : direct.opacity)
+        map.setPaintProperty('routes', 'line-width', pick === 'DIRECT' || pick === 'SLOW' ? direct.width + 1.5 : direct.width)
+        if (map.getLayer?.('routes-detour') !== undefined) {
+          map.setPaintProperty('routes-detour', 'line-opacity', pick === 'DIRECT' || pick === 'SLOW' ? DIM : detour.opacity)
+          map.setPaintProperty('routes-detour', 'line-width', pick === 'DETOUR' ? detour.width + 1.5 : detour.width)
+        }
       }
       if (!fitted && !cameraPlaced && model.routes.bounds.length > 0) {
         const bounds = new maplibregl.LngLatBounds()

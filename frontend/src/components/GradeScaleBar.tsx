@@ -1,5 +1,4 @@
 import './GradeScaleBar.css'
-import { gradePatternUrl } from './gradePattern'
 import { buildGradeScale, type DVector } from './gradeScale'
 import type { Rating } from '../features/voyage-cii/types'
 
@@ -91,7 +90,6 @@ export function GradeScaleBar({
         <div className="grade-scale-bar__bands">
           {scale.bands.map((band) => {
             const lower = band.rating.toLowerCase()
-            const pattern = gradePatternUrl(band.rating)
 
             return (
               <div
@@ -99,19 +97,19 @@ export function GradeScaleBar({
                 className="grade-scale-bar__band"
                 style={{
                   flexGrow: band.fraction,
-                  background: `var(--cii-${lower}-fill)`,
+                  background: `var(--cii-${lower}-bg)`,
+                  color: `var(--cii-${lower}-text)`,
                 }}
               >
                 {/*
-                  뷰박스를 두지 않는다. 사용자 단위가 곧 CSS 픽셀이라 4px 타일이
-                  4px로 그려진다 — 뷰박스를 주고 폭에 맞춰 늘이면 무늬가 가로로
-                  찌그러진다.
+                  10/7 — 등급 배지와 같은 표기(연한 면 · 진한 글자 · 무늬 없음). 무늬를 빼는 근거는
+                  `§2.4.4` 「패턴 미적용」(등급 문자가 색면 **안에** 놓이는 자리)이라, 축 아래에 있던
+                  문자를 구간 안으로 옮겼다. 낭독은 트랙의 `aria-label`이 맡는다.
                 */}
-                {pattern ? (
-                  <svg className="grade-scale-bar__pattern" aria-hidden="true">
-                    <rect width="100%" height="100%" fill={pattern} />
-                  </svg>
-                ) : null}
+                <span className="grade-scale-bar__band-label" aria-hidden="true">
+                  {band.rating}
+                </span>
+
               </div>
             )
           })}
@@ -125,18 +123,7 @@ export function GradeScaleBar({
         </div>
       </div>
 
-      {/* §9.4 — 구간을 칠했으므로 등급 문자를 병기한다. */}
-      <figcaption className="grade-scale-bar__axis" aria-hidden="true">
-        {scale.bands.map((band) => (
-          <span
-            key={band.rating}
-            className="grade-scale-bar__axis-label"
-            style={{ flexGrow: band.fraction }}
-          >
-            {band.rating}
-          </span>
-        ))}
-      </figcaption>
+      {/* §9.4 등급 문자 병기 — 구간 안으로 옮겼다(10/7). */}
     </figure>
   )
 }
