@@ -46,7 +46,10 @@ class NotUnderwayFuelUse(Base):
             ondelete="CASCADE",
             onupdate=FK_ON_UPDATE,
         ),
-        # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
+        # [S-1] / §7.1: fuel_type → fuel_type(code). CUBRID에서는 FK가 아니라 트리거다 —
+        # 자식 쪽 trg_nu_fuel_use_fuel_type_ref_ins/upd, 부모 쪽 개명은
+        # trg_fuel_type_code_no_rename(068)이 거부하고(ON UPDATE CASCADE 없음), 부모 쪽 삭제는
+        # 막지 않는다(DB_SCHEMA §7.4).
         # MEPC.385(81) Appendix IX DCS 보고 항목 4값 (데이터연도 2026~).
         sa.CheckConstraint(
             "consumer_type IN ('MAIN_ENGINE','AUX_ENGINE','OIL_FIRED_BOILER','OTHER')",

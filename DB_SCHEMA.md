@@ -101,7 +101,7 @@ erDiagram
 | `ship_type` | VARCHAR(50) | NOT NULL | CII 선종 enum. `cii_reference_line.ship_type`에 존재해야 함 |
 | `gross_tonnage` | NUMERIC(12,2) | NULL | GT |
 | `deadweight` | NUMERIC(12,2) | NULL | DWT |
-| `default_fuel_type` | VARCHAR(30) | NULL, **FK → fuel_type(code) ON UPDATE CASCADE** [S-1] | 기본 연료 코드 |
+| `default_fuel_type` | VARCHAR(30) | NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_vessel_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부** [S-1] | 기본 연료 코드 |
 | `reference_speed_kn` | NUMERIC(6,2) | NULL, **60 이하 — 트리거 `trg_chk_speed_max_ins`·`_upd`** [#1269] | 기준 속도 (kn). 상한은 VAL-009의 물리 상한(`PRD §9.1` · 마이그레이션 062) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
@@ -172,7 +172,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 
 > `gross_tonnage`와 `deadweight`는 PRD §7.2에서 "조건부 필수"이다. CII 계산 시점에 VAL-010으로 검증한다.
 >
-> **[S-1]** `default_fuel_type`에 FK 제약 추가. `fuel_type.code`를 참조하며 `ON UPDATE CASCADE`로 코드 변경 시 자동 전파.
+> **[S-1]** `default_fuel_type`에 FK 제약 추가. `fuel_type.code`를 참조하며 `ON UPDATE CASCADE`로 코드 변경 시 자동 전파 — 이것이 PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부한다.** 연료를 바꾸려면 새 코드를 넣고 옛 코드를 `is_active = 0`으로 끈다.
 
 ---
 
@@ -281,7 +281,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
 |---|---|---|---|
 | `id` | UUID | PK | ID |
 | `voyage_id` | UUID | NOT NULL, FK → voyage(id) **ON DELETE CASCADE** [DB-C-3] | 항차 ID |
-| `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE** [S-1] | 연료 종류 |
+| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부** [S-1] | 연료 종류 |
 | `planned_fuel_ton` | NUMERIC(12,4) | NULL | 계획 연료 사용량 |
 | `actual_fuel_ton` | NUMERIC(12,4) | NULL | 실제 연료 사용량 |
 | `cf_used` | NUMERIC(10,6) | NOT NULL | **입력 시점의 CF 기록** — 확정 실적의 계산 근거. 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다 (`#832`) |
@@ -314,7 +314,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 
 > **[ORACLE-C-4 제약]** `voyage.status = COMPLETED` 전환 시 최소 1개 `voyage_fuel_use.actual_fuel_ton > 0`이 필요하다. 이는 DB 제약보다 애플리케이션 서비스 계층에서 검증한다. DB 트리거 대안도 가능하나 복잡도가 높다.
 >
-> **[S-1]** `fuel_type`에 FK 제약 추가. `ON UPDATE CASCADE`로 연료 코드 변경 시 자동 전파.
+> **[S-1]** `fuel_type`에 FK 제약 추가. `ON UPDATE CASCADE`로 연료 코드 변경 시 자동 전파 — PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부한다.**
 >
 > **[S-2]** `(voyage_id, fuel_type)` UNIQUE 제약 추가. 동일 항차에 동일 연료 타입 레코드가 중복 삽입되는 것을 방지한다. 중복 시 CII 계산에서 CO₂ 배출량이 이중 산정되는 치명적 버그가 발생한다.
 
@@ -1099,7 +1099,7 @@ CREATE INDEX idx_not_underway_period_voyage
 | `id` | UUID | PK, NOT NULL DEFAULT `gen_random_uuid()` | 행 ID |
 | `period_id` | UUID | NOT NULL, **FK → not_underway_period(id) ON DELETE CASCADE** | 소속 구간 |
 | `consumer_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 4종 | `MAIN_ENGINE`/`AUX_ENGINE`/`OIL_FIRED_BOILER`/`OTHER` |
-| `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE ON DELETE NO ACTION** | 연료 코드 |
+| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_nu_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부 · 부모 쪽 삭제는 막지 않는다(`§7.4`)** | 연료 코드 |
 | `fuel_ton` | NUMERIC(12,2) | NOT NULL, CHECK `fuel_ton > 0` | 사용량 (t) |
 | `cf_used` | NUMERIC(10,6) | NOT NULL, CHECK `cf_used > 0` | **계산 시점 CF snapshot** (마이그레이션 030 · `#378`) |
 
@@ -1677,9 +1677,9 @@ CREATE INDEX idx_port_call_record_sign ON port_call_record (call_sign, port_auth
 | `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조. ⚠️ **CUBRID에서는 FK가 아니라 트리거다** — `§2.6 [S-6]`·`§7.4` (`050`) |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
 | `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
-| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
-| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION. ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
-| `fuel_type(code)` | `not_underway_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION. ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 트리거 `trg_nu_fuel_use_fuel_type_ref_ins/upd`(`a7d3e9b14f26`) · `§2.18` |
+| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068` · #2260), ON DELETE NO ACTION (활성 연료 삭제 방지 — **CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_vessel_fuel_type_ref_ins/upd` · `§7.4` |
+| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · `§7.4` |
+| `fuel_type(code)` | `not_underway_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_nu_fuel_use_fuel_type_ref_ins/upd`(`a7d3e9b14f26`) · `§2.18` |
 | `vessel(id)` | `vessel_position_snapshot.vessel_id` | **RESTRICT** | 위치 이력 보존(`§2.21`) — 선박은 soft-delete만 |
 | `vessel(id)` | `not_underway_period.vessel_id` | **RESTRICT** | 정박 구간 보존(`§2.17`) |
 | `vessel(id)` | `chat_session.vessel_id` | **SET NULL** [#1242 · 056] | 선박이 지워져도 대화는 남고 귀속만 푼다(`§2.23`) |
@@ -1866,6 +1866,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 | `050` | `chk_capacity_rule`을 정본 `[M-7]`에 맞게 좁혔다(`LIKE 'fixed %'` → `REGEXP BINARY`) |
 | `066` | 해시 형식 4(`trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`)를 `REGEXP` → `REGEXP BINARY`로 교체 — 대문자 hex·`SHA256:` 접두 거부(#2103). 이름·시점·개수는 그대로 |
 | `067` | `054`의 활성-유니크 6(`trg_regulation_year_active_unique_*`·`trg_cii_reference_line_active_unique_*`·`trg_cii_rating_boundary_active_unique_*`)의 조건을 `IF EXISTS (…)` → `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체 — 활성 행이 있는 키의 **이행 행** INSERT·UPDATE 통과, 활성 둘은 여전히 거부(#2104 · `047`과 같은 모양). 이름·시점·개수는 그대로 |
+| `068` | 부모 쪽 연료 코드 개명 거부 1(`trg_fuel_type_code_no_rename` · `BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`) — `code`가 바뀌는 UPDATE만 거부, 다른 열 갱신·seed `REPLACE`는 통과(#2260 · 2항). 합계 176 → **177** |
 
 조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
 (불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
@@ -1874,7 +1875,8 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 되살렸을 때 **가려져 있던 결함이 그 자리에서 드러났다** — `test_constraint_triggers_db`가
 허용값에 없는 `calculation_type = 'VOYAGE_CII'`를 넣고 있었다(코드 어디에도 없는 값이다).
 
-그래서 **지금 되살리지 않은 것은 하나뿐이다.**
+그래서 **지금 되살리지 않은 것은 하나뿐이다** — 부모 쪽 **삭제**다. 부모 쪽 **개명**(UPDATE)은
+`068`(#2260)이 `trg_fuel_type_code_no_rename`으로 막는다(위 2항).
 
 - 🔴 **부모 쪽 연료 코드 삭제 금지** — 원래 FK의 `ON DELETE NO ACTION`에 해당한다.
   한 번 트리거로 넣었다가 **뺐다.** `db/seed.py`의 재적재가
@@ -1907,8 +1909,18 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    → ERROR: does not include the primary key member 'id'.  (errno=-920)
    ```
 
-2. **`ON UPDATE CASCADE`를 지원하지 않는다.** `§7.1`이 연료 코드 변경 시 전파를
-   규정하지만 CUBRID에서는 **전파 대신 막는다.** 여는 쪽이 아니라 닫는 쪽으로 다르다.
+2. **`ON UPDATE CASCADE`를 지원하지 않는다.** 전환 전 `§7.1`은 연료 코드 변경 시 전파를
+   규정했지만 CUBRID에서는 **전파 대신 막는다** — 여는 쪽이 아니라 닫는 쪽으로 다르다.
+   ⚠️ **그런데 `067`까지는 막는 장치도 없었다** (#2260 · 2026-10-07 `cii_test` 실측 —
+   `UPDATE fuel_type SET code = 'HFO_RENAMED'`가 통과하고 자식 36행이 없는 코드 `HFO`를 그대로
+   가리켰다). 자식 쪽 트리거(1항)는 **넣는 쪽만** 보고, 1항대로 FK가 아니라 FK의 `RESTRICT`도
+   없었다. `068`이 부모 쪽 `BEFORE UPDATE` 트리거 `trg_fuel_type_code_no_rename`
+   (`IF new.code <> obj.code EXECUTE REJECT`)로 **`code`가 바뀌는 UPDATE만** 거부한다 — `cf`·
+   `display_name`·`is_active` 갱신(`§7.2` 제자리 갱신 · `parameter_import._apply_fuel_types`)은
+   통과하고, seed 재적재(`REPLACE INTO` = DELETE + INSERT)는 UPDATE가 아니라 걸리지 않는다.
+   **참조 행이 없어도 막는다** — `code`는 앱 전체가 연료를 부르는 이름이고(적재·seed·CF 조회 ·
+   계산 이력 `parameters_used`), 연료를 바꾸는 운용은 새 코드 + 옛 코드 `is_active = 0`이다.
+   개명하는 앱 경로는 없다. `tests/test_constraint_triggers_db.py`가 거부·통과·무조건 셋을 고정한다.
 3. **트리거 상관명이 `OLD`가 아니라 `obj`다.** `old`를 쓰면
    「Attribute "old" was not found」로 생성 자체가 선다.
 4. **`to_jsonb(NEW) - 'needs_recalc'`가 없다.** `§7.3`의 `calc_run_guard()`는 그 연산으로
@@ -2012,18 +2024,19 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `067`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `068`** | 무엇 |
 |---|---|---|---|
 | `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
-| 그 밖 | 20 | **30** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
-| **합계** | **148** | **176** | 전환 직후에는 **0개**였다 |
+| 그 밖 | 20 | **31** | 해시 형식 4 · 연료 코드 참조 6 · **`068` 연료 코드 개명 거부 1**(`trg_fuel_type_code_no_rename` — 부모 쪽 `BEFORE UPDATE`) · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
+| **합계** | **148** | **177** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
 > 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다), `066`은 해시 형식 4를 지우고
 > 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 066 적용 후 176 실측), `067`도 활성-유니크 6을
-> 지우고 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 067 적용 후 176 실측). `SELECT count(*)
+> 지우고 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 067 적용 후 176 실측), `068`(+1 — 부모 쪽
+> 연료 코드 개명 거부)로 **177**(2026-10-07 `cii_test`에 068 적용 후 177 실측). `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
@@ -2052,7 +2065,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2395,3 +2408,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-07 | `#2270` | **문서의 두 서술이 서로 어긋나던 자리와 끝난 작업을 미래형으로 적던 자리를 모델·마이그레이션에 맞췄다** (#2140). ⑴ **§1 ER 다이어그램** — 선 집합을 `§7.1` 총람 25행과 같게 했다. FK가 아닌 선 다섯(`REGULATION_YEAR`·`CII_REFERENCE_LINE`·`CII_RATING_BOUNDARY` → `CALCULATION_RUN` · `AUDIT_LOG` → `VESSEL`·`VOYAGE`)을 지우고, 빠져 있던 FK 넷(`VESSEL` → `CALCULATION_RUN`·`SIMULATION_SNAPSHOT` · `CALCULATION_RUN` → `ANNUAL_SIMULATION_RUN` · `WEATHER_SNAPSHOT` → `CALCULATION_RUN`)을 더했으며, nullable인데 `\|\|`로 그려져 있던 넷(`voyage_scenario.voyage_id`·`weather_snapshot_id` · `calculation_run.voyage_id` · `vessel.default_fuel_type`)을 `\|o`로 고쳤다. 그리지 않는 표는 넷이 아니라 **여덟**이고 다이어그램에는 18개가 있다. ⑵ **§7.2** — 표는 `fuel_type`을 「제자리 갱신」 예외로 두는데 바로 아래 각주가 「새 `version` 행 + `is_active` 전환」 대상으로 꼽고 있었다. `code`가 `UNIQUE`라 뒤쪽이 성립하지 않는다 — 각주를 표에 맞췄고, 그 운용을 하는 표를 `regulation_year`·`cii_reference_line`·`cii_rating_boundary`로 적었다. 같은 표의 「운영 데이터」 행에 `updated_at`을 가진 `not_underway_period`·`app_user`가 빠져 있어 더했다(같은 절이 「7개 테이블」로 적는다). ⑶ **§2.22** — DDL이 적던 CHECK 둘은 `043`에도 ORM에도 없다. `target`은 트리거 `trg_fleet_plan_target_ins`·`_upd`가 막고 `name` 공백은 DB가 보지 않는다(입력 스키마가 본다)로 고쳤다. ⑷ **끝난 작업의 미래형** — §2.5 `weather_snapshot_id` 행의 「016+ 후속 마이그레이션에서 추가」(`016`이 했다 · `#115`), §2.15.1의 「실물 테이블 생성은 `#408`이 담당한다」(`#408` 닫힘 · PR `#420`). ⑸ 그 밖 — §2.15·§2.15.1의 `app_session` 둘을 실제 표 이름 `user_session`으로, §2.25 「쓰는 쪽은 수집기 하나」에 데모 시드를 더했다. **스키마·마이그레이션·모델은 바꾸지 않았다.** 이슈가 함께 짚은 `§7.4` 2항(연료 코드 개명)은 이 변경에 들지 않는다 — 개명은 실제로 막히지도 전파되지도 않아 문서의 두 서술 어느 쪽과도 다르고, 어느 쪽으로 할지는 `#2260`이 정한다. 같은 전제의 서술이 `§7.1` 연료 코드 세 행(「ON UPDATE CASCADE」)과 `§2.1` · `§2.3` · `§2.18`의 연료 열 설명에도 남아 있다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 |
 | 2026-10-07 | `#2278` | §8.1.1 **「배포에 별도 스크립트 실행 단계가 없다」를 실제에 맞췄다** (#2264). `deploy.yml`은 `alembic upgrade head` 바로 뒤에 매 배포 `python -m cii_platform.db.seed`를 실행하는데 문서는 그 단계가 없다고 적고 있었다. 신규 환경의 부트스트랩은 data migration `6c7496c4d122`의 63행이 맡고, 매 배포 시드 실행은 있는 행을 upsert해 값이 같으면 행 수와 값 열이 그대로라는 두 사실을 나눠 적었다. `REPLACE`로 넣는 세 표(`fuel_type` · `simulation_parameter` · `weather_model_parameter`)는 실행마다 `id`가 새로 부여된다는 것도 함께 적었다(테스트 DB에서 재실행 전후를 대조해 확인). 같은 서술이던 `README.md` 로컬 절차 각주 · `seed.py` · `parameters.py` 주석과 `docs/OPERATIONS.md` 배포 흐름도의 seed 줄을 함께 맞췄다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 |
 | 2026-10-07 | `#2280` | §2.15 `email` 행과 각주에 **이메일 형식은 DB가 검사하지 않고 API 입력 스키마의 정규식 한 곳에서만 본다**는 것을 적었다 (#2263). `chk_app_user_email_format`은 CUBRID 전환(`#1058`)에서 사라진 뒤 트리거로 되살아나지 않았는데 문서는 유일성만 적고 있어 형식을 어디서 지키는지가 드러나지 않았다. 트리거로 되살리지 않는다는 2026-10-07 결정을 함께 적었다. 스키마는 바뀌지 않는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
+| 2026-10-07 | `#2284` | §7.1 연료 코드 세 행 · §7.4 2항 · §2.1 · §2.3 · §2.18 연료 열 — **부모 쪽 `fuel_type.code` 개명을 트리거로 막는다** (마이그레이션 068 · #2260). `067`까지 개명은 막히지도 전파되지도 않았다(2026-10-07 `cii_test` 실측 — `UPDATE fuel_type SET code = 'HFO_RENAMED'`가 통과하고 자식 36행이 없는 코드를 가리켰다). 문서는 「`ON UPDATE CASCADE` 전파」(§7.1 · §2.1 · §2.3 · §2.18 `[S-1]`)와 「전파 대신 막는다」(§7.4 2항) 두 가지로 적었는데 실제는 둘 다 아니었다. 사용자 결정(2026-10-07)대로 **막는 쪽**으로 맞춘다 — `trg_fuel_type_code_no_rename`(`BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`)이 `code`가 바뀌는 UPDATE만 거부하고 `cf`·`display_name`·`is_active` 갱신(`parameter_import._apply_fuel_types`)과 seed 재적재(`REPLACE INTO` = DELETE + INSERT)는 통과한다. **참조 행이 없어도 막는다** — `code`는 적재·seed·CF 조회·계산 이력 `parameters_used`가 쓰는 이름이고 연료를 바꾸는 운용은 새 코드 + 옛 코드 `is_active = 0`이며, 개명하는 앱 경로는 없다. 부모 쪽 **삭제**는 그대로 막지 않는다(REPLACE 때문 · `a7d3e9b14f26`). §7.4 리비전 표 068 행 · 트리거 표 head `068` · 그 밖 30 → 31 · 합계 176 → **177** · §8.1.0 그래프 끝 `068`. downgrade는 트리거만 지워 `migration_guard` 분류 대상이 아니다. `AGENTS §4.3`상 행 추가·서술 정정이라 버전은 올리지 않는다 (#2260) |
