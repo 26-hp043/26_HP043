@@ -449,7 +449,8 @@ def _report_skipped(table: str, skipped: int) -> None:
     """개정 적재가 정본이라 건너뛴 행 수를 실행 로그에 남긴다 (#2086)."""
     if skipped:
         _log.warning(
-            "%s: 시드 판본(%s)이 아닌 활성 행이 있는 %d행은 건너뛰었다 — 개정 적재가 정본이다",
+            "%s: 시드 판본(%s) 활성 행으로 갱신하지 않은 %d행은 건너뛰었다 — "
+            "개정 판본 활성 행이 있거나(개정 적재가 정본) 시드 판본 행이 꺼져 있다",
             table,
             PARAMETER_SET_VERSION,
             skipped,

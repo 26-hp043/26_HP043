@@ -110,11 +110,11 @@ export function revisionSummary(result: ParameterImportResult): string {
     }
     if (importedCount === 0) return '적용할 행이 없습니다.'
     return replacedCount > 0
-      ? `${importedCount}행을 적용할 수 있습니다. 그중 ${replacedCount}행은 지금 쓰는 값을 대체합니다.`
+      ? `${importedCount}행을 적용할 수 있습니다. 지금 쓰는 ${replacedCount}행은 이전 판본으로 내려갑니다.`
       : `${importedCount}행을 적용할 수 있습니다.`
   }
   return replacedCount > 0
-    ? `${importedCount}행을 적용했습니다. 그중 ${replacedCount}행이 지금 쓰던 값을 대체했습니다.`
+    ? `${importedCount}행을 적용했습니다. 지금 쓰던 ${replacedCount}행은 이전 판본으로 내렸습니다.`
     : `${importedCount}행을 적용했습니다.`
 }
 
