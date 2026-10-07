@@ -10,7 +10,8 @@
 
 ``datetime.UTC``는 **3.11+**이고 운영 호스트는 Ubuntu 22.04 · **3.10.12**다(app-01 · db-01
 둘 다 실측 2026-09-25). 같은 덫이 ``scripts/purge_expired.py``에도 있었는데, 그쪽은
-``README``가 **crontab 한 줄**로 돌리라고 적는 자리다 — 실패해도 사람이 보지 않는다.
+``ops.yml purge``(`#2116`)가 서버에서 돌리는 자리다 — 그 전에는 ``README``가 crontab 한 줄로
+돌리라고 적었고, 주기 실행은 실패해도 사람이 보지 않는다.
 
 ## 왜 조용했나
 
@@ -49,7 +50,7 @@ HOST_PYTHON = (3, 10)
 #: 여기 더할 때는 그 문서 줄도 함께 가리킨다.
 HOST_SCRIPTS = {
     "db_backup.py": "docs/OPERATIONS.md §3.6.6 · §9.2.1 (DB 백업·복구)",
-    "purge_expired.py": "README.md (보존 기간 청소 · crontab)",
+    "purge_expired.py": "docs/OPERATIONS.md §3.8 · README.md (보존 기간 청소 · `ops.yml purge`)",
 }
 
 #: 3.11+에서 생긴 표준 라이브러리 이름 중 **손이 가기 쉬운 것들**.

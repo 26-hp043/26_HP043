@@ -2,8 +2,8 @@
 
 ## 왜 검사가 필요한가
 
-이 스크립트는 **지우는 것**이고, 지운 것은 되돌릴 수 없다. 그런데 프로덕션 호스트
-cron에서 도는 물건이라 **아무도 보고 있지 않을 때** 실행된다.
+이 스크립트는 **지우는 것**이고, 지운 것은 되돌릴 수 없다. 그런데 운영 서버에서
+`ops.yml purge`로 도는 물건이라 **되돌릴 방법이 없는 채로** 실행된다.
 
 가짜 실행기를 끼워 **실제로 어떤 SQL이 나가는지**를 본다 — DB를 붙이면 「지워졌다」는
 확인할 수 있어도 「무엇을 지우려 했는지」는 못 본다.
@@ -147,8 +147,8 @@ def test_a_failing_table_does_not_stop_the_others() -> None:
 def test_failure_makes_the_exit_code_nonzero(monkeypatch: pytest.MonkeyPatch) -> None:
     """IT-PURGE-005 — 실패가 있으면 **0을 내지 않는다**.
 
-    cron이 성공으로 읽으면 아무도 모른다. 「돌긴 도는데 아무것도 안 지워지는」 상태가
-    가장 오래 숨는다.
+    호출한 쪽(`ops.yml purge`)이 성공으로 읽으면 아무도 모른다. 「돌긴 도는데 아무것도 안
+    지워지는」 상태가 가장 오래 숨는다.
     """
     db = _FakeDb(fail={"chat_session"})
     monkeypatch.setattr(purge_expired, "Db", lambda *_a, **_k: db)

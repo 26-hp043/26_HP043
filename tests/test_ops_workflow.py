@@ -13,6 +13,7 @@
 * 배포와 **같은 동시 실행 그룹**인가 — 배포 도중에 백업·교체가 끼면 무엇이 무엇을
   깨뜨렸는지 가릴 수 없다.
 * 파괴적 명령이 없는가 — 볼륨을 지우는 길은 `deploy.yml`의 `force_db_init` 하나로 둔다.
+* 지우는 작업의 기본값 — `purge`는 `confirm=cii`가 없으면 세기만 한다(`--dry-run` · `#2116`).
 * 호스트 밖 보관(`#788` 결정 ① · 정정 A) — 저장소가 공개라 **암호화한 파일만** 올린다.
 
 케이스: (`TEST_PLAN §14.5` 정의 없음 — 배포 배선 회귀 테스트)
@@ -20,10 +21,13 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -199,6 +203,165 @@ def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
     assert "tail -" in run
     # 0건과 「못 찾았다」를 가른다.
     assert "폐기·공급자 실패 기록 없음" in run
+
+
+def _run_purge_step(tmp_path: Path, confirm: str) -> list[str]:
+    """`purge` 단계의 run 스크립트를 **실제로 실행**해, 서버에서 불린 인자를 돌려준다.
+
+    `ssh`는 마지막 인자(원격 명령)를 stdin 스크립트와 함께 로컬 bash로 실행하는 스텁이고,
+    `python3`는 받은 인자를 파일에 적는 스텁이다 — 운영 서버를 건드리지 않는다.
+    """
+    bin_dir, log = tmp_path / "bin", tmp_path / "calls.log"
+    (tmp_path / "home" / "bluelog").mkdir(parents=True)
+    bin_dir.mkdir()
+    (bin_dir / "ssh").write_text('#!/bin/bash\neval "${@: -1}"\n', encoding="utf-8")
+    (bin_dir / "python3").write_text(
+        f'#!/bin/bash\necho "args=$* svc=$DB_SERVICE" >> {log}\n', encoding="utf-8"
+    )
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "HOME": str(tmp_path / "home"),
+        "SSH_USER": "u",
+        "DB_HOST": "h",
+        "CONFIRM": confirm,
+    }
+    script = _step("만료 행 정리 (db-01)")["run"]
+    subprocess.run(["bash", "-eo", "pipefail", "-c", script], env=env, check=True, text=True,
+                   capture_output=True)  # fmt: skip
+    return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+
+def test_purge_defaults_to_dry_run_and_deletes_only_with_confirm() -> None:
+    """`purge`는 기본이 세기만 하는 `--dry-run`이고 `confirm=cii`일 때만 지운다 (`#2116`).
+
+    지운 행은 되돌릴 수 없다. 입력을 비우거나 빠뜨려도, 서버로 가는 값이 깨져도 지우는 쪽으로
+    서지 않아야 한다 — 그래서 **러너와 서버 양쪽이** 기본을 `--dry-run`으로 둔다.
+    """
+    wf = _workflow()
+    triggers = wf.get("on") or wf.get(True)
+    assert "purge" in triggers["workflow_dispatch"]["inputs"]["task"]["options"]
+
+    # 입력 검증 — 비우면 세기만, `cii`면 지움, 그 밖의 값은 오타로 보고 거절한다
+    validate = _step("입력 검증")["run"]
+    assert re.search(
+        r'"\$\{TASK\}" = "purge" \] && \[ -n "\$\{CONFIRM\}" \] && \[ "\$\{CONFIRM\}" != "cii" \]',
+        validate,
+    )
+
+    step = _step("만료 행 정리 (db-01)")
+    assert step["if"] == "inputs.task == 'purge'"
+    run = step["run"]
+    # 러너 쪽 — `confirm`이 정확히 `cii`일 때만 1을 서버로 보낸다
+    assert re.search(r'if \[ "\$\{CONFIRM\}" = "cii" \]; then real=1; else real=0; fi', run)
+    assert "PURGE_REAL='${real}'" in run
+    # 서버 쪽 — `1`일 때만 지우고, 그 밖에는 `--dry-run`이다(값이 비거나 깨져도 지우지 않는다)
+    remote = _REMOTE.findall(run)
+    assert len(remote) == 1
+    body = remote[0]
+    assert re.search(r'if \[ "\$\{PURGE_REAL\}" = "1" \]; then', body)
+    # `scripts/purge_expired.py`는 인자가 없으면 지운다 — 인자 없는 호출은 `then` 가지에만 있다
+    then_branch, _, else_branch = body.partition("else")
+    assert "python3 scripts/purge_expired.py </dev/null" in then_branch
+    assert "python3 scripts/purge_expired.py --dry-run </dev/null" in else_branch
+    assert "purge_expired.py </dev/null" not in else_branch
+    # OCI 배포 값 — README 「만료 행 정리」의 OCI 주의와 같다
+    assert 'COMPOSE="docker compose -f docker-compose.prod.db.yml"' in body
+    assert "DB_SERVICE=cubrid" in body
+
+
+@pytest.mark.parametrize("confirm", ["", "CII", "cii ", " cii", "x", "yes"])
+def test_purge_runs_dry_unless_confirm_is_exactly_cii(tmp_path: Path, confirm: str) -> None:
+    """문자열이 아니라 **실행**으로 본다 — `cii`가 아닌 값은 지우는 호출을 만들지 않는다 (`#2116`).
+
+    러너 단계를 가짜 `ssh`·`python3` 위에서 돌려 서버에서 불린 인자를 받는다. 입력 검증이
+    통과시킨 값(`""`)은 `--dry-run` 한 번만 부르고, 검증이 거절하는 값은 단계를 건너뛴다 — 그
+    경우에도 단계만 따로 돌리면 `--dry-run`이다(검증이 빠져도 지우지 않는다).
+    """
+    calls = _run_purge_step(tmp_path, confirm)
+    assert calls == ["args=scripts/purge_expired.py --dry-run svc=cubrid"]
+
+
+def test_purge_deletes_with_no_flag_only_for_cii(tmp_path: Path) -> None:
+    """`confirm=cii`일 때만 인자 없는 호출(= 지움) 한 번이 나간다 (`#2116`)."""
+    assert _run_purge_step(tmp_path, "cii") == ["args=scripts/purge_expired.py svc=cubrid"]
+
+
+@pytest.mark.parametrize("confirm", ["", "cii", "CII", "cii ", "x"])
+def test_purge_confirm_validation_rejects_only_odd_values(tmp_path: Path, confirm: str) -> None:
+    """입력 검증 — 비움과 `cii`는 통과, 그 밖의 값은 오타로 보고 거절한다 (`#2116`)."""
+    env = {**os.environ, "TASK": "purge", "CONFIRM": confirm, "IMAGE_SHA": "", "DUMP": ""}
+    done = subprocess.run(["bash", "-eo", "pipefail", "-c", _step("입력 검증")["run"]],
+                          env=env, text=True, capture_output=True)  # fmt: skip
+    assert (done.returncode == 0) == (confirm in ("", "cii"))
+
+
+def test_purge_does_not_chain_to_other_tasks() -> None:
+    """`purge`는 다른 작업에 이어 붙지 않는다 — 단독 수동 작업이다 (`#2116`).
+
+    ⑴ 주기 실행은 백업이 수동인 채 삭제만 자동이 되어 「백업 → 삭제」 순서를 깬다. ⑵ `backup`에
+    이어 붙이면 백업만 뜨고 싶을 때도 지워진다. 스크립트를 부르는 단계는 `purge`로만 켜지고,
+    다른 단계의 조건에 `purge`가 끼지 않는다.
+    """
+    # 가짜 통과를 막는다 — 스크립트를 부르는 단계가 없으면 아래 반복이 공허하게 통과한다
+    assert any("purge_expired.py" in (s.get("run") or "") for s in _steps())
+    for step in _steps():
+        condition = str(step.get("if", ""))
+        run = step.get("run", "") or ""
+        if "purge_expired.py" in run:
+            assert condition == "inputs.task == 'purge'", step["name"]
+        elif "'purge'" in condition:
+            raise AssertionError(f"「{step['name']}」 조건에 purge가 끼어 있다")
+
+
+def test_inspect_shows_last_expired_purge_row(tmp_path: Path) -> None:
+    """`inspect`가 `audit_log`의 마지막 `EXPIRED_PURGE` 행을 보여 준다 (`#2116`).
+
+    감사 행은 dry-run이 아닌 실행에서 감사 INSERT가 성공했을 때 남는다 — 그래서 행이 없다는 것은
+    「한 번도 지우지 않았다」가 아니다(DELETE 출력을 못 읽었거나 INSERT가 실패한 실행은 지웠는데도
+    행이 없다). 점검 단계의 Python을 **실제로 실행해** 성질을 본다 — 액션 이름은 코드의
+    `PURGE_ACTION`과 같고, 가장 최근 한 줄만 묻고, 행이 있으면 그 행을 그대로 찍고, 행이 없으면
+    다른 안내를 찍되 실패한 실행의 행방(Actions 실행 이력)을 말한다. 문구 원문이 아니라 성질이다.
+    """
+    source = (_ROOT / "scripts" / "purge_expired.py").read_text(encoding="utf-8")
+    found = re.search(r'^PURGE_ACTION = "([A-Z_]+)"', source, re.M)
+    assert found, "purge_expired.py에서 PURGE_ACTION을 읽지 못했다"
+
+    step = _step("마지막 만료 행 정리 (db-01)")
+    assert step["if"] == "inputs.task == 'inspect'"
+    run = step["run"]
+    # 공개 Actions 로그 — 사용자·IP 열은 고르지 않는다(감사 행에는 표별 행 수·실패·유예·시각뿐)
+    assert "user_id" not in run and "ip_address" not in run
+
+    inner = re.search(r"<<'PY'\n(.*?)\nPY\b", _REMOTE.findall(run)[0], re.S)
+    assert inner, "점검 단계의 Python 본문을 찾지 못했다"
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "db_backup.py").write_text(
+        "import os\n"
+        "class Db:\n"
+        "    def __init__(self, compose, service=None): pass\n"
+        "    def query(self, sql):\n"
+        "        open(os.environ['SQL_OUT'], 'w').write(sql)\n"
+        "        return os.environ['ROWS']\n",
+        encoding="utf-8",
+    )
+    env = {"COMPOSE": "docker compose", "SQL_OUT": str(tmp_path / "sql.txt")}
+
+    def shown(rows: str) -> str:
+        done = subprocess.run(
+            [sys.executable, "-I", "-c", inner.group(1)],
+            cwd=tmp_path, env={**env, "ROWS": rows}, text=True, capture_output=True, check=True,
+        )  # fmt: skip
+        return done.stdout.strip()
+
+    row = "2026-10-07 03:47:00\t{counts}"
+    assert shown(row) == row
+    empty = shown("")
+    assert empty and empty != row and "Actions" in empty
+    sql = (tmp_path / "sql.txt").read_text(encoding="utf-8")
+    assert f"'{found.group(1)}'" in sql and "DESC LIMIT 1" in sql
 
 
 def test_no_destructive_commands() -> None:
