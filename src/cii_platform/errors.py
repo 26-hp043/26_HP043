@@ -35,7 +35,7 @@ ERROR_HTTP_STATUS: dict[str, int] = {
     # TECH_SPEC §12.1: 재현 시 환경(model_version)이 원본과 다르고 결과도 다름 (#833)
     "MODEL_VERSION_MISMATCH": 409,
     "CONFLICT": 409,  # API_SPEC §1.4: 리소스 중복 (동일 IMO 재등록 등)
-    "VALIDATION_ERROR": 422,  # TECH_SPEC §12.1: VAL-001~010 위반
+    "VALIDATION_ERROR": 422,  # TECH_SPEC §12.1: VAL-001~011 위반
     "CALCULATION_ERROR": 422,  # TECH_SPEC §12.1: 분모 0, overflow, 유효하지 않은 결과
     "MODEL_BREAKDOWN_ERROR": 422,  # TECH_SPEC §12.1: BN > 8, ΔV/V ≥ 100%
     "STATE_TRANSITION_ERROR": 422,  # API_SPEC §1.4: 허용되지 않은 상태 전환 (PRD §8.1.1)
@@ -84,7 +84,7 @@ class AppError(Exception):
 
 
 class ValidationError(AppError):
-    """VAL-001~010 위반 (TECH_SPEC §12.1).
+    """VAL-001~011 위반 (TECH_SPEC §12.1).
 
     필수값 누락, 범위 초과, NaN/Infinity. HTTP 422.
 
