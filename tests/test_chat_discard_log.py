@@ -1,6 +1,6 @@
 """폐기 기록 한 줄 (`#1985`).
 
-케이스: IT-CHAT-073 ~ IT-CHAT-076 (`TEST_PLAN §3.28`)
+케이스: IT-CHAT-073 ~ IT-CHAT-076 · IT-CHAT-082 · IT-CHAT-083 (`TEST_PLAN §3.18`)
 
 ## 무엇을 지키는가
 
@@ -22,6 +22,12 @@ import re
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
+import pytest
+
+from cii_platform.llm import anthropic
+from cii_platform.llm.anthropic import AnthropicProvider
+from cii_platform.llm.provider import LLMError
 from cii_platform.services import chat
 
 #: 로그 줄을 고르는 접두어 — `ops.yml`이 같은 문자열로 grep한다.
@@ -139,3 +145,55 @@ def test_ops_inspect_greps_the_same_prefix() -> None:
     것이 가장 나쁜 실패다. 양쪽을 한 검사로 묶는다.
     """
     assert chat.DISCARD_LOG_PREFIX in OPS, "ops.yml이 폐기 접두어로 로그를 고르지 않는다"
+
+
+def test_ops_inspect_also_greps_the_provider_failure_prefix() -> None:
+    """IT-CHAT-082 (`#2289`) — 점검이 **공급자 실패 줄**의 접두어도 본다.
+
+    폐기 줄에는 종류(`provider-error`)만 있고 원인(상태 코드 · 예외 이름)은 별도 경고 줄에만
+    있다. 접두어가 어긋나면 그 줄이 조용히 빠져 원인을 볼 길이 다시 없어진다.
+    """
+    # 주석에도 같은 문구가 적혀 있으므로 **grep 줄 안**을 본다 — 주석만 남아도 통과하면 안 된다.
+    grep_lines = [line for line in OPS.splitlines() if "grep -F" in line]
+    assert any(anthropic.FAILURE_LOG_PREFIX in line for line in grep_lines), (
+        "ops.yml이 공급자 실패 접두어로 고르지 않는다"
+    )
+
+
+def _failing_transport(error: Exception | int) -> httpx.MockTransport:
+    marker = "본문표지-질문-키-주소"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if isinstance(error, int):
+            return httpx.Response(error, json={"error": {"message": marker}})
+        raise error
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (400, "(HTTP 400)"),
+        (httpx.ReadTimeout("본문표지-질문-키-주소 https://example.invalid/v1"), "(ReadTimeout)"),
+    ],
+)
+async def test_provider_failure_line_carries_only_status_or_exception_name(
+    error: Exception | int, expected: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """IT-CHAT-083 (`#2289`) — 공급자 실패 줄은 접두어 + 상태 코드 또는 예외 이름뿐이다.
+
+    이 줄은 공개 Actions 로그로 나간다. 응답 본문 · 예외 메시지(주소가 붙을 수 있다)가
+    섞이지 않아야 한다. HTTP 오류 갈래와 예외(시간 초과) 갈래를 모두 본다.
+    """
+    async with httpx.AsyncClient(transport=_failing_transport(error)) as client:
+        provider = AnthropicProvider(key="test-key", client=client)
+        with (
+            caplog.at_level(logging.WARNING, logger=anthropic.__name__),
+            pytest.raises(LLMError),
+        ):
+            await provider.complete(messages=[{"role": "user", "content": "질문"}])
+
+    lines = [record.getMessage() for record in caplog.records]
+    assert lines == [f"{anthropic.FAILURE_LOG_PREFIX} {expected}"], lines
+    assert "본문표지" not in lines[0]

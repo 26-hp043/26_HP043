@@ -199,26 +199,28 @@ jobs:
           echo
           ENDSSH
 
-      # 챗봇 폐기 경로 (#1985) — 감사 로그로는 여섯 종류를 가를 수 없다.
+      # 챗봇 폐기 경로 (#1985) · 공급자 실패 (#2289) — 감사 로그로는 여섯 종류를 가를 수 없다.
       #
       # `#1535`가 폐기 경고를 앱 로그에 남기게 했지만 **그 로그를 읽는 운영 경로가 없어**
       # 남긴 기록을 아무도 볼 수 없었다. 위 「챗봇 감사 흐름」은 `audit_log`만 읽으므로
-      # 「답이 저장되지 않았다」까지만 보인다 — 왜 폐기됐는지는 이 줄에만 있다.
+      # 「답이 저장되지 않았다」까지만 보인다 — 왜 폐기됐는지는 이 줄에만 있다. 공급자 호출이
+      # 실패하면(`provider-error`) 그 원인인 상태 코드·예외 이름은 폐기 줄이 아니라 별도의
+      # 경고 한 줄(`챗봇 공급자 호출 실패`)에만 남으므로 그 줄도 함께 고른다(`#2289`).
       #
       # ⚠️ **고정 접두어로 그 줄만 고른다.** 컨테이너 로그를 통째로 내보내면 질문·답이
-      # 공개 저장소의 Actions 로그로 나갈 수 있다(`PRD §16.3.1`). 접두어가 코드와 같은지는
+      # 공개 저장소의 Actions 로그로 나갈 수 있다(`PRD §16.3.1`). 접두어 둘이 코드와 같은지는
       # `tests/test_chat_discard_log.py`가 대조한다 — 어긋나면 이 단계가 조용히 0건이 된다.
-      - name: 챗봇 폐기 경로 (app-01)
+      - name: 챗봇 폐기·공급자 실패 (app-01)
         if: inputs.task == 'inspect'
         run: |
           ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" bash -s <<'ENDSSH'
           set -euo pipefail
           cd ~/bluelog
-          echo "[app-01] 최근 24시간 챗봇 폐기 — 종류 · 세션 · 부른 도구"
+          echo "[app-01] 최근 24시간 챗봇 폐기(종류 · 세션 · 부른 도구)·공급자 실패(상태 코드 · 예외 이름)"
           docker compose -f docker-compose.prod.app.yml logs --since 24h --no-color backend </dev/null \
-            | grep -F '챗봇 답 폐기' \
+            | grep -F -e '챗봇 답 폐기' -e '챗봇 공급자 호출 실패' \
             | tail -50 \
-            || echo "[app-01] 폐기 기록 없음 (최근 24시간)"
+            || echo "[app-01] 폐기·공급자 실패 기록 없음 (최근 24시간)"
           echo
           ENDSSH
 

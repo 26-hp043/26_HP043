@@ -190,7 +190,7 @@ def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
     (`PRD §16.3.1`). 고정 접두어로 그 줄만 고르고, 창을 최근 구간으로 좁히고, 줄 수도
     묶는다. 접두어가 코드와 같은지는 ``tests/test_chat_discard_log.py``가 본다.
     """
-    step = _step("챗봇 폐기 경로 (app-01)")
+    step = _step("챗봇 폐기·공급자 실패 (app-01)")
     assert step["if"] == "inputs.task == 'inspect'"
     run = step["run"]
     # 통째로 내보내지 않는다 — grep으로 좁힌다.
@@ -198,7 +198,7 @@ def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
     assert "--since" in run and "--no-color" in run
     assert "tail -" in run
     # 0건과 「못 찾았다」를 가른다.
-    assert "폐기 기록 없음" in run
+    assert "기록 없음" in run
 
 
 def test_no_destructive_commands() -> None:
