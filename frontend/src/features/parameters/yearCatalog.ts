@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createApiParametersProvider, ParametersError } from '../../api/parameters'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { currentKstYear } from '../../display/format'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 
 /**
@@ -257,7 +258,7 @@ export function useYearOptions(
       .listYears(vesselId)
       .then((rows) => {
         if (!cancelled) {
-          setYears(displayYears(rows, throughCurrentYear ? new Date().getFullYear() : null))
+          setYears(displayYears(rows, throughCurrentYear ? currentKstYear() : null))
         }
       })
       .catch(() => {

@@ -39,6 +39,7 @@ import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
   DISPLAY_UNIT_DAILY_FUEL,
+  currentKstYear,
   formatDecimalString,
   formatGrouped,
   formatPercent,
@@ -217,7 +218,7 @@ export function ScenarioComparison({
   const regulationYear =
     years.length === 0
       ? rawForm.regulationYear
-      : pickDefaultYear(years, new Date().getFullYear(), rawForm.regulationYear)
+      : pickDefaultYear(years, currentKstYear(), rawForm.regulationYear)
   const form = useMemo(
     () => (regulationYear === rawForm.regulationYear ? rawForm : { ...rawForm, regulationYear }),
     [rawForm, regulationYear],

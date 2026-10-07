@@ -15,9 +15,9 @@
  * 종전 구현도 통과한다(자기 자신과 비교하는 검사가 된다).
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { formatTimestamp, kstInputToIso, kstYear, toKstInput } from './format'
+import { currentKstYear, formatTimestamp, kstInputToIso, kstYear, toKstInput } from './format'
 
 /** `#1686` 본문의 실측 표에 쓰인 값이다. */
 const INSTANT = '2026-09-20T00:30:00Z'
@@ -158,5 +158,23 @@ describe('순간의 KST 달력 해 (#2056 · §4.4 🔒)', () => {
     expect(kstYear('2025-12-31T23:30:00+0000')).toBe(2026)
     expect(kstYear('2026-01-01T08:59:00+09:00')).toBe(2026)
     expect(kstYear('2025-12-31T23:59:00-05:00')).toBe(2026)
+  })
+})
+
+describe('연도를 고르지 않았을 때의 올해 (#2131)', () => {
+  it('지금 순간의 KST 달력 해다 — 기기 시간대와 무관하다', () => {
+    // UTC 2025-12-31 17:00 = KST 2026-01-01 02:00 — UTC 기기라면 `getFullYear()`는 2025다.
+    expect(currentKstYear(new Date('2025-12-31T17:00:00Z'))).toBe(2026)
+    expect(currentKstYear(new Date('2025-12-31T14:59:59Z'))).toBe(2025)
+  })
+
+  it('인자 없이 부르면 시스템 시각을 읽는다', () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2025-12-31T17:00:00Z'))
+      expect(currentKstYear()).toBe(2026)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

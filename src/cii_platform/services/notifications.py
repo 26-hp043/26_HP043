@@ -41,7 +41,7 @@ from cii_platform.services.data_quality import (
     get_fleet_data_quality,
 )
 from cii_platform.services.fleet_summary import compute_fleet_rows, row_is_cii_non_applicable
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,7 +96,7 @@ async def get_notifications(
     **선박이 0척이면 빈 목록이다** — 선대 요약 · 데이터 점검과 같은 이유로 오류가 아니다.
     """
     resolved = resolve_as_of(as_of)
-    year = regulation_year if regulation_year is not None else resolved.year
+    year = regulation_year if regulation_year is not None else current_regulation_year(resolved)
 
     rows, actions = await compute_fleet_rows(session, year=year, resolved=resolved)
     quality = await get_fleet_data_quality(session, regulation_year=year)

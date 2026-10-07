@@ -57,7 +57,7 @@ from cii_platform.services.pagination import normalize_limit
 from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.request_cache import enable as enable_request_cache
 from cii_platform.services.request_cache import put as cache_put
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     YtdCiiOutput,
@@ -292,7 +292,7 @@ def compute_days_to_target(
     # `as_of`의 연도로만 재서, 2026-01-10에 `regulation_year=2025`를 조회하면
     # 「D 진입까지 70일」이 나왔다(실측) — **이미 끝난 해**에 대한 예측이다.
     # 화면은 연도를 보내지 않아 API 직접 호출에서만 닿지만, 답 자체가 성립하지 않는다.
-    if regulation_year < as_of.year:
+    if regulation_year < current_regulation_year(as_of):
         return DaysToTarget(None, REASON_NOT_THIS_YEAR)
 
     if not ytd.data_available or ytd.attained_cii is None or ytd.rating is None:
@@ -779,7 +779,7 @@ async def get_fleet_summary(
     이제 자르지 않는다.
     """
     resolved = resolve_as_of(as_of)
-    year = regulation_year if regulation_year is not None else resolved.year
+    year = regulation_year if regulation_year is not None else current_regulation_year(resolved)
     if sort not in FLEET_SORT_KEYS:
         raise ValidationError(
             # 필드명 원문(`sort`)이 아니라 라벨로 부른다 (`API_SPEC §1.3.2` · `#1329`).

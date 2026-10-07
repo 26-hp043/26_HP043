@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { GradeBadge } from '../../components/GradeBadge'
-import { NO_TIMESTAMP_TEXT, formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
+import { NO_TIMESTAMP_TEXT, currentKstYear, formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useYearOptions, yearStateText } from '../parameters/yearCatalog'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
@@ -80,7 +80,7 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
    * 있으면 그것, 없으면 올해, 올해도 없으면 가장 최근 해다(`pickDefaultYear`). 목록이
    * 비어 있으면 `''`다 — 그때만 서버 기본(올해)으로 부른다.
    */
-  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear)
+  const year = pickDefaultYear(years, currentKstYear(), chosenYear)
 
   useEffect(() => {
     // 연도 목록을 못 받으면 서버 기본(올해)으로 부른다 — 화면 전체를 막지 않는다.

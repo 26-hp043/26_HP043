@@ -4,7 +4,7 @@ import '../../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
+import { DISPLAY_UNITS, currentKstYear, formatTimestamp } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
 import { FLEET_REDUCTION_COPY, TARGET_TEXT } from './copy'
 import type {
@@ -90,7 +90,7 @@ function stubCatalogs(yearsResponse: () => Response = okYears) {
 }
 
 function okYears() {
-  const thisYear = new Date().getFullYear()
+  const thisYear = currentKstYear()
   return new Response(JSON.stringify({ data: [{ year: thisYear - 1 }, { year: thisYear }] }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },

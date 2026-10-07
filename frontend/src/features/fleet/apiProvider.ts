@@ -1,5 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
+import { kstYear } from '../../display/format'
 import type { FleetLoadOptions, FleetProvider, FleetSnapshot, FleetVessel } from './types'
 
 /** `API_SPEC §1.5` 상한. 첫 페이지를 크게 두는 이유는 `load()` 주석. */
@@ -251,7 +252,7 @@ export function createApiFleetProvider(
       const summary = data.summary
       return {
         asOf: data.as_of,
-        regulationYear: data.regulation_year ?? new Date(data.as_of).getFullYear(),
+        regulationYear: data.regulation_year ?? kstYear(data.as_of) ?? new Date(data.as_of).getFullYear(),
         counts: {
           total: summary?.total ?? 0,
           underWay: summary?.under_way ?? 0,

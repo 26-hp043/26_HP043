@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { PercentileRange } from './PercentileRange'
-import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
+import { DISPLAY_DIGITS, currentKstYear, formatDecimalString, formatTimestamp } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
@@ -282,7 +282,7 @@ export function AnnualSimulation({
    * 검사가 해를 고정할 수 없다.
    */
   // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다. 목록이 없으면 `''`다.
-  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear || requestedYear)
+  const year = pickDefaultYear(years, currentKstYear(), chosenYear || requestedYear)
   // 목표 등급 카드의 한 줄 풀이 — 이 배 · 이 연도의 등급 경계 (#2201).
   const gradeBoundaries = useGradeBoundaries(shell.vesselId, year)
 

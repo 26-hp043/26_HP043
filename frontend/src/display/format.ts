@@ -327,6 +327,18 @@ export function kstYear(value: string | Date): number | null {
 }
 
 /**
+ * 연도를 고르지 않았을 때의 「올해」 — 지금 순간이 속한 **KST 달력의 해** (#2131).
+ *
+ * 서버의 `current_regulation_year`와 같은 기준이다. `new Date().getFullYear()`는 기기
+ * 시간대의 해라 KST 1월 1일 0시~9시에 기기가 UTC면 지난해가 된다.
+ * `kstYear`가 `null`일 수 있는 것은 해석 못 할 문자열뿐이라 `Date`를 받는 여기서는
+ * 사실상 닿지 않지만, 지어낸 해를 쓰지 않으려 기기 해로 내려간다.
+ */
+export function currentKstYear(now: Date = new Date()): number {
+  return kstYear(now) ?? now.getFullYear()
+}
+
+/**
  * KST 시각의 UTC 기준 시차 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
  *
  * **한국은 서머타임을 쓰지 않는다** — 1988년 서울 올림픽 때가 마지막이다. 그래서 KST는

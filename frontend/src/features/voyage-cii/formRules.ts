@@ -228,7 +228,7 @@ function toNumber(raw: string): number | null {
  * 목록이 비면 빈 문자열이다 — **값을 지어내지 않는다.**
  *
  * @param rows   서버가 준 규제연도 목록
- * @param currentYear 호출부가 읽은 올해 (`new Date().getFullYear()`)
+ * @param currentYear 호출부가 읽은 올해 (`currentKstYear()` — KST 달력의 해, #2131)
  * @param previous 지금 골라져 있는 값. 없으면 빈 문자열
  */
 export function pickDefaultYear(

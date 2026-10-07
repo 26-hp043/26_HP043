@@ -7,6 +7,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
+  currentKstYear,
   formatDecimalString,
   formatGrouped,
   formatTimestamp,
@@ -118,7 +119,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
    * 고른 해가 목록에 없으면(예: 불러온 계획의 해) 올해로 떨어진다 — 셀렉트가 보여 주는
    * 값과 요청에 실리는 값이 늘 같다.
    */
-  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear)
+  const year = pickDefaultYear(years, currentKstYear(), chosenYear)
 
   // 저장한 계획 목록 — 가장 최근 계획의 단가를 **새 계획의 기본값**으로 쓴다(`API_SPEC §2.17.3`).
   useEffect(() => {

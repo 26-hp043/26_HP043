@@ -72,7 +72,7 @@ from cii_platform.services.cii_current import (
 )
 from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.request_cache import enable as enable_request_cache
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     WARNING_REFERENCE_ONLY,
@@ -228,7 +228,7 @@ async def get_ytd_series(
     enable_request_cache(session)
 
     resolved_as_of = resolve_as_of(as_of)
-    regulation_year = year if year is not None else resolved_as_of.year
+    regulation_year = year if year is not None else current_regulation_year(resolved_as_of)
     _validate_year(regulation_year)
 
     vessel = await vessel_repo.get_by_id(session, vessel_id)

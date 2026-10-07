@@ -36,6 +36,7 @@ from uuid import UUID
 
 from cii_platform.errors import CalculationError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.llm_guard import filter_outbound
+from cii_platform.services.simulation_clock import current_regulation_year
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -188,11 +189,12 @@ def _regulation_year(arguments: dict[str, object]) -> int:
     """모델이 연도를 말하지 않으면 **올해**로 본다.
 
     상수로 박지 않는다 — 해가 바뀌면 틀린 해를 계산하고, 그 사실이 화면 어디에도
-    드러나지 않는다. ``cii_current``가 ``as_of.year``로 같은 판단을 한다.
+    드러나지 않는다. ``cii_current``가 ``current_regulation_year``(한국 달력의 해, `#2131`)로
+    같은 판단을 한다.
     """
     raw = arguments.get("regulation_year")
     if raw is None:
-        return datetime.now(UTC).year
+        return current_regulation_year(datetime.now(UTC))
     try:
         return int(raw)  # type: ignore[arg-type]
     except (ValueError, TypeError) as exc:
