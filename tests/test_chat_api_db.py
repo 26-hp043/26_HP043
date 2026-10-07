@@ -1193,8 +1193,8 @@ async def _message_count(session_id: str) -> int:
 async def test_an_expired_session_is_not_found_and_calls_nothing(migrated_db, app_fresh_engine):
     """`#1632` — 만료된 대화로 이어 물으면 **404이고, 외부 모델도 메시지 저장도 없다.**
 
-    청소(`purge_expired`)는 하루 한 번이다. 그 사이의 만료 대화가 살아 있는 대화처럼 처리되면
-    보존 기한 90일(`PRD §16.3`)이 청소 시각에 달린 약속이 된다.
+    청소(`purge_expired`)는 수동 실행(`ops.yml purge`)이다. 그 사이의 만료 대화가 살아 있는
+    대화처럼 처리되면 보존 기한 90일(`PRD §16.3`)이 청소 시각에 달린 약속이 된다.
     """
     first = FakeProvider([LLMResponse(text="안녕하세요.")])
     _use(first)

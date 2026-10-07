@@ -49,7 +49,7 @@ HOST_PYTHON = (3, 10)
 #: 여기 더할 때는 그 문서 줄도 함께 가리킨다.
 HOST_SCRIPTS = {
     "db_backup.py": "docs/OPERATIONS.md §3.6.6 · §9.2.1 (DB 백업·복구)",
-    "purge_expired.py": "README.md (보존 기간 청소 · crontab)",
+    "purge_expired.py": "docs/OPERATIONS.md §3.8 · README.md (보존 기간 청소 · `ops.yml purge`)",
 }
 
 #: 3.11+에서 생긴 표준 라이브러리 이름 중 **손이 가기 쉬운 것들**.

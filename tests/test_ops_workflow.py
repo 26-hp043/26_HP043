@@ -13,6 +13,7 @@
 * 배포와 **같은 동시 실행 그룹**인가 — 배포 도중에 백업·교체가 끼면 무엇이 무엇을
   깨뜨렸는지 가릴 수 없다.
 * 파괴적 명령이 없는가 — 볼륨을 지우는 길은 `deploy.yml`의 `force_db_init` 하나로 둔다.
+* 지우는 작업의 기본값 — `purge`는 `confirm=cii`가 없으면 세기만 한다(`--dry-run` · `#2116`).
 * 호스트 밖 보관(`#788` 결정 ① · 정정 A) — 저장소가 공개라 **암호화한 파일만** 올린다.
 
 케이스: (`TEST_PLAN §14.5` 정의 없음 — 배포 배선 회귀 테스트)
@@ -199,6 +200,86 @@ def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
     assert "tail -" in run
     # 0건과 「못 찾았다」를 가른다.
     assert "폐기·공급자 실패 기록 없음" in run
+
+
+def test_purge_defaults_to_dry_run_and_deletes_only_with_confirm() -> None:
+    """`purge`는 기본이 세기만 하는 `--dry-run`이고 `confirm=cii`일 때만 지운다 (`#2116`).
+
+    지운 행은 되돌릴 수 없다. 입력을 비우거나 빠뜨려도, 서버로 가는 값이 깨져도 지우는 쪽으로
+    서지 않아야 한다 — 그래서 **러너와 서버 양쪽이** 기본을 `--dry-run`으로 둔다.
+    """
+    wf = _workflow()
+    triggers = wf.get("on") or wf.get(True)
+    assert "purge" in triggers["workflow_dispatch"]["inputs"]["task"]["options"]
+
+    # 입력 검증 — 비우면 세기만, `cii`면 지움, 그 밖의 값은 오타로 보고 거절한다
+    validate = _step("입력 검증")["run"]
+    assert re.search(
+        r'"\$\{TASK\}" = "purge" \] && \[ -n "\$\{CONFIRM\}" \] && \[ "\$\{CONFIRM\}" != "cii" \]',
+        validate,
+    )
+
+    step = _step("만료 행 정리 (db-01)")
+    assert step["if"] == "inputs.task == 'purge'"
+    run = step["run"]
+    # 러너 쪽 — `confirm`이 정확히 `cii`일 때만 1을 서버로 보낸다
+    assert re.search(r'if \[ "\$\{CONFIRM\}" = "cii" \]; then real=1; else real=0; fi', run)
+    assert "PURGE_REAL='${real}'" in run
+    # 서버 쪽 — `1`일 때만 지우고, 그 밖에는 `--dry-run`이다(값이 비거나 깨져도 지우지 않는다)
+    remote = _REMOTE.findall(run)
+    assert len(remote) == 1
+    body = remote[0]
+    assert re.search(r'if \[ "\$\{PURGE_REAL\}" = "1" \]; then', body)
+    # `scripts/purge_expired.py`는 인자가 없으면 지운다 — 인자 없는 호출은 `then` 가지에만 있다
+    then_branch, _, else_branch = body.partition("else")
+    assert "python3 scripts/purge_expired.py </dev/null" in then_branch
+    assert "python3 scripts/purge_expired.py --dry-run </dev/null" in else_branch
+    assert "purge_expired.py </dev/null" not in else_branch
+    # OCI 배포 값 — README 「만료 행 정리」의 OCI 주의와 같다
+    assert 'COMPOSE="docker compose -f docker-compose.prod.db.yml"' in body
+    assert "DB_SERVICE=cubrid" in body
+
+
+def test_purge_does_not_chain_to_other_tasks() -> None:
+    """`purge`는 다른 작업에 이어 붙지 않는다 — 단독 수동 작업이다 (`#2116`).
+
+    백업이 수동이라 `backup`·주기 실행에 얹으면 백업 없는 삭제가 생기거나 지우는 작업이 묻지도
+    않고 돈다. 스크립트를 부르는 단계는 `purge`로만 켜지고, 다른 단계의 조건에 `purge`가 끼지
+    않는다.
+    """
+    # 가짜 통과를 막는다 — 스크립트를 부르는 단계가 없으면 아래 반복이 공허하게 통과한다
+    assert any("purge_expired.py" in (s.get("run") or "") for s in _steps())
+    for step in _steps():
+        condition = str(step.get("if", ""))
+        run = step.get("run", "") or ""
+        if "purge_expired.py" in run:
+            assert condition == "inputs.task == 'purge'", step["name"]
+        elif "'purge'" in condition:
+            raise AssertionError(f"「{step['name']}」 조건에 purge가 끼어 있다")
+
+
+def test_inspect_shows_last_expired_purge_row() -> None:
+    """`inspect`가 `audit_log`의 마지막 `EXPIRED_PURGE` 행을 보여 준다 (`#2116`).
+
+    스크립트는 실제로 지웠을 때만 감사 행을 남긴다(`PURGE_ACTION`). 그 행이 「마지막으로 언제
+    무엇을 지웠나」의 유일한 기록이라 점검에서 볼 수 있어야 한다. 값은 코드와 같은 문자열이어야
+    한다 — 어긋나면 이 단계가 조용히 「기록 없음」을 찍는다.
+    """
+    source = (_ROOT / "scripts" / "purge_expired.py").read_text(encoding="utf-8")
+    found = re.search(r'^PURGE_ACTION = "([A-Z_]+)"', source, re.M)
+    assert found, "purge_expired.py에서 PURGE_ACTION을 읽지 못했다"
+    action = found.group(1)
+
+    step = _step("마지막 만료 행 정리 (db-01)")
+    assert step["if"] == "inputs.task == 'inspect'"
+    run = step["run"]
+    assert f"'{action}'" in run
+    # 가장 최근 한 줄 — 시각 내림차순 하나
+    assert 'ORDER BY \\"timestamp\\" DESC LIMIT 1' in run
+    # 0건과 못 읽은 것을 가른다
+    assert "기록 없음" in run
+    # 공개 Actions 로그 — 사용자·IP 열은 고르지 않는다(감사 행에는 표별 행 수·실패·유예·시각뿐)
+    assert "user_id" not in run and "ip_address" not in run
 
 
 def test_no_destructive_commands() -> None:
