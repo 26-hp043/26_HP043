@@ -382,24 +382,36 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     return stub({ load: vi.fn().mockResolvedValue({ ...DETAIL, years: [year] }) })
   }
 
-  /** 같은 값이 연도별 이력 표에도 나오므로 YTD 카드로 좁혀 본다. */
-  /** 선박 바(결론 띠)와 그 아래 한 줄 — 종전의 YTD 카드 자리다 (#1729). */
-  async function ytdCard(container: HTMLElement) {
-    let strip: Element | null = null
+  /**
+   * 같은 값이 연도별 이력 표에도 나오므로 자리를 좁혀 본다.
+   *
+   * 10/7 디자인 결정(#2317)으로 결론 띠 카드(`.verdict-strip`)가 없어지고 올해 누적은
+   * **머리 한 줄**(`.vd__head-stats`)로 올라갔다 — 등급 배지 · 실적 값 · 「올해 누적 · 연도 ·
+   * 기준 …」. 완료 항차 수는 종전대로 그 아래 한 줄(`.vd__under`)에 있다.
+   */
+  async function ytdHead(container: HTMLElement) {
+    let stats: Element | null = null
     await waitFor(() => {
-      strip = container.querySelector('.vd')
-      expect(strip?.querySelector('.verdict-strip')).toBeTruthy()
+      stats = container.querySelector('.vd__head-stats')
+      expect(stats).toBeTruthy()
     })
-    return within(strip as unknown as HTMLElement)
+    return within(stats as unknown as HTMLElement)
+  }
+
+  function underLine(container: HTMLElement) {
+    const under = container.querySelector('.vd__under')
+    expect(under).toBeTruthy()
+    return within(under as HTMLElement)
   }
 
   it('등급이 null이어도 실적·기준·항차 수가 그대로 나온다', async () => {
     const { container } = renderAt(withYear(YEAR_WITHOUT_RATING))
-    const card = await ytdCard(container)
+    const head = await ytdHead(container)
 
-    // `DESIGN_SYSTEM §4.1` — CII는 소수 3자리. 띠의 주 결론은 「실적 / 기준」 한 쌍이다.
-    expect(card.getByText('8.980 / 9.512')).toBeTruthy()
-    expect(card.getByText(/완료 항차 17/)).toBeTruthy()
+    // `DESIGN_SYSTEM §4.1` — CII는 소수 3자리. 실적과 기준이 모두 머리에 보인다.
+    expect(head.getByText(/8\.980/)).toBeTruthy()
+    expect(head.getByText(/기준\s*9\.512/)).toBeTruthy()
+    expect(underLine(container).getByText(/완료 항차 17/)).toBeTruthy()
     // 「실적이 없다」는 문구가 나오면 안 된다 — 실적은 있다.
     expect(screen.queryByText(/올해 등록된 항차 실적이 없습니다/)).toBeNull()
   })
@@ -415,8 +427,9 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     const { container } = renderAt(withYear({ ...YEAR_WITHOUT_RATING, rating: 'C' as const }))
 
     expect(await screen.findByLabelText('올해 누적 등급 C')).toBeTruthy()
-    const card = await ytdCard(container)
-    expect(card.getByText('8.980 / 9.512')).toBeTruthy()
+    const head = await ytdHead(container)
+    expect(head.getByText(/8\.980/)).toBeTruthy()
+    expect(head.getByText(/기준\s*9\.512/)).toBeTruthy()
   })
 
   it('데이터 자체가 없으면 종전대로 사유를 말한다', async () => {
@@ -440,9 +453,9 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
      * 들어 있으므로, 완료 수만 적으면 두 값이 가리키는 항차 집합이 어긋나 보인다.
      */
     const { container } = renderAt(withYear({ ...YEAR_WITHOUT_RATING, inProgressVoyageCount: 1 }))
-    const card = await ytdCard(container)
+    await ytdHead(container)
 
-    expect(card.getByText('완료 항차 17 (+진행 중 1)')).toBeTruthy()
+    expect(underLine(container).getByText('완료 항차 17 (+진행 중 1)')).toBeTruthy()
   })
 })
 

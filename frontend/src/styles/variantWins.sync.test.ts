@@ -53,8 +53,6 @@ const SRC = dirOf(import.meta.url, '..')
  * 것은 「이 PR의 범위가 아니다」이지 「문제가 없다」가 아니다.
  */
 const EXEMPT: Readonly<Record<string, string>> = {
-  'features/data-quality/DataQuality.css|.dq__tile dd|.dq__hint':
-    '같은 파일이 `.dq__tile dd.dq__hint`로 **이미 덧댔다** — 문맥 안에서는 이기고 있다',
   'features/scenario-comparison/ScenarioComparison.css|.scenario-table tbody tr:last-child > *|.scenario-table__scenario':
     '거짓 양성 — 이 검사는 `thead`/`tbody`를 가르지 않는다. 대상은 `thead`의 칸이라 `tbody` 규칙이 닿지 않는다',
   'features/scenario-comparison/ScenarioComparison.css|.scenario-table tbody tr:last-child > *|.scenario-table__cell':

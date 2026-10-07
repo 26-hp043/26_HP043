@@ -48,13 +48,10 @@ const WIDE_TABLES = [
     table: '.scenario-table',
     wrap: '.scenario-table-wrap',
   },
-  {
-    name: '데이터 점검 — 점검 항목',
-    css: 'src/features/data-quality/DataQuality.css',
-    markup: 'src/features/data-quality/DataQuality.tsx',
-    table: '.dq__issues',
-    wrap: '.dq__table-wrap',
-  },
+  /*
+   * 「데이터 점검 — 점검 항목」(`.dq__issues`)은 여기 있었다. 10/7 디자인 결정(#2319)으로 점검
+   * 항목 표가 할 일 카드(`.dq-task`)로 바뀌어 표 자체가 없어졌다 — 하한 폭을 가진 표가 아니다.
+   */
   {
     name: '함대 감축 계획 — 후보 표',
     css: 'src/features/fleet-reduction/FleetReduction.css',

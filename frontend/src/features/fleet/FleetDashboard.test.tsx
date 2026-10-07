@@ -5,7 +5,7 @@ import '../../test/renderSetup'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
 import { regulationParametersPath } from '../parameters/referenceRules'
@@ -217,7 +217,8 @@ describe('선대 대시보드 — 서버 정렬·페이지 (#772)', () => {
 })
 
 describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
-  it('조치 항목이 있으면 조치 카드에 「데이터 점검」 링크가 있다', async () => {
+  // 10/7(#2311) — 「조치 필요」 카드가 「확인할 선박」 표 카드로 합쳐졌다. 진입은 그 카드 아래 한 줄이다.
+  it('조치 항목이 있으면 확인할 선박 카드에 「데이터 점검」 링크가 있다', async () => {
     const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
     body.data.actions = [
       { vessel_id: 'v1', vessel_name: '가선', reason: 'RATING_D', severity: 'warning', message: 'D등급' },
@@ -231,19 +232,24 @@ describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
         <FleetDashboard />
       </MemoryRouter>,
     )
-    const card = await screen.findByLabelText('조치 필요')
+    await screen.findAllByText('가선')
+    const card = screen.getByRole('region', { name: '확인할 선박' })
     const link = within(card).getByRole('link', { name: '데이터 점검' })
     expect(link.getAttribute('href')).toBe('/data-quality')
   })
 })
 
 
-describe('조치 필요 — 결과 카드 순서 (#2200)', () => {
-  it('결론 한 줄 → 목록 → 단서 → 다음 행동 순서이고 머리줄에는 링크가 없다', async () => {
-    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+/*
+ * 「조치 필요」 결과 카드(#2200)는 10/7 시안 01(#2311)로 「확인할 선박」 표에 합쳐졌다. 결론
+ * 한 줄(「조치가 필요한 선박 N척 — …」)과 카드 맨 아래 「함대 감축 계획 세우기」는 걷혔고, 같은
+ * 일을 행마다 「왜 · 다음 작업」이 한다. 여기서는 그 표가 조치를 어떻게 싣는지 본다.
+ */
+describe('확인할 선박 — 조치가 걸린 배 (#2200 → #2311)', () => {
+  it('조치가 걸린 배가 맨 위이고, 「왜」는 조치 문구 · 「다음 작업」은 감축 계획이다 — 머리줄에는 링크가 없다', async () => {
+    const body = page([vessel('v1', '가선'), vessel('v2', '나선')], { next_cursor: null, has_more: false })
     body.data.actions = [
-      { vessel_id: 'v1', vessel_name: '가선', reason: 'E_THIS_YEAR', severity: 'critical', message: 'E등급' },
-      { vessel_id: 'v2', vessel_name: '나선', reason: 'D_THIRD_YEAR', severity: 'warning', message: 'D등급' },
+      { vessel_id: 'v2', vessel_name: '나선', reason: 'D_THIRD_YEAR', severity: 'warning', message: 'D등급 3년 연속' },
     ] as never
     vi.stubGlobal(
       'fetch',
@@ -254,19 +260,25 @@ describe('조치 필요 — 결과 카드 순서 (#2200)', () => {
         <FleetDashboard />
       </MemoryRouter>,
     )
-    const card = await screen.findByLabelText('조치 필요')
+    await screen.findAllByText('가선')
+    const card = screen.getByRole('region', { name: '확인할 선박' })
     const head = card.querySelector('.card__head') as HTMLElement
     expect(within(head).queryAllByRole('link')).toHaveLength(0)
 
-    const lead = within(card).getByText('조치가 필요한 선박 2척 — E등급 1년차 1척 · D등급 3년 연속 1척')
-    const list = card.querySelector('.actions') as HTMLElement
-    const next = within(card).getByRole('link', { name: '함대 감축 계획 세우기' })
+    const table = within(card).getByRole('table')
+    expect(within(table).getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+      '선박',
+      '누적 등급',
+      '다음 작업',
+    ])
+    const rows = within(table).getAllByRole('row').slice(1)
+    // 받은 순서는 가선 → 나선이지만 조치가 걸린 나선이 위로 온다
+    expect(within(rows[0]).getByRole('link', { name: '나선' })).toBeTruthy()
+    expect(within(rows[0]).getByText('D등급 3년 연속')).toBeTruthy()
+    const next = within(rows[0]).getByRole('link', { name: /감축 계획/ })
     expect(next.getAttribute('href')).toBe('/fleet-reduction')
-    // 문서 순서: 결론 → 목록 → 다음 행동
-    expect(lead.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(list.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    // 다음 행동이 카드의 마지막 요소다
-    expect(card.lastElementChild?.contains(next)).toBe(true)
+    // 조치가 없는 배에는 감축 계획 링크가 없다
+    expect(within(rows[1]).queryByRole('link', { name: /감축 계획/ })).toBeNull()
   })
 })
 
@@ -415,6 +427,12 @@ describe('정렬 변경 · 추가 조회 경합 (#1092)', () => {
  * 알리는가 ⑵ 「다시 시도」가 같은 정렬로 첫 페이지를 다시 묻고, 성공하면 오류가 걷히고 새
  * 목록이 서는가를 본다. 오류 문구는 표시 문구라 리터럴로 단언하지 않는다(`AGENTS §4.6`).
  */
+/*
+ * 목록 자리 — 10/7 시안 01(#2311)로 지도 위 패널의 「선박 목록」이 지도 옆 「확인할 선박」
+ * 표 카드가 됐다. 정렬 · 오류 · 「다음 선박」이 모두 이 카드 안에 있다.
+ */
+const LIST_NAME = '확인할 선박'
+
 describe('정렬 실패 뒤 복구 (#1814)', () => {
   const failed = () =>
     ({ ok: false, status: 503, json: async () => ({ error: { message: '잠시 뒤' } }) }) as Response
@@ -435,7 +453,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     await act(async () => pending[1].d.resolve(failed()))
 
     // 오류는 목록 자리 안에 있고, 요약 띠와 옛 목록은 그대로다 — 화면 전체가 오류가 아니다
-    const list = screen.getByRole('region', { name: '선박 목록' })
+    const list = screen.getByRole('region', { name: LIST_NAME })
     const alert = await within(list).findByRole('alert')
     expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
     expect(screen.getByText('가선')).toBeTruthy()
@@ -457,7 +475,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     // 성공이 앞선 실패를 지운다 — 새 목록이 서고 오류는 없다
     expect(await screen.findByText('라선')).toBeTruthy()
     expect(screen.queryByText('가선')).toBeNull()
-    expect(within(screen.getByRole('region', { name: '선박 목록' })).queryByRole('alert')).toBeNull()
+    expect(within(screen.getByRole('region', { name: LIST_NAME })).queryByRole('alert')).toBeNull()
     expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
   })
 
@@ -484,7 +502,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     await waitFor(() => expect(pending).toHaveLength(2))
     await act(async () => pending[1].d.resolve(failed()))
 
-    const alert = await within(screen.getByRole('region', { name: '선박 목록' })).findByRole('alert')
+    const alert = await within(screen.getByRole('region', { name: LIST_NAME })).findByRole('alert')
     const text = alert.textContent ?? ''
     // 목록에 실제로 적용된 정렬(처음 값 risk)의 라벨이 있고, 실패한 새 정렬의 라벨은 없다
     expect(text).toContain(optionLabel('risk'))
@@ -509,7 +527,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
     await waitFor(() => expect(pending).toHaveLength(2))
     await act(async () => pending[1].d.resolve(failed()))
-    const list = screen.getByRole('region', { name: '선박 목록' })
+    const list = screen.getByRole('region', { name: LIST_NAME })
     const alert = await within(list).findByRole('alert')
     // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
     fireEvent.click(within(alert).getByRole('button', { name: '다시 시도' }))
@@ -545,7 +563,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
     await waitFor(() => expect(pending).toHaveLength(2))
     await act(async () => pending[1].d.resolve(failed()))
-    await within(screen.getByRole('region', { name: '선박 목록' })).findByRole('alert')
+    await within(screen.getByRole('region', { name: LIST_NAME })).findByRole('alert')
 
     fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'grade' } })
     await waitFor(() => expect(pending).toHaveLength(3))
@@ -554,7 +572,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     )
 
     expect(await screen.findByText('라선')).toBeTruthy()
-    expect(within(screen.getByRole('region', { name: '선박 목록' })).queryByRole('alert')).toBeNull()
+    expect(within(screen.getByRole('region', { name: LIST_NAME })).queryByRole('alert')).toBeNull()
     expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
   })
 
@@ -570,7 +588,7 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
 
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.queryByRole('region', { name: '선대 요약' })).toBeNull()
-    expect(screen.queryByRole('region', { name: '선박 목록' })).toBeNull()
+    expect(screen.queryByRole('region', { name: LIST_NAME })).toBeNull()
   })
 })
 
@@ -602,7 +620,7 @@ describe('첫 조회 실패 뒤 다시 시도 (#1871)', () => {
     const alert = await screen.findByRole('alert')
     // 문구가 아니라 「오류로 무언가는 뜬다」·「목록은 아직 없다」는 성질만 본다
     expect((alert.textContent ?? '').length).toBeGreaterThan(0)
-    expect(screen.queryByRole('region', { name: '선박 목록' })).toBeNull()
+    expect(screen.queryByRole('region', { name: LIST_NAME })).toBeNull()
 
     // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
     const retry = within(alert).getByRole('button', { name: '다시 시도' })
@@ -617,7 +635,7 @@ describe('첫 조회 실패 뒤 다시 시도 (#1871)', () => {
 
     expect(await screen.findByText('가선')).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByRole('region', { name: '선박 목록' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: LIST_NAME })).toBeTruthy()
   })
 })
 
@@ -726,7 +744,8 @@ describe('규제 기준값 절과의 연결 (#1516)', () => {
       .filter((link) => link.getAttribute('href') === regulationParametersPath())
     // 기준값 없음 선박 한 척 → 링크 하나. 실적이 있는 선박에는 붙지 않는다.
     expect(links).toHaveLength(1)
-    const row = links[0].closest('li') as HTMLElement
+    // 10/7(#2311) — 선박 카드 목록이 「확인할 선박」 표가 됐다. 링크는 그 배의 행 안이다.
+    const row = links[0].closest('tr') as HTMLElement
     expect(within(row).getByText('나선')).toBeTruthy()
   })
 
@@ -804,11 +823,28 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
     expect(within(cell).getByText('해당 선박 없음')).toBeTruthy()
   })
 
-  it('이미 D 이하인 카드에는 「D등급 이하」가 없고 규제 플래그는 남는다', async () => {
-    renderWith({ at_risk: 1, ...SOONEST }, [RISKY])
-    const card = (await screen.findByText('위험선')).closest('li') as HTMLElement
-    expect(within(card).queryByText('D등급 이하')).toBeNull()
-    expect(within(card).getByText('E 1년차')).toBeTruthy()
+  /*
+   * 10/7(#2311) — 선박 카드의 규제 플래그 배지는 「확인할 선박」 표의 「왜」 칸(서버 조치 문구)이
+   * 대신한다. 「D등급 이하」를 되풀이하지 않는다는 것(#1569)은 그대로다.
+   */
+  it('이미 D 이하인 행에는 「D등급 이하」가 없고, 「왜」 칸이 조치 사유를 말한다', async () => {
+    const body = page([RISKY], { next_cursor: null, has_more: false })
+    body.data.actions = [
+      { vessel_id: 'v1', vessel_name: '위험선', reason: 'E_THIS_YEAR', severity: 'critical', message: 'E등급 1년차' },
+    ] as never
+    const withSummary = { ...body, data: { ...body.data, summary: { ...body.data.summary, at_risk: 1, ...SOONEST } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => withSummary }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const row = (await screen.findByRole('link', { name: '위험선' })).closest('tr') as HTMLElement
+    expect(within(row).queryByText('D등급 이하')).toBeNull()
+    expect(within(row).getByText('E등급 1년차')).toBeTruthy()
   })
 })
 
@@ -1092,26 +1128,6 @@ describe('선대 대시보드 — 마커 팝오버 (#1831)', () => {
   })
 })
 
-describe('열린 패널이 지도 아래 문구 줄을 가리지 않는다 (#1871)', () => {
-  it('패널이 열려 있는 동안만 무대에 비킴 표시가 붙는다', async () => {
-    stubFetch()
-    render(
-      <MemoryRouter>
-        <FleetDashboard />
-      </MemoryRouter>,
-    )
-    await screen.findByText('가선')
-    const stage = document.querySelector('.fleet__stage') as HTMLElement
-    expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true)
-
-    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
-    await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(false))
-
-    fireEvent.click(screen.getByRole('button', { name: /^선박 \d/ }))
-    await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true))
-  })
-})
-
 /**
  * ⚠️ 지도가 읽는 표시를 패널이 실제로 단다 (#2051).
  *
@@ -1125,7 +1141,7 @@ describe('열린 패널이 지도 아래 문구 줄을 가리지 않는다 (#187
  * 이름을 여기 문자열로 적지 않고 **지도 소스에서 읽어** 대조한다. 한쪽만 바꿔도
  * 갈리지 않게 하려는 것이고, 그 방향은 `reasonCodes.sync.test.ts`가 정본을 읽는 것과 같다.
  */
-describe('지도 위 패널이 「덮고 있다」를 알린다 (#2051)', () => {
+describe('지도 위 패널의 「덮고 있다」 표시 (#2051 → #2311)', () => {
   const overlayAttribute = (() => {
     /*
      * jsdom 환경에서는 `import.meta.url`이 `file:`이 아니라 개발 서버 주소라
@@ -1142,22 +1158,21 @@ describe('지도 위 패널이 「덮고 있다」를 알린다 (#2051)', () => 
     expect(overlayAttribute).toBe('data-map-overlay')
   })
 
-  it('패널이 그 표시를 단다 — 접혀 있어도 단다', async () => {
+  /*
+   * 10/7 시안 01(#2311) — 지도 위 좌측 패널이 걷히고 목록은 지도 옆 표 카드가 됐다. 이제 지도를
+   * 덮는 것이 없으므로 범위는 **선박 위치만으로** 잡혀야 한다 — 표시가 남아 있으면 지도가 없는
+   * 패널만큼 비켜 범위를 잡는다.
+   */
+  it('지도를 덮는 패널이 없다 — 대시보드 어디에도 그 표시가 없다', async () => {
     stubFetch()
     render(
       <MemoryRouter>
         <FleetDashboard />
       </MemoryRouter>,
     )
-    const panel = await screen.findByRole('complementary', { name: '선박 목록과 조치' })
-    expect(
-      panel.hasAttribute(overlayAttribute),
-      `패널에 [${overlayAttribute}]가 없습니다 — 지도가 범위를 잡을 때 이 패널을 세지 못합니다.`,
-    ).toBe(true)
-
-    // 접으면 폭만 줄고 여전히 지도를 덮는다 — 표시가 남아야 그만큼만 센다.
-    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
-    expect(panel.hasAttribute(overlayAttribute)).toBe(true)
+    await screen.findAllByText('가선')
+    expect(screen.queryByRole('complementary')).toBeNull()
+    expect(document.querySelector(`[${overlayAttribute}]`)).toBeNull()
   })
 })
 
@@ -1179,7 +1194,7 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
     )
   }
 
-  it('지도 칩은 **그려진** 척수를 적는다 — 위치 없는 배를 세지 않는다', async () => {
+  it('지도 카드의 척수는 **그려진** 척수다 — 위치 없는 배를 세지 않는다', async () => {
     stubPositions()
     render(
       <MemoryRouter>
@@ -1187,23 +1202,11 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
       </MemoryRouter>,
     )
     await screen.findByText('가선')
-    const chip = document.querySelector('.fleet__chip') as HTMLElement
+    // 10/7(#2311) — 지도 칩은 「현재 위치」 카드 머리의 메타가 됐다.
+    const chip = document.querySelector('.fleet__mapcard .card__meta') as HTMLElement
     // 불러온 배는 둘, 좌표가 있는 배는 하나다.
     expect(chip.textContent).toContain('1척')
     expect(chip.textContent).not.toContain('2척')
-  })
-
-  it('접힌 패널의 「선박 N」은 선대 전체 수다 — 불러온 페이지 수가 아니다', async () => {
-    stubPositions() // 요약의 total은 3, 불러온 배는 2다.
-    render(
-      <MemoryRouter>
-        <FleetDashboard />
-      </MemoryRouter>,
-    )
-    await screen.findByText('가선')
-    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
-    expect(screen.getByRole('button', { name: /^선박 3/ })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: /^선박 2/ })).toBeNull()
   })
 
   it('「n분 전」이 화면을 열어 둔 동안에도 흐른다', async () => {
@@ -1231,8 +1234,49 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
   })
 })
 
-describe('요약 문장 한 줄 (#2199)', () => {
-  function renderWith(summary: Record<string, unknown>) {
+/*
+ * 요약 문장 한 줄(#2199)은 10/7 디자인 결정(#2311)으로 걷혔다 — 경고 배너 · 숫자 칸과 같은 정보를
+ * 한 화면에 두 번 말했다. 종전 두 검사(문장 모양 · 없을 때 줄을 두지 않음)는 지키던 동작이 없어져
+ * 지웠고, 되살아나지 않는지만 본다.
+ */
+describe('요약 문장을 두지 않는다 (#2199 → #2311)', () => {
+  it('E등급 선박과 D 진입 임박 선박이 있어도 문장 줄이 없고, 첫 문장은 경고 배너뿐이다', async () => {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    const withSummary = {
+      ...body,
+      data: {
+        ...body.data,
+        summary: {
+          ...body.data.summary,
+          at_risk: 2,
+          rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 2 },
+          soonest_d_entry: { vessel_id: 'v9', name: '임박선', days: 39 },
+        },
+      },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => withSummary }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('region', { name: '선대 요약' })
+    expect(screen.queryByTestId('fleet-summary')).toBeNull()
+    const lead = document.querySelector('.fleet__lead') as HTMLElement
+    expect(within(lead).getByRole('alert')).toBeTruthy()
+    expect(lead.querySelectorAll('p, a').length).toBe(1)
+  })
+})
+
+/**
+ * 10/7 대시보드 개편 (#2311) — 표 5 : 지도 7, 등급 분포 막대, 기준 문구는 면책 바로 위,
+ * GT 미입력 칸은 0이면 서지 않는다. 문구는 성질로 본다(`AGENTS §4.6`).
+ */
+describe('대시보드 개편 배치 (#2311)', () => {
+  function renderWith(summary: Record<string, unknown> = {}) {
     const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
     const withSummary = { ...body, data: { ...body.data, summary: { ...body.data.summary, ...summary } } }
     vi.stubGlobal(
@@ -1246,22 +1290,45 @@ describe('요약 문장 한 줄 (#2199)', () => {
     )
   }
 
-  it('숫자 칸들 위에 문장으로 — 수치와 등급만 강조한다', async () => {
-    renderWith({
-      rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 2 },
-      soonest_d_entry: { vessel_id: 'v9', name: '임박선', days: 39 },
-    })
-    const line = await screen.findByTestId('fleet-summary')
-    expect(line.textContent).toMatch(/척 중 2척 E등급 · 1척은 39일 뒤 D등급 위험$/)
-    const strong = Array.from(line.querySelectorAll('b')).map((el) => el.textContent)
-    expect(strong).toEqual(['2', 'E', '1', '39일', 'D'])
-    const strip = screen.getByRole('region', { name: '선대 요약' })
-    expect(line.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  it('한 격자 안에 확인할 선박 표가 먼저, 지도 카드가 다음이다', async () => {
+    renderWith()
+    await screen.findAllByText('가선')
+    const grid = document.querySelector('.fleet__grid') as HTMLElement
+    const cards = [...grid.children]
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toBe(screen.getByRole('region', { name: '확인할 선박' }))
+    expect(within(cards[1] as HTMLElement).getByRole('heading', { level: 2 }).textContent).toBe('현재 위치')
   })
 
-  it('E등급도 올해 D 진입도 없으면 줄을 두지 않는다', async () => {
-    renderWith({ rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 0 }, soonest_d_entry: null })
-    await screen.findByRole('region', { name: '선대 요약' })
-    expect(screen.queryByTestId('fleet-summary')).toBeNull()
+  it('등급 분포는 배지 표기 막대이고 0척이 아닌 등급마다 글자를 늘 그린다 — 무늬가 없다', async () => {
+    renderWith({ rating_distribution: { A: 0, B: 2, C: 0, D: 0, E: 1 } })
+    const strip = await screen.findByRole('region', { name: '선대 요약' })
+    const bar = strip.querySelector('.dist__bar--badge') as HTMLElement
+    expect(bar).toBeTruthy()
+    expect(bar.querySelector('svg')).toBeNull()
+    const segs = [...bar.querySelectorAll('.dist__seg')]
+    expect(segs).toHaveLength(2)
+    // 글자가 구간 안에 있으면 툴팁 · 초점 경로가 필요 없다
+    for (const seg of segs) expect(seg.hasAttribute('title')).toBe(false)
+  })
+
+  it('기준 시각 줄은 면책 배너 바로 위다', async () => {
+    renderWith()
+    await screen.findAllByText('가선')
+    const meta = document.querySelector('.fleet__meta') as HTMLElement
+    expect(meta.querySelector('.fleet__asof')).toBeTruthy()
+    expect(meta.nextElementSibling?.classList.contains('disclaimer-banner')).toBe(true)
+  })
+
+  it('GT 미입력 칸은 0척이면 서지 않고, 1척 이상이면 선다', async () => {
+    renderWith({ missing_gross_tonnage: 0 })
+    const strip = await screen.findByRole('region', { name: '선대 요약' })
+    expect(within(strip).queryByText('GT 미입력')).toBeNull()
+    cleanup()
+
+    renderWith({ missing_gross_tonnage: 2 })
+    const again = await screen.findByRole('region', { name: '선대 요약' })
+    const cell = within(again).getByText('GT 미입력').closest('.kpi') as HTMLElement
+    expect(within(cell).getByText('2')).toBeTruthy()
   })
 })

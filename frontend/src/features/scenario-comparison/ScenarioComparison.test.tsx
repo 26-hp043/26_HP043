@@ -886,13 +886,21 @@ describe('입력 묶음과 고급 설정 (#1417)', () => {
   const advanced = () =>
     screen.getByText('고급 설정').closest('details') as HTMLDetailsElement
 
-  it('필수·위치 묶음이 있고, 고급은 처음에 접혀 있다', async () => {
+  it('항로 묶음이 먼저, 배 · 연료 묶음이 다음이고, 고급은 처음에 접혀 있다 (10/7 시안 05)', async () => {
     stubServer()
     renderScreen()
     await screen.findByDisplayValue('2026')
 
-    expect(screen.getByRole('group', { name: '필수 입력' })).toBeTruthy()
-    expect(screen.getByRole('group', { name: '위치' })).toBeTruthy()
+    // 10/7(#2315) — 항로를 먼저 고르고, 그 아래 직항 거리 추정이 바로 열린다.
+    const route = screen.getByRole('group', { name: '항로' })
+    const vessel = screen.getByRole('group', { name: '배 · 연료' })
+    expect(route.compareDocumentPosition(vessel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const label of [/출발 · 현재 위치/, /^목적항$/, /우회 경유지/, /직항 거리/]) {
+      expect(route.contains(screen.getByLabelText(label))).toBe(true)
+    }
+    for (const label of [/^선박$/, /현재 속력/, /기준 일일 연료소모량/, /연료 종류/]) {
+      expect(vessel.contains(screen.getByLabelText(label))).toBe(true)
+    }
     expect(advanced().open).toBe(false)
   })
 
@@ -923,13 +931,13 @@ describe('입력 묶음과 고급 설정 (#1417)', () => {
     expect(advanced().open).toBe(true)
   })
 
-  it('목적항은 필수 묶음이 아니라 위치 묶음에 있다 — #1454로 선택 필드가 됐다', async () => {
+  it('목적항은 항로 묶음에 있고 필수가 아니다 — #1454로 선택 필드가 됐다', async () => {
     stubServer()
     renderScreen()
     await screen.findByDisplayValue('2026')
 
     const destination = screen.getByLabelText('목적항')
-    expect(destination.closest('fieldset')?.querySelector('legend')?.textContent).toBe('위치')
+    expect(destination.closest('fieldset')?.querySelector('legend')?.textContent).toBe('항로')
     expect(destination.hasAttribute('required')).toBe(false)
   })
 
@@ -1713,7 +1721,8 @@ describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
     await renderTable()
 
     expect(document.querySelector('.verdict-strip')).toBeNull()
-    expect(screen.queryByText(/추천/)).toBeNull()
+    // 「추천이 아니라 항목별 최솟값」 같은 부정 고지는 허용한다 — 추천하는 말이 없는지만 본다.
+    expect(document.body.textContent ?? '').not.toMatch(/추천(?!이 아니)/)
   })
 
   it('CII가 직항과 같으면 그 이유를 표 아래에 적는다 (#739)', async () => {
@@ -1729,7 +1738,13 @@ describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
   it('지표별 최소값은 그대로 남는다 — 추천이 아니라 중립 표기다 (PRD §11.2)', async () => {
     await renderTable()
 
-    expect(screen.getByText('CII가 가장 낮은 시나리오')).toBeTruthy()
+    // 10/7(#2315) — 표 아래 3줄 목록이 지표별 타일 안으로 옮겨 갔다. 지표마다 따로 최소값을 적는다.
+    const bars = document.querySelector('.scenario-bars') as HTMLElement
+    const tiles = [...bars.querySelectorAll('.scenario-tile')]
+    expect(tiles).toHaveLength(3)
+    for (const tile of tiles) {
+      expect(tile.querySelector('.scenario-tile__best')?.textContent?.trim()).toMatch(/직항|우회|감속/)
+    }
   })
 
   it('결과는 면 하나다 — 표와 최소값이 같은 면에 있고 카드가 남아 있지 않다 (§5)', async () => {
@@ -1738,7 +1753,7 @@ describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
     expect(document.querySelectorAll('.scenario-card')).toHaveLength(0)
     const result = document.querySelector('.scenario-result')
     expect(result?.contains(table)).toBe(true)
-    expect(result?.querySelector('.scenario-comparison__lowest')).toBeTruthy()
+    expect(result?.querySelector('.scenario-bars')).toBeTruthy()
   })
 })
 
@@ -1998,18 +2013,18 @@ describe('우회 경유지 (#1300)', () => {
 
   const waypointInput = () => screen.getByLabelText(/우회 경유지/) as HTMLInputElement
 
-  it('고급 설정 안에 있고, 고르면 고급 칸 수에 든다', async () => {
+  it('항로 묶음에 있고(10/7), 샘플 항만을 고르면 좌표가 함께 쓰인다고 알린다', async () => {
     stubWithPorts()
     renderScreen()
     await screen.findByDisplayValue('2026')
     await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
 
-    const details = waypointInput().closest('details') as HTMLDetailsElement
-    expect(details.querySelector('summary')?.textContent).toContain('고급 설정')
+    // 10/7(#2315) — 고급 설정에서 항로 묶음으로 나왔다. 접힌 칸이 아니라 바로 보인다.
+    expect(waypointInput().closest('details')).toBeNull()
+    expect(waypointInput().closest('fieldset')?.querySelector('legend')?.textContent).toBe('항로')
 
     fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
 
-    expect(details.querySelector('summary')?.textContent).toContain('1개')
     expect(screen.getByText(/샘플 항만 — 좌표가 함께 쓰입니다/)).toBeTruthy()
   })
 
@@ -2036,7 +2051,7 @@ describe('우회 경유지 (#1300)', () => {
     })
   })
 
-  it('좌표 넷이 없으면 누르기 전에 그 칸에서 막고 고급 설정을 펼친다', async () => {
+  it('좌표 넷이 없으면 누르기 전에 그 칸에서 막고, 좌표 칸이 있는 고급 설정을 펼친다', async () => {
     stubWithPorts()
     renderScreen()
     await screen.findByDisplayValue('2026')
@@ -2046,7 +2061,10 @@ describe('우회 경유지 (#1300)', () => {
     await clickCompare()
 
     expect(await screen.findByText(/현재 위치와 목적항 좌표가 모두 필요합니다/)).toBeTruthy()
-    expect((waypointInput().closest('details') as HTMLDetailsElement).open).toBe(true)
+    // 경유지 칸은 항로 묶음으로 나왔지만, 채워야 할 현재 위도·경도 칸은 고급 설정 안에 있다.
+    const advanced = screen.getByText('고급 설정').closest('details') as HTMLDetailsElement
+    expect(advanced.contains(screen.getByLabelText(/현재 위도/))).toBe(true)
+    expect(advanced.open).toBe(true)
   })
 
   it('서버가 경유지 위도 칸을 짚으면 그 오류가 경유지 입력창에 붙는다 (#1097 ⑶)', async () => {
@@ -2142,24 +2160,24 @@ describe('막대 옆 값은 비교 표 칸과 같은 문자열이다 (#2202 · #
     },
   }
 
-  // 막대 항목의 전송 키 → 표 행 머리글의 앞부분
+  // 타일 순서(#2315 · CII · 소요시간 · 연료) → 표 행 머리글의 앞부분. CO₂는 연료에 비례해 타일에서 뺐다.
   const PAIRS = [
     { key: 'attained_cii', rowLabel: 'CII' },
     { key: 'duration_hours', rowLabel: '예상 소요시간' },
     { key: 'fuel_ton', rowLabel: '예상 연료' },
-    { key: 'co2_emission_ton', rowLabel: 'CO₂ 배출량' },
   ]
 
-  it('네 항목 모두 표의 칸과 막대 옆 값이 같다', async () => {
+  it('세 타일 모두 표의 칸과 막대 옆 값이 같다', async () => {
     stubServerWithComparison(DISTINCT_BODY)
     renderScreen()
     await compareAndWaitForResult()
 
     const table = document.querySelector('table.scenario-table') as HTMLElement
     expect(table).not.toBeNull()
-    const select = screen.getByLabelText('막대로 볼 항목')
+    const tiles = [...document.querySelectorAll('.scenario-tile')]
+    expect(tiles).toHaveLength(PAIRS.length)
 
-    for (const { key, rowLabel } of PAIRS) {
+    for (const [index, { key, rowLabel }] of PAIRS.entries()) {
       const row = [...table.querySelectorAll('tbody tr')].find((tr) =>
         tr.querySelector('th')?.textContent?.startsWith(rowLabel),
       )
@@ -2168,9 +2186,8 @@ describe('막대 옆 값은 비교 표 칸과 같은 문자열이다 (#2202 · #
         (el) => el.textContent,
       )
 
-      fireEvent.change(select, { target: { value: key } })
-      // 값 글자만 본다 — 단위는 자식 span이라 첫 자식(글자 노드)이 값이다
-      const barValues = [...document.querySelectorAll('.scenario-bars__value')].map(
+      // 값 글자만 본다 — 최솟값 낭독 꼬리는 자식 span이라 첫 자식(글자 노드)이 값이다
+      const barValues = [...tiles[index].querySelectorAll('.scenario-tile__value')].map(
         (el) => el.firstChild?.textContent,
       )
       expect(barValues, `${key}: 막대 옆 값`).toEqual(tableValues)

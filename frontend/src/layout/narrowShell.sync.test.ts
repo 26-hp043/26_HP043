@@ -75,9 +75,14 @@ describe('좁은 창의 셸 (#1885 · DESIGN_SYSTEM §7.2)', () => {
     expect(rule(base, '.app-shell__nav-iconwrap')).toMatch(/position:\s*relative/)
   })
 
-  it('상단바 셀렉트는 상한(180)을 두되 컨테이너에 맞춰 줄어든다', () => {
+  /*
+   * 상한 180 → 216 (#2310 · 10/7 디자인 결정) — 셀렉트 화살표(`--select-chevron`) 자리가 오른쪽에
+   * 생긴 만큼 선명이 잘리지 않게 넓혔다. 지키는 성질(상한이 있고 컨테이너에 맞춰 줄어든다)은 같다.
+   * ⚠️ `DESIGN_SYSTEM §7.2`의 「폭 상한(180 · 116)」 문장은 문서 갱신 대상이다.
+   */
+  it('상단바 셀렉트는 상한(216)을 두되 컨테이너에 맞춰 줄어든다', () => {
     const select = rule(css, '.app-shell__util-select')
-    expect(select).toMatch(/max-width:\s*180px/)
+    expect(select).toMatch(/max-width:\s*216px/)
     expect(select).toMatch(/min-inline-size:\s*0/)
     expect(select).toMatch(/flex:\s*0 1 auto/)
   })

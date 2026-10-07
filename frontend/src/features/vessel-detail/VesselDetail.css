@@ -574,7 +574,7 @@
   font-size: var(--font-size-body);
   padding: var(--spacing-sm);
   color: var(--text-primary);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
   min-inline-size: 0;
@@ -838,4 +838,78 @@ button.vd__drill {
   margin-top: var(--spacing-md);
   padding-top: var(--spacing-md);
   border-top: 1px solid var(--border-default);
+}
+
+/* 선종 일러스트 (10/7) */
+.vd__ident {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  min-inline-size: 0;
+}
+
+.vd__ship {
+  flex: none;
+  inline-size: 200px;
+  padding: var(--space-12) var(--space-12) 0;
+  border-radius: var(--radius-card);
+  background: var(--ship-sea);
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .vd__ship {
+    display: none;
+  }
+}
+
+/* 머리 한 줄 — 올해 누적 · 진행 중 항차 (10/7) */
+.vd__head {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.vd__head-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16);
+  margin-inline-end: auto;
+}
+
+.vd__stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding-inline-start: var(--space-16);
+  border-inline-start: 1px solid var(--border-default);
+}
+
+.vd__stat-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.vd__stat-value {
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.vd__stat-value--sm {
+  font-size: var(--font-size-heading);
+}
+
+.vd__stat-unit {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--text-secondary);
+}
+
+.vd__stat-label {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
 }

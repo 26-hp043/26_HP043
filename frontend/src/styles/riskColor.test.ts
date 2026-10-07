@@ -25,13 +25,8 @@ const SCREENS = [
     critical: '.verdict-strip__risk-value--critical',
     icon: '.verdict-strip__risk-icon',
   },
-  {
-    name: '기능② 실시간 CII',
-    file: 'src/features/realtime-cii/RealtimeCiiView.css',
-    high: '.rt__axis-facts .rt__risk--high',
-    critical: '.rt__axis-facts .rt__risk--critical',
-    icon: '.rt__risk-icon',
-  },
+  // 「기능② 실시간 CII」(`.rt__axis-facts .rt__risk--*`)는 여기 있었다. 10/7 디자인 결정(#2318)으로
+  // 연말 예상 쪽 위험도 칸을 걷고 결론 띠에 한 번만 둔다 — 이 화면이 따로 그리는 위험도 글자가 없다.
   {
     name: '시나리오 비교',
     file: 'src/features/scenario-comparison/ScenarioComparison.css',

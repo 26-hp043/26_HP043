@@ -17,7 +17,7 @@ import blueLogRaw from '../design/tokens/BlueLog.tokens.json?raw'
  *
  * ## 무엇을 보는가
  *
- * ⑴ Figma 변수끼리 산술이 닫힌다: `margin + gnb + gutter + content + margin = frame`
+ * ⑴ Figma 변수끼리 산술이 닫힌다: `gnb + gutter + content + margin = frame` (#2310 — 종전에는 앞에 `margin`이 하나 더 있었다)
  * ⑵ `§7.1` 그리드 표의 「콘텐츠 영역」 · 「외곽 여백」이 Figma 값과 같다
  * ⑶ `§7.1`의 산술 문장이 같은 값을 적는다
  *
@@ -43,9 +43,15 @@ function gridRow(label: string): number {
   return Number(match[1])
 }
 
-describe('셸 폭 산술 (#1450)', () => {
+/*
+ * 10/7 디자인 결정(#2310) — 셸을 화면 끝에 붙였다. 사이드바(224) 왼쪽의 외곽 여백이 없어지고
+ * (`.app-shell { padding: 0 }`), 사이드바↔본문 틈(gutter)과 오른쪽 외곽 여백(margin)은 스택의
+ * 좌우 padding이 맡는다. 산술은 종전 `margin + gnb + gutter + content + margin`에서
+ * **`gnb + gutter + content + margin`**이 됐다.
+ */
+describe('셸 폭 산술 (#1450 · #2310)', () => {
   it('Figma 그리드 변수끼리 1920이 닫힌다', () => {
-    expect(v('margin') * 2 + v('gnb-expanded') + v('gutter') + v('content-width')).toBe(v('frame-width'))
+    expect(v('gnb-expanded') + v('gutter') + v('content-width') + v('margin')).toBe(v('frame-width'))
   })
 
   it('DESIGN_SYSTEM §7.1 그리드 표가 Figma 값과 같다', () => {
@@ -56,6 +62,6 @@ describe('셸 폭 산술 (#1450)', () => {
 
   it('DESIGN_SYSTEM §7.1 산술 문장이 같은 값을 적는다', () => {
     const [m, g, gap, c] = [v('margin'), v('gnb-expanded'), v('gutter'), v('content-width')]
-    expect(DESIGN).toContain(`\`${m} + ${g} + ${gap} + ${c} + ${m} = ${v('frame-width')}\``)
+    expect(DESIGN).toContain(`\`${g} + ${gap} + ${c} + ${m} = ${v('frame-width')}\``)
   })
 })

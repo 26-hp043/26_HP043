@@ -28,6 +28,9 @@ const SCREENS = [
     file: 'src/features/scenario-comparison/ScenarioComparison.css',
     grid: '.scenario-comparison',
     input: '.scenario-comparison__form',
+    // #2315 · 10/7 디자인 결정 — 입력 기둥 고정 해제. 이 화면의 입력은 따라오지 않고 길게 선다.
+    // ⚠️ `DESIGN_SYSTEM §8.7`(따라오는 입력 기둥)에 이 화면이 예외라는 문장이 필요하다.
+    follows: false,
   },
   {
     // #1768 — 종전에는 조건이 전폭, 문서가 그 아래였다. 누르기 전 첫 화면의 40%가 빈 면.
@@ -75,6 +78,11 @@ describe('입력-결과 2단 — DESIGN_SYSTEM §8.7', () => {
 
   it.each(SCREENS)('$name — 입력은 따라오고, 창보다 길면 기둥 안에서 스크롤한다', (s) => {
     const css = stripComments(readFileSync(join(process.cwd(), s.file), 'utf-8'))
+    if ('follows' in s && s.follows === false) {
+      // 따라오지 않는 화면(#2315) — 어느 최상위 규칙도 sticky를 걸지 않는다.
+      for (const rule of topRules(css, s.input)) expect(rule.body).not.toMatch(/position:\s*sticky/)
+      return
+    }
     const body = topRule(css, s.input)
     expect(body).toMatch(/position:\s*sticky/)
     expect(body).toMatch(/max-block-size:/)
@@ -111,6 +119,8 @@ describe('입력-결과 2단 — DESIGN_SYSTEM §8.7', () => {
     expect(media, '1100 블록이 없다').toBeGreaterThan(-1)
 
     for (const { of, props } of OVERRIDDEN) {
+      // 따라오지 않는 화면(#2315)은 입력 쪽에 1100 블록이 되돌릴 기본 선언이 없다.
+      if (of === 'input' && 'follows' in s && s.follows === false) continue
       const selector = of === 'grid' ? s.grid : s.input
       for (const prop of props) {
         const declares = new RegExp(`(^|[\\s;])${prop}\\s*:`)

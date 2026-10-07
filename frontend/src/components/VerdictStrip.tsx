@@ -36,6 +36,13 @@ interface VerdictSlot {
    * 읽히지 않던 자리다).
    */
   meter?: { ratio: number; label: string }
+  /**
+   * 등급 전이 (10/7) — 값 글자 대신 **배지 → 배지**로 그린다. 있으면 `rating` · `value`의 배지 ·
+   * 글자 자리를 대신하고, `value`는 낭독 이름으로만 쓴다.
+   */
+  transition?: { from: Rating; to: Rating }
+  /** 값 아래 한 줄 풀이 (10/7 시안 02) — 예: 「D 등급까지 7.2% · 기준 5.045의 98.8%」 */
+  note?: string
 }
 
 interface VerdictStripProps {
@@ -45,6 +52,8 @@ interface VerdictStripProps {
   main: VerdictSlot
   /** 보조 — `h2` 크기. 주 결론 크기로 커지면 `§8.6` 위반이다. */
   sub: VerdictSlot
+  /** 셋째 칸 (10/7 시안 03) — 예: 연간 등급 관리의 「목표까지」. 없으면 두 칸이다. */
+  third?: VerdictSlot
   /**
    * 위험도 — 문구는 부르는 쪽이 `riskLabel`로 만든다. 판정 기준이 화면마다 달라서다
    * (`PRD §9.4.1` 결정론 · `§9.4.2` 확률).
@@ -55,7 +64,7 @@ interface VerdictStripProps {
   risk?: { level: RiskLevel; heading: string; text: string; withIcon: boolean }
 }
 
-export function VerdictStrip({ label, main, sub, risk }: VerdictStripProps) {
+export function VerdictStrip({ label, main, sub, third, risk }: VerdictStripProps) {
   return (
     <section className="verdict-strip" aria-label={label}>
       <div className="verdict-strip__main">
@@ -71,9 +80,17 @@ export function VerdictStrip({ label, main, sub, risk }: VerdictStripProps) {
           <span className="verdict-strip__value">{main.value}</span>
           {main.unit ? <span className="verdict-strip__unit">{main.unit}</span> : null}
         </span>
+        {main.note ? <span className="verdict-strip__note">{main.note}</span> : null}
       </div>
       <div className="verdict-strip__sub">
         <span className="verdict-strip__label">{sub.label}</span>
+        {sub.transition ? (
+          <span className="verdict-strip__pair verdict-strip__transition" role="img" aria-label={sub.value}>
+            <GradeBadge rating={sub.transition.from} size="sm" label={`등급 ${sub.transition.from}`} />
+            <span className="verdict-strip__arrow" aria-hidden="true">→</span>
+            <GradeBadge rating={sub.transition.to} size="sm" label={`등급 ${sub.transition.to}`} />
+          </span>
+        ) : (
         <span className="verdict-strip__pair">
           {sub.rating !== undefined ? (
             <GradeBadge
@@ -85,6 +102,8 @@ export function VerdictStrip({ label, main, sub, risk }: VerdictStripProps) {
           <span className="verdict-strip__sub-value">{sub.value}</span>
           {sub.unit ? <span className="verdict-strip__unit">{sub.unit}</span> : null}
         </span>
+        )}
+        {sub.note ? <span className="verdict-strip__note">{sub.note}</span> : null}
         {sub.meter ? (
           <span
             className="verdict-strip__meter"
@@ -101,6 +120,16 @@ export function VerdictStrip({ label, main, sub, risk }: VerdictStripProps) {
           </span>
         ) : null}
       </div>
+      {third ? (
+        <div className="verdict-strip__sub">
+          <span className="verdict-strip__label">{third.label}</span>
+          <span className="verdict-strip__pair">
+            <span className="verdict-strip__sub-value">{third.value}</span>
+            {third.unit ? <span className="verdict-strip__unit">{third.unit}</span> : null}
+          </span>
+          {third.note ? <span className="verdict-strip__note">{third.note}</span> : null}
+        </div>
+      ) : null}
       {/*
         위험도 pill — `§2.5 (b)`의 단계별 색(HIGH Warning · CRITICAL Danger)은 **글자에만**
         입힌다. 면과 테두리는 중립이다(`§2.3` 경고색은 한 자리에 한 번). 아이콘은 라벨이

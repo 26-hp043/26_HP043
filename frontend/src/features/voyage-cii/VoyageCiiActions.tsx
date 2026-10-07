@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import './VoyageCiiActions.css'
-import { vesselPath } from '../../layout/globalContext'
+import { VESSEL_QUERY_KEY, vesselPath } from '../../layout/globalContext'
+import { SCREEN_BY_ID } from '../../screens'
 import {
   createApiVoyageManagementProvider,
   type VoyageManagementProvider,
@@ -227,6 +228,17 @@ export function VoyageCiiActions({
           >
             {exporting ? 'CSV 준비 중…' : 'CSV 다운로드'}
           </button>
+          {/*
+            다음 행동 (10/7 시안 02) — 이 조건의 대안을 견주러 간다. 이동이라 버튼이 아니라 글자
+            링크다(`§8` 결과 카드 「다음 행동은 글자 링크 하나」). 선박만 넘긴다 — 항로 비교는
+            출발항 · 도착항을 먼저 묻는 화면이다.
+          */}
+          <Link
+            className="voyage-cii-actions__link voyage-cii-actions__next"
+            to={`${SCREEN_BY_ID.ROUTE_COMPARISON.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: request.vessel_id })}`}
+          >
+            이 선박으로 항로 비교 →
+          </Link>
         </div>
       </div>
 

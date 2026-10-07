@@ -22,24 +22,6 @@
   scroll-margin-block-start: var(--shell-topbar-offset);
 }
 
-.acc__facts {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.acc__facts dt {
-  font-size: var(--font-size-caption);
-  color: var(--text-secondary);
-}
-
-.acc__facts dd {
-  margin: 0;
-  font-size: var(--font-size-body);
-  color: var(--text-primary);
-}
-
 .acc__notice,
 .acc__hint {
   margin: 0;
@@ -62,7 +44,7 @@
 
 .acc__input {
   border: 1px solid var(--color-border-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   border-radius: var(--radius-control);
   padding: var(--spacing-xs) var(--spacing-sm);
@@ -101,7 +83,6 @@
   font-family: inherit;
   cursor: pointer;
 }
-
 
 .acc__submit:disabled {
   cursor: not-allowed;
@@ -175,28 +156,203 @@
 
 /* ── 프로필 이미지 (#2080) ──────────────────────────────────────── */
 
-.acc__avatar {
+/* 탈퇴 — 맨 아래 글자 링크 (10/7) */
+.acc__withdraw {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
-  margin: 0 0 var(--spacing-lg);
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-8) 0;
 }
 
-/*
- * 미리보기와 컨트롤을 한 줄에 둔다. `align-items: center`로 맞추는 이유는
- * 컨트롤 묶음의 높이가 「지우기」의 유무에 따라 바뀌기 때문이다 — 위로 맞추면
- * 사진이 올라갔다 내려갔다 한다.
- */
-.acc__avatar-row {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
+.acc__withdraw-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-label);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
-.acc__avatar-controls {
+.acc__withdraw-link:hover {
+  color: var(--color-danger-text);
+}
+
+.acc__withdraw-link:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.acc__role-chip {
+  padding: 2px var(--space-8);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-subtle);
+  color: var(--color-link);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-strong);
+}
+
+/* 가운데 큰 프로필 (10/7 디자인 결정) */
+.acc-hero {
+  /* 데스크톱 설정 화면에 맞춰 가로 배너 (10/7) — 사진 왼쪽, 이름 · 정보 오른쪽. 아래 칸들과 같은 왼쪽 정렬 */
   display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-24);
+  padding: var(--space-24);
+  border-radius: var(--radius-card);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-info) 18%, var(--surface-card)) 0%, var(--surface-card) 80%);
+}
+
+.acc-hero__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  min-inline-size: 0;
+}
+
+.acc-hero__photo {
+  position: relative;
+  flex: none;
+}
+
+.acc-hero .acc-hero__avatar {
+  inline-size: 112px;
+  block-size: 112px;
+  font-size: var(--font-size-display);
+  border: 4px solid var(--surface-card);
+  box-shadow: var(--shadow-lv2);
+}
+
+.acc-hero__add {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 4px;
+  display: grid;
+  place-items: center;
+  inline-size: var(--target-button);
+  block-size: var(--target-button);
+  /*
+   * 채움 Primary — 짝 토큰과 테두리로 경계를 세운다 (#1296 · #1202). 사진과 떼어 놓는
+   * 바탕색 고리는 테두리가 아니라 바깥 그림자로 그린다.
+   */
+  border: 1px solid var(--color-primary-solid-border);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px var(--surface-card);
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
+  cursor: pointer;
+}
+
+.acc-hero__add:hover {
+  background: var(--color-primary-solid-hover);
+}
+
+#acc-avatar:focus-visible + .acc-hero__add {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.acc-hero__name {
+  margin: 0;
+  font-size: var(--font-size-title);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+.acc-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.acc-hero__pending {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin-block-start: var(--space-8);
+}
+
+.acc-hero__file {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.acc-hero__remove {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--font-size-caption);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.acc-hero__hint {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.acc__submit--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary-solid-border);
+  color: var(--color-on-primary);
+}
+
+/* 내 정보 — 가운데 좁은 기둥 */
+.acc__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  inline-size: 100%;
+  max-inline-size: 480px;
+  margin: var(--space-8) 0 0;
+}
+
+.acc__info-title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
+  color: var(--text-primary);
+}
+
+.acc__info .acc__input {
+  inline-size: 100%;
+  max-inline-size: none;
+  box-sizing: border-box;
+}
+
+.acc__readonly {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-12);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.acc__readonly-label {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.acc__readonly-value {
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.acc__info .acc__form {
+  max-inline-size: none;
 }

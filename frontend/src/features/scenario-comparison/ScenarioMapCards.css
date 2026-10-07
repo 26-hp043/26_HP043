@@ -1,0 +1,169 @@
+/* 시나리오 카드 + 지도 하나 (10/7) */
+.scenario-maps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.scenario-maps__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: var(--space-12);
+}
+
+.scenario-maps__card {
+  --scenario-color: var(--semantic-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-inline-size: 0;
+  padding: var(--space-12) var(--space-16);
+  text-align: start;
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-card);
+  border: 1px solid var(--color-border-control);
+  border-block-start: 3px solid var(--scenario-color);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  cursor: pointer;
+  transition: opacity 120ms ease, border-color 120ms ease;
+}
+
+.scenario-maps__card--detour { --scenario-color: var(--color-warning-text); }
+.scenario-maps__card--slow_steaming { --scenario-color: var(--route-slow); }
+
+.scenario-maps__card--active {
+  border-color: var(--scenario-color);
+  box-shadow: inset 0 0 0 1px var(--scenario-color);
+}
+
+.scenario-maps__card--dim {
+  opacity: 0.55;
+}
+
+.scenario-maps__card:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.scenario-maps__head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: var(--space-8);
+}
+
+/* 지도의 선 모양 그대로 — 범례를 겸한다 */
+.scenario-maps__swatch {
+  inline-size: 24px;
+  border-block-start: 3px solid var(--scenario-color);
+}
+
+.scenario-maps__card--detour .scenario-maps__swatch {
+  border-block-start-style: dashed;
+}
+
+.scenario-maps__title {
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
+}
+
+.scenario-maps__caption {
+  grid-column: 2;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+}
+
+.scenario-maps__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-8);
+}
+
+.scenario-maps__fact {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.scenario-maps__fact--grade {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.scenario-maps__cii {
+  font-size: var(--font-size-title);
+}
+
+.scenario-maps__unit {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--color-text-muted);
+}
+
+/* 칩으로 줄인 카드 (10/7) — 한 줄: 선 견본 · 이름 · 설명 / 등급 · CII */
+.scenario-maps__card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-8) var(--space-12);
+}
+
+.scenario-maps__facts {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.scenario-maps__cii {
+  font-size: var(--font-size-heading);
+}
+
+.scenario-maps__fact--grade .scenario-maps__unit {
+  display: none;
+}
+
+/* 설명을 이름 옆 한 줄로 (10/7) — 칩 높이를 세 장 모두 같게 */
+.scenario-maps__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--space-8);
+}
+
+.scenario-maps__swatch {
+  align-self: center;
+}
+
+.scenario-maps__caption {
+  grid-column: auto;
+}
+
+.scenario-maps__card > .scenario-maps__head {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  flex-wrap: nowrap;
+}
+
+.scenario-maps__caption {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scenario-maps__card {
+  gap: var(--space-8);
+}
+
+.scenario-maps__swatch {
+  inline-size: 18px;
+}
+
+.scenario-maps__head {
+  gap: 0 6px;
+}

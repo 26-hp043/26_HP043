@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
-import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
+import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath, type ScreenId } from '../screens'
 import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
 import { createVoyageCatalog, voyageOptionLabel, type VoyageOption } from './voyageCatalog'
 import { useSamplePorts } from '../features/ports/samplePorts'
@@ -28,6 +28,13 @@ import { LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 import { NotificationBell } from '../features/notifications/NotificationBell'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
+
+
+/** 사이드바 무리 제목이 시작되는 항목 (10/7 시안 00). 순서는 `NAV_ORDER`가 정한다. */
+const NAV_GROUP_START: Partial<Record<ScreenId, 'shell.navGroup.analysis' | 'shell.navGroup.manage'>> = {
+  CII_FORECAST: 'shell.navGroup.analysis',
+  DATA_QUALITY: 'shell.navGroup.manage',
+}
 
 /**
  * 공통 셸 — `DESIGN_SYSTEM.md` §7.2.
@@ -356,8 +363,22 @@ export function AppShell() {
               // 좁은 창(1100 이하)에서는 라벨이 시각적으로 감춰져 아이콘만 남는다(#1885).
               // 마우스를 올리면 이름이 보이게 한다 — 낭독 이름은 감춘 라벨이 그대로 맡는다.
               const label = language === 'en' ? item.labelEn : item.label
+              /*
+               * 무리 제목 (10/7 시안 00) — 9개가 한 줄로 늘어서 있어 어디서 끊어 읽을지가 없었다.
+               * 작업 흐름 순서(`NAV_ORDER`)는 그대로 두고 그 위에 제목 둘만 얹는다. 화면 이동
+               * 대상이 아니라 시각 구획이라 낭독에서는 뺀다 — 각 항목 이름이 그대로 읽힌다.
+               */
+              const groupKey = NAV_GROUP_START[item.id]
+              const group =
+                groupKey === undefined ? null : (
+                  <li className="app-shell__nav-group" aria-hidden="true" lang={textLang}>
+                    {t(groupKey)}
+                  </li>
+                )
               return lockedTag === null ? (
-                <li key={item.id}>
+                <Fragment key={item.id}>
+                {group}
+                <li>
                   <NavLink
                     to={item.path}
                     title={label}
@@ -375,13 +396,16 @@ export function AppShell() {
                     </span>
                   </NavLink>
                 </li>
+                </Fragment>
               ) : (
                 /*
                  * 비활성 항목. `NavLink`로 두고 CSS로만 막지 않는 이유 — 링크로 남기면
                  * 키보드·스크린리더에는 이동 가능한 것으로 계속 노출된다.
                  * 이동 대상이 아니므로 링크가 아닌 요소로 렌더한다.
                  */
-                <li key={item.id}>
+                <Fragment key={item.id}>
+                {group}
+                <li>
                   <span
                     className="app-shell__nav-link app-shell__nav-link--disabled"
                     aria-disabled="true"
@@ -405,6 +429,7 @@ export function AppShell() {
                     </span>
                   </span>
                 </li>
+                </Fragment>
               )
             })}
           </ul>

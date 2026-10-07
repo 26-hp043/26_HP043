@@ -1731,8 +1731,11 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
      */
     for (const name of ['--shadow-lv1', '--shadow-lv2']) {
       expect(darkAlias[name], `다크 ${name}`).toBe('none')
-      expect(lightAlias[name], `라이트 ${name}은 그림자가 있어야 한다`).not.toBe('none')
     }
+    // 라이트 카드 그림자(Lv1)는 없앴다 — 카드는 테두리로만 선다 (#2310 · 10/7 디자인 결정).
+    // 띄우는 면(Lv2)은 라이트에서 여전히 그림자가 있어야 한다.
+    expect(lightAlias['--shadow-lv1'], '라이트 --shadow-lv1 (#2310)').toBe('none')
+    expect(lightAlias['--shadow-lv2'], '라이트 --shadow-lv2는 그림자가 있어야 한다').not.toBe('none')
   })
 
   it('오버레이 그림자는 다크에서도 none이 아니다', () => {

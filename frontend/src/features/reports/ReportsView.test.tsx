@@ -71,6 +71,16 @@ function vesselSelect(): HTMLSelectElement {
   return screen.getByTestId('vessel-select') as HTMLSelectElement
 }
 
+/**
+ * 자동 미리보기(10/7 결정 · #2320)가 끝나기를 기다린다. 만드는 동안에는 내려받기 버튼이
+ * 잠기므로(`busy`), 그 사이에 누른 클릭은 요청이 되지 않는다.
+ */
+async function untilIdle() {
+  await waitFor(() =>
+    expect((screen.getByTestId('pdf-button') as HTMLButtonElement).disabled).toBe(false),
+  )
+}
+
 describe('선박을 바꾸면 항차 목록이 어긋나지 않는다 (#824 ⑵)', () => {
   it('늦게 도착한 옛 선박의 항차가 새 선박 화면을 덮지 않는다', async () => {
     let releaseA: ((rows: VoyageOption[]) => void) | null = null
@@ -200,12 +210,16 @@ describe('선박 목록 조회 실패를 「선박 없음」으로 말하지 않
     expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull()
   })
 
-  it('미리보기를 눌러도 실패 표시가 지워지지 않는다', async () => {
+  it('내려받기를 눌러도 실패 표시가 지워지지 않는다', async () => {
     render(<ReportsView provider={failing()} />)
     await screen.findByText(/선박 목록을 불러오지 못했습니다/)
 
-    // 이 버튼이 `setFailure(null)`을 부른다 — 종전에는 여기서 원인이 뒤바뀌었다.
-    fireEvent.click(screen.getByTestId('preview-button'))
+    /*
+     * 이 버튼이 `run()`을 거쳐 리포트 오류 칸(`failure`)을 덮어쓴다 — 종전에는 여기서 원인이
+     * 뒤바뀌었다. 「미리보기」 버튼은 10/7 결정(#2320)으로 없어져 같은 `run()`을 타는
+     * 내려받기 버튼으로 본다.
+     */
+    fireEvent.click(screen.getByTestId('pdf-button'))
 
     await waitFor(() =>
       expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull(),
@@ -354,7 +368,8 @@ describe('하단 안내가 면책 배너를 되풀이하지 않는다 (#1578)', 
     render(<ReportsView provider={stub()} />)
     await waitFor(() => expect(vesselSelect().querySelectorAll('option').length).toBeGreaterThan(1))
 
-    expect(screen.getByText(/내부 보고용/).closest('p')?.textContent).toBe('리포트는 내부 보고용입니다.')
+    // 성격 안내는 머리말 설명(#2320)으로 옮겨졌다 — 문구가 아니라 「한 곳에 있다」를 본다.
+    expect(screen.getAllByText(/내부 보고용/)).toHaveLength(1)
     expect(screen.queryByText(/대관 제출용/)).toBeNull()
     expect(screen.getAllByText(/공식/)).toHaveLength(1)
   })
@@ -394,14 +409,37 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
       listVoyages: vi.fn(async () => [voyage('a-1', 'A-2026-01'), voyage('a-2', 'A-2026-02')]),
     })
 
-  it('마운트만으로는 만들지 않는다 — 조건을 정하기 전의 문서는 누구의 질문도 아니다', async () => {
+  /*
+   * 종전 검사 「마운트만으로는 만들지 않는다」는 10/7 디자인 결정(#2320)으로 뒤집혔다 — 첫 화면
+   * 절반이 빈 면이었다. 이제 조건이 완전하면 열자마자 만들되, **같은 조건으로는 한 번만** 시도한다.
+   */
+  it('조건이 완전하면 열자마자 만든다 — 누를 버튼이 없다', async () => {
     const provider = twoVoyages()
     renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-1' })
     await chooseVoyageKind()
 
     await waitFor(() => expect(voyageSelect().value).toBe('a-1'))
-    // `#511`이 항로 비교에서 정한 것과 같다 — 실패하면 화면이 오류로 시작한다.
-    expect(provider.previewHtml).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(provider.previewHtml).toHaveBeenLastCalledWith({ kind: 'VOYAGE', voyageId: 'a-1' }),
+    )
+    expect(await screen.findByTitle('리포트 미리보기')).toBeTruthy()
+    expect(screen.queryByTestId('preview-button')).toBeNull()
+  })
+
+  it('자동 생성이 실패해도 같은 조건으로 되풀이하지 않는다', async () => {
+    const provider = twoVoyages()
+    provider.previewHtml = vi.fn(async () => {
+      throw new Error('서버 오류')
+    })
+    renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-1' })
+    await chooseVoyageKind()
+
+    expect(await screen.findByText(/리포트를 만들지 못했습니다/)).toBeTruthy()
+    await new Promise((done) => setTimeout(done, 20))
+    const voyageCalls = vi
+      .mocked(provider.previewHtml)
+      .mock.calls.filter(([target]) => target.kind === 'VOYAGE')
+    expect(voyageCalls).toHaveLength(1)
   })
 
   it('누르기 전에도 빈 면이 아니다 — 무엇을 고르면 무엇이 나오는지가 있다', async () => {
@@ -428,7 +466,6 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
     await screen.findByRole('option', { name: /A-2026-01/ })
 
     fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
-    fireEvent.click(screen.getByTestId('preview-button'))
     await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
 
     fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
@@ -445,7 +482,6 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
     await screen.findByRole('option', { name: /A-2026-01/ })
 
     fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
-    fireEvent.click(screen.getByTestId('preview-button'))
     await waitFor(() => expect(screen.getByTitle('리포트 미리보기')).toBeTruthy())
 
     /*
@@ -468,7 +504,6 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
     await screen.findByRole('option', { name: /A-2026-01/ })
 
     fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
-    fireEvent.click(screen.getByTestId('preview-button'))
     await waitFor(() => expect(screen.getByTitle('리포트 미리보기')).toBeTruthy())
 
     fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
@@ -599,6 +634,7 @@ describe('내려받기 완료 안내는 조건을 따라간다 (#2125)', () => {
     await chooseVoyageKind()
     await screen.findByRole('option', { name: /A-2026-01/ })
     fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    await untilIdle()
     fireEvent.click(screen.getByTestId('pdf-button'))
     await waitFor(() => expect(notice()).not.toBeNull())
   }
@@ -676,7 +712,8 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
   }
 
   const buttons = () =>
-    (['preview-button', 'pdf-button', 'csv-button'] as const).map(
+    // 「미리보기」 버튼은 10/7 결정(#2320)으로 없어졌다 — 잠기는 것은 내려받기 둘이다.
+    (['pdf-button', 'csv-button'] as const).map(
       (id) => screen.getByTestId(id) as HTMLButtonElement,
     )
   const yearSelect = () => screen.getByTestId('year-select') as HTMLSelectElement
@@ -743,16 +780,16 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
 
     await untilVessel('v-a')
     await waitFor(() => expect(yearSelect().value).toBe('2024'))
-    expectUnlocked()
     expect(yearState()).toBeNull()
 
-    fireEvent.click(screen.getByTestId('preview-button'))
+    // 미리보기는 목록이 서자마자 저절로 만든다 (#2320) — 그 연도도 목록의 것이어야 한다.
     await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
     expect(provider.previewHtml).toHaveBeenCalledWith({
       kind: 'ANNUAL',
       vesselId: 'v-a',
       year: 2024,
     })
+    await waitFor(() => expectUnlocked())
 
     fireEvent.click(screen.getByTestId('pdf-button'))
     await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))
@@ -773,14 +810,20 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
     expectLockedWithReason()
     for (const button of buttons()) fireEvent.click(button)
 
+    // 도착 전에는 자동 미리보기도 나가지 않는다 — 고를 연도가 없다.
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+
     pending.resolve(yearsReply([2025]))
     await waitFor(() => expect(yearSelect().value).toBe('2025'))
-    expectUnlocked()
     expect(yearState()).toBeNull()
-    // 도착 전의 클릭은 요청이 아니었고, 도착 자체도 요청을 만들지 않는다 — 누르기 전의
-    // 문서는 누구의 질문도 아니다(#1768).
-    expect(provider.previewHtml).not.toHaveBeenCalled()
+    /*
+     * 도착 전의 클릭은 요청이 아니었다. 도착하면 미리보기는 저절로 **목록의 연도로** 만든다
+     * (10/7 결정 · #2320 — 종전에는 도착 자체가 요청을 만들지 않았다). 내려받기는 여전히 누를 때만이다.
+     */
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+    expect(provider.previewHtml).toHaveBeenCalledWith({ kind: 'ANNUAL', vesselId: 'v-a', year: 2025 })
     expect(provider.download).not.toHaveBeenCalled()
+    await waitFor(() => expectUnlocked())
 
     fireEvent.click(screen.getByTestId('csv-button'))
     await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))
@@ -819,7 +862,7 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
 
     await untilVessel('v-a')
     await waitFor(() => expect(yearSelect().value).toBe('2025'))
-    fireEvent.click(screen.getByTestId('preview-button'))
+    // 첫 문서는 저절로 만든다 (#2320).
     await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
 
     fireEvent.change(vesselSelect(), { target: { value: 'v-b' } })
@@ -860,7 +903,7 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
 
     await untilVessel('v-a')
     await waitFor(() => expect(yearSelect().value).toBe('2025'))
-    fireEvent.click(screen.getByTestId('preview-button'))
+    // 첫 문서는 저절로 만든다 (#2320).
     await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
     await waitFor(() => expectUnlocked())
 
@@ -888,8 +931,9 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
     await screen.findByRole('option', { name: /STAR SKIPPER/ })
 
     expectUnlocked()
-    fireEvent.click(screen.getByTestId('preview-button'))
+    fireEvent.click(screen.getByTestId('pdf-button'))
     expect(provider.previewHtml).not.toHaveBeenCalled()
+    expect(provider.download).not.toHaveBeenCalled()
     // 선박을 고르라는 사유가 뜬다 — 연도 칸의 상태 문구가 아니다.
     // 정본 문구 (PRD §6.4 검증 오류 「{대상}을/를 선택해 주세요.」) — 바꾸려면 PRD 개정이 먼저다.
     expect(screen.getByText(/선박을 선택해 주세요/)).toBeTruthy()
@@ -904,10 +948,10 @@ describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 
     await untilVessel('v-a')
     await waitFor(() => expect(voyageSelect().value).toBe('a-1'))
 
-    expectUnlocked()
-    fireEvent.click(screen.getByTestId('preview-button'))
+    // 미리보기는 저절로 만든다 (#2320).
     await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
     expect(provider.previewHtml).toHaveBeenCalledWith({ kind: 'VOYAGE', voyageId: 'a-1' })
+    await waitFor(() => expectUnlocked())
 
     fireEvent.click(screen.getByTestId('pdf-button'))
     await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))

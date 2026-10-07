@@ -508,6 +508,8 @@ describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () =>
     const { ask } = setup({ vesselId: 'v-1', vesselName: '샘플 벌크선' })
     open()
     const target = document.querySelector('.assistant__target') as HTMLElement
+    // 10/7 결정(#2322) — 계산 대상 줄은 머리 줄 안에 있다.
+    expect(target.closest('header')).not.toBeNull()
     expect(target.textContent).toContain('샘플 벌크선')
     expect(target.textContent).toContain('상단에서 바꿉니다')
 
@@ -535,14 +537,32 @@ describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () =>
   it('예시 질문을 누르면 입력칸에만 채운다 — 보내지 않는다', () => {
     const { ask } = setup({ vesselId: 'v-1', vesselName: '샘플 벌크선' })
     open()
-    const examples = screen.getByRole('list', { name: '예시 질문' })
+    const examples = screen.getByRole('group', { name: '예시 질문' })
+    /*
+     * 10/7 결정(#2322)으로 예시는 문의 유형별 접기(`<details>`)로 묶였다 — 종전의 「셋」은 개수가
+     * 아니라 「도구가 답할 수 있는 것만」의 대리 지표였으므로, 여기서는 묶음의 성질을 본다:
+     * 묶음이 여럿이고, 첫 묶음만 펼쳐져 있고, 묶음마다 고를 질문이 있다.
+     */
+    const groups = [...examples.querySelectorAll('details')]
+    expect(groups.length).toBeGreaterThan(1)
+    expect(groups.map((group) => group.open)).toEqual(groups.map((_, index) => index === 0))
+    for (const group of groups) {
+      expect(group.querySelector('summary')?.textContent?.trim()).not.toBe('')
+      expect(group.querySelectorAll('button').length).toBeGreaterThan(0)
+    }
     const buttons = examples.querySelectorAll('button')
-    expect(buttons).toHaveLength(3)
+
+    // 버튼의 화살표(`aria-hidden`)는 질문이 아니다 — 입력칸에 들어가는 것은 질문 글자뿐이다.
+    const question = (button: Element) => {
+      const copy = button.cloneNode(true) as Element
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove())
+      return copy.textContent?.trim() ?? ''
+    }
 
     // 실제 브라우저에서는 누른 버튼이 초점을 가져간다 — jsdom은 옮기지 않으므로 먼저 준다
     buttons[0].focus()
     fireEvent.click(buttons[0])
-    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe(buttons[0].textContent)
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe(question(buttons[0]))
     expect(document.activeElement).toBe(screen.getByLabelText('질문'))
     expect(ask).not.toHaveBeenCalled()
   })
@@ -552,13 +572,18 @@ describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () =>
     open()
     await send('안녕하세요')
     await screen.findByText(ANSWER.answer)
-    expect(screen.queryByRole('list', { name: '예시 질문' })).toBeNull()
+    expect(screen.queryByRole('group', { name: '예시 질문' })).toBeNull()
   })
 
   it('안내 문구가 「화면의 계산 결과를 풀어 설명」한다고 말하지 않는다 — 새로 계산한다(R18)', () => {
     setup()
     open()
-    const intro = document.querySelector('.assistant__intro')!.textContent ?? ''
+    /*
+     * 10/7 결정(#2322)으로 안내는 짧은 한 줄 + 「범이가 하는 일」 접기로 나뉘었다. 긴 설명은 접기
+     * 안에 그대로 있으므로 **안내 전체**(한 줄 + 접기)를 읽는다.
+     */
+    const intro = document.querySelector('.assistant__intro-wrap')!.textContent ?? ''
+    expect(document.querySelector('.assistant__intro-wrap details summary')).not.toBeNull()
     expect(intro).not.toMatch(/화면에 나온/)
     expect(intro).toMatch(/계산해 답합니다/)
   })

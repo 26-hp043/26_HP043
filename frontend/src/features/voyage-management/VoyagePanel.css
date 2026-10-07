@@ -313,7 +313,7 @@
 
 .vy__input {
   border: 1px solid var(--color-border-control);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   color: var(--text-primary);
   border-radius: var(--radius-control);
   padding: var(--spacing-xs) var(--spacing-sm);
@@ -649,7 +649,7 @@
   font-size: var(--font-size-label);
   padding: var(--spacing-sm);
   color: var(--text-primary);
-  background: var(--surface-inset);
+  background: var(--color-control-bg);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
 }
@@ -767,4 +767,31 @@
   border-radius: var(--radius-pill);
   background: var(--surface-card);
   white-space: nowrap;
+}
+
+/* 지금 할 일 · 다음 계획 · 대기 (10/7) */
+.vy__todo {
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+}
+
+.vy__todo b {
+  font-weight: var(--font-weight-strong);
+}
+
+.vy__start {
+  color: var(--color-link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.vy__wait {
+  margin-inline-start: auto;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
 }

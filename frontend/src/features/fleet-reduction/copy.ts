@@ -31,10 +31,10 @@ export const FLEET_REDUCTION_COPY = {
   colExtraDays: '추가 항해일',
   colFuelSaved: '연료 절감',
   colCharter: '일일 용선료 (USD)',
-  meets: '목표 달성',
-  misses: '목표 미달',
+  meets: '충족',
+  misses: '미달',
   /* `amount`는 자릿수·구분자·단위까지 적힌 값이다 — 단위를 여기 박지 않는다(`DESIGN_SYSTEM §4.2` · #2122). */
-  cutHint: (amount: string) => `목표까지 연료 ${amount} 더`,
+  cutHint: (amount: string) => `추가 감축 필요 ${amount}`,
   unreachable: '감속만으로 닿지 않음',
   skippedHint: (n: number) => `제원이 없어 감속을 적용하지 못한 항차 ${n}건`,
 
@@ -67,7 +67,7 @@ export const FLEET_REDUCTION_COPY = {
   fuelPricesBeforeRun: '계산이 끝나면 이 계획에 필요한 연료의 단가 칸이 열립니다.',
   /** 계산은 됐는데 필요한 단가가 없다. */
   fuelPricesNone: '이 계획에는 연료 단가가 필요하지 않습니다.',
-  fuelPricesTitle: '연료 단가 (USD/t)',
+  fuelPricesTitle: '연료 단가 (USD/t) · 환율',
   pricesNote: '단가는 이 계획의 가정값이며 계획과 함께 저장됩니다.',
   /*
    * 직전 계획에서 이어받은 단가의 출처 (#2020). 조용히 채우면 사용자는 **지금 시세로 넣은 값**으로

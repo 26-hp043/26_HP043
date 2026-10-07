@@ -162,17 +162,44 @@ describe('결론이 맨 위에 선다 (#1711)', () => {
     expect(within(list).queryByText('항차 조건 기준 예상 CII')).toBeNull()
   })
 
-  it('연간 반영 시 변화가 있으면 목록의 한 줄이다 — 따로 남는 칸이 없다', () => {
-    renderResult({
+  /*
+   * 10/7 시안 02(#2312) — 연간 반영은 목록의 한 줄에서 결론 띠의 보조 「올해 누적에 넣으면」으로
+   * 올라갔다. 지키려던 것(「따로 남는 칸이 없다」)은 그대로 — 목록에 다시 서지 않는다.
+   */
+  it('연간 반영 시 변화가 있으면 결론 띠 보조에 서고, 목록에 따로 남는 줄이 없다', () => {
+    const { container } = renderResult({
       annual_impact: {
         before: { attained_cii: '5.100000', rating: 'D' },
         after: { attained_cii: '5.050000', rating: 'D' },
         rating_changed: false,
       },
     } as Partial<VoyageCiiResponse['data']>)
-    const row = screen.getByText('연간 반영 시 변화').closest('.voyage-cii-result__row')
-    expect(row).toBeTruthy()
-    expect(within(row as HTMLElement).getByText('D → D')).toBeTruthy()
+    const strip = screen.getByRole('region', { name: '결론' })
+    const sub = strip.querySelector('.verdict-strip__sub') as HTMLElement
+    // 등급이 그대로면 도착 등급 배지 하나 — 전환으로 그리지 않는다
+    expect(within(sub).getAllByRole('img').map((el) => el.getAttribute('aria-label')))
+      .toEqual(['연간 반영 후 등급 D'])
+    // 다음 경계 여유는 기초 자료가 없을 때의 보조다 — 연간 반영과 함께 서지 않는다
+    expect(within(sub).queryByText('다음 경계까지')).toBeNull()
+    const list = container.querySelector('dl.voyage-cii-result__list') as HTMLElement
+    expect(within(list).queryByText(/연간 반영|올해 누적/)).toBeNull()
+  })
+
+  it('연간 반영으로 등급이 바뀌면 보조는 전후 두 등급을 순서대로 보인다', () => {
+    renderResult({
+      annual_impact: {
+        before: { attained_cii: '5.100000', rating: 'D' },
+        after: { attained_cii: '4.900000', rating: 'C' },
+        rating_changed: true,
+      },
+    } as Partial<VoyageCiiResponse['data']>)
+    const sub = screen.getByRole('region', { name: '결론' }).querySelector('.verdict-strip__sub') as HTMLElement
+    // 전환 하나가 한 그림으로 읽힌다 — 낭독 이름이 전후 등급을 순서대로 말한다
+    const transition = sub.querySelector('.verdict-strip__transition') as HTMLElement
+    const name = transition.getAttribute('aria-label') ?? ''
+    expect(name.indexOf('D')).toBeGreaterThanOrEqual(0)
+    expect(name.indexOf('D')).toBeLessThan(name.indexOf('C'))
+    expect([...transition.querySelectorAll('.grade-badge')].map((b) => b.textContent)).toEqual(['D', 'C'])
   })
 
   it('「이 결과로」는 결과 카드 안에 있다 — 따로 떠 있는 면이 아니다 (`§5`)', () => {

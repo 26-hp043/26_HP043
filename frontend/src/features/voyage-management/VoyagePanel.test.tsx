@@ -15,6 +15,13 @@ import { formatTimestamp } from '../../display/format'
 async function expandRow(): Promise<void> {
   fireEvent.click(await screen.findByRole('button', { name: '자세히' }))
 }
+
+/**
+ * 실적 폼을 여는 토글 (#2317 · 10/7). 항해 중 항차는 「도착 실적 입력」, 완료 항차는
+ * 「실적 입력」이다 — 표시 문구라(`AGENTS §4.6`) 두 형태를 함께 받는다. 여기서 잠그는 것은
+ * 문구가 아니라 **실적 폼을 여는 그 버튼**이다.
+ */
+const ACTUALS_TOGGLE = /^(도착 )?실적 입력$/
 import type { VoyageManagementProvider } from './apiProvider'
 import type { ActualsDraft, DistanceSource, ManagedVoyage, VoyageDraft } from './types'
 import { ESTIMATED_DISTANCE_HINT } from '../ports/samplePorts'
@@ -202,7 +209,7 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
 describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
   it('「실적 입력」을 열면 출항·도착 시각 칸이 그려진다', async () => {
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
 
     expect((await screen.findByLabelText('실제 출항 시각')).getAttribute('type')).toBe(
       'datetime-local',
@@ -212,7 +219,7 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
 
   it('계획 시각 힌트는 입력칸용 값이 아니라 표시 형식이다 (`DESIGN_SYSTEM §4.4` · #2122)', async () => {
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
 
     const field = await screen.findByLabelText('실제 출항 시각')
     const hint = document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
@@ -225,7 +232,7 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
     const broken = { ...IN_PROGRESS, plannedDepartureAt: 'not-a-date', plannedArrivalAt: 'not-a-date' }
     const list = vi.fn(async () => ({ voyages: [broken], fuelTypes: ['HFO'], nextCursor: null, hasMore: false }))
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ list })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
 
     for (const label of ['실제 출항 시각', '실제 도착 시각']) {
       const field = await screen.findByLabelText(label)
@@ -237,7 +244,7 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
   it('입력한 시각이 provider까지 도달한다', async () => {
     const saveActuals = vi.fn(async (_id: string, _draft: ActualsDraft) => IN_PROGRESS)
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ saveActuals })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
 
     fireEvent.change(await screen.findByLabelText('실제 출항 시각'), {
       target: { value: '2026-06-02T08:30' },
@@ -343,7 +350,7 @@ describe('실적 저장이 실패해도 폼이 닫히지 않는다 (#824 ⑸)', 
       throw new Error('실적을 저장하지 못했습니다.')
     })
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ saveActuals })} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
 
     const distance = await screen.findByLabelText(/실제 거리/)
     fireEvent.change(distance, { target: { value: '4321' } })
@@ -361,7 +368,7 @@ describe('실적 저장이 실패해도 폼이 닫히지 않는다 (#824 ⑸)', 
 
   it('성공하면 종전대로 닫힌다', async () => {
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
     fireEvent.change(await screen.findByLabelText(/실제 거리/), { target: { value: '4321' } })
     fireEvent.click(screen.getByRole('button', { name: '실적 저장' }))
 
@@ -787,7 +794,7 @@ describe('실적 폼 바로 열기 (#1540)', () => {
 
   it('지정하지 않으면 열리지 않는다 — 종전 동작', async () => {
     render(<VoyagePanel vesselId="ves-1" provider={providerWith([IN_PROGRESS])} />)
-    await screen.findByRole('button', { name: '실적 입력' })
+    await screen.findByRole('button', { name: ACTUALS_TOGGLE })
     expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
   })
 
@@ -931,7 +938,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
 
   it('항해 중 · 연료 실적 없음 — 「실적 입력」이 주 버튼이고, 막힌 완료의 사유가 그것을 가리킨다', async () => {
     renderOne(IN_PROGRESS)
-    const actuals = await screen.findByRole('button', { name: '실적 입력' })
+    const actuals = await screen.findByRole('button', { name: ACTUALS_TOGGLE })
     expect(primaries()).toEqual([actuals])
     expect(actionsFirst()).toBe(actuals)
 
@@ -950,23 +957,54 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     expect(primaries()).toEqual([complete])
     expect(actionsFirst()).toBe(complete)
     await expandRow()
-    expect(screen.getByRole('button', { name: '실적 입력' }).className).not.toContain('vy__primary')
+    expect(screen.getByRole('button', { name: ACTUALS_TOGGLE }).className).not.toContain('vy__primary')
   })
 
   it('「실적 입력」을 열면 채움을 내린다 — 할 일은 폼 안의 「실적 저장」이다', async () => {
     renderOne(IN_PROGRESS)
-    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.click(await screen.findByRole('button', { name: ACTUALS_TOGGLE }))
     expect(screen.getByRole('button', { name: '실적 닫기' }).className).not.toContain('vy__primary')
     expect(primaries()).toEqual([])
   })
 
-  it('완료 · 실제 거리 없음 — 확정은 누르기 전에 사유를 내고 「실적 입력」이 주 버튼이다', async () => {
+  it('완료 · 실제 거리 없음 — 확정은 누르기 전에 사유를 내고 「실적 입력」이 행의 주 동작이다', async () => {
     renderOne(COMPLETED_NO_DISTANCE)
     await expandRow()
     const confirm = screen.getByRole('button', { name: '실적 확정으로' }) as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
     expect(screen.getByText(/실제 거리를 넣어야 실적을 확정할 수 있습니다/)).toBeTruthy()
-    expect(primaries()).toEqual([screen.getByRole('button', { name: '실적 입력' })])
+    /*
+     * 10/7 — 채움 버튼은 항해 중 행만 받는다. 완료 행의 주 동작은 **외곽선**이지만 여전히
+     * 행에 올라온 맨 앞 버튼이다(나머지 전환은 펼침 줄).
+     */
+    const actuals = screen.getByRole('button', { name: ACTUALS_TOGGLE })
+    expect(actionsFirst()).toBe(actuals)
+    expect(primaries()).toEqual([])
+  })
+
+  it('계획 행 — 가장 이른 계획 하나만 「항해 시작」을 받고, 나머지 계획은 버튼 없이 대기다 (10/7)', async () => {
+    const early: ManagedVoyage = { ...IN_PROGRESS, id: 'p-1', voyageNo: '2026-05', status: 'PLANNED' }
+    const late: ManagedVoyage = { ...IN_PROGRESS, id: 'p-2', voyageNo: '2026-06', status: 'PLANNED' }
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          // 순서를 뒤집어 준다 — 목록 순서가 아니라 항차 번호로 고른다.
+          list: vi.fn(async () => ({ voyages: [late, early], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+        })}
+      />,
+    )
+    await screen.findByText('2026-05')
+    const actionsOf = (id: string) =>
+      document.getElementById(`voyage-${id}`)!.querySelector('.vy__row-actions') as HTMLElement
+    // 계획 행에는 채움 버튼이 없다
+    expect(document.querySelectorAll('.vy__primary')).toHaveLength(0)
+    const earlyButtons = within(actionsOf('p-1')).getAllByRole('button')
+    const lateButtons = within(actionsOf('p-2')).getAllByRole('button')
+    // 이른 쪽은 「자세히」 앞에 시작 버튼 하나가 더 있고, 늦은 쪽은 「자세히」뿐이다
+    expect(earlyButtons).toHaveLength(2)
+    expect(lateButtons).toHaveLength(1)
+    expect(lateButtons[0].getAttribute('aria-expanded')).not.toBeNull()
   })
 
   it('실적 확정 — 다음 단계가 없어 채움 버튼이 없다', async () => {

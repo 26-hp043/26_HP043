@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { PercentileRange } from './PercentileRange'
-import { DISPLAY_DIGITS, NO_TIMESTAMP_TEXT, formatDecimalString, formatTimestamp } from '../../display/format'
+import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
@@ -38,7 +38,6 @@ import {
   countAdvancedChanges,
   reductionCutText,
   resultConditionsText,
-  estimateNoticeText,
   futureYearsLineShown,
   futureYearsUnavailableText,
   targetVesselText,
@@ -739,14 +738,7 @@ export function AnnualSimulation({
         가드(`actuals.vesselId`)는 그대로다.
       */}
       <div className="annual-sim__column">
-        {shell.vesselId !== null && actuals !== null ? (
-          <YearlyActuals
-            state={actuals.vesselId === shell.vesselId ? actuals : { status: 'loading' }}
-            onRetry={() => setActualsAttempt((attempt) => attempt + 1)}
-            // 결과의 해가 표의 확정 행과 같으면 두 값의 계산 경로가 다르다는 한 줄을 표 아래에 둔다.
-            simulatedYear={state.status === 'success' ? Number(state.conditions.year) : undefined}
-          />
-        ) : null}
+
         <div className="annual-sim__results">
           {state.status === 'idle' ? (
             <p className="annual-sim__placeholder">
@@ -799,6 +791,20 @@ export function AnnualSimulation({
             />
           ) : null}
         </div>
+        {/* 근거는 결과 아래 (10/7 시안 03) — 첫 자리는 결론이다. */}
+        {shell.vesselId !== null && actuals !== null ? (
+          <YearlyActuals
+            footer={
+              state.status === 'success' ? (
+                <ResultBasis key={state.result.simulation_id} result={state.result} provider={provider} />
+              ) : null
+            }
+            state={actuals.vesselId === shell.vesselId ? actuals : { status: 'loading' }}
+            onRetry={() => setActualsAttempt((attempt) => attempt + 1)}
+            // 결과의 해가 표의 확정 행과 같으면 두 값의 계산 경로가 다르다는 한 줄을 표 아래에 둔다.
+            simulatedYear={state.status === 'success' ? Number(state.conditions.year) : undefined}
+          />
+        ) : null}
       </div>
     </section>
   )
@@ -867,22 +873,226 @@ function FutureYearsLine({
       {outlook.length === 0 ? (
         <p className="annual-sim__notice">{futureYearsUnavailableText(year)}</p>
       ) : (
-        <>
-          <p className="annual-sim__conditions">
-            <span className="annual-sim__conditions-label">{ANNUAL_COPY.futureYearsLabel}</span>{' '}
-            {outlook.map((row, index) => (
+        /*
+          10/7 — 한 줄로. 해마다 같은 등급이면 「2027–2030년 모두 E」로 줄이고, 가정 문장(확정
+          문구 · `#2056`)은 뒤에 짧게 붙인 뒤 전문은 풀이(title)로 둔다.
+        */
+        <p className="annual-sim__meta-line" title={ANNUAL_COPY.futureYearsAssumption}>
+          <span className="annual-sim__conditions-label">{ANNUAL_COPY.futureYearsLabel}</span>{' '}
+          {outlook.every((row) => row.projected_rating === outlook[0].projected_rating) &&
+          outlook.length > 1 ? (
+            <span data-testid="annual-sim-future-year">
+              {`${outlook[0].regulation_year}–${outlook[outlook.length - 1].regulation_year}${ANNUAL_COPY.futureYearSuffix} 모두`}{' '}
+              <strong>{outlook[0].projected_rating}</strong>
+            </span>
+          ) : (
+            outlook.map((row, index) => (
               <span key={row.regulation_year} data-testid="annual-sim-future-year">
                 {index > 0 ? ' · ' : null}
                 {`${row.regulation_year}${ANNUAL_COPY.futureYearSuffix}`}{' '}
                 <strong>{row.projected_rating}</strong>
                 <span className="sr-only">{` ${ANNUAL_COPY.futureYearRatingUnit}`}</span>
               </span>
-            ))}
-          </p>
-          <p className="annual-sim__notice">{ANNUAL_COPY.futureYearsAssumption}</p>
-        </>
+            ))
+          )}
+          <span className="annual-sim__meta-sub"> · 올해 연말 값이 그대로일 때의 참고 등급</span>
+          <span className="sr-only"> {ANNUAL_COPY.futureYearsAssumption}</span>
+        </p>
       )}
     </div>
+  )
+}
+
+/** 「목표까지」를 띠에 올리는 조건 (10/7 시안 03) — 달성 가능 · 계획 있음 · 줄일 양이 0이 아님. */
+function cutShown(cut: AnnualSimulationResult['reduction_plan']): boolean {
+  return (
+    cut != null &&
+    cut.achievable &&
+    cut.required_cut_fuel_ton !== null &&
+    !(cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0)
+  )
+}
+
+/** 「C 경계 5.348보다 67.7% 높음」 — 연말 예측과 목표 경계의 차이 (10/7 시안 03). */
+function boundaryGapText(
+  projected: string,
+  cut: AnnualSimulationResult['reduction_plan'],
+): string | undefined {
+  if (cut == null) return undefined
+  const p = Number(projected)
+  const b = Number(cut.target_cii)
+  if (!Number.isFinite(p) || !Number.isFinite(b) || b <= 0) return undefined
+  const diff = ((p - b) / b) * 100
+  const boundary = formatDecimalString(cut.target_cii, DISPLAY_DIGITS.cii)
+  if (Math.abs(diff) < 0.05) return `${cut.target_rating} 경계 ${boundary}와 같음`
+  return `${cut.target_rating} 경계 ${boundary}보다 ${Math.abs(diff).toFixed(1)}% ${diff > 0 ? '높음' : '낮음'}`
+}
+
+/**
+ * 재현 · 계산 근거 (10/7) — 결과 카드들 사이가 아니라 「근거 — 연도별 실적」 카드의 맨 아래에 둔다.
+ * 둘 다 「이 결과가 무엇으로 계산됐나」라 한 자리에 모았다. seed 줄과 재현 버튼은 늘 보인다
+ * (`PRD §12.4.3` · #1418).
+ */
+function ResultBasis({
+  result,
+  provider,
+}: {
+  result: AnnualSimulationResult
+  provider: AnnualSimulationProvider
+}) {
+  const { deterministic: det, monte_carlo: mc, feedback } = result
+  const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
+
+  const runReproduce = useCallback(async () => {
+    setReproduce({ status: 'running' })
+    try {
+      const reproduced = await provider.reproduce(result.simulation_id)
+      setReproduce({ status: 'success', warnings: reproduced.warnings })
+    } catch (error: unknown) {
+      // 서버 문구를 그대로 낸다 — 409(파라미터 변경 → 새로 실행)와 500(무결성 실패
+      // → 관리자 문의)은 **사용자가 할 일이 다르고** 그 안내가 문구에 들어 있다(#837).
+      setReproduce({
+        status: 'error',
+        message: error instanceof Error ? error.message : ANNUAL_COPY.reproduceErrorFallback,
+      })
+    }
+  }, [provider, result.simulation_id])
+
+  return (
+        <section className="annual-sim__basis" aria-label={ANNUAL_COPY.reproTitle}>
+          <div className="annual-sim__reproduce">
+            <dl className="annual-sim__repro">
+              <dt>seed</dt>
+              <dd>{reproducibilityLine(mc)}</dd>
+            </dl>
+            {/*
+              seed를 입력칸에 옮겨 적는 우회로 대신 두는 버튼이다 — 그 우회는 **폼의 다른 칸이
+              바뀌었으면 다른 조건으로** 돌고, 결과가 달라도 그것이 재현 실패인지 알 수 없다.
+            */}
+            <button
+              type="button"
+              onClick={() => void runReproduce()}
+              disabled={reproduce.status === 'running'}
+            >
+              {reproduce.status === 'running'
+                ? ANNUAL_COPY.reproducing
+                : ANNUAL_COPY.reproduceButton}
+            </button>
+            {reproduce.status === 'success' ? (
+              <>
+                {/*
+                  재현 성공은 **실패와 같은 무게**로 보인다 (2026-09-17 확정 ⓑ · `#1053` 40번).
+                  모양은 `ErrorState`의 영역 실패를 따른다(중립 면 + 테두리 + 아이콘).
+
+                  ⚠️ **색을 쓰지 않는다.** 라이트 `--color-success`(`#38a169`)가 이 면
+                  (`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지 못한다.
+                  문자 전용 별칭 `--color-success-text`(`#1653`)는 이미 있다 — 이 면 위에서도
+                  4.61이라 넘는다. 색을 입히는 것은 별건이고, 지금은 입히지 않는다.
+                */}
+                <div className="annual-sim__reproduce-ok" role="status">
+                  <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size="inline" />
+                  <p className="annual-sim__reproduce-ok-text">{ANNUAL_COPY.reproduceSuccess}</p>
+                </div>
+                {/*
+                  재현 응답의 경고 (`#1095` ⑶). 아래 결과 경고 목록과 **다른 범위**라 따로
+                  둔다: 저쪽은 원본 실행의 경고이고 이쪽은 **재현 실행**의 경고다.
+                */}
+                {reproduce.warnings.length > 0 ? (
+                  <ul className="annual-sim__warnings">
+                    {reproduce.warnings.map((code) => (
+                      <li key={code}>{warningMessage(code)}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+          {reproduce.status === 'error' ? (
+            <ErrorState
+              level="region"
+              action={ANNUAL_COPY.reproduceErrorAction}
+              message={reproduce.message}
+            />
+          ) : null}
+
+          <details className="annual-sim__repro-details">
+            <summary>{ANNUAL_COPY.reproDetailsToggle}</summary>
+
+            {/* ── 결정론 (PRD §12.3) — 값과 등급은 결론 띠에 있다. 여기는 무엇을 더했는지 ── */}
+            <div className="annual-sim__group">
+              <h3 className="annual-sim__sub-title">{ANNUAL_COPY.deterministicTitle}</h3>
+              <p className="annual-sim__caption">{ANNUAL_COPY.deterministicCaption}</p>
+              <dl className="annual-sim__list">
+                <Row
+                  label={ANNUAL_COPY.projectedCiiLabel}
+                  value={formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
+                />
+                <Row label={ANNUAL_COPY.projectedRatingLabel} value={det.projected_rating} />
+                <Row label={ANNUAL_COPY.completedLabel} value={String(det.completed_voyage_count)} />
+                <Row label={ANNUAL_COPY.remainingLabel} value={String(det.remaining_voyage_count)} />
+              </dl>
+            </div>
+
+            {/*
+              ── 실적 보정계수 (PRD §12.2.1 · #363) ──
+
+              세 상태를 가른다 — ⑴ 곱했다 ⑵ 값은 있으나 곱하지 않았다 ⑶ 표본이 모자라 값이
+              없다. ⚠️ ⑶을 1.0이나 빈칸으로 그리면 「계획대로 쓰고 있다」로 읽힌다.
+
+              `#363` 이전 실행에는 블록이 없다 — 그때는 그리지 않는다.
+            */}
+            {feedback && (
+              <div className="annual-sim__group">
+                <h3 className="annual-sim__sub-title">{ANNUAL_COPY.feedbackTitle}</h3>
+                <p className="annual-sim__caption">{ANNUAL_COPY.feedbackCaption}</p>
+                <dl className="annual-sim__list">
+                  <Row
+                    label={ANNUAL_COPY.feedbackFactorLabel}
+                    value={
+                      feedback.factor === null
+                        ? ANNUAL_COPY.feedbackUnavailableValue
+                        : `× ${formatDecimalString(feedback.factor, 4)}`
+                    }
+                  />
+                  <Row
+                    label={ANNUAL_COPY.feedbackSampleLabel}
+                    value={`${feedback.sample_size}건`}
+                    hint={`${ANNUAL_COPY.feedbackMinSampleHint} ${feedback.min_sample}건`}
+                  />
+                </dl>
+                {feedback.factor === null ? (
+                  <p className="annual-sim__caption">{ANNUAL_COPY.feedbackUnavailable}</p>
+                ) : feedback.applied ? (
+                  <p className="annual-sim__notice">{ANNUAL_COPY.feedbackApplied}</p>
+                ) : (
+                  <p className="annual-sim__caption">{ANNUAL_COPY.feedbackNotApplied}</p>
+                )}
+              </div>
+            )}
+
+            <div className="annual-sim__group">
+              <h3 className="annual-sim__sub-title">{ANNUAL_COPY.reproTitle}</h3>
+              <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
+              <dl className="annual-sim__repro">
+                <dt>{ANNUAL_COPY.snapshotLabel}</dt>
+                <dd>
+                  {result.snapshot.snapshot_id}
+                  <span className="annual-sim__hint">
+                    {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
+                  </span>
+                </dd>
+                <dt>{ANNUAL_COPY.runIdLabel}</dt>
+                <dd>{result.calculation_run_id}</dd>
+              </dl>
+              {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
+              <SnapshotVoyages
+                simulationId={result.simulation_id}
+                voyageCount={result.snapshot.voyage_count}
+                provider={provider}
+              />
+            </div>
+          </details>
+        </section>
   )
 }
 
@@ -903,22 +1113,6 @@ function Result({
   mapGeometryProvider?: AnnualMapGeometryProvider
 }) {
   const { deterministic: det, monte_carlo: mc, reduction_plan: cut, feedback } = result
-  const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
-
-  const runReproduce = useCallback(async () => {
-    setReproduce({ status: 'running' })
-    try {
-      const reproduced = await provider.reproduce(result.simulation_id)
-      setReproduce({ status: 'success', warnings: reproduced.warnings })
-    } catch (error: unknown) {
-      // 서버 문구를 그대로 낸다 — 409(파라미터 변경 → 새로 실행)와 500(무결성 실패
-      // → 관리자 문의)은 **사용자가 할 일이 다르고** 그 안내가 문구에 들어 있다(#837).
-      setReproduce({
-        status: 'error',
-        message: error instanceof Error ? error.message : ANNUAL_COPY.reproduceErrorFallback,
-      })
-    }
-  }, [provider, result.simulation_id])
   const risk = riskLabel(result.risk_level)
   const pDorE = probabilityOfDorE(mc.rating_probabilities)
   const flag = riskFlag(pDorE)
@@ -962,7 +1156,22 @@ function Result({
           value: formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii),
           rating: det.projected_rating,
           ratingLabel: `${ANNUAL_COPY.projectedRatingLabel} ${det.projected_rating}`,
+          note: boundaryGapText(det.projected_attained_cii, cut),
         }}
+        /*
+          10/7 시안 03 — 「목표까지」를 띠의 셋째 칸으로. 종전에는 분포 아래 목록에 있어 첫 화면에서
+          「얼마나 줄여야 하나」가 읽히지 않았다. 달성 가능하고 줄일 양이 있을 때만 — 나머지 경우
+          (달성 불가 · 잔여 계획 없음 · 이미 충족)는 아래 안내 문장이 그대로 말한다.
+        */
+        third={
+          cutShown(cut)
+            ? {
+                label: ANNUAL_COPY.verdictTargetLabel,
+                value: `연료 −${reductionCutText(cut!.required_cut_gco2, cut!.required_cut_fuel_ton).fuel}`,
+                note: `CO₂ −${reductionCutText(cut!.required_cut_gco2, cut!.required_cut_fuel_ton).co2} · 남은 계획 거리는 그대로`,
+              }
+            : undefined
+        }
         risk={{ level: result.risk_level, heading: ANNUAL_COPY.riskLabel, ...risk }}
       />
 
@@ -984,16 +1193,6 @@ function Result({
             <b className="annual-sim__em">{lever.probabilityChange}</b>
           </p>
         ) : null}
-        <p className="annual-sim__conditions">
-          <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
-          <strong>{resultConditionsText(conditions)}</strong>
-        </p>
-        {restored ? (
-          <p className="annual-sim__conditions" data-testid="annual-sim-last-run">
-            <span className="annual-sim__conditions-label">{ANNUAL_COPY.lastRunLabel}</span>{' '}
-            <time dateTime={restored.createdAt}>{formatTimestamp(restored.createdAt) ?? NO_TIMESTAMP_TEXT}</time>
-          </p>
-        ) : null}
         {restored?.needsRecalc ? (
           <p className="annual-sim__notice" role="status">
             {ANNUAL_COPY.lastRunNeedsRecalc}
@@ -1004,11 +1203,20 @@ function Result({
           year={conditions.year}
           asOf={result.as_of}
         />
-        {result.is_sample_data ? (
-          <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
-        ) : (
-          <p className="annual-sim__notice">{estimateNoticeText(result.as_of)}</p>
-        )}
+        {/*
+          조건 · 실행 시각 · 추정 고지를 한 줄로 (10/7) — 종전 세 줄(「이 결과의 조건」 · 「마지막 실행」 ·
+          「이 결과의 수치는 모두 …추정값입니다. 기준 시각은 …」)이 같은 시각을 두 번 적었다.
+          화면 단위 추정 고지(`§11` · #1578)는 줄 끝에 짧게 남는다.
+        */}
+        <p className="annual-sim__meta-line annual-sim__meta-line--muted" data-testid="annual-sim-last-run">
+          {resultConditionsText(conditions)}
+          {formatTimestamp(restored?.createdAt ?? result.as_of ?? '') !== null
+            ? ` · ${formatTimestamp(restored?.createdAt ?? result.as_of ?? '')} 실행`
+            : ''}
+          {result.is_sample_data
+            ? ` · ${ANNUAL_COPY.sampleNotice}`
+            : ' · 잔여 계획을 전제로 한 추정값'}
+        </p>
       </div>
 
       {/* ── 확률 (PRD §12.4 · §12.5 · DESIGN_SYSTEM §10.2) ─────────── */}
@@ -1038,8 +1246,12 @@ function Result({
         >
           {segments.map((seg) => {
             if (seg.empty) return null
-            const pattern = gradePatternUrl(seg.rating)
+            /*
+              10/7 — 등급 배지와 같은 표기(연한 면 · 진한 글자). 글자가 구간 **안에** 들어가는 구간은
+              무늬를 빼고(`§2.4.4` 「패턴 미적용」), 8% 미만이라 글자가 못 들어가는 구간만 무늬를 남긴다.
+            */
             const inline = seg.inline
+            const pattern = inline ? null : gradePatternUrl(seg.rating)
             const text = `${seg.rating} ${seg.label}`
 
             return (
@@ -1109,7 +1321,7 @@ function Result({
             ⚠️ `#433` 이전에 만들어진 실행에는 블록이 없다 — 그때는 그리지 않는다.
             없는 것을 0으로 그리면 「줄일 것이 없다」로 읽힌다.
           */}
-          {cut && (
+          {cut && !cutShown(cut) && (
             <div className="annual-sim__group">
               <h3 className="annual-sim__sub-title">{ANNUAL_COPY.reductionTitle}</h3>
               <p className="annual-sim__caption">{ANNUAL_COPY.reductionCaption}</p>
@@ -1147,14 +1359,23 @@ function Result({
             <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
             {/* 네 값을 한눈에 — 막대 아래 숫자 행은 그대로 둔다 (#1456) */}
             <PercentileRange p10={mc.p10} p50={mc.p50} p90={mc.p90} mean={mc.mean_cii} />
-            <dl className="annual-sim__list">
-              <Row label={ANNUAL_COPY.p10Label} value={formatDecimalString(mc.p10, DISPLAY_DIGITS.cii)} />
-              <Row label={ANNUAL_COPY.p50Label} value={formatDecimalString(mc.p50, DISPLAY_DIGITS.cii)} />
-              <Row label={ANNUAL_COPY.p90Label} value={formatDecimalString(mc.p90, DISPLAY_DIGITS.cii)} />
-              <Row
-                label={ANNUAL_COPY.meanLabel}
-                value={formatDecimalString(mc.mean_cii, DISPLAY_DIGITS.cii)}
-              />
+            {/*
+              숫자는 한 줄 셋으로 (10/7 · A7) — 하위 10% · 중앙값 · 상위 10%. 평균은 중앙값과 거의 같아
+              같은 말을 두 번 했다. 평균 위치는 위 막대의 ◆가 그대로 보인다.
+            */}
+            <dl className="annual-sim__spread-row">
+              <div>
+                <dt>{ANNUAL_COPY.p10Label}</dt>
+                <dd>{formatDecimalString(mc.p10, DISPLAY_DIGITS.cii)}</dd>
+              </div>
+              <div>
+                <dt>{ANNUAL_COPY.p50Label}</dt>
+                <dd className="annual-sim__spread-mid">{formatDecimalString(mc.p50, DISPLAY_DIGITS.cii)}</dd>
+              </div>
+              <div>
+                <dt>{ANNUAL_COPY.p90Label}</dt>
+                <dd>{formatDecimalString(mc.p90, DISPLAY_DIGITS.cii)}</dd>
+              </div>
             </dl>
           </div>
         </div>
@@ -1187,9 +1408,6 @@ function Result({
                 값이 나온다 — 모델의 성질이지 결함이 아니다(`PRD §12.6` 각주 · #756). 그 행이
                 표에 있을 때만 이유를 말한다.
               */}
-              {rows.some((row) => row.key.startsWith('distance_')) ? (
-                <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
-              ) : null}
               <div className="annual-sim__tablewrap">
                 <table className="annual-sim__table">
                   <thead>
@@ -1222,8 +1440,36 @@ function Result({
                   </tbody>
                 </table>
               </div>
+              {/*
+                거리 행 각주 (10/7) — 표 위에 긴 문단으로 있어 표보다 먼저 읽혔다. 표 아래 접힘으로
+                내린다. 그 행이 표에 있을 때만 둔다(`PRD §12.6` 각주 · #756).
+              */}
+              {rows.some((row) => row.key.startsWith('distance_')) ? (
+                <details className="annual-sim__footnote">
+                  <summary>거리 행이 기준과 같은 이유</summary>
+                  <p>{ANNUAL_COPY.distanceNote}</p>
+                </details>
+              ) : null}
             </>
           )}
+          {/* 결과 경고 — 카드 사이에 큰 글씨로 떠 있던 것을 민감도 카드 안 작은 글씨로 (10/7) */}
+          {resultWarnings.length > 0 ? (
+            <ul className="annual-sim__warnings">
+              {resultWarnings.map((code) => (
+                <li key={code}>{warningMessage(code)}</li>
+              ))}
+            </ul>
+          ) : null}
+          {/* 다음 행동 — 민감도 카드의 맨 아래 한 줄 (10/7) */}
+          {vesselId !== null ? (
+            <p className="result-card__next annual-sim__next">
+              <Link
+                to={`${SCREEN_BY_ID.ROUTE_COMPARISON.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: vesselId })}`}
+              >
+                이 선박으로 {SCREEN_BY_ID.ROUTE_COMPARISON.label} →
+              </Link>
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -1233,7 +1479,7 @@ function Result({
         선택된 채로 간다(쿼리로 선박을 담는 화면이다). 「함대 단위로 보기」는 실행 조건 쪽 진입로라
         그 자리에 둔다(rlatnals4114 결정).
       */}
-      {vesselId !== null ? (
+      {vesselId !== null && rows.length === 0 ? (
         <p className="result-card__next">
           <Link
             to={`${SCREEN_BY_ID.ROUTE_COMPARISON.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: vesselId })}`}
@@ -1243,151 +1489,9 @@ function Result({
         </p>
       ) : null}
 
-      {/*
-        ── 재현 · 계산 근거 (TECH_SPEC §5.2 · §11) — 카드 밖, 바닥 위 ────────
+      {/* 재현 · 계산 근거는 「근거 — 연도별 실적」 카드 안으로 옮겼다 (10/7) — `ResultBasis` */}
 
-        seed 줄과 재현 버튼은 밖에 둔다 (#1418) — `PRD §12.4.3` 「자동 seed … 결과에
-        표시한다」 · 「결과 재현 버튼」(#776). 나머지(결정론 세부 · 보정계수 · 스냅샷 ·
-        계산 이력 · 항차 사본)는 「계산 근거」 하나로 접는다 (#1700). 종전에는 결정론 ·
-        보정계수 · 재현 정보가 각각 카드여서, 「계산하지 않음」 같은 보조 정보가 결론과
-        같은 무게로 떠 있었다.
-      */}
-      <section className="annual-sim__basis" aria-label={ANNUAL_COPY.reproTitle}>
-        <div className="annual-sim__reproduce">
-          <dl className="annual-sim__repro">
-            <dt>seed</dt>
-            <dd>{reproducibilityLine(mc)}</dd>
-          </dl>
-          {/*
-            seed를 입력칸에 옮겨 적는 우회로 대신 두는 버튼이다 — 그 우회는 **폼의 다른 칸이
-            바뀌었으면 다른 조건으로** 돌고, 결과가 달라도 그것이 재현 실패인지 알 수 없다.
-          */}
-          <button
-            type="button"
-            onClick={() => void runReproduce()}
-            disabled={reproduce.status === 'running'}
-          >
-            {reproduce.status === 'running'
-              ? ANNUAL_COPY.reproducing
-              : ANNUAL_COPY.reproduceButton}
-          </button>
-          {reproduce.status === 'success' ? (
-            <>
-              {/*
-                재현 성공은 **실패와 같은 무게**로 보인다 (2026-09-17 확정 ⓑ · `#1053` 40번).
-                모양은 `ErrorState`의 영역 실패를 따른다(중립 면 + 테두리 + 아이콘).
-
-                ⚠️ **색을 쓰지 않는다.** 라이트 `--color-success`(`#38a169`)가 이 면
-                (`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지 못한다.
-                문자 전용 별칭 `--color-success-text`(`#1653`)는 이미 있다 — 이 면 위에서도
-                4.61이라 넘는다. 색을 입히는 것은 별건이고, 지금은 입히지 않는다.
-              */}
-              <div className="annual-sim__reproduce-ok" role="status">
-                <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size="inline" />
-                <p className="annual-sim__reproduce-ok-text">{ANNUAL_COPY.reproduceSuccess}</p>
-              </div>
-              {/*
-                재현 응답의 경고 (`#1095` ⑶). 아래 결과 경고 목록과 **다른 범위**라 따로
-                둔다: 저쪽은 원본 실행의 경고이고 이쪽은 **재현 실행**의 경고다.
-              */}
-              {reproduce.warnings.length > 0 ? (
-                <ul className="annual-sim__warnings">
-                  {reproduce.warnings.map((code) => (
-                    <li key={code}>{warningMessage(code)}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-        {reproduce.status === 'error' ? (
-          <ErrorState
-            level="region"
-            action={ANNUAL_COPY.reproduceErrorAction}
-            message={reproduce.message}
-          />
-        ) : null}
-
-        <details className="annual-sim__repro-details">
-          <summary>{ANNUAL_COPY.reproDetailsToggle}</summary>
-
-          {/* ── 결정론 (PRD §12.3) — 값과 등급은 결론 띠에 있다. 여기는 무엇을 더했는지 ── */}
-          <div className="annual-sim__group">
-            <h3 className="annual-sim__sub-title">{ANNUAL_COPY.deterministicTitle}</h3>
-            <p className="annual-sim__caption">{ANNUAL_COPY.deterministicCaption}</p>
-            <dl className="annual-sim__list">
-              <Row
-                label={ANNUAL_COPY.projectedCiiLabel}
-                value={formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
-              />
-              <Row label={ANNUAL_COPY.projectedRatingLabel} value={det.projected_rating} />
-              <Row label={ANNUAL_COPY.completedLabel} value={String(det.completed_voyage_count)} />
-              <Row label={ANNUAL_COPY.remainingLabel} value={String(det.remaining_voyage_count)} />
-            </dl>
-          </div>
-
-          {/*
-            ── 실적 보정계수 (PRD §12.2.1 · #363) ──
-
-            세 상태를 가른다 — ⑴ 곱했다 ⑵ 값은 있으나 곱하지 않았다 ⑶ 표본이 모자라 값이
-            없다. ⚠️ ⑶을 1.0이나 빈칸으로 그리면 「계획대로 쓰고 있다」로 읽힌다.
-
-            `#363` 이전 실행에는 블록이 없다 — 그때는 그리지 않는다.
-          */}
-          {feedback && (
-            <div className="annual-sim__group">
-              <h3 className="annual-sim__sub-title">{ANNUAL_COPY.feedbackTitle}</h3>
-              <p className="annual-sim__caption">{ANNUAL_COPY.feedbackCaption}</p>
-              <dl className="annual-sim__list">
-                <Row
-                  label={ANNUAL_COPY.feedbackFactorLabel}
-                  value={
-                    feedback.factor === null
-                      ? ANNUAL_COPY.feedbackUnavailableValue
-                      : `× ${formatDecimalString(feedback.factor, 4)}`
-                  }
-                />
-                <Row
-                  label={ANNUAL_COPY.feedbackSampleLabel}
-                  value={`${feedback.sample_size}건`}
-                  hint={`${ANNUAL_COPY.feedbackMinSampleHint} ${feedback.min_sample}건`}
-                />
-              </dl>
-              {feedback.factor === null ? (
-                <p className="annual-sim__caption">{ANNUAL_COPY.feedbackUnavailable}</p>
-              ) : feedback.applied ? (
-                <p className="annual-sim__notice">{ANNUAL_COPY.feedbackApplied}</p>
-              ) : (
-                <p className="annual-sim__caption">{ANNUAL_COPY.feedbackNotApplied}</p>
-              )}
-            </div>
-          )}
-
-          <div className="annual-sim__group">
-            <h3 className="annual-sim__sub-title">{ANNUAL_COPY.reproTitle}</h3>
-            <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
-            <dl className="annual-sim__repro">
-              <dt>{ANNUAL_COPY.snapshotLabel}</dt>
-              <dd>
-                {result.snapshot.snapshot_id}
-                <span className="annual-sim__hint">
-                  {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
-                </span>
-              </dd>
-              <dt>{ANNUAL_COPY.runIdLabel}</dt>
-              <dd>{result.calculation_run_id}</dd>
-            </dl>
-            {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
-            <SnapshotVoyages
-              simulationId={result.simulation_id}
-              voyageCount={result.snapshot.voyage_count}
-              provider={provider}
-            />
-          </div>
-        </details>
-      </section>
-
-      {resultWarnings.length > 0 ? (
+      {rows.length === 0 && resultWarnings.length > 0 ? (
         <ul className="annual-sim__warnings">
           {resultWarnings.map((code) => (
             <li key={code}>{warningMessage(code)}</li>

@@ -207,16 +207,23 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('⑴ 두 블록 — 연도별 실적이 위, 올해 시뮬레이션 결과가 아래', () => {
-  it('실적 블록이 결과보다 먼저 오고, 지나간 해와 올해 누적이 표에 있다', async () => {
+/*
+ * 10/7 시안 03(#2313)이 배치를 뒤집었다 — 첫 자리는 결론이고, 실적은 「근거 — 연도별 실적」으로
+ * 결과 **아래**에 선다. 「계산 근거 보기」(`ResultBasis`)도 이 카드 맨 아래로 들어왔다.
+ */
+describe('⑴ 두 블록 — 올해 시뮬레이션 결과가 위, 근거(연도별 실적)가 아래', () => {
+  it('실적 블록이 결과 뒤에 오고, 지나간 해와 올해 누적이 표에 있다 — 계산 근거는 그 블록 맨 아래다', async () => {
     stubServer()
     render(tree(VESSEL_ID, historyStub(async () => detail(threeYears()))))
     await runOnce()
 
     const block = actualsBlock()
     const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
-    // DOM 순서 — 실적이 결론 띠 **앞**이다.
-    expect(block.compareDocumentPosition(verdict) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // DOM 순서 — 결론 띠가 첫 자리이고 실적은 그 **뒤**다.
+    expect(verdict.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 「계산 근거 보기」는 실적 블록 안 — 표보다 뒤다.
+    const basis = within(block).getByText(ANNUAL_COPY.reproDetailsToggle)
+    expect(within(block).getByRole('table').compareDocumentPosition(basis) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
     const rows = within(block).getAllByRole('row').slice(1)
     expect(rows.map((row) => within(row).getByRole('rowheader').textContent)).toEqual([
@@ -551,7 +558,7 @@ describe('⑻ 결과의 해가 표의 확정 행과 같으면 계산 경로가 �
     expect(note.textContent).toContain('2025')
     expect(note.closest('table')).toBeNull()
     // 결과 쪽에도 같은 해가 있다 — 두 값이 같은 화면에 있는 상태가 이 안내의 전제다.
-    expect(screen.getByText(new RegExp(ANNUAL_COPY.resultConditionsLabel)).parentElement!.textContent).toContain('2025')
+    expect(screen.getByTestId('annual-sim-last-run').textContent).toContain('2025년')
   })
 
   it('진행 중인 해(2026)로 실행하면 안내가 없다 — 그 해는 표에 확정 행이 아니다', async () => {

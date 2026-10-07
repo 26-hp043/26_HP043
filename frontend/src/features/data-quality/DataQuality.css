@@ -39,7 +39,6 @@
 .dq__label,
 .dq__note,
 .dq__caption,
-.dq__hint,
 .dq__empty,
 .dq__muted {
   color: var(--color-text-muted);
@@ -57,7 +56,7 @@
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   color: var(--color-text);
   font-family: inherit;
   font-size: var(--font-size-body);
@@ -71,85 +70,6 @@
 .dq__placeholder {
   margin: 0;
   color: var(--color-text-muted);
-}
-
-/*
- * 요약 띠 (#1766) — 종전에는 카드 안의 4칸이었다. 건수 넷과 완결성은 「한 덩어리의
- * 데이터」가 아니라 **아래 목록을 읽는 눈금**이라 면을 띄우지 않는다(`§5` 카드 예산).
- * 칸은 다섯이다 — 그룹이 없어지면서 「실적 확정 전」이 여기로 들어왔다.
- */
-/*
- * ⚠️ **칸 수가 고정이면 열 수도 그 약수여야 한다** (`#2050`).
- *
- * 종전은 `repeat(auto-fit, minmax(min(180px, 100%), 1fr))`이었다. `auto-fit`은 들어가는
- * 만큼 채우고 **남는 칸을 늘리므로**, 여섯이 한 줄에 안 들어가면 다섯을 놓고 나머지
- * 하나가 한 줄을 혼자 다 쓴다. 실측(칸 여섯 · 라벨 한 줄 유지) —
- *
- * | 자리 폭 | 종전 | 지금 |
- * |---|---|---|
- * | 1400 · 1200 | `6` | `6` |
- * | **1049**(1440 창의 실제 자리) | **`5 + 1`** | `6` |
- * | **900 · 840 · 800** | **`4 + 2`** | `6` · `3 + 3` |
- * | 700 · 600 | `3 + 3` | `3 + 3` |
- * | 560 · 520 · 440 | `2 + 2 + 2` | `3 + 3` · `2 + 2 + 2` |
- * | **360 · 320** | **한 줄에 하나씩 여섯 줄** | `2 + 2 + 2` |
- *
- * 그래서 열 수를 6의 약수(6 · 3 · 2)로만 둔다 — 마지막 줄이 늘 꽉 찬다.
- *
- * 전환점은 **라벨이 한 줄로 남는 한계**에서 잡았다. 여섯 열일 때 자리 폭 `840`에서
- * 칸이 `130px`이고 가장 긴 라벨(「공적 기록과 다름」)이 아직 한 줄이며, `800`부터
- * 줄바꿈한다. 세 열은 `560`에서 칸 `179px`로 넉넉하다.
- */
-.dq__tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-12);
-  margin: 0;
-}
-
-@container (min-width: 560px) {
-  .dq__tiles {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@container (min-width: 840px) {
-  .dq__tiles {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-  }
-}
-
-.dq__tile {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-12);
-  border: 1px solid var(--color-border);
-  border-left-width: 4px;
-  border-radius: var(--radius-control);
-}
-
-.dq__tile dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-}
-
-.dq__tile dd {
-  margin: 0;
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-heading);
-  font-variant-numeric: tabular-nums;
-}
-
-.dq__tile dd.dq__hint {
-  font-size: var(--font-size-caption);
-  font-weight: normal;
-}
-
-.dq__unit {
-  margin-left: 2px;
-  font-size: var(--font-size-label);
-  font-weight: normal;
 }
 
 /*
@@ -172,19 +92,15 @@
  * 심각도 색 — `DESIGN_SYSTEM §2.3.1`. 띠의 칸은 **0건이면 색을 빼고**(`#1288`), 표의 칩은
  * 행이 있다는 것 자체가 0건이 아니므로 늘 단다.
  */
-.dq__tile--substituted,
 .dq__severity--substituted,
-.dq__tile--unavailable,
 .dq__severity--unavailable {
   border-left-color: var(--color-danger);
 }
 
-.dq__tile--anomaly,
 .dq__severity--anomaly {
   border-left-color: var(--color-warning);
 }
 
-.dq__tile--unconfirmed,
 .dq__severity--unconfirmed {
   border-left-color: var(--color-text-muted);
 }
@@ -195,7 +111,6 @@
  * 자리가 전부 같은 왼쪽 안내 띠다. Info는 경고색이 아니라 `§2.3` 「경고색은 한 자리에 한 번」과
  * 부딪히지 않는다. 종전(#1197)에는 「실적 확정 전」과 같은 중립을 임시로 썼다.
  */
-.dq__tile--public_record,
 .dq__severity--public_record {
   border-left-color: var(--color-info);
 }
@@ -244,23 +159,6 @@
   overflow-x: auto;
 }
 
-/*
- * 점검 항목 표 (#1766) — 열 여섯(심각도 · 선박 · 항차 · 문제 · CII 영향 · 이동).
- *
- * **내용의 min-content는 555**다(2026-09-23 · 1440 · 시연 데이터 · 래퍼를 좁히고
- * `scrollWidth`). 그 폭에서는 넘치지 않지만 문제 · 선박명 칸이 글자마다 꺾인다 — 그래서
- * `min-width`는 **읽히는 하한**으로 720을 잡는다(선박 상세 항차 표와 같은 값).
- *
- * 720인 이유는 **1100에서 스크롤이 나지 않게** 하려는 것이다: 1100에서 이 카드 안쪽이
- * 약 754px이라 720이 들어간다. 그보다 좁아지면 위 래퍼가 가로로 스크롤한다 — 열을 접어
- * 숨기지 않는다.
- *
- * 하한이지 목표가 아니다(`#1689`). 열 · 문구를 바꾸면 다시 잰다.
- */
-.dq__issues {
-  min-width: 720px;
-}
-
 .dq__table {
   border-collapse: collapse;
   width: 100%;
@@ -287,12 +185,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.dq__codes {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .dq__impact,
 .dq__transition {
   display: inline-flex;
@@ -302,15 +194,6 @@
 
 .dq__connector {
   color: var(--color-text-muted);
-}
-
-/* CII 영향 칸의 표시가 가리키는 사유 — 표 아래 한 번 (#1580) */
-.dq__footnotes {
-  margin: var(--space-8) 0 0;
-  padding: 0;
-  list-style: none;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
 }
 
 /* 공적 기록 어긋남 — 「문제」 칸 안에 행마다 붙는다 (#1197) */
@@ -406,4 +289,208 @@
   margin: 0;
   font-size: var(--font-size-label);
   color: var(--text-primary);
+}
+
+/* ── 10/7 디자인 결정 — 요약 · 할 일 카드 · 완결성 막대 ───────────────── */
+.dq-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-16) var(--space-24);
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.dq-hero__stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.dq-hero__stat--sep {
+  padding-inline-start: var(--space-24);
+  border-inline-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+.dq-hero__label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.dq-hero__value {
+  font-size: var(--font-size-display);
+  line-height: 1.25;
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.dq-hero__unit {
+  margin-inline-start: 2px;
+  font-size: var(--font-size-heading);
+}
+
+.dq-hero__hint,
+.dq-hero__note {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.dq-hero__note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.dq-hero__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin-inline-start: auto;
+}
+
+.dq-chip {
+  min-block-size: 32px;
+  padding: 0 var(--space-12);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.dq-chip[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-subtle);
+  color: var(--color-link);
+  font-weight: var(--font-weight-strong);
+}
+
+.dq-chip:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.dq-chip--zero {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--border-default);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+/* 할 일 카드 */
+.dq-tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dq-task {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
+  padding: var(--space-16) 0;
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+}
+
+.dq-task:last-child {
+  border-block-end: 0;
+}
+
+.dq-task__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-inline-size: 0;
+}
+
+.dq-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.dq-task__title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+.dq-task__go {
+  padding: var(--space-8) var(--space-16);
+  border: var(--borderWidth-default) solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-link);
+  font-size: var(--font-size-label);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.dq-task__go:hover {
+  background: var(--color-primary-subtle);
+}
+
+.dq-task__go--primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: var(--font-weight-strong);
+}
+
+.dq-task__go--primary:hover {
+  background: var(--color-primary-hover);
+}
+
+/* 선박별 완결성 막대 */
+.dq-bar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  inline-size: 100%;
+}
+
+.dq-bar__track {
+  flex: 1 1 120px;
+  max-inline-size: 240px;
+  block-size: 8px;
+  background: var(--border-default);
+  overflow: hidden;
+}
+
+.dq-bar__fill {
+  display: block;
+  block-size: 100%;
+  background: var(--color-primary);
+}
+
+.dq-bar__fill--gap {
+  background: var(--color-warning-text);
+}
+
+.dq-task__why {
+  margin: 0;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  color: var(--text-primary);
+}
+
+.dq-task__detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
 }

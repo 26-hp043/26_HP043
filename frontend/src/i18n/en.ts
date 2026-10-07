@@ -28,6 +28,8 @@ export const en: Record<MessageKey, string> = {
   'shell.notification.failed': "Couldn't load notifications",
 
   'shell.navTag': 'Coming soon',
+  'shell.navGroup.analysis': 'Analysis',
+  'shell.navGroup.manage': 'Manage',
   'shell.navTagOffice': 'Office only',
 
   'shell.logout': 'Sign out',

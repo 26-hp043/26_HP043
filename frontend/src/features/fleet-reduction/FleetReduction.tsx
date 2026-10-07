@@ -3,7 +3,6 @@ import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { GradeBadge } from '../../components/GradeBadge'
-import { VerdictStrip } from '../../components/VerdictStrip'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -82,6 +81,18 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})
   const [prices, setPrices] = useState<Prices>(EMPTY_PRICES)
+  /*
+   * 원화 환산 환율 (10/7) — 비용은 서버가 USD로 계산한다. 한국 사용자가 읽기 쉽게 원화를 곁에
+   * 적되, 환율은 **사용자가 넣은 값**만 쓴다(화면이 시세를 지어내지 않는다). 계획 저장 계약에는
+   * 없는 값이라 이 브라우저에만 기억한다.
+   */
+  const [krwPerUsd, setKrwPerUsd] = useState(() => {
+    try {
+      return window.localStorage.getItem(KRW_RATE_KEY) ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [evaluation, setEvaluation] = useState<EvalState>({ result: null, error: null, settledFor: null })
   const [retryKey, setRetryKey] = useState(0)
   const [plans, setPlans] = useState<SavedPlanSummary[]>([])
@@ -265,26 +276,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         맨 위의 한 줄짜리 상태 문장이었고, 그 아래로 비용 · 단가 · 분포 · 저장이 네 장 더
         쌓여 **표보다 긴 기둥**이 됐다.
       */}
-      {shown !== null ? <FleetVerdict result={shown} adjusted={adjusted} /> : null}
-
-      {/*
-        `PRD §6.3` 결정론 안내 — 띠 묶음(띠 · 상태 문장 · 2열 목록) **바로 아래 한 줄**이다
-        (`§8.6` · `§13` · `#1578`).
-
-        **띠 안에 두지 않는다.** 이 문구는 계산 전 · 실패에도 보여야 한다 — 연간 등급 관리와
-        값이 다르게 보이는 이유를 말하는 자리라, 결과가 없을 때 사라지면 그때 들어온 사용자가
-        두 화면 중 하나가 틀렸다고 읽는다(`UIFLOW 2-10`).
-
-        색 띠를 걷었다 — 바로 위 상태 문장이 그 자리를 쓰고, 색 띠가 둘이면 어느 쪽이 상태인지
-        가려진다(`§2.3` 경고색은 한 자리에 한 번).
-      */}
-      <p className="fr__notice">{COPY.deterministicNotice}</p>
-
-      {/*
-        도구 줄 (#1757). 연도 · 목표 · 연료 단가 · 계획 저장을 표 위 한 줄에 모은다.
-        **면을 띄우지 않는다** — 조건을 다루는 자리는 「한 덩어리의 데이터」가 아니다
-        (`§5` 카드 예산). 단가 · 저장은 접어 두고 쓸 때만 편다.
-      */}
+      {/* 10/7 시안 04 — 조건(연도 · 목표 · 단가 · 저장)을 결과보다 먼저 */}
       <div className="fr__tools">
         <Field id="fr-year" label={COPY.yearLabel}>
           {(control) => (
@@ -341,7 +333,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
             ) : null}
           </summary>
           <div className="fr__tool-body">
-            <p className="fr__caption">{COPY.pricesNote}</p>
+            <p className="fr__caption">{COPY.pricesNote} 환율은 비용을 원화로도 적는 데만 쓰며 이 브라우저에만 기억합니다.</p>
             {/* 어느 연료가 필요한지 서버가 말하기 전과 「필요 없음」을 가른다 (`#1273`). */}
             {fuelCodes.length === 0 ? (
               <p className="fr__muted">{shown ? COPY.fuelPricesNone : COPY.fuelPricesBeforeRun}</p>
@@ -377,6 +369,26 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   </Field>
                 )
               })}
+              <Field id="fr-krw-rate" label="환율 (원/USD)">
+                {(control) => (
+                  <input
+                    {...control}
+                    className="fr__control"
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    value={krwPerUsd}
+                    onChange={(e) => {
+                      setKrwPerUsd(e.target.value)
+                      try {
+                        window.localStorage.setItem(KRW_RATE_KEY, e.target.value)
+                      } catch {
+                        // 기억하지 못해도 이번 화면에서는 그대로 쓴다.
+                      }
+                    }}
+                  />
+                )}
+              </Field>
             </div>
           </div>
         </details>
@@ -459,6 +471,43 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         </details>
       </div>
 
+      {shown !== null ? (
+        <FleetVerdict
+          result={shown}
+          adjusted={adjusted}
+          krwRate={validRate(krwPerUsd)}
+          onOpenCharter={(vesselId) => {
+            const input = document.querySelector<HTMLInputElement>(`[data-charter-for="${vesselId}"]`)
+            input?.scrollIntoView({ block: 'center' })
+            input?.focus()
+          }}
+          onOpenPrices={() => {
+            setPricesOpen(true)
+            requestAnimationFrame(() =>
+              document.querySelector('.fr__tool[open] input')?.scrollIntoView({ block: 'center' }),
+            )
+          }}
+        />
+      ) : null}
+
+      {/*
+        `PRD §6.3` 결정론 안내 — 띠 묶음(띠 · 상태 문장 · 2열 목록) **바로 아래 한 줄**이다
+        (`§8.6` · `§13` · `#1578`).
+
+        **띠 안에 두지 않는다.** 이 문구는 계산 전 · 실패에도 보여야 한다 — 연간 등급 관리와
+        값이 다르게 보이는 이유를 말하는 자리라, 결과가 없을 때 사라지면 그때 들어온 사용자가
+        두 화면 중 하나가 틀렸다고 읽는다(`UIFLOW 2-10`).
+
+        색 띠를 걷었다 — 바로 위 상태 문장이 그 자리를 쓰고, 색 띠가 둘이면 어느 쪽이 상태인지
+        가려진다(`§2.3` 경고색은 한 자리에 한 번).
+      */}
+
+      {/*
+        도구 줄 (#1757). 연도 · 목표 · 연료 단가 · 계획 저장을 표 위 한 줄에 모은다.
+        **면을 띄우지 않는다** — 조건을 다루는 자리는 「한 덩어리의 데이터」가 아니다
+        (`§5` 카드 예산). 단가 · 저장은 접어 두고 쓸 때만 편다.
+      */}
+
       {/*
         이어받은 단가의 출처 (#2020). **접힌 연료 단가 안에 두지 않는다** — 이어받은 값은
         연료 단가(접힘)와 용선료(아래 표) 두 곳에 들어가고, 접힌 안쪽에만 적으면 표의 용선료를
@@ -519,7 +568,10 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   </tr>
                 </thead>
                 <tbody>
-                  {shown.vessels.map((vessel) => (
+                  {/* 미달 선박을 위로 (10/7 시안 04) — 손볼 배부터. 그 밖의 순서는 서버 순서 그대로 */}
+                  {[...shown.vessels]
+                    .sort((a, b) => Number(b.meetsTarget === false) - Number(a.meetsTarget === false))
+                    .map((vessel) => (
                     <VesselRow
                       key={vessel.vesselId}
                       vessel={vessel}
@@ -550,6 +602,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
           </section>
 
           <Distribution result={shown} />
+          {/* 결정론 안내 (`PRD §6.3` · `UIFLOW 2-10`) — 결과 맨 아래 한 줄로 (10/7) */}
+          <p className="fr__notice fr__notice--foot">{COPY.deterministicNotice}</p>
         </>
       ) : null}
     </section>
@@ -584,55 +638,142 @@ const NO_VALUE = '—'
  * 추가 항해일 · 용선료 손실 · 연료비 절감은 **띠 아래 2열 「라벨 · 값」 목록**이다
  * (`§8.6` v2.25 · #1756). 종전에는 그 넷이 「비용 요약」 카드 한 장이었다.
  */
-function FleetVerdict({ result, adjusted }: { result: EvaluateResult; adjusted: boolean }) {
+function FleetVerdict({
+  result,
+  adjusted,
+  onOpenPrices,
+  onOpenCharter,
+  krwRate,
+}: {
+  result: EvaluateResult
+  adjusted: boolean
+  onOpenPrices: () => void
+  /** 그 선박의 일일 용선료 칸으로 옮겨 초점을 준다. */
+  onOpenCharter: (vesselId: string) => void
+  /** 원/USD — 사용자가 넣었을 때만 원화를 곁에 적는다. */
+  krwRate: number | null
+}) {
   const counted = result.vessels.filter((vessel) => vessel.meetsTarget !== null)
   const met = counted.filter((vessel) => vessel.meetsTarget).length
+  const missed = counted.filter((vessel) => vessel.meetsTarget === false)
+  const cuts = missed.filter((v) => v.achievable !== false && v.requiredCutFuelTon)
+  const cutTotal = cuts.length === 0 ? null : cuts.reduce((sum, v) => sum + Number(v.requiredCutFuelTon), 0)
   const costs = result.costs
+  const netNumber = costs.net === null ? null : Number(costs.net)
+  /*
+   * 무엇이 비었는지를 말한다 (10/7) — 종전에는 연료 단가를 넣어도 일일 용선료가 비면 똑같이
+   * 「단가 입력 필요」라, 사용자가 이미 넣은 칸을 다시 찾았다. 서버가 빈 것을 알려 준다
+   * (`missing_charter_rates` 선박 ID · `missing_fuel_prices` 유종 · `API_SPEC §2.17.1`).
+   */
+  const missingCharterNames = costs.missingCharterRates.map(
+    (id) => result.vessels.find((v) => v.vesselId === id)?.vesselName ?? id,
+  )
+  const missingFuel = costs.missingFuelPrices.length > 0
+  const missingCharter = missingCharterNames.length > 0
+  const needsText = missingFuel && missingCharter
+    ? '연료 단가 · 일일 용선료 입력 필요'
+    : missingFuel
+      ? '연료 단가 입력 필요'
+      : missingCharter
+        ? '일일 용선료 입력 필요'
+        : COPY.needsPrice
 
+  /*
+   * 10/7 디자인 결정 — **이 화면의 주인공은 비용이다.** 감속을 정하면 연료비가 얼마 줄고 용선료가
+   * 얼마 나가는지, 그래서 남는 돈이 얼마인지가 이 화면에만 있는 답이다. 순손익을 가장 크게, 그
+   * 내역(연료비 절감 · 용선료 손실 · 추가 항해일)을 바로 아래에 두고, 목표 달성 여부는 오른쪽에
+   * 보조로 둔다. 단가가 비면 0이 아니라 「단가 입력 필요」이고(`PRD §12.3.2`), 그 자리에서 바로
+   * 단가 칸을 연다.
+   */
   return (
     <>
-      <VerdictStrip
-        label={`${TARGET_TEXT[result.target]} 달성 현황`}
-        main={{
-          label: `${TARGET_TEXT[result.target]} 달성`,
-          value: counted.length === 0 ? NO_VALUE : `${met} / ${counted.length}`,
-          unit: counted.length === 0 ? undefined : '척',
-        }}
-        /*
-         * ⚠️ 단가가 비면 **0이 아니라 「단가 입력 필요」다** (`PRD §12.3.2`). 0으로 두면
-         * 「손익 영향 없음」으로 읽힌다 — 표 아래 `Money`가 쓰는 문구를 그대로 쓴다.
-         */
-        sub={{
-          label: COPY.net,
-          value: costs.net === null ? COPY.needsPrice : formatGrouped(costs.net, 0),
-          unit: costs.net === null ? undefined : 'USD',
-        }}
-      />
+      <section className="fr-hero" aria-label={`비용과 ${TARGET_TEXT[result.target]} 달성 현황`}>
+        <div className="fr-hero__cost">
+          <span className="fr-hero__label">
+            {COPY.net} <span className="fr-hero__formula">연료비 절감 − 용선료 손실</span>
+          </span>
+          {netNumber === null ? (
+            <span className="fr-hero__value fr-hero__value--empty">
+              {needsText}
+              <button
+                type="button"
+                className="fr-hero__price-btn"
+                onClick={() => (missingFuel || !missingCharter ? onOpenPrices() : onOpenCharter(costs.missingCharterRates[0]))}
+              >
+                {missingFuel || !missingCharter ? '연료 단가 입력' : '용선료 입력'}
+              </button>
+            </span>
+          ) : null}
+          {netNumber === null && missingCharter ? (
+            <span className="fr-hero__note">
+              일일 용선료가 빈 선박 — {missingCharterNames.join(', ')} · 아래 표 맨 오른쪽 칸
+            </span>
+          ) : null}
+          {netNumber === null ? null : (
+            <span className="fr-hero__value">
+              {netNumber > 0 ? '+' : netNumber < 0 ? '−' : ''}
+              {formatGrouped(String(Math.abs(netNumber)), 0)}
+              <span className="fr-hero__unit">USD</span>
+            </span>
+          )}
+          {netNumber !== null && krwRate !== null ? (
+            <span className="fr-hero__krw">
+              ≈ {netNumber < 0 ? '−' : netNumber > 0 ? '+' : ''}
+              {krwText(Math.abs(netNumber) * krwRate)}
+              <span className="fr-hero__krw-rate"> · 환율 {formatGrouped(String(krwRate), 0)}원/USD 기준</span>
+            </span>
+          ) : null}
+          <dl className="fr-hero__breakdown">
+            <div>
+              <dt>{COPY.fuelSaving}</dt>
+              <dd>
+                <Money value={costs.fuelSaving} krwRate={krwRate} missingText="연료 단가 입력 필요" />
+              </dd>
+            </div>
+            <div>
+              <dt>{COPY.charterLoss}</dt>
+              <dd>
+                <Money value={costs.charterLoss} krwRate={krwRate} missingText="일일 용선료 입력 필요" />
+              </dd>
+            </div>
+            <div>
+              <dt>{COPY.extraDays}</dt>
+              <dd className="fr__num">
+                {formatDecimalString(costs.extraDays, DISPLAY_DIGITS.days)} {DISPLAY_UNITS.day}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="fr-hero__target">
+          <span className="fr-hero__label">목표 · {TARGET_TEXT[result.target]}</span>
+          {counted.length === 0 ? (
+            <span className="fr-hero__status">{NO_VALUE}</span>
+          ) : (
+            <span className="fr-hero__status">
+              {missed.length > 0 ? (
+                <b className="fr-hero__missed">미달 {missed.length}척</b>
+              ) : (
+                <b>모두 충족</b>
+              )}
+              <span className="fr-hero__met"> · 충족 {met}척</span>
+            </span>
+          )}
+          {missed.length > 0 ? (
+            <span className="fr-hero__note">
+              {missed.map((v) => `${v.vesselName}${v.after ? ` (연말 ${v.after.rating})` : ''}`).join(', ')}
+            </span>
+          ) : null}
+          {cutTotal !== null ? (
+            <span className="fr-hero__note">
+              추가 감축 필요 <b>연료 {formatGrouped(String(cutTotal), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}</b>
+            </span>
+          ) : missed.length > 0 ? (
+            <span className="fr-hero__note">{COPY.unreachable}</span>
+          ) : null}
+        </div>
+      </section>
       <Status result={result} adjusted={adjusted} />
-      <dl className="fr__costs">
-        <div>
-          <dt>{COPY.extraDays}</dt>
-          {/*
-            일수는 0자리 · 단위는 `DISPLAY_UNITS.day` (`DESIGN_SYSTEM §4.2` · #1813). API는
-            `"1.52"`처럼 소수 문자열을 주고, 반올림은 표시 시점에만 한다(`§4.2` 「반올림 🔒」).
-          */}
-          <dd className="fr__num">
-            {formatDecimalString(costs.extraDays, DISPLAY_DIGITS.days)} {DISPLAY_UNITS.day}
-          </dd>
-        </div>
-        <div>
-          <dt>{COPY.charterLoss}</dt>
-          <dd>
-            <Money value={costs.charterLoss} />
-          </dd>
-        </div>
-        <div>
-          <dt>{COPY.fuelSaving}</dt>
-          <dd>
-            <Money value={costs.fuelSaving} />
-          </dd>
-        </div>
-      </dl>
     </>
   )
 }
@@ -655,7 +796,7 @@ function VesselRow({
   const sliderId = `fr-slider-${vessel.vesselId}`
   const unavailable = vessel.unavailableReason !== null
   return (
-    <tr>
+    <tr className={vessel.meetsTarget === false ? 'fr__row--missed' : undefined}>
       {/*
         선박명은 **한 줄로 고정한다** (`#1427`).
 
@@ -726,6 +867,7 @@ function VesselRow({
       <td>
         <input
           className="fr__charter"
+          data-charter-for={vessel.vesselId}
           type="number"
           min={0}
           inputMode="decimal"
@@ -832,9 +974,45 @@ function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolea
   )
 }
 
-function Money({ value }: { value: string | null }) {
-  if (value === null) return <span className="fr__muted">{COPY.needsPrice}</span>
-  return <span className="fr__num">{formatGrouped(value, 0)} USD</span>
+function Money({
+  value,
+  krwRate = null,
+  missingText = COPY.needsPrice,
+}: {
+  value: string | null
+  krwRate?: number | null
+  missingText?: string
+}) {
+  if (value === null) return <span className="fr__muted">{missingText}</span>
+  return (
+    <>
+      <span className="fr__num">{formatGrouped(value, 0)} USD</span>
+      {krwRate !== null && Number.isFinite(Number(value)) ? (
+        <span className="fr__krw">≈ {krwText(Math.abs(Number(value)) * krwRate)}</span>
+      ) : null}
+    </>
+  )
+}
+
+const KRW_RATE_KEY = 'bluelog.fleetReduction.krwPerUsd'
+
+/** 사용자가 넣은 환율 — 양수일 때만 쓴다. */
+function validRate(text: string): number | null {
+  const n = Number(text)
+  return text.trim() !== '' && Number.isFinite(n) && n > 0 ? n : null
+}
+
+/**
+ * 원화를 읽기 쉬운 단위로 (10/7) — 1억 이상은 「1억 7,145만 원」, 1만 이상은 「4,512만 원」 꼴로
+ * 만 원 아래를 반올림한다. 환산값이라 원 단위까지 적으면 정밀해 보이기만 한다.
+ */
+function krwText(won: number): string {
+  const man = Math.round(won / 10_000)
+  if (man === 0) return `${Math.round(won).toLocaleString('ko-KR')}원`
+  const eok = Math.floor(man / 10_000)
+  const rest = man % 10_000
+  if (eok === 0) return `${rest.toLocaleString('ko-KR')}만 원`
+  return rest === 0 ? `${eok.toLocaleString('ko-KR')}억 원` : `${eok.toLocaleString('ko-KR')}억 ${rest.toLocaleString('ko-KR')}만 원`
 }
 
 function Distribution({ result }: { result: EvaluateResult }) {

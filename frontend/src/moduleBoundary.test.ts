@@ -247,8 +247,9 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/voyage-cii/types.ts::FuelUseInput': 'API_SPEC §4.1 요청 계약',
   'features/voyage-cii/types.ts::ModelVersion': 'API_SPEC §1.8 재현성 계약',
   'features/voyage-cii/types.ts::ParametersUsed': 'API_SPEC §4.1 재현성 계약',
+  // 10/7 결과 개편(#2312)으로 결과 화면이 이 이름을 부르지 않게 됐다 — 응답 계약이라 남긴다.
+  'features/voyage-cii/types.ts::AnnualImpact': 'API_SPEC §4.1 응답 계약',
   'features/voyage-cii/types.ts::ResponseMeta': 'API_SPEC §1.1 공통 meta 계약',
-  'features/fleet/types.ts::FleetAction': 'API_SPEC §2.8 응답 계약',
   'features/fleet/types.ts::FleetCounts': 'API_SPEC §2.8 응답 계약',
   'features/map/routeGeometry.ts::RouteWaypoint': '향후 waypoint geometry provider 입력 계약 (#1471)',
   'features/vessel-detail/types.ts::YearStatus': '선박 상세 연도별 상태 계약',

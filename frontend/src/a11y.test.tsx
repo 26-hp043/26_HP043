@@ -110,11 +110,13 @@ describe('A11Y-001 — 위험도는 색 없이도 읽힌다', () => {
     expect(riskLabel('LOW').withIcon).toBe(false)
   })
 
-  it('등급 스케일 바는 문자가 없는 자리라 등급마다 패턴을 겹친다 — §14 · §2.4.4', () => {
+  it('등급 스케일 바는 구간마다 색 말고도 등급 문자를 갖는다 — §14 · §2.4.4', () => {
     /*
-     * 등급 색만 있는 막대는 적록색맹에서 세 색상군이 황갈색으로 수렴한다. 문자를 놓을 수
-     * 없는 막대는 **패턴**이 보조 채널이다. `A`만 solid(패턴 없음)라 `§2.4.4`가 정한 대로
-     * 나머지 네 등급에 패턴이 있어야 한다.
+     * 등급 색만 있는 막대는 적록색맹에서 세 색상군이 황갈색으로 수렴한다. 종전에는 문자를
+     * 놓을 수 없는 막대라 **패턴**이 보조 채널이었다. 10/7 결정으로 등급 문자가 각 구간
+     * **안**에 들어가 배지와 같은 표기가 됐다(`§2.4.4` 「패턴 미적용」 — 문자가 색면 안에
+     * 놓이는 자리). 지키는 성질은 그대로 「색이 유일한 채널이 아니다」이므로, 다섯 구간
+     * 모두 자기 등급 문자를 갖는지를 본다.
      */
     const { container } = render(
       <GradeScaleBar
@@ -125,21 +127,19 @@ describe('A11Y-001 — 위험도는 색 없이도 읽힌다', () => {
         label="기준 대비 위치"
       />,
     )
-    const bands = container.querySelectorAll('.grade-scale-bar__band')
+    const bands = [...container.querySelectorAll('.grade-scale-bar__band')]
     expect(bands).toHaveLength(5)
-    const patterned = container.querySelectorAll('.grade-scale-bar__band .grade-scale-bar__pattern')
-    expect(patterned).toHaveLength(4)
+    expect(bands.map((band) => band.textContent?.trim())).toEqual(['A', 'B', 'C', 'D', 'E'])
     // 막대 전체는 보조기술에 문자로 읽힌다 — 등급과 기준 대비 값.
     const track = screen.getByRole('img', { name: /현재 등급 C, 기준 대비 98\.8%/ })
     expect(track).toBeTruthy()
   })
 
-  it('패턴을 끄는 길이 없다 — 호출부가 어떤 속성을 줘도 A 외 네 등급에 무늬가 남는다', () => {
+  it('보조 채널을 끄는 길이 없다 — 호출부가 어떤 속성을 줘도 다섯 구간에 문자가 남는다', () => {
     /*
-     * 2026-09-12 디자인 확정 O(`#831` ⑹) — 「패턴을 끄는 예외를 두지 않는다」. 종전에는
-     * `showPattern` 속성이 있었고 정본도 「끄는 쪽이 예외」라 적었는데, **조건이 적히지
-     * 않은 예외 조항은 다음 사람이 자기 판단으로 끄는 근거**가 된다. 속성을 지웠으므로
-     * 모르는 속성을 넘겨도 무늬가 사라지지 않아야 한다.
+     * 2026-09-12 디자인 확정 O(`#831` ⑹) — 「보조 채널을 끄는 예외를 두지 않는다」. 종전에는
+     * `showPattern` 속성이 있었고, **조건이 적히지 않은 예외 조항은 다음 사람이 자기 판단으로
+     * 끄는 근거**가 됐다. 보조 채널이 패턴에서 구간 안 문자로 바뀐 뒤(10/7)에도 같은 규칙이다.
      */
     const props = {
       ratioToRequired: '0.98758',
@@ -154,8 +154,8 @@ describe('A11Y-001 — 위험도는 색 없이도 읽힌다', () => {
       <GradeScaleBar {...(props as unknown as ComponentProps<typeof GradeScaleBar>)} />,
     )
 
-    const patterned = container.querySelectorAll('.grade-scale-bar__band .grade-scale-bar__pattern')
-    expect(patterned).toHaveLength(4)
+    const bands = [...container.querySelectorAll('.grade-scale-bar__band')]
+    expect(bands.map((band) => band.textContent?.trim())).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 })
 

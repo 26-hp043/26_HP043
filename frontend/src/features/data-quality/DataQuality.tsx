@@ -10,7 +10,6 @@ import { createApiDataQualityProvider } from './apiProvider'
 import {
   DATA_QUALITY_COPY as COPY,
   IMPACT_REASON,
-  IMPACT_REASON_ORDER,
   PUBLIC_RECORD_FIELD_LABEL,
   SEVERITY_MEANING,
   SEVERITY_TITLE,
@@ -177,7 +176,49 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   )
 }
 
+/**
+ * 할 일 카드의 말 (10/7 디자인 결정) — 사유 코드 문장(「완료 상태 — 실적 확정 전」)만으로는
+ * 「무엇이 문제고, 눌러서 무엇을 하는지」가 읽히지 않았다. 심각도마다 쉬운 제목 · 왜 중요한지 ·
+ * 버튼에서 할 일을 정한다. 서버 사유 문장은 「상세」 줄에 그대로 남긴다(`reasonText`).
+ */
+const TASK_COPY: Record<
+  (typeof SEVERITIES)[number],
+  { title: string; why: string; action: string; vesselAction: string }
+> = {
+  UNCONFIRMED: {
+    title: '항해는 끝났는데 실적이 확정되지 않았습니다',
+    why: '확정 전이라 이 항차는 올해 누적 등급에 실측으로 들어가지 않습니다. 실적을 확인하고 「실적 확정」을 누르면 해결됩니다.',
+    action: '실적 확정하러 가기',
+    vesselAction: '선박에서 확인하기',
+  },
+  ANOMALY: {
+    title: '입력한 연료가 속력에 비해 너무 많거나 적습니다',
+    why: '속력으로 예상한 연료와 차이가 큽니다. 입력 실수일 수 있으니 연료 값을 확인하고, 맞다면 그대로 두어도 됩니다.',
+    action: '연료 값 확인하기',
+    vesselAction: '선박에서 확인하기',
+  },
+  SUBSTITUTED: {
+    title: '실측 연료가 없어 추정값으로 계산했습니다',
+    why: '실제 연료 기록 대신 속력 모델 값이 들어갔습니다. 실측 연료를 입력하면 등급이 실제 값으로 다시 계산됩니다.',
+    action: '실측 연료 입력하기',
+    vesselAction: '선박 제원 확인하기',
+  },
+  UNAVAILABLE: {
+    title: '값이 빠져 CII를 계산하지 못했습니다',
+    why: '거리나 연료, 선박 제원 중 빠진 값이 있어 이 부분은 누적 등급에서 빠져 있습니다.',
+    action: '빠진 값 채우기',
+    vesselAction: '선박 제원 채우기',
+  },
+  PUBLIC_RECORD: {
+    title: '입력한 기록이 해양수산부 공적 기록과 다릅니다',
+    why: '출항 · 입항 시각이나 항구가 공적 기록과 어긋납니다. 아래에서 두 값을 비교하고 맞는 쪽으로 고칠 수 있습니다.',
+    action: '항차 기록 보기',
+    vesselAction: '선박에서 확인하기',
+  },
+}
+
 function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: FillHandler }) {
+  const [filter, setFilter] = useState<(typeof SEVERITIES)[number] | null>(null)
   if (snapshot.vessels.length === 0) {
     return <p className="dq__placeholder">{COPY.noVessels}</p>
   }
@@ -185,7 +226,9 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
    * 서버가 준 배열을 **CII 영향 순**으로 다시 늘어놓는다 (#1766 · `issueOrder.ts`).
    * 원본은 그대로 둔다 — 정렬은 표시 순서이지 데이터가 아니다.
    */
-  const rows = orderedIssues(snapshot.issues)
+  const allRows = orderedIssues(snapshot.issues)
+  const rows = allRows
+  const shown = filter === null ? allRows : allRows.filter((issue) => issue.severity === filter)
 
   return (
     <>
@@ -196,40 +239,68 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
         **결론 띠(`§8.6`)가 아니다.** 이 화면의 답은 하나가 아니라 성격이 다른 다섯 축의
         건수다 — 하나로 합치면 그 다섯을 한 수로 뭉갠다(`#1197`이 다섯째를 더했다).
       */}
-      <dl className="dq__tiles" aria-label={COPY.summaryTitle}>
-        {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY', 'UNCONFIRMED', 'PUBLIC_RECORD'] as const).map((severity) => (
-          <div
-            key={severity}
-            className={`dq__tile${
-              showsSeverity(snapshot.counts[severity]) ? ` dq__tile--${severity.toLowerCase()}` : ''
-            }`}
-          >
-            <dt>{SEVERITY_TITLE[severity]}</dt>
-            <dd>
-              {snapshot.counts[severity]}
-              <span className="dq__unit">{COPY.countSuffix}</span>
-            </dd>
-            {severity === 'ANOMALY' && snapshot.anomalyUnjudged > 0 ? (
-              <dd className="dq__hint">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</dd>
-            ) : null}
-          </div>
-        ))}
-        <div className="dq__tile">
-          <dt>{COPY.completenessLabel}</dt>
-          <dd>
+      {/*
+        요약 (10/7 디자인 결정) — 같은 크기 타일 여섯이 「무엇부터」를 말하지 않았다. 처리할 일
+        건수와 완결성 두 숫자를 크게, 심각도별 건수는 거르기 칩으로 둔다. 0건 심각도는 지우지
+        않고 한 칩에 모아 흐리게 둔다(`#513` — 지우면 「확인 안 함」과 구분되지 않는다).
+      */}
+      <section className="dq-hero" aria-label={COPY.summaryTitle}>
+        <div className="dq-hero__stat">
+          <span className="dq-hero__label">처리할 일</span>
+          <span className="dq-hero__value">
+            {rows.length}
+            <span className="dq-hero__unit">{COPY.countSuffix}</span>
+          </span>
+        </div>
+        <div className="dq-hero__stat dq-hero__stat--sep">
+          <span className="dq-hero__label">{COPY.completenessLabel}</span>
+          <span className="dq-hero__value">
             {snapshot.completenessRatio === null
               ? COPY.completenessNone
               : `${formatPercent(snapshot.completenessRatio)}%`}
-          </dd>
-          <dd className="dq__hint">{COPY.completenessHint}</dd>
+          </span>
+          <span className="dq-hero__hint">{COPY.completenessHint}</span>
         </div>
-      </dl>
+        <div className="dq-hero__chips" role="group" aria-label="심각도로 거르기">
+          <button
+            type="button"
+            className="dq-chip"
+            aria-pressed={filter === null}
+            onClick={() => setFilter(null)}
+          >
+            전체 {rows.length}
+          </button>
+          {SEVERITIES.filter((sev) => snapshot.counts[sev] > 0).map((sev) => (
+            <button
+              key={sev}
+              type="button"
+              className={`dq-chip dq-chip--${sev.toLowerCase()}`}
+              aria-pressed={filter === sev}
+              onClick={() => setFilter((was) => (was === sev ? null : sev))}
+            >
+              {SEVERITY_TITLE[sev]} {snapshot.counts[sev]}
+            </button>
+          ))}
+          {SEVERITIES.some((sev) => snapshot.counts[sev] === 0) ? (
+            <span className="dq-chip dq-chip--zero">
+              {SEVERITIES.filter((sev) => snapshot.counts[sev] === 0)
+                .map((sev) => `${SEVERITY_TITLE[sev]} 0`)
+                .join(' · ')}
+            </span>
+          ) : null}
+        </div>
+        {snapshot.anomalyUnjudged > 0 ? (
+          <p className="dq-hero__note">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</p>
+        ) : null}
+      </section>
 
       <section className="card dq__list" aria-labelledby="dq-list-title">
         <h2 id="dq-list-title" className="card__title">
           {COPY.listTitle}
         </h2>
-        <p className="dq__caption">{COPY.impactCaption}</p>
+        {rows.some((issue) => issue.cii !== null) ? (
+          <p className="dq__caption">{COPY.impactCaption}</p>
+        ) : null}
         {rows.length === 0 ? (
           <p className="dq__empty">{COPY.noIssues}</p>
         ) : (
@@ -241,70 +312,59 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
               0건 심각도를 지우는 것이 아니다 — 위 요약 띠가 「실적 확정 전 0건」으로 계속
               말한다(`#513`: 지우면 「확인 안 함」과 구분되지 않는다).
             */}
-            <div className="dq__table-wrap">
-              <table className="dq__table dq__issues">
-                <thead>
-                  <tr>
-                    <th scope="col">{COPY.colSeverity}</th>
-                    <th scope="col">{COPY.colVessel}</th>
-                    <th scope="col">{COPY.colVoyage}</th>
-                    <th scope="col">{COPY.colProblem}</th>
-                    <th scope="col">{COPY.colImpact}</th>
-                    <th scope="col">{COPY.colGo}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((issue) => (
-                    <tr key={`${issue.vesselId}-${issue.voyageId ?? 'vessel'}-${issue.codes.join()}`}>
-                      <td>
-                        {/*
-                          행이 있다는 것 자체가 「볼 것이 있다」이므로 `#1288`의 조건(건수 0)은
-                          여기서 성립할 수 없다 — 칩은 늘 제 심각도 색을 단다. 0건일 때 색을
-                          빼는 판단은 위 요약 띠가 맡는다.
-                        */}
-                        <span className={`dq__severity dq__severity--${issue.severity.toLowerCase()}`}>
-                          {SEVERITY_TITLE[issue.severity]}
+            {/*
+              표 → 할 일 카드 (10/7) — 문제 문장을 제목으로 세우고, 각 카드 오른쪽에 갈 곳 하나.
+            */}
+            <ul className="dq-tasks">
+              {shown.map((issue) => (
+                <li
+                  key={`${issue.vesselId}-${issue.voyageId ?? 'vessel'}-${issue.codes.join()}`}
+                  className={`dq-task dq-task--${issue.severity.toLowerCase()}`}
+                >
+                  <div className="dq-task__body">
+                    <span className="dq-task__meta">
+                      <span className={`dq__severity dq__severity--${issue.severity.toLowerCase()}`}>
+                        {SEVERITY_TITLE[issue.severity]}
+                      </span>
+                      <span>{issue.vesselName}</span>
+                      <span>· {issue.voyageId === null ? COPY.vesselLevel : (issue.voyageNo ?? '—')}</span>
+                    </span>
+                    <h3 className="dq-task__title">{TASK_COPY[issue.severity].title}</h3>
+                    <p className="dq-task__why">{TASK_COPY[issue.severity].why}</p>
+                    <p className="dq-task__detail">
+                      <span>
+                        상세 · {issue.codes.map((code) => reasonText(code)).join(' · ')}
+                      </span>
+                      {issue.cii !== null ? (
+                        <span>
+                          · 누적 CII 영향 <Impact issue={issue} />
                         </span>
-                      </td>
-                      <th scope="row">{issue.vesselName}</th>
-                      <td>{issue.voyageId === null ? COPY.vesselLevel : (issue.voyageNo ?? '—')}</td>
-                      <td>
-                        <ul className="dq__codes">
-                          {issue.codes.map((code) => (
-                            <li key={code}>{reasonText(code)}</li>
-                          ))}
-                        </ul>
-                        {issue.publicRecord ? (
-                          <PublicRecordDetail issue={issue} record={issue.publicRecord} fill={fill} />
-                        ) : null}
-                      </td>
-                      <td>
-                        <Impact issue={issue} />
-                      </td>
-                      <td>
-                        {/*
-                          항차 행은 **그 항차 카드로** 간다 (#1549). 종전에는 모든 행이 선박 상세
-                          맨 위로 가서 페이지 중간의 항차를 다시 찾아야 했다. 실적을 넣을 수 있는
-                          항차면 입력이 열린 채 도착한다(`#1540`과 같은 진입). 선박 단위 행은
-                          가리킬 항차가 없어 종전대로 선박 상세다.
-                        */}
-                        {issue.voyageId === null ? (
-                          <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
-                        ) : (
-                          <Link
-                            to={voyageActualsPath(issue.vesselId, issue.voyageId)}
-                            aria-label={`${COPY.goToVoyage} — ${issue.vesselName} ${issue.voyageNo ?? ''}`.trim()}
-                          >
-                            {COPY.goToVoyage}
-                          </Link>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <ImpactNotes issues={rows} />
+                      ) : null}
+                    </p>
+                    {issue.publicRecord ? (
+                      <PublicRecordDetail issue={issue} record={issue.publicRecord} fill={fill} />
+                    ) : null}
+                  </div>
+                  {/*
+                    항차 행은 **그 항차 카드로** 간다 (#1549) — 실적을 넣을 수 있는 항차면 입력이 열린 채
+                    도착한다(`#1540`). 선박 단위 행은 선박 상세.
+                  */}
+                  {issue.voyageId === null ? (
+                    <Link className="dq-task__go" to={`/vessels/${issue.vesselId}`}>
+                      {TASK_COPY[issue.severity].vesselAction}
+                    </Link>
+                  ) : (
+                    <Link
+                      className={`dq-task__go${issue.severity === 'UNCONFIRMED' ? ' dq-task__go--primary' : ''}`}
+                      to={voyageActualsPath(issue.vesselId, issue.voyageId)}
+                      aria-label={`${TASK_COPY[issue.severity].action} — ${issue.vesselName} ${issue.voyageNo ?? ''}`.trim()}
+                    >
+                      {TASK_COPY[issue.severity].action} →
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
           </>
         )}
         {/*
@@ -356,9 +416,22 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
                   </td>
                   <td className="dq__num">{vessel.voyageCount}</td>
                   <td className="dq__num">
-                    {vessel.completenessRatio === null
-                      ? '—'
-                      : `${formatPercent(vessel.completenessRatio)}%`}
+                    <span className="dq-bar">
+                      <span className="dq-bar__track" aria-hidden="true">
+                        <span
+                          className={`dq-bar__fill${vessel.completenessRatio !== null && formatPercent(vessel.completenessRatio) !== '100.0' ? ' dq-bar__fill--gap' : ''}`}
+                          style={{
+                            inlineSize:
+                              vessel.completenessRatio === null
+                                ? '0%'
+                                : `${formatPercent(vessel.completenessRatio)}%`,
+                          }}
+                        />
+                      </span>
+                      {vessel.completenessRatio === null
+                        ? '—'
+                        : `${formatPercent(vessel.completenessRatio)}%`}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -370,64 +443,7 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
   )
 }
 
-/**
- * 심각도 색을 붙일 조건 (#1288).
- *
- * ## 0건이면 붙이지 않는다
- *
- * 종전에는 건수를 보지 않고 심각도 변형을 늘 달아, **0건인 칸도 좌측에 위험색 띠**를
- * 갖고 있었다. 요약 4칸 중 3칸이 경고색이라 실제로 볼 것이 있는 칸이 묻혔다.
- *
- * 색은 **심각도 신호**다 — 「색이 있다 = 볼 것이 있다」. 분류 키가 아니다. 근거:
- * 클래스 이름이 그룹명이 아니라 심각도이고, `UNCONFIRMED`는 원래부터 중립색이며,
- * `DESIGN_SYSTEM §16` 항목 8이 「색은 **면이 중립, 아이콘·문구만 위험색**」으로
- * 정했다(`#694`).
- *
- * **대가는 같은 그룹의 색이 날마다 달라지는 것**이고, 의도한 것이다. 그룹이
- * 무엇인지는 제목과 `SEVERITY_MEANING` 한 줄이 계속 말한다.
- *
- * ## 중립 클래스를 새로 만들지 않는다
- *
- * `.dq__tile`·`.dq__group` 기본 규칙이 이미 `--color-border`로 4px 띠를 그린다.
- * 변형을 **빼기만** 하면 그 중립이 드러난다.
- *
- * ## ⚠️ 클래스 이름 조립을 이 함수로 가져오지 않는다
- *
- * 처음에 `severityClass(block, severity, count)`로 이름까지 만들었더니
- * **`deadCss.test.ts`가 `.dq__tile--substituted` 넷을 죽은 클래스로 잡았다.**
- * 그 가드는 ``` `x--${` ``` 처럼 **리터럴 접두가 템플릿에 보일 때만** 동적 조립으로
- * 인정한다(`deadCss.test.ts`의 `dynamicPrefixes`). 접두가 변수(`${block}--`)가 되면
- * 그 근거가 사라진다.
- *
- * 그래서 **판단만 여기에 두고 이름은 부르는 쪽에 리터럴로 남긴다.** 규칙이 한
- * 곳이라는 목적은 그대로 지켜진다.
- */
-function showsSeverity(count: number): boolean {
-  return count > 0
-}
 
-/**
- * CII 영향 칸의 표시(`*`)가 가리키는 사유 — **이 표에 나온 것만**, 한 번씩 (#1580).
- *
- * 칸마다 긴 문장을 되풀이하던 것을 여기로 모은다. 나오지 않은 사유까지 적으면 표에 없는
- * 사실을 말하게 된다.
- */
-function ImpactNotes({ issues }: { issues: DataQualityIssue[] }) {
-  const present = new Set(
-    issues.filter((issue) => issue.voyageId !== null && issue.cii === null).map((issue) => issue.ciiReason),
-  )
-  const notes = IMPACT_REASON_ORDER.filter((code) => present.has(code))
-  if (notes.length === 0) return null
-  return (
-    <ul className="dq__footnotes">
-      {notes.map((code) => (
-        <li key={code}>
-          {IMPACT_REASON[code].mark} {IMPACT_REASON[code].note}
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 /**
  * 공적 기록과의 어긋남 — 항목 한 줄마다 「입력값 · 공적 기록 · 항만청 · 차이」(#1197).

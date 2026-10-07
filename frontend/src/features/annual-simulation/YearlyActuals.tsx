@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { ErrorState } from '../../components/ErrorState'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { ciiUnit } from '../voyage-cii/resultRules'
@@ -52,7 +53,10 @@ export function YearlyActuals({
   state,
   onRetry,
   simulatedYear,
+  footer,
 }: {
+  /** 카드 맨 아래 — 재현 · 계산 근거 (10/7). */
+  footer?: ReactNode
   state: ActualsState
   onRetry: () => void
   /**
@@ -100,6 +104,7 @@ export function YearlyActuals({
           simulatedYear={simulatedYear}
         />
       ) : null}
+      {footer}
     </section>
   )
 }

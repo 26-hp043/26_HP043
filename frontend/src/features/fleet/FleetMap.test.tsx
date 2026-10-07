@@ -244,23 +244,30 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     // 항로선이 있는 배다 — 선이 없는 지도는 선 이야기를 하지 않는다(#2122 · 아래 검사).
     const { container } = render(<FleetMap vessels={[sailing('1')]} />)
 
-    const hint = container.querySelector('.fleetmap__hint')?.textContent ?? ''
+    // 10/7 디자인 결정(#2311) — 지도 아래는 짧은 읽는 법 한 줄이고, 항로선 고지 전문은
+    // 「항로선 안내」 접기 안으로 옮겼다. 고지의 **뜻**은 그 안에 그대로 남아야 한다.
+    const notice = container.querySelector('.fleetmap__more')
+    expect(notice?.querySelector('summary')?.textContent).toBe('항로선 안내')
+    const noticeText = notice?.textContent ?? ''
     // 정본 문구 (DESIGN_SYSTEM §9.5 「항로선은 공개 해상 경로망 위의 바닷길이다」 · ⚠️ 개발
     // 임시안 · §16 항목 21) — 「실제 항해 계획이 아니다」는 고지의 뜻이라 문장이 바뀌어도
     // 남아야 한다. 선이 경로망 위의 바닷길이 되면서(#1300) 「육지를 가로지른다」는 더 이상
     // 사실이 아니다 — 그 말이 되살아나면 캡션이 거짓이다.
-    expect(hint).toMatch(/항해 계획이 아닙니다/)
+    expect(noticeText).toMatch(/항해 계획이 아닙니다/)
+    expect(noticeText).not.toMatch(/육지/)
+    expect(noticeText).toMatch(/표시용.*CII 계산 거리.*AIS 실제 운항 궤적/)
+
+    const hint = container.querySelector('.fleetmap__hint')?.textContent ?? ''
     expect(hint).not.toMatch(/육지/)
     // 스스로 설명되지 않는 유일한 표식 — 말의 순서는 바뀌어도 된다
     expect(hint).toMatch(/테두리/)
     expect(hint).toMatch(/굵/)
-    expect(hint).toMatch(/표시용.*CII 계산 거리.*AIS 실제 운항 궤적/)
-    // #1853 ② (디자인 확정 09-27) — 선 문장과 마커 문장이 **다른 줄**이다.
-    const lines = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-line')].map((l) => l.textContent ?? '')
-    expect(lines).toHaveLength(2)
-    expect(lines[0]).toMatch(/항해 계획이 아닙니다/)
-    expect(lines[0]).not.toMatch(/테두리/)
-    expect(lines[1]).toMatch(/테두리/)
+    // #1853 ② (디자인 확정 09-27) — 선 이야기와 마커 이야기가 **다른 항목**이다.
+    const items = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-item')].map((l) => l.textContent ?? '')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toMatch(/점선/)
+    expect(items[0]).not.toMatch(/테두리/)
+    expect(items[1]).toMatch(/테두리/)
     const map = screen.getByRole('group', { name: MAP_NAME })
     expect(map.getAttribute('aria-describedby')).toBe(container.querySelector('.fleetmap__hint')?.id)
   })
@@ -268,11 +275,12 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
   it('항로선이 없으면 캡션이 항로선을 말하지 않는다 — 출처 줄과 같은 조건이다 (#2122)', () => {
     const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
 
-    const lines = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-line')].map((l) => l.textContent ?? '')
+    const items = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-item')].map((l) => l.textContent ?? '')
     // 그려지지 않은 선을 「표시합니다」라고 적지 않는다.
-    expect(lines.some((line) => /항로/.test(line))).toBe(false)
+    expect(items.some((line) => /항로|점선/.test(line))).toBe(false)
+    expect(container.querySelector('.fleetmap__more')).toBeNull()
     // 마커 이야기는 선과 무관하므로 남는다.
-    expect(lines.some((line) => /테두리/.test(line))).toBe(true)
+    expect(items.some((line) => /테두리/.test(line))).toBe(true)
   })
 
   it('대체 텍스트의 좌표는 개략도와 같은 표기다 — 현재 위치도 항로 양 끝도 (#2122)', () => {

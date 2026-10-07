@@ -14,7 +14,8 @@ describe('지도 엔진 module boundary', () => {
 
   it('Comparison은 FleetMap 구현을 직접 import하지 않는다', () => {
     const comparison = read('scenario-comparison/VoyageRouteMap.tsx')
-    expect(comparison).not.toContain('../fleet/FleetMap')
+    // 구현 모듈만 막는다 — 지도 공용 스타일(`../fleet/FleetMap.css`)을 빌려 쓰는 것은 구현 import가 아니다.
+    expect(comparison).not.toMatch(/from ['"]\.\.\/fleet\/FleetMap(?:\.tsx?)?['"]/)
     expect(comparison).not.toContain('../map/RouteMap')
   })
 
@@ -48,6 +49,8 @@ describe('지도 엔진 module boundary', () => {
     expect(annualPage).toContain('annualProductMapGeometryProvider')
     expect(annualPage).toContain('mapGeometryProvider={annualProductMapGeometryProvider}')
     expect(read('fleet/FleetDashboard.tsx')).toContain('<FleetMap')
-    expect(read('scenario-comparison/ScenarioComparison.tsx')).toContain('<VoyageRouteMap')
+    // 10/7(#2315) — 항로 비교는 시나리오별 지도 카드(`ScenarioMapCards`)를 거쳐 공용 지도를 그린다.
+    expect(read('scenario-comparison/ScenarioComparison.tsx')).toContain('<ScenarioMapCards')
+    expect(read('scenario-comparison/ScenarioMapCards.tsx')).toContain('<VoyageRouteMap')
   })
 })

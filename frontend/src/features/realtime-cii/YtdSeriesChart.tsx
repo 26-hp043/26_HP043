@@ -225,7 +225,11 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
         <p className="ytds__note">{NO_TREND_TEXT}</p>
       ) : null}
 
-      <SeriesTable series={series} unit={unit} />
+      {/* 표는 접어 둔다 (10/7) — 차트가 답이고 표는 확인용이다. */}
+      <details className="ytds__more">
+        <summary>값을 표로 보기</summary>
+        <SeriesTable series={series} unit={unit} />
+      </details>
     </div>
   )
 }

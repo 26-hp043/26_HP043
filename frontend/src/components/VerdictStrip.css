@@ -122,3 +122,19 @@
 
 .verdict-strip__risk-value--high { color: var(--color-warning-text); }
 .verdict-strip__risk-value--critical { color: var(--color-danger-text); }
+
+/* 값 아래 한 줄 풀이 (10/7 시안 02) */
+.verdict-strip__note {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.verdict-strip__transition {
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.verdict-strip__arrow {
+  color: var(--text-secondary);
+}

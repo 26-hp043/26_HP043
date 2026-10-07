@@ -225,29 +225,6 @@
   margin-block-start: var(--spacing-md);
 }
 
-/*
- * §2.5 (b) 🔒 — **4단계 전용 색 램프를 만들지 않는다.** LOW·MEDIUM은 본문색 그대로다.
- * HIGH는 Warning, CRITICAL은 Danger(둘 다 문자 전용 `-text` 토큰), **아이콘은 단계와
- * 무관하게 Warning 하나**다 — 기능①(`VoyageCiiResult.css`)·시나리오 비교와 같은 규칙이며
- * `riskColor.test.ts`가 세 화면을 함께 잡는다.
- *
- * > **이력** — 종전에는 HIGH·CRITICAL·아이콘을 모두 Danger로 두었다. 사유는 *「`--color-
- * > warning-text`가 다크에서 `--cii-c-fill`(등급 C 램프)로 풀린다」*였는데 `#1022`로 그
- * > 별칭이 없어졌고(지금은 `--semantic-warning`), 2026-09-22 디자인 확정(`rlatnals4114`)으로
- * > 위 규칙이 `§2.5 (b)`에 들어갔다.
- */
-.rt__axis-facts .rt__risk--high {
-  color: var(--color-warning-text);
-}
-
-.rt__axis-facts .rt__risk--critical {
-  color: var(--color-danger-text);
-}
-
-.rt__risk-icon {
-  color: var(--color-warning-text);
-}
-
 .rt__note,
 .rt__nodata {
   margin: 0;
@@ -790,4 +767,37 @@
   margin: var(--spacing-xs) 0 0;
   font-size: var(--font-size-caption);
   color: var(--text-secondary);
+}
+
+/* 경고 + 실적 입력 (10/7) — 결론 띠 바로 아래 */
+.rt__alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-card);
+  border-inline-start: 3px solid var(--color-warning-text);
+  background: var(--surface-inset);
+}
+
+.rt__alert .rt__warnings {
+  flex: 1 1 360px;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+}
+
+.rt__alert-action {
+  flex: none;
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-strong);
+  text-decoration: none;
+}
+
+.rt__alert-action:hover {
+  background: var(--color-primary-hover);
 }

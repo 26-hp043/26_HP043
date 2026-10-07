@@ -1,37 +1,34 @@
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped } from '../../display/format'
-import { shareOfMax } from '../../display/decimal'
+import { percentChangeFixed, shareOfMax } from '../../display/decimal'
+import { lowestScenarios } from './comparisonRules'
 import type { ScenarioResult } from './types'
 
 /**
- * 항목별 미니 막대 (#2202) — 비교 표의 숫자를 세 안끼리 눈으로 맞춰 보는 수고를 던다.
+ * 항목별 비교 타일 (#2202 · 10/7 디자인 결정).
  *
- * 링카고(2024 대상작)의 견적 비교 화면에서 가져온 패턴이다 — 항목 드롭다운을 바꾸면
- * 업체 셋이 가로 막대로 비교된다.
+ * 종전에는 드롭다운으로 고른 항목 **하나**만 막대로 보였고, 지표별 최소값은 그 아래
+ * 3줄 목록에 따로 있었다 — 눈이 위아래로 오가야 했다. 이제 CII · 소요시간 · 연료를
+ * 타일 셋으로 **한 줄에** 놓고, 각 타일 안에서 최소값을 표시한다.
  *
- * ## 표를 대신하지 않는다
+ * ## 중립 (`PRD §11.2` · `DESIGN_SYSTEM §11`)
  *
- * 숫자 · 증감 · 등급은 위 비교 표가 말한다. 이 부품은 **한 항목을 길이로 한 번 더**
- * 보일 뿐이고, 값은 같은 응답 · 같은 표시 자릿수에서 나온다(`shareOfMax`). 화면에서
- * 다시 계산하지 않는다.
+ * - **순서는 표와 같다** — 값으로 정렬하지 않는다
+ * - 「추천」은 없다. **지표마다 따로** 최소값만 적고, 동률이면 전부 표시한다(`#799`)
+ * - 막대 색은 위 지도 칩과 같은 시나리오 3색이다 — 지도와 표를 잇는 범례 역할이고,
+ *   세 안 모두 같은 강도로 칠한다. 최소값은 색이 아니라 굵은 글자와 태그가 말한다(§14)
  *
- * ## 중립 (`PRD §11.2` · `DESIGN_SYSTEM §11` · `§8.6` 항로 비교 행)
+ * ## 값
  *
- * - **순서는 표와 같다** — 값으로 정렬하지 않는다. 정렬하는 순간 1등이 생긴다
- * - **「최소」 · 「추천」 표시를 붙이지 않는다** — 지표별 최소값은 표 아래 줄이 이미 적는다
- * - **막대 색은 하나다** — 시나리오마다 색을 달리하면 한 안이 눈에 띈다. 시나리오는
- *   각 줄 앞의 이름 글자가 가른다(§14 — 색이 뜻을 나르지 않는다). 계열색(§9.3)은 선 ·
- *   영역 차트의 것이고, 생성 토큰에도 아직 없다(`tokens.css` #831 ⑷)
- *
- * ## 낭독
- *
- * 각 줄에 이름과 값이 글자로 있다. 막대 자체는 장식이라 `aria-hidden`이다.
+ * 숫자는 같은 응답 · 같은 표시 자릿수에서 나온다. 증감률은 표시값끼리 `BigInt`로
+ * 나눈다(`percentChangeFixed`).
  */
-type BarMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton' | 'co2_emission_ton'
+type TileMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton'
 
 interface MetricDef {
-  readonly key: BarMetric
+  readonly key: TileMetric
   readonly label: string
+  readonly lowestTag: string
   readonly digits: number
   readonly unit: string
   readonly format: (value: string) => string
@@ -42,32 +39,88 @@ function metricDefs(ciiUnit: string): readonly MetricDef[] {
     {
       key: 'attained_cii',
       label: 'CII',
+      lowestTag: '가장 낮음',
       digits: DISPLAY_DIGITS.cii,
       unit: ciiUnit,
       format: (v) => formatDecimalString(v, DISPLAY_DIGITS.cii),
     },
     {
       key: 'duration_hours',
-      label: '예상 소요시간',
+      label: '소요시간',
+      lowestTag: '가장 짧음',
       digits: DISPLAY_DIGITS.durationHours,
       unit: DISPLAY_UNITS.duration,
       format: (v) => formatDecimalString(v, DISPLAY_DIGITS.durationHours),
     },
     {
       key: 'fuel_ton',
-      label: '예상 연료',
+      label: '연료',
+      lowestTag: '가장 적음',
       digits: DISPLAY_DIGITS.fuelTon,
       unit: DISPLAY_UNITS.fuel,
       format: (v) => formatGrouped(v, DISPLAY_DIGITS.fuelTon),
     },
-    {
-      key: 'co2_emission_ton',
-      label: 'CO₂ 배출량',
-      digits: DISPLAY_DIGITS.co2Ton,
-      unit: DISPLAY_UNITS.co2,
-      format: (v) => formatGrouped(v, DISPLAY_DIGITS.co2Ton),
-    },
   ]
+}
+
+function MetricTile({ def, scenarios }: { def: MetricDef; scenarios: readonly ScenarioResult[] }) {
+  const titleId = useId()
+  const widths = shareOfMax(
+    scenarios.map((s) => s[def.key]),
+    def.digits,
+  )
+  const lowest = lowestScenarios(scenarios, def.key)
+  const tie = lowest.length > 1
+  const direct = scenarios.find((s) => s.scenario_type === 'DIRECT')
+  const best = scenarios.find((s) => s.scenario_type === lowest[0])
+  const change =
+    !tie && direct !== undefined && best !== undefined && best.scenario_type !== 'DIRECT'
+      ? percentChangeFixed(best[def.key], direct[def.key], def.digits)
+      : null
+  const names = lowest
+    .map((type) => scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—')
+    .join(' · ')
+
+  return (
+    <section className="scenario-tile" aria-labelledby={titleId}>
+      <h4 id={titleId} className="scenario-tile__title">
+        {def.label}
+        <span className="scenario-tile__unit"> {def.unit}</span>
+      </h4>
+      <ul className="scenario-tile__list">
+        {scenarios.map((scenario, index) => {
+          const isLowest = lowest.includes(scenario.scenario_type)
+          return (
+            <li
+              key={scenario.scenario_type}
+              className={`scenario-tile__row scenario-tile__row--${scenario.scenario_type.toLowerCase()}${isLowest ? ' scenario-tile__row--lowest' : ''}`}
+            >
+              <span className="scenario-tile__name">{scenario.scenario_name}</span>
+              <span className="scenario-tile__track" aria-hidden="true">
+                <span className="scenario-tile__fill" style={{ inlineSize: `${widths[index]}%` }} />
+              </span>
+              <span className="scenario-tile__value">
+                {def.format(scenario[def.key])}
+                {isLowest ? <span className="sr-only"> ({def.lowestTag})</span> : null}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+      <p className="scenario-tile__foot">
+        <span className="scenario-tile__tag">{def.lowestTag}</span>
+        <strong className="scenario-tile__best">
+          {lowest.length === 0 ? '—' : names}
+          {tie ? ' (동률)' : null}
+        </strong>
+        {change !== null ? (
+          <span className="scenario-tile__change">
+            <small>직항 대비</small> {change.startsWith('-') ? '−' + change.slice(1) : '+' + change}%
+          </span>
+        ) : null}
+      </p>
+    </section>
+  )
 }
 
 export function ScenarioBars({
@@ -77,53 +130,21 @@ export function ScenarioBars({
   scenarios: readonly ScenarioResult[]
   ciiUnit: string
 }) {
-  const selectId = useId()
-  const defs = metricDefs(ciiUnit)
-  const [metric, setMetric] = useState<BarMetric>('attained_cii')
-  const def = defs.find((d) => d.key === metric) ?? defs[0]
-  const widths = shareOfMax(
-    scenarios.map((s) => s[def.key]),
-    def.digits,
-  )
-
+  const titleId = useId()
   if (scenarios.length === 0) return null
+  const defs = metricDefs(ciiUnit)
 
   return (
-    <section className="scenario-bars" aria-labelledby={`${selectId}-title`}>
-      <div className="scenario-bars__head">
-        <h3 id={`${selectId}-title`} className="scenario-bars__title">
-          항목별로 나란히 보기
-        </h3>
-        <label htmlFor={selectId}>
-          <span className="sr-only">막대로 볼 항목</span>
-          <select
-            id={selectId}
-            value={metric}
-            onChange={(event) => setMetric(event.target.value as BarMetric)}
-          >
-            {defs.map((d) => (
-              <option key={d.key} value={d.key}>
-                {d.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <ul className="scenario-bars__list">
-        {scenarios.map((scenario, index) => (
-          <li key={scenario.scenario_type} className="scenario-bars__row">
-            <span className="scenario-bars__name">{scenario.scenario_name}</span>
-            <span className="scenario-bars__track" aria-hidden="true">
-              <span className="scenario-bars__fill" style={{ inlineSize: `${widths[index]}%` }} />
-            </span>
-            <span className="scenario-bars__value">
-              {def.format(scenario[def.key])}
-              <span className="scenario-bars__unit"> {def.unit}</span>
-            </span>
-          </li>
+    <section className="scenario-bars" aria-labelledby={titleId}>
+      <h3 id={titleId} className="scenario-bars__title">
+        항목별로 나란히 보기
+      </h3>
+      <div className="scenario-bars__tiles">
+        {defs.map((def) => (
+          <MetricTile key={def.key} def={def} scenarios={scenarios} />
         ))}
-      </ul>
-      <p className="scenario-bars__note">막대는 0에서 시작하며, 값의 순서가 아니라 표의 순서대로 놓입니다.</p>
+      </div>
+      <p className="scenario-bars__note">막대는 0에서 시작하며, 표와 같은 순서로 놓입니다. 추천이 아니라 항목별 최솟값입니다.</p>
     </section>
   )
 }

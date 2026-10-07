@@ -42,11 +42,12 @@ afterEach(cleanup)
 beforeEach(() => { rendererSpies.mount.mockClear(); rendererSpies.destroy.mockClear() })
 
 describe('AnnualPlayback 제품 lifecycle', () => {
-  it('좌표 unavailable이면 이유를 설명하고 지도와 controls를 만들지 않는다', async () => {
+  // 10/7 디자인 결정(#2313) — 재생할 수 없으면 이유 문장도 두지 않고 통째로 숨긴다.
+  it('좌표 unavailable이면 아무것도 그리지 않는다 — 지도도 controls도 만들지 않는다', async () => {
     const provider: AnnualMapGeometryProvider = { load: vi.fn(async (): Promise<MapGeometry> => ({ status: 'unavailable', reason: 'coordinates_not_provided' })) }
     const { container } = render(<AnnualPlayback result={RESULT} geometryProvider={provider} {...HUD_PROPS} />)
     await vi.waitFor(() => expect(provider.load).toHaveBeenCalledOnce())
-    await vi.waitFor(() => expect(container.textContent).toContain('스냅샷에는 항로 좌표가 없어'))
+    await vi.waitFor(() => expect(container.childElementCount).toBe(0))
     expect(screen.queryByRole('region', { name: '항로 재생 제어' })).toBeNull()
     expect(rendererSpies.mount).not.toHaveBeenCalled()
   })

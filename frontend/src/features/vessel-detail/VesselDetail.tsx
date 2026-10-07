@@ -1,3 +1,4 @@
+import { ShipIllustration } from '../../components/ShipIllustration'
 import { ArrowLeft } from 'lucide-react'
 import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
@@ -28,7 +29,7 @@ import { CiiHistoryChart } from './CiiHistoryChart'
 import { YtdNotice } from './YtdNotice'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
-import { VerdictStrip } from '../../components/VerdictStrip'
+import { GradeBadge } from '../../components/GradeBadge'
 import { Tabs, type TabDef } from '../../components/Tabs'
 import { currentTab, TAB_PARAM, VESSEL_TABS, type VesselTabId } from './vesselTabs'
 import { voyageProgress } from './types'
@@ -553,7 +554,12 @@ export function VesselDetail({
       <BackLink />
 
       <header className="vd__head">
-        <div>
+        <div className="vd__ident">
+          {/* 선종 일러스트 (10/7) — 장식. 선종은 아래 줄 글자가 말한다 */}
+          <span className="vd__ship">
+            <ShipIllustration shipType={vessel.shipType} framed />
+          </span>
+          <div>
           <h1 className="vd__title">
             {vessel.name}
             {/*
@@ -579,7 +585,43 @@ export function VesselDetail({
               기준 {formatTimestamp(detail.asOf)}
             </p>
           ) : null}
+          </div>
         </div>
+        {/*
+          올해 누적 · 진행 중 항차를 머리 한 줄로 (10/7 디자인 결정). 종전 결론 띠 카드를
+          머리로 올려, 탭 위 세로 길이를 줄였다. 값은 같은 응답 · 같은 표시 함수다.
+        */}
+        {current?.dataAvailable ? (
+          <div className="vd__head-stats">
+            <div className="vd__stat vd__stat--grade">
+              <GradeBadge
+                rating={current.rating}
+                size="lg"
+                label={current.rating ? `올해 누적 등급 ${current.rating}` : '올해 누적 등급 없음'}
+              />
+              <span className="vd__stat-body">
+                <span className="vd__stat-value">
+                  {current.attainedCii === null
+                    ? NO_VALUE
+                    : formatDecimalString(current.attainedCii, DISPLAY_DIGITS.cii)}
+                  <span className="vd__stat-unit"> {unit}</span>
+                </span>
+                <span className="vd__stat-label">
+                  올해 누적 · {current.regulationYear}년 · 기준{' '}
+                  {current.requiredCii === null
+                    ? NO_VALUE
+                    : formatDecimalString(current.requiredCii, DISPLAY_DIGITS.cii)}
+                </span>
+              </span>
+            </div>
+            <div className="vd__stat">
+              <span className="vd__stat-body">
+                <span className="vd__stat-value vd__stat-value--sm">{progressSlot(inProgress).value}</span>
+                <span className="vd__stat-label">진행 중 항차</span>
+              </span>
+            </div>
+          </div>
+        ) : null}
         {/*
           진행 중 항차로 내려가는 경로 (#1415). `UIFLOW 2-9`(실시간 CII)는 사이드바에 없고
           **이 화면에서만** 들어간다(`UIFLOW 2-9` 진입 조건). 종전에는 그 유일한 입구가 페이지
@@ -651,21 +693,7 @@ export function VesselDetail({
         `API_SPEC §2.7` 연도별 이력에 `risk_level`이 없고, 없는 값을 다른 경로에서
         더 불러오지 않는다(`§8.6` · #1728).
       */}
-      {current?.dataAvailable ? (
-        <VerdictStrip
-          label="올해 누적 CII"
-          main={{
-            label: `올해 누적 (YTD) · ${current.regulationYear}년`,
-            value: ytdValueText(current),
-            unit,
-            rating: current.rating,
-            ratingLabel: current.rating
-              ? `올해 누적 등급 ${current.rating}`
-              : '올해 누적 등급 없음',
-          }}
-          sub={progressSlot(inProgress)}
-        />
-      ) : (
+      {current?.dataAvailable ? null : (
         <section className="card" aria-label="올해 누적 CII">
           <h2 className="card__title">올해 누적 (YTD)</h2>
           <p className="vd__nodata">{noDataText(current)}</p>
@@ -720,21 +748,6 @@ export function VesselDetail({
 /** 값이 없을 때의 표기 — 빈칸은 「아직 안 온 값」으로 읽힌다. */
 const NO_VALUE = '—'
 
-/**
- * 띠의 주 결론 값 — 「실적 / 기준」 한 쌍 (`DESIGN_SYSTEM §8.6` 표의 선박 상세 행).
- *
- * 두 값을 나란히 두는 것이 이 화면의 답이다 — 실적만으로는 등급이 왜 그 등급인지
- * 읽히지 않는다. 값이 없으면 `—`로 적는다(빈칸은 「아직 안 온 값」으로 읽힌다).
- *
- * 자릿수는 `DESIGN_SYSTEM §4.1` 🔒 — CII는 소수 3자리 고정이고 `required_cii`도 같다.
- */
-function ytdValueText(year: CiiYear): string {
-  const attained =
-    year.attainedCii === null ? NO_VALUE : formatDecimalString(year.attainedCii, DISPLAY_DIGITS.cii)
-  const required =
-    year.requiredCii === null ? NO_VALUE : formatDecimalString(year.requiredCii, DISPLAY_DIGITS.cii)
-  return `${attained} / ${required}`
-}
 
 /**
  * 띠의 보조 — 진행 중 항차와 진행률 (#1729).
@@ -762,9 +775,9 @@ function progressSlot(
 
 function BackLink() {
   return (
-    <Link className="vd__back" to="/dashboard">
+    <Link className="vd__back" to={SCREEN_BY_ID.VESSEL_MANAGEMENT.path}>
       <Icon glyph={ArrowLeft} size="inline" />
-      대시보드
+      {SCREEN_BY_ID.VESSEL_MANAGEMENT.label}
     </Link>
   )
 }

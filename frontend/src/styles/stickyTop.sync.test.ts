@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest'
  *
  * ## 무엇을 지키나
  *
- * sticky 상단바는 위 틈(`--shell-gutter`) 아래에 붙고 최소 높이가 `--shell-topbar-height`이므로,
- * 그 아래에 서려면 `틈 + 높이 + 틈`(`--shell-topbar-offset`)만큼을 비워야 한다. 이 값을 쓰는
+ * sticky 상단바는 화면 맨 위에 붙고(10/7 · #2310 — 종전에는 위 틈 `--shell-gutter` 아래) 최소
+ * 높이가 `--shell-topbar-height`이므로, 그 아래에 서려면 `높이 + 틈`(`--shell-topbar-offset`)만큼을
+ * 비워야 한다. 이 값을 쓰는
  * 자리가 여럿이다 — 입력 기둥 셋(`§8.7`) · 보고서의 문서 높이 · `#1790`이 더한 `main`의
  * `scroll-margin` · `#1791`이 더한 설정 두 절.
  *
@@ -55,12 +56,12 @@ function cssFiles(dir: string): string[] {
   })
 }
 
-/** 「위 틈 · 2 + 상단바 높이」를 쓰는 자리. */
+/** 「상단바 높이 + 아래 틈」(`--shell-topbar-offset`)을 쓰는 자리. 종전에는 위 틈도 더했다(#2310). */
 const USERS = [
   { name: '셸 본문의 초점 자리 (#1790)', file: 'layout/AppShell.css' },
   { name: 'CII 예측 입력 기둥', file: 'pages/CiiForecastPage.css' },
   { name: '연간 등급 관리 입력 기둥', file: 'features/annual-simulation/AnnualSimulation.css' },
-  { name: '항로 비교 입력 기둥', file: 'features/scenario-comparison/ScenarioComparison.css' },
+  // 항로 비교 입력 기둥은 10/7 디자인 결정(#2315)으로 따라오지 않게 되어 이 띠를 쓰지 않는다.
   { name: '보고서 조건 기둥', file: 'features/reports/ReportsView.css' },
   { name: '설정 계정 절 (#1791)', file: 'features/account/AccountPanel.css' },
   { name: '설정 규제 기준값 절 (#1791)', file: 'features/parameters/RegulationParametersSection.css' },
@@ -97,10 +98,16 @@ describe('상단바가 차지하는 띠는 토큰 하나다 (#1790 · #1884)', (
     }
   })
 
-  it('띠 토큰은 틈 · 2 + 높이 토큰이다', () => {
+  /*
+   * 10/7 디자인 결정(#2310) — 상단바를 화면 위에 붙였다(`top: 0` · 위 틈 없음). 띠는
+   * 종전 「틈 + 높이 + 틈」에서 **「높이 + 아래 틈」**이 됐다.
+   */
+  it('띠 토큰은 높이 토큰 + 아래 틈이다 (#2310)', () => {
     expect(shell).toMatch(
-      /--shell-topbar-offset:\s*calc\(var\(--shell-gutter\)\s*\*\s*2\s*\+\s*var\(--shell-topbar-height\)\)/,
+      /--shell-topbar-offset:\s*calc\(var\(--shell-topbar-height\)\s*\+\s*var\(--shell-gutter\)\)/,
     )
+    // 위 틈이 사라졌으므로 상단바는 화면 맨 위에 붙는다 — 이것이 어긋나면 띠 값도 틀린다.
+    expect(/\.app-shell__topbar\s*\{[^}]*\btop:\s*0\s*;/.test(shell), '상단바가 top: 0이 아니다').toBe(true)
   })
 
   it('상단바의 최소 높이가 그 토큰이다', () => {

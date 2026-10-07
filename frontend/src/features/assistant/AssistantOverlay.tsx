@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { ArrowUp, X } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
@@ -94,6 +94,8 @@ const PLACEHOLDER = '계산 결과에 대해 물어보세요'
  * **할 수 없는 것을 먼저 적는다.** 챗봇은 「무엇이든 물어보세요」로 열면 규제 판단을
  * 묻게 되고, 그 질문에는 답하지 않는 것이 맞는 동작이라 사용자가 고장으로 읽는다.
  */
+/** 그림 아래 한 줄 (10/7) — 긴 설명은 「범이가 하는 일」 접기에 둔다. */
+const INTRO_SHORT = '계산 결과와 규제 기준값을 쉽게 풀어 드려요. 규제 판단이나 권고는 하지 않아요.'
 const INTRO =
   '이 화면에서 방금 낸 계산 결과를 읽어 설명하고, 고른 선박으로 항차 CII · 속도 시나리오 · 연말 예상을 계산해 답합니다. 규제 기준값(등급 경계 · 기준선 · 감축률 · 연료 CF)은 앱이 보관한 표에서 찾아 그대로 인용합니다. 규제 판단이나 권고는 하지 않으며, 수치는 계산 엔진이 낸 값과 그 표에서만 옵니다.'
 /*
@@ -125,12 +127,43 @@ const EXAMPLES = [
   'attained CII와 required CII는 무엇인가요?',
 ] as const
 
+/**
+ * 문의 유형별 예시 (10/7 디자인 결정) — 질문 셋을 나열하면 「무엇을 물을 수 있나」가 넓게
+ * 읽히지 않았다. 유형을 먼저 고르고 그 아래 질문을 펼친다. 위 규칙 그대로 **도구가 답할 수
+ * 있는 것만** — 연말 예상 · 속도 시나리오 · 항차 CII · 규제 기준값 표 · 용어 풀이.
+ */
+const EXAMPLE_GROUPS: readonly { title: string; hint: string; questions: readonly string[] }[] = [
+  {
+    title: '내 배 등급',
+    hint: '올해 누적 · 연말 예상',
+    questions: [EXAMPLES[0], '연말 예상 값은 기준 CII 대비 몇 %인가요?'],
+  },
+  {
+    title: '속도 · 항차 계산',
+    hint: '속도 시나리오 · 항차 CII',
+    questions: [EXAMPLES[1], '부산에서 싱가포르까지 2,300해리를 12노트로 가면 항차 CII는 얼마인가요?'],
+  },
+  {
+    title: '규제 기준값',
+    hint: '감축률 · 등급 경계 · 탄소계수',
+    questions: [
+      '2026년 감축률은 몇 %인가요?',
+      '벌크선의 등급 경계는 어떻게 되나요?',
+      '중유(HFO)의 탄소계수(CF)는 얼마인가요?',
+    ],
+  },
+  {
+    title: '용어 풀이',
+    hint: 'CII · DWT · GT',
+    questions: [EXAMPLES[2], 'DWT와 GT는 무엇이 다른가요?'],
+  },
+]
+
 /*
  * 계산 대상 선박 (#1613). 선박명은 **화면에만** 보인다 — 외부 LLM으로 보내지 않는다
  * (`PRD §16.3.1` · 요청에는 `vesselId`만 간다). 그래서 답에는 이름이 나오지 않으므로,
  * 어느 배의 숫자인지는 이 줄이 말한다.
  */
-const TARGET_LABEL = '계산 대상'
 const TARGET_HINT = '상단에서 바꿉니다'
 const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 선박을 고른 뒤 답합니다'
 
@@ -443,10 +476,24 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
           alt=""
           aria-hidden="true"
         />
-        <h2 className="assistant__title">
-          {PANEL_LABEL}
-          <span className="assistant__tag">실험</span>
-        </h2>
+        {/* 머리 한 덩어리 (10/7) — 이름 · 실험 표시 아래에 무엇을 보고 답하는지 한 줄 */}
+        <div className="assistant__head-text">
+          <h2 className="assistant__title">
+            범이
+            <span className="assistant__title-sub">{PANEL_LABEL}</span>
+            <span className="assistant__tag">실험</span>
+          </h2>
+          <p className="assistant__target">
+            {vesselId ? (
+              <>
+                <strong>{vesselName || '선택한 선박'}</strong> 기준으로 답합니다
+                <span className="assistant__target-hint"> · {TARGET_HINT}</span>
+              </>
+            ) : (
+              TARGET_NONE
+            )}
+          </p>
+        </div>
         <button
           type="button"
           className="assistant__close"
@@ -457,17 +504,6 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         </button>
       </header>
 
-      <p className="assistant__target">
-        <span className="assistant__target-label">{TARGET_LABEL}</span>{' '}
-        {vesselId ? (
-          <>
-            <strong>{vesselName || '선택한 선박'}</strong>
-            <span className="assistant__target-hint"> · {TARGET_HINT}</span>
-          </>
-        ) : (
-          TARGET_NONE
-        )}
-      </p>
 
       {/*
         #2158 — 머리줄과 입력 줄 **사이**를 한 스크롤 영역으로 묶는다. 화면이 낮아
@@ -490,7 +526,15 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         />
       ) : null}
 
-      {turns.length === 0 ? <p className="assistant__intro">{INTRO}</p> : null}
+      {turns.length === 0 ? (
+        <div className="assistant__intro-wrap">
+          <p className="assistant__intro">{INTRO_SHORT}</p>
+          <details className="assistant__intro-more">
+            <summary>범이가 하는 일</summary>
+            <p>{INTRO}</p>
+          </details>
+        </div>
+      ) : null}
 
       {statusOff ? (
         <p className="assistant__notice" role="status">
@@ -500,23 +544,37 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
 
       {/* 대화를 시작하면 걷는다 — 그 뒤에는 로그가 자리를 쓴다. */}
       {turns.length === 0 ? (
-        <ul className="assistant__examples" role="list" aria-label="예시 질문">
-          {EXAMPLES.map((example) => (
-            <li key={example}>
-              <button
-                type="button"
-                className="assistant__example"
-                disabled={stopped}
-                onClick={() => {
-                  setDraft(example)
-                  inputRef.current?.focus()
-                }}
-              >
-                {example}
-              </button>
-            </li>
+        <>
+        <p className="assistant__examples-label">무엇이 궁금하세요?</p>
+        <div className="assistant__groups" role="group" aria-label="예시 질문">
+          {EXAMPLE_GROUPS.map((group, index) => (
+            <details key={group.title} className="assistant__group" open={index === 0}>
+              <summary className="assistant__group-head">
+                <span className="assistant__group-title">{group.title}</span>
+                <span className="assistant__group-hint">{group.hint}</span>
+              </summary>
+              <ul className="assistant__examples" role="list">
+                {group.questions.map((example) => (
+                  <li key={example}>
+                    <button
+                      type="button"
+                      className="assistant__example"
+                      disabled={stopped}
+                      onClick={() => {
+                        setDraft(example)
+                        inputRef.current?.focus()
+                      }}
+                    >
+                      {example}
+                      <span className="assistant__example-arrow" aria-hidden="true">→</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
           ))}
-        </ul>
+        </div>
+        </>
       ) : null}
 
       {/*
@@ -654,9 +712,10 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         <button
           type="submit"
           className="assistant__send"
+          aria-label="보내기"
           disabled={pending || stopped || draft.trim().length === 0}
         >
-          보내기
+          <Icon glyph={ArrowUp} size="inline" />
         </button>
       </form>
     </section>

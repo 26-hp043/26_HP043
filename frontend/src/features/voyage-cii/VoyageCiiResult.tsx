@@ -23,7 +23,7 @@ import { GradeScaleBar } from '../../components/GradeScaleBar'
 import { VerdictStrip } from '../../components/VerdictStrip'
 import { gradeTargets } from './targetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import type { AnnualImpact, VoyageCiiResponse } from './types'
+import type { VoyageCiiResponse } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Icon } from '../../components/Icon'
 import { useShowsLabelEn } from '../../i18n/core'
@@ -35,9 +35,6 @@ import { regulationParametersPath } from '../parameters/referenceRules'
  * 등급 **둘을 나란히** 보여 준다. 차이(Δ)를 숫자로 적지 않는 것은 그 값이
  * `attained_cii`의 차이이고, 사용자가 판단에 쓰는 것은 **등급**이기 때문이다.
  */
-function annualImpactValue(impact: AnnualImpact): string {
-  return `${impact.before.rating} → ${impact.after.rating}`
-}
 
 /**
  * 기능① 결과 화면 (#136).
@@ -148,17 +145,45 @@ function SuccessResult({
       <VerdictStrip
         label="결론"
         main={{
-          label: '항차 조건 기준 예상 CII',
+          label: '이 항차 조건만 · 참고 등급',
           value: formatDecimalString(data.attained_cii, DISPLAY_DIGITS.cii),
           unit,
           rating: data.estimated_rating,
           ratingLabel: `참고 등급 ${data.estimated_rating}`,
+          note: `${margin.text} · 기준 ${formatDecimalString(data.required_cii, DISPLAY_DIGITS.cii)}의 ${formatPercent(data.ratio_to_required)}%`,
         }}
         /*
           라벨이 없으면 굵은 「해당 없음 — 최하위 등급」이 **등급 E 자체를 설명하는 말**로
           읽힌다 (#727). 실시간 CII 화면(`#725`)이 같은 값에 같은 라벨을 쓴다.
         */
-        sub={{ label: '다음 경계까지', value: margin.text }}
+        sub={
+          /*
+            10/7 시안 02 — 띠를 **두 질문으로 가른다.** 왼쪽은 「이 항차 하나의 강도」, 오른쪽은
+            「선박의 연말 값이 이 항차 때문에 어디로 가나」(`PRD §10.4` · `#1338`). 종전에는 뒤의
+            것이 아래 목록 마지막 줄에 있어, 두 값이 반대 방향을 가리킬 때 띠만 읽고 판단하게 됐다.
+            기초 자료가 없으면(`null`) 종전처럼 다음 경계 여유를 둔다.
+          */
+          data.annual_impact !== null
+            ? {
+                label: '올해 누적에 넣으면',
+                ...(data.annual_impact.rating_changed
+                  ? {
+                      // 바뀌면 배지 → 배지 (10/7) — 글자 「D → A」 앞에 도착 배지가 또 서던 중복을 없앤다
+                      transition: {
+                        from: data.annual_impact.before.rating,
+                        to: data.annual_impact.after.rating,
+                      },
+                      value: `연간 반영 후 ${data.annual_impact.before.rating}등급에서 ${data.annual_impact.after.rating}등급으로`,
+                    }
+                  : {
+                      rating: data.annual_impact.after.rating,
+                      ratingLabel: `연간 반영 후 등급 ${data.annual_impact.after.rating}`,
+                      value: '유지',
+                    }),
+                note: `누적 ${formatDecimalString(data.annual_impact.before.attained_cii, DISPLAY_DIGITS.cii)} → ${formatDecimalString(data.annual_impact.after.attained_cii, DISPLAY_DIGITS.cii)}`,
+              }
+            : { label: '다음 경계까지', value: margin.text }
+        }
         risk={{ level: data.risk_level, heading: '위험도', ...risk }}
       />
 
@@ -181,7 +206,7 @@ function SuccessResult({
         전달하지 못한다. 외부 데이터 출처가 없으므로 출처명 필드는 강제하지 않는다.
         자리는 띠 바로 아래다(`§8.6` · #1578).
       */}
-      <p className="voyage-cii-result__estimate-notice">
+      <p className="voyage-cii-result__estimate-notice voyage-cii-result__estimate-notice--caption">
         이 화면의 수치는 모두 <strong>입력한 항차 조건에 기반한 추정값</strong>입니다.
         기준 시각은 계산을 실행한 시점입니다.
       </p>
@@ -208,7 +233,6 @@ function SuccessResult({
             value={formatDecimalString(data.required_cii, DISPLAY_DIGITS.cii)}
             unit={unit}
           />
-          <Row label="기준 대비 비율" value={`${formatPercent(data.ratio_to_required)}%`} />
           <Row
             label="CO₂ 배출량"
             value={formatGrouped(data.co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
@@ -234,13 +258,7 @@ function SuccessResult({
             기초 자료가 없으면 서버가 `null`을 주고 **줄 자체를 그리지 않는다** —
             빈칸을 두면 「아직 안 온 값」으로 읽힌다(`#1097`과 같은 판단).
           */}
-          {data.annual_impact !== null ? (
-            <Row
-              label="연간 반영 시 변화"
-              value={annualImpactValue(data.annual_impact)}
-              unit={data.annual_impact.rating_changed ? '등급 변동' : '등급 유지'}
-            />
-          ) : null}
+          {/* 「기준 대비 비율」 · 「연간 반영 시 변화」는 결론 띠로 올라갔다 (10/7 시안 02). */}
         </dl>
 
         {/*
@@ -322,48 +340,38 @@ function GradeTargets({
 
   return (
     <div className="voyage-cii-result__targets">
-      <h3 className="voyage-cii-result__section-title">등급을 올리려면</h3>
+      <h3 className="voyage-cii-result__section-title">등급을 한 단계씩 올리려면</h3>
+      {/*
+        10/7 시안 02 — 표 대신 **칩 한 줄**. 읽는 사람이 묻는 것은 「연료를 얼마나 줄이면 되나」
+        하나라 감축량을 앞에 두고, CII 상한 · 연료 상한은 칩의 풀이(title · 낭독)로 옮겼다.
+        가까운 등급(한 단계 위)부터 놓는다.
+      */}
+      <ul className="voyage-cii-result__target-chips">
+        {[...targets].reverse().map((target) => (
+          <li
+            key={target.rating}
+            className="voyage-cii-result__target-chip"
+            title={`CII 상한 ${target.boundaryCii} ${unit} · 연료 상한 ${formatGrouped(target.allowedFuelTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`}
+          >
+            <GradeBadge rating={target.rating} size="sm" label={`목표 등급 ${target.rating}`} />
+            <span>
+              연료{' '}
+              <b>
+                −{formatGrouped(target.reduceFuelTon, DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
+              </b>{' '}
+              <span className="voyage-cii-result__cell-sub">(−{target.reducePercent}%)</span>
+            </span>
+            <span className="sr-only">
+              {' '}
+              · CII 상한 {target.boundaryCii} {unit} · 연료 상한{' '}
+              {formatGrouped(target.allowedFuelTon, DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
+            </span>
+          </li>
+        ))}
+      </ul>
       <p className="voyage-cii-result__targets-note">
-        선박·거리·연도가 그대로일 때, <strong>모든 유종을 같은 비율로 줄인다고 가정</strong>한
-        값입니다. 화면에서 계산한 참고값이며 규제 판정이 아닙니다.
+        선박·거리·연도가 그대로이고 모든 유종을 같은 비율로 줄인다고 가정한 참고값입니다.
       </p>
-      <table className="voyage-cii-result__targets-table">
-        <thead>
-          <tr>
-            <th scope="col">목표 등급</th>
-            <th scope="col">CII 상한</th>
-            <th scope="col">연료 상한</th>
-            <th scope="col">감축량</th>
-          </tr>
-        </thead>
-        <tbody>
-          {targets.map((target) => (
-            <tr key={target.rating}>
-              <th scope="row">
-                {/* §8 세 단 중 `sm` — 표 한 줄 안이라 `lg`는 행 높이를 밀어낸다. */}
-                <GradeBadge
-                  rating={target.rating}
-                  size="sm"
-                  label={`목표 등급 ${target.rating}`}
-                />
-              </th>
-              <td>
-                {target.boundaryCii}
-                <span className="voyage-cii-result__cell-unit"> {unit}</span>
-              </td>
-              <td>
-                {formatGrouped(target.allowedFuelTon, DISPLAY_DIGITS.fuelTon)}
-                <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
-              </td>
-              <td>
-                −{formatGrouped(target.reduceFuelTon, DISPLAY_DIGITS.fuelTon)}
-                <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
-                <span className="voyage-cii-result__cell-sub"> ({target.reducePercent}%)</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   )
 }

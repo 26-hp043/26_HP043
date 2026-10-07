@@ -2,19 +2,21 @@
 import '../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { SettingsPage } from './SettingsPage'
 import * as session from '../auth/session'
+import { visibleSections } from './settingsSections'
+import { REGULATION_PARAMETERS_ANCHOR } from '../features/parameters/referenceRules'
 
 /**
- * 설정 절 목차 (#1791).
+ * 설정 탭 (#1791 → 10/7 디자인 결정 · #2321).
  *
- * 이 화면은 절이 여섯이고 2.24 화면이다 — 규제 기준값이 `1,021px`(1.13 화면) 아래에서
- * 시작해, 내려가는 길이 스크롤뿐이었다. **하위 메뉴는 만들지 않는다**(`#1239`).
+ * 종전에는 절 여섯을 한 장에 쌓고 위에 절 목차(앵커 링크)를 두었다. 10/7 결정으로 목차가
+ * **탭 셋**(내 프로필 / 팀 · 역할 (관리자 전용) / 규제 기준값)으로 바뀌었다.
  *
- * 여기서 보는 것은 하나다 — **목차가 가리키는 자리가 실제로 있는가.** 목록이 갈리면
- * 링크는 누르고 나서야 아무 데도 가지 않고, 그 상태는 화면을 봐서는 드러나지 않는다.
+ * 지키려던 것은 그대로 하나다 — **고를 수 있는 자리가 실제로 있는가.** 목록(`settingsSections`)의
+ * 절이 어느 탭에도 없거나, 탭이 가리키는 패널이 비어 있으면 누르고 나서야 아무 데도 가지 않는다.
  */
 
 function stubRole(role: session.UserRole) {
@@ -26,6 +28,8 @@ function stubRole(role: session.UserRole) {
     emailVerifiedAt: null,
     hasAvatar: false,
   })
+  // 팀 탭이 계정 목록을 묻는다 — 서버로 나가지 않게 세운다.
+  vi.spyOn(session, 'listUsers').mockResolvedValue([])
 }
 
 function renderPage() {
@@ -36,48 +40,93 @@ function renderPage() {
   )
 }
 
-/** 목차의 링크가 가리키는 id들. */
-function tocTargets(): string[] {
-  const nav = screen.getByRole('navigation', { name: '설정 절 바로가기' })
-  return [...nav.querySelectorAll('a')].map((a) => (a.getAttribute('href') ?? '').replace('#', ''))
+function tabs(): HTMLElement[] {
+  return within(screen.getByRole('tablist')).getAllByRole('tab')
+}
+
+/** 탭을 하나씩 열며 그 패널 안에 그려진 절의 `id`를 모은다. */
+function sectionIdsReachableByTabs(): Set<string> {
+  const found = new Set<string>()
+  for (const tab of tabs()) {
+    fireEvent.click(tab)
+    expect(tab.getAttribute('aria-selected')).toBe('true')
+    const panel = document.getElementById(tab.getAttribute('aria-controls') ?? '')
+    expect(panel, `${tab.textContent} 탭의 패널이 없다`).not.toBeNull()
+    expect(panel!.hidden).toBe(false)
+    for (const node of panel!.querySelectorAll('[id]')) found.add(node.id)
+  }
+  return found
 }
 
 afterEach(() => {
   vi.restoreAllMocks()
+  window.history.replaceState(null, '', '/')
 })
 
-describe('설정 절 목차 (#1791)', () => {
-  it.each(['OFFICE', 'ADMIN'] as const)(
-    '%s — 목차가 가리키는 절이 화면에 실제로 있다',
+describe('설정 탭 (#1791 · #2321)', () => {
+  it.each(['OFFICE', 'ADMIN', 'FIELD'] as const)(
+    '%s — 목록의 절이 전부 어느 탭에선가 열린다',
     (role) => {
       stubRole(role)
-      const { container } = renderPage()
+      renderPage()
 
-      const targets = tocTargets()
-      expect(targets.length).toBeGreaterThan(0)
-      for (const id of targets) {
-        expect(container.querySelector(`#${id}`), `${id} 절이 화면에 없다`).not.toBeNull()
-      }
+      const reachable = sectionIdsReachableByTabs()
+      const missing = visibleSections(role === 'ADMIN')
+        .map((section) => section.id)
+        .filter((id) => !reachable.has(id))
+      expect(missing, '어느 탭에서도 열리지 않는 절이다').toEqual([])
     },
   )
 
-  it('관리자 전용 절은 사무직 목차에 없다 — 눌러도 갈 데가 없다', () => {
+  it('관리자 전용 탭은 사무직에게 없다 — 눌러도 갈 데가 없다', () => {
     stubRole('OFFICE')
-    renderPage()
-    expect(tocTargets()).not.toContain('account-role')
-  })
-
-  it('관리자에게는 그 절이 목차에도 화면에도 있다', () => {
-    stubRole('ADMIN')
     const { container } = renderPage()
-    expect(tocTargets()).toContain('account-role')
-    expect(container.querySelector('#account-role')).not.toBeNull()
+    expect(tabs()).toHaveLength(2)
+    sectionIdsReachableByTabs()
+    expect(container.querySelector('#account-role')).toBeNull()
   })
 
-  it('규제 기준값 링크가 밖에서 오는 링크와 같은 앵커를 쓴다', () => {
+  it('관리자에게는 그 탭이 있고, 열면 역할 지정 절이 있다', () => {
+    stubRole('ADMIN')
+    renderPage()
+    expect(tabs()).toHaveLength(3)
+    expect(sectionIdsReachableByTabs().has('account-role')).toBe(true)
+  })
+
+  it('처음에는 첫 탭(내 프로필)이 열린다', () => {
     stubRole('OFFICE')
     renderPage()
-    // `#1239`의 세 자리가 `/settings#regulation-parameters`로 온다.
-    expect(tocTargets()).toContain('regulation-parameters')
+    expect(tabs()[0].getAttribute('aria-selected')).toBe('true')
+    expect(document.getElementById('account-info')).not.toBeNull()
+    expect(document.getElementById(REGULATION_PARAMETERS_ANCHOR)).toBeNull()
+  })
+
+  it('밖에서 오는 `#regulation-parameters` 링크는 규제 기준값 탭을 연다', () => {
+    // `#1239`의 세 자리가 `/settings#regulation-parameters`로 온다 — 앵커가 가리키던 절이 그 탭 안에 있다.
+    window.history.replaceState(null, '', `/settings#${REGULATION_PARAMETERS_ANCHOR}`)
+    stubRole('OFFICE')
+    renderPage()
+    const panel = document.getElementById(REGULATION_PARAMETERS_ANCHOR)?.closest('[role="tabpanel"]')
+    expect(panel, '규제 기준값 절이 열리지 않았다').toBeTruthy()
+    expect((panel as HTMLElement).hidden).toBe(false)
+  })
+
+  it('`?tab=regulation`으로도 규제 기준값 탭을 연다', () => {
+    window.history.replaceState(null, '', '/settings?tab=regulation')
+    stubRole('FIELD')
+    renderPage()
+    expect(document.getElementById(REGULATION_PARAMETERS_ANCHOR)).not.toBeNull()
+  })
+
+  it('이미 열린 화면에서 해시가 바뀌어도 규제 기준값 탭으로 간다', () => {
+    stubRole('OFFICE')
+    renderPage()
+    expect(document.getElementById(REGULATION_PARAMETERS_ANCHOR)).toBeNull()
+
+    act(() => {
+      window.history.replaceState(null, '', `/settings#${REGULATION_PARAMETERS_ANCHOR}`)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(document.getElementById(REGULATION_PARAMETERS_ANCHOR)).not.toBeNull()
   })
 })

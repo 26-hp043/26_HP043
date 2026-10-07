@@ -131,7 +131,8 @@ function effectiveLeftColor(classes: string[]): string {
 }
 
 const chip = (severity: string) => effectiveLeftColor(['dq__severity', `dq__severity--${severity}`])
-const tile = (severity: string) => effectiveLeftColor(['dq__tile', `dq__tile--${severity}`])
+// 요약 칸(`.dq__tile--*`)은 10/7 디자인 결정(#2319)으로 요약 띠 + 심각도 칩(`.dq-hero`)이 되어 없어졌다.
+// 칸의 띠 색 대조는 그 규칙과 함께 지웠다 — 심각도 색은 아래 표의 칩(`.dq__severity--*`)이 계속 진다.
 
 describe('파일 전제', () => {
   it('미디어 쿼리가 없다 — 있으면 위 규칙 분해가 틀린다', () => {
@@ -149,23 +150,11 @@ describe('심각도 색이 실제로 이긴다 — `§2.3.1` 표 (#1940 후속)'
   ])('표의 칩 %s = %s — 기본 규칙의 테두리색에 덮이지 않는다', (severity, color) => {
     expect(chip(severity)).toBe(color)
   })
-
-  it.each([
-    ['substituted', 'var(--color-danger)'],
-    // `unavailable`이 빠져 있었다 (`#1993`) — 칩 쪽 표에는 있는데 요약 칸 표에만 없었다.
-    ['unavailable', 'var(--color-danger)'],
-    ['anomaly', 'var(--color-warning)'],
-    ['unconfirmed', 'var(--color-text-muted)'],
-    ['public_record', 'var(--color-info)'],
-  ])('요약 칸 %s = %s', (severity, color) => {
-    expect(tile(severity)).toBe(color)
-  })
 })
 
 describe('「공적 기록과 다름」 띠 색 — `§2.3.1` 〔확정〕 2026-09-27 (#1940 ①)', () => {
   it('「실적 확정 전」의 중립과 갈린다 — 임시안(#1197)의 같은 색 짝이 남지 않는다', () => {
     expect(chip('public_record')).not.toBe(chip('unconfirmed'))
-    expect(tile('public_record')).not.toBe(tile('unconfirmed'))
   })
 
   it('경고색(Danger · Warning)을 쓰지 않는다 — 값을 바꾸지 않는 안내다', () => {

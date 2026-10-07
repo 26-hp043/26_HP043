@@ -194,6 +194,3 @@ export const IMPACT_REASON: Record<string, { cell: string; mark: string; note: s
     note: '선박 누적 CII를 계산할 수 없어 차이를 낼 수 없습니다.',
   },
 }
-
-/** 표시 순서 — 표 아래 각주는 이 순서로 적는다(행 순서에 따라 흔들리지 않게). */
-export const IMPACT_REASON_ORDER = ['ONLY_VOYAGE', 'BASE_UNAVAILABLE'] as const

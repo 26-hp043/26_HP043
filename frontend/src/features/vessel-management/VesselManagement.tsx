@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { knownServerField } from '../../api/serverField'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { PageHeader } from '../../components/PageHeader'
-import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
+import { ShipIllustration } from '../../components/ShipIllustration'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import {
@@ -57,16 +57,15 @@ import {
   type BlockedReason,
   blockedReasons,
   capacityCell,
-  dailyFuelCell,
   deleteConfirmMessage,
   emptyMessage,
   hasSpecGap,
   listTitle,
-  referenceSpeedCell,
   saveFailureNotice,
   shipTypeLabel,
   sortVessels,
   specGapCount,
+  specChecklist,
   specGapFilterNotice,
   type VesselSortKey,
 } from './listRules'
@@ -81,7 +80,7 @@ import {
   type ActiveFilter,
   type VesselQuery,
 } from './queryRules'
-import { Check } from 'lucide-react'
+import { Check, MoreHorizontal, X } from 'lucide-react'
 import { Icon } from '../../components/Icon'
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
@@ -128,6 +127,7 @@ import { useShellContext } from '../../layout/shellContext'
  * id와 대조**해 그 선박의 폼일 때만 반영한다. 삭제 진행은 id 집합이다.
  */
 export function VesselManagement() {
+  const [menuId, setMenuId] = useState<string | null>(null)
   const provider = useMemo(() => createVesselManagementProvider(), [])
   /*
    * 상단 선박 선택기의 목록은 셸이 소유한다 (`#1643`). 이 화면이 선명을 바꾸거나 선박을
@@ -455,40 +455,38 @@ export function VesselManagement() {
       ? saveFailureNotice(saveFailure.name, saveFailure.message)
       : null)
 
+  const editingVessel = edit === null ? undefined : vessels.find((v) => v.id === edit.id)
+
   return (
     <section className="vessel-management">
       {/*
         이름을 손으로 적고 있었다 — 사이드바는 `screens.ts`를 쓰는데 여기만
         문자열이라, 한쪽을 고치면 다른 쪽이 남는다.
       */}
+      {/*
+        머리 한 줄 (10/7 디자인 결정) — 제목 · 척수 · 등록 버튼. 설명 문장과 「대시보드로 이동」은
+        걷었다(사이드바가 같은 일을 한다).
+      */}
       <PageHeader screen="VESSEL_MANAGEMENT">
-        <p className="page-head__sub">
-          보유 선박의 제원을 확인하고 수정합니다. 제원이 비어 있으면 CII 계산과 항로
-          비교가 실행되지 않으므로, 빠진 값을 함께 표시합니다.
-        </p>
-      </PageHeader>
-
-      <div className="vessel-management__actions">
+        {vessels.length > 0 ? (
+          <span className="vm__count">
+            {vessels.length}척{gapCount > 0 ? ` · 입력 미완료 ${gapCount}` : ''}
+          </span>
+        ) : null}
         {/*
-          등록도 사무직 전용이다(`API_SPEC §1.2` · #1353). 이 버튼만 가드가 빠져 있으면
-          현장직이 눌러 `/vessel-registration`(사무직 전용 화면)으로 넘어갔다가
-          「이 화면은 사무직 계정만 쓸 수 있습니다」를 보고 되돌아와야 했다 — 같은 줄의
-          수정·삭제는 이미 `office`로 막는데 등록만 빠졌던 불일치다.
+          등록도 사무직 전용이다(`API_SPEC §1.2` · #1353).
         */}
         {office ? (
           <Link
-            className="vessel-management__primary-link"
+            className="vessel-management__primary-link vm__register"
             to={SCREEN_BY_ID.VESSEL_REGISTRATION.path}
           >
             선박 등록
           </Link>
         ) : (
-          <span className="vm__office-only">{OFFICE_ONLY_ACTION_HINT}</span>
+          <span className="vm__office-only vm__register">{OFFICE_ONLY_ACTION_HINT}</span>
         )}
-        <Link className="vessel-management__link" to={SCREEN_BY_ID.MAINBOARD.path}>
-          대시보드로 이동
-        </Link>
-      </div>
+      </PageHeader>
 
       {/*
         ── 조회 조건 — 검색 · 선종 (#1783) ────────────────────────────────
@@ -603,6 +601,7 @@ export function VesselManagement() {
       )}
 
       {vessels.length > 0 && (
+        <div className={editingVessel !== undefined ? 'vm-layout vm-layout--editing' : 'vm-layout'}>
         <section className="card vm" aria-label="선박 목록">
           <div className="card__head">
             {/*
@@ -738,12 +737,9 @@ export function VesselManagement() {
               <span />
               <span>선박</span>
               {/* 값과 **같은 정렬 클래스**를 머리글에도 건다 — 한쪽에만 걸면 `#2015`가 된다. */}
-              <span className="vm__num">올해 누적 등급</span>
-              <span>선종</span>
-              <span>용량</span>
-              <span>기준속도</span>
-              <span>일일 연료</span>
-              <span>운항 상태</span>
+              <span className="vm__num">올해 누적</span>
+              <span>운항</span>
+              <span>데이터</span>
               <span />
             </li>
 
@@ -753,20 +749,21 @@ export function VesselManagement() {
               const isEditing = edit !== null && edit.id === vessel.id
               const isDeleting = deletingIds.has(vessel.id)
               return (
-                <li className="vm__item" key={vessel.id}>
+                <li className={isEditing ? 'vm__item vm__item--editing' : 'vm__item'} key={vessel.id}>
                   <div className="vm__row">
-                    <VesselSilhouette />
+                    <span className="vm__thumb">
+                      <ShipIllustration shipType={vessel.ship_type} />
+                    </span>
 
                     <div className="vm__ident">
                       <Link className="vm__name" to={`/vessels/${vessel.id}`}>
                         {vessel.name}
                       </Link>
                       <span className="vm__meta">
-                        <span className="vm__imo">IMO {vessel.imo_number}</span>
-                        {/*
-                          CII 적용 대상 여부는 등록 결과 화면에만 있었다 (`#653`).
-                          선박을 식별하는 자리마다 같은 배지를 둔다.
-                        */}
+                        <span className="vm__spec">
+                          {shipTypeLabel(vessel.ship_type)} · {capacity.value} {capacity.label} · IMO{' '}
+                          {vessel.imo_number}
+                        </span>
                         <ApplicabilityBadge
                           isCiiApplicableHint={vessel.is_cii_applicable_hint}
                           grossTonnage={vessel.gross_tonnage}
@@ -778,30 +775,6 @@ export function VesselManagement() {
                     <GradeCellView cell={gradeCellOf(gradeTable, vessel.id)} />
 
                     <div className="vm__cell">
-                      <span className="sr-only">선종 </span>
-                      {shipTypeLabel(vessel.ship_type)}
-                    </div>
-
-                    {/*
-                      단위를 값 옆에 둔다. 선종마다 축이 달라(`capacityCell`) 열 이름
-                      하나로는 못 적는데, 그렇다고 라벨을 행마다 왼쪽에 세우면 값이
-                      세로로 안 맞는다. 값 뒤에 붙이면 열은 훑어지고 축은 남는다.
-                    */}
-                    <div className="vm__cell vm__cell--num">
-                      <span className="sr-only">용량 </span>
-                      {capacity.value}
-                      <span className="vm__unit"> {capacity.label}</span>
-                    </div>
-
-                    {/*
-                      완성도 막대를 값 두 칸으로 바꿨다. 막대는 「2/3」까지만 말하고
-                      **무엇이** 빠졌는지는 아래 문장을 읽어야 했다. 값을 열에 두면
-                      `—`가 그 자리에 서고, 사용자가 채울 칸과 화면의 칸이 맞는다.
-                    */}
-                    <ValueCell label="기준속도" value={referenceSpeedCell(vessel)} />
-                    <ValueCell label="일일 연료" value={dailyFuelCell(vessel)} />
-
-                    <div className="vm__cell">
                       <span className="sr-only">운항 상태 </span>
                       <UnderwayChip
                         vessel={{
@@ -811,65 +784,84 @@ export function VesselManagement() {
                       />
                     </div>
 
+                    <DataCell missing={missingSpecLabels(vessel)} reasons={blocked} />
+
                     <div className="vm__actions">
                       {office ? (
-                        <>
-                          <button
-                            type="button"
-                            className="vessel-management__button"
-                            onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
-                          >
-                            {isEditing ? '취소' : '수정'}
-                          </button>
-                          <button
-                            type="button"
-                            className="vessel-management__button vessel-management__button--danger"
-                            onClick={() => {
-                              // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
-                              // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
-                              if (globalThis.confirm(deleteConfirmMessage(vessel))) {
-                                void handleDelete(vessel)
-                              }
-                            }}
-                            disabled={isDeleting}
-                          >
-                            {isDeleting ? '삭제 중…' : '삭제'}
-                          </button>
-                        </>
+                        <RowMenu
+                          vesselName={vessel.name}
+                          open={menuId === vessel.id}
+                          deleting={isDeleting}
+                          onToggle={() => setMenuId((was) => (was === vessel.id ? null : vessel.id))}
+                          onClose={() => setMenuId(null)}
+                          onEdit={() => {
+                            setMenuId(null)
+                            if (isEditing) cancelEdit()
+                            else startEdit(vessel)
+                          }}
+                          onDelete={() => {
+                            setMenuId(null)
+                            // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
+                            // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
+                            if (globalThis.confirm(deleteConfirmMessage(vessel))) {
+                              void handleDelete(vessel)
+                            }
+                          }}
+                          editing={isEditing}
+                        />
                       ) : (
                         <span className="vm__office-only">{OFFICE_ONLY_ACTION_HINT}</span>
                       )}
                     </div>
                   </div>
-
-                  {blocked.length > 0 && <BlockedSpecLine reasons={blocked} />}
-
-                  {isEditing && (
-                    <EditForm
-                      vessel={vessel}
-                      state={edit.state}
-                      errors={formErrors}
-                      fuels={fuels}
-                      fuelsLoading={fuelsLoading}
-                      fuelsFailed={fuelsFailed}
-                      saving={savingId === vessel.id}
-                      onChange={(next) =>
-                        setEdit((current) =>
-                          current !== null && current.id === vessel.id
-                            ? { ...current, state: next }
-                            : current,
-                        )
-                      }
-                      onSave={() => void handleSave()}
-                      onCancel={cancelEdit}
-                    />
-                  )}
                 </li>
               )
             })}
           </ul>
           </div>
         </section>
+
+        {/*
+          제원 수정 — 목록 오른쪽 패널 (10/7 디자인 결정). 종전에는 행 아래로 펼쳐져
+          목록이 밀려 내려갔다.
+        */}
+        {editingVessel !== undefined && edit !== null ? (
+          <aside className="card vm-edit" aria-labelledby="vm-edit-title">
+            <div className="vm-edit__head">
+              <h2 id="vm-edit-title" className="vm-edit__title">
+                제원 수정 · {editingVessel.name}
+              </h2>
+              <button type="button" className="vm-edit__close" aria-label="닫기" onClick={cancelEdit}>
+                <Icon glyph={X} size="inline" />
+              </button>
+            </div>
+            {blockedReasons(editingVessel).length > 0 ? (
+              <p className="vm-edit__gap">
+                <strong>{missingSpecLabels(editingVessel).join(' · ')} 비어 있음</strong> —{' '}
+                {blockedReasons(editingVessel).map((r) => r.consequence).join(' · ')}
+              </p>
+            ) : null}
+            <EditForm
+              vessel={editingVessel}
+              state={edit.state}
+              errors={formErrors}
+              fuels={fuels}
+              fuelsLoading={fuelsLoading}
+              fuelsFailed={fuelsFailed}
+              saving={savingId === editingVessel.id}
+              onChange={(next) =>
+                setEdit((current) =>
+                  current !== null && current.id === editingVessel.id
+                    ? { ...current, state: next }
+                    : current,
+                )
+              }
+              onSave={() => void handleSave()}
+              onCancel={cancelEdit}
+            />
+          </aside>
+        ) : null}
+        </div>
       )}
 
       {/*
@@ -1030,7 +1022,7 @@ function EditForm({
             <option value="">선택</option>
             {SHIP_TYPES.map((option) => (
               <option key={option.code} value={option.code}>
-                {option.label} ({option.code})
+                {option.label}
               </option>
             ))}
           </select>
@@ -1085,6 +1077,9 @@ function EditForm({
         )}
       </Field>
 
+      <details className="vm-edit__more">
+        <summary>기타 · 방형계수 · 호출부호 · 기본 연료</summary>
+        <div className="vm-edit__more-body">
       <Field id="vm-blockCoefficient" label="방형계수 (CB)" error={errors[EDIT_FIELD.blockCoefficient]}>
         {(control) => (
           <input
@@ -1141,6 +1136,9 @@ function EditForm({
         )}
       </Field>
 
+        </div>
+      </details>
+
       {clearNotice !== null && (
         <p className="vessel-management__warn" role="status">
           {clearNotice}
@@ -1153,90 +1151,113 @@ function EditForm({
       )}
 
       <div className="vessel-management__buttons">
-        <button type="submit" className="vessel-management__submit" disabled={saving}>
-          {saving ? '저장 중…' : '저장'}
-        </button>
         <button type="button" className="vessel-management__button" onClick={onCancel}>
           취소
+        </button>
+        <button type="submit" className="vessel-management__submit" disabled={saving}>
+          {saving ? '저장 중…' : '저장'}
         </button>
       </div>
     </form>
   )
 }
 
-/**
- * 목록의 배 실루엣.
- *
- * ## 등급 색을 쓰지 않는다 — 그리고 그게 대시보드와 다른 이유다
- *
- * 대시보드의 배 마크(`VesselMark`)는 **등급 칸**에 놓인다. 그래서 등급이 없으면
- * 배를 그리지 않는다 — 중립색 배가 「등급이 있는데 옅은 것」으로 읽히기 때문이다.
- *
- * **이 화면에는 등급 축이 아예 없다.** 선종·용량·제원만 다루므로 배가 등급을
- * 가리킬 여지가 없고, 중립 회색이 곧 「여기서 이 그림은 값이 아니다」가 된다.
- *
- * 실루엣은 `components/vesselShape.ts` 한 벌에서 온다. 여기서 경로를 다시 그리면
- * 대시보드의 배와 이 배가 서로 다른 모양이 되는 날이 온다.
- */
-function VesselSilhouette() {
-  return (
-    <svg
-      className="vessel-management__glyph"
-      viewBox={`0 0 ${VESSEL_GRID} ${VESSEL_GRID}`}
-      aria-hidden="true"
-      focusable="false"
-    >
-      {VESSEL_PATHS.map((d) => (
-        <path key={d} d={d} />
-      ))}
-    </svg>
-  )
+
+/** 「데이터」 칸에 쓰는 짧은 이름 — 수정 패널의 라벨을 줄인 것. */
+const SHORT_SPEC_LABEL = { capacity: '용량', referenceSpeed: '기준속도', referenceFoc: '일일 연료' } as const
+
+function missingSpecLabels(vessel: Vessel): string[] {
+  return specChecklist(vessel)
+    .filter((item) => item.unknownAxis !== true && !item.filled)
+    .map((item) => SHORT_SPEC_LABEL[item.key])
 }
 
 /**
- * 제원 값 한 칸 (#719).
- *
- * **없을 때 빈칸으로 두지 않는다.** 빈칸이면 「항목 자체가 없는 배」로 읽히고,
- * 이 화면에서 그 구분이 곧 용건이다(`#449` — 계산할 수 없을 때 그 사실을 값으로
- * 만든다). `—`를 세우고 색을 낮춰 **값이 있는 칸과 없는 칸이 훑을 때 갈리게** 한다.
- *
- * 색만으로 구분하지 않는다 — `—`라는 문자 자체가 보조 채널이다 (`§14`).
+ * 데이터 칸 (10/7) — 빠진 제원 이름만 짧게. 종전 행 아래 경고 줄(#1277)을 대신한다.
+ * 막히는 결과 문장은 `title`과 `sr-only`로 남긴다(#630 문구 그대로).
  */
-/**
- * 제원이 비어 막힌 것들 — **한 줄** (#1277).
- *
- * 종전에는 이유마다 `li`로 쌓였다. 제원이 빈 행만 두 배 높이가 되고, 이 화면의
- * 용건이 「제원을 채우는 것」이라(`PRD §6.1 SCR-002`) 그런 행이 흔하다. 표를
- * 세로로 훑을 수 없었다.
- *
- * ## 빠진 항목 이름을 눈으로 보이지 않는다
- *
- * 같은 행의 `용량` · `기준속도` · `일일 연료` 열이 `—`로 이미 말한다 — `#719`가
- * 완성도 막대를 값 두 칸으로 바꾸면서 그렇게 됐다. 문장으로 다시 적으면 같은 말이
- * 두 번이다.
- *
- * **그래도 지우지는 않는다.** `—`가 스크린 리더에서 「비었다」로 읽힌다는 보장이
- * 없어, 그 사용자에게는 `#511` 이후의 문장이 그대로 필요하다. `sr-only`로 남긴다.
- */
-function BlockedSpecLine({ reasons }: { reasons: BlockedReason[] }) {
+function DataCell({ missing, reasons }: { missing: string[]; reasons: BlockedReason[] }) {
+  if (missing.length === 0) {
+    return (
+      <div className="vm__cell vm__data">
+        <span className="sr-only">데이터 </span>완료
+      </div>
+    )
+  }
+  const why = reasons.map((r) => r.consequence).join(' · ')
   return (
-    <p className="vm__blocked">
-      {reasons.map((reason, index) => (
-        <span key={reason.consequence}>
-          {index > 0 && ' · '}
-          <span className="sr-only">{reason.fields} — </span>
-          {reason.consequence}
-        </span>
-      ))}
-    </p>
+    <div className="vm__cell vm__data vm__data--gap" title={why}>
+      <span className="sr-only">데이터 </span>
+      {missing.join(' · ')} 없음
+      <span className="sr-only"> — {why}</span>
+    </div>
   )
 }
 
-function ValueCell({ label, value }: { label: string; value: string | null }) {
+/** 행 끝 ⋯ 메뉴 (10/7) — 수정 · 삭제. Esc와 바깥 누르기로 닫힌다. */
+function RowMenu({
+  vesselName,
+  open,
+  deleting,
+  editing,
+  onToggle,
+  onClose,
+  onEdit,
+  onDelete,
+}: {
+  vesselName: string
+  open: boolean
+  deleting: boolean
+  editing: boolean
+  onToggle: () => void
+  onClose: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) onClose()
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   return (
-    <div className={`vm__cell vm__cell--num${value === null ? ' vm__cell--empty' : ''}`}>
-      <span className="sr-only">{label} </span>
-      {value ?? MISSING}
+    <div className="vm-menu" ref={ref}>
+      <button
+        type="button"
+        className="vm-menu__toggle"
+        aria-label={`${vesselName} 더보기`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={onToggle}
+        disabled={deleting}
+      >
+        {deleting ? '…' : <Icon glyph={MoreHorizontal} size="inline" />}
+      </button>
+      {open ? (
+        <ul className="vm-menu__list">
+          <li>
+            <button type="button" className="vm-menu__item" onClick={onEdit}>
+              {editing ? '수정 닫기' : '제원 수정'}
+            </button>
+          </li>
+          <li>
+            <button type="button" className="vm-menu__item vm-menu__item--danger" onClick={onDelete}>
+              삭제
+            </button>
+          </li>
+        </ul>
+      ) : null}
     </div>
   )
 }

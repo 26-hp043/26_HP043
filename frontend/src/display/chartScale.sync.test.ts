@@ -41,7 +41,10 @@ const EXEMPT: Readonly<Record<string, string>> = {
   'features/fleet/FleetDashboard.tsx': '글리프 — 카드 장식',
   'features/fleet/VesselGlyph.tsx': '글리프 — 선박 실루엣',
   'features/fleet/UnderwayChip.tsx': '글리프 — 상태 칩 안의 표식',
-  'features/vessel-management/VesselManagement.tsx': '글리프 — 목록 행의 선박 실루엣',
+  // `VesselManagement.tsx`(목록 행의 선박 실루엣)는 10/7 개편(#2316)에서 `ShipIllustration`으로 바뀌어 viewBox가 없어졌다.
+  'components/ShipIllustration.tsx':
+    '장식 일러스트 — 선종별 배 그림(#2316 · 10/7 디자인 결정). 축·계열·값이 없는 장식이고 차트가 아니다. 목록 100px · 상세 머리 200px로 CSS 크기에 맞춰 통째로 늘어나는 것이 의도다',
+  'features/fleet/CheckTable.tsx': '아이콘 — 「다음 작업」 칸의 위치 핀(#2311). §12 소관',
   'features/scenario-comparison/ScenarioRouteGlyph.tsx': '글리프 — 표 머리의 항로 모양',
   'features/auth/BeomiScene.tsx':
     '배경 장면 — 로그인 판의 바다(`#2076`). 축도 계열도 값도 없는 장식이고 `aria-hidden`이다. §9가 지키는 것은 **값을 읽는 그림**이라 여기 해당이 없다',

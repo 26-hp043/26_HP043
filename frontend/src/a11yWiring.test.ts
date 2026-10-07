@@ -230,6 +230,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     'sortLoading',
     'estimating',
     'isDeleting',
+    // 선박 관리 ⋯ 메뉴(10/7) — 삭제 요청이 도는 동안만 잠기고 글리프가 「…」로 바뀐다. `isDeleting`과 같은 성격이다.
+    'deleting',
     'exporting',
     'pending',
     'stopped',
@@ -244,12 +246,10 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
 
   /** `사유가 닿는 방법`. 문자열이면 잇는 `id`, `null`이면 곁의 칸이 스스로 말한다. */
   const REGISTERED: Readonly<Record<string, string | null>> = {
-    // #2080 — 파일을 고르기 전에는 올릴 것이 없다. 바로 옆의 「선택된 파일 없음」이
-    // 그 사실을 **글자로** 말하므로 사유를 따로 잇지 않는다(`PRD §6.4` 파일 선택 행).
-    // #2107 — 고른 파일이 2MB를 넘거나 받지 않는 형식이어도 잠긴다. 그 사유는 고르는 순간
-    // 같은 절의 오류 안내(`role="alert"`)가 글자와 낭독으로 말하므로 따로 잇지 않는다.
-    'features/account/AccountPanel.tsx :: busy || picked === null || avatarFileProblem(picked) !== null':
-      null,
+    // #2080 · 10/7(#2321) — 「이 사진으로 바꾸기」는 파일을 고른 뒤에만 그려지므로 `picked === null`
+    // 항은 없어졌다. #2107 — 고른 파일이 2MB를 넘거나 받지 않는 형식이면 잠긴다. 그 사유는 고르는
+    // 순간 같은 자리의 오류 안내(`role="alert"`)가 글자와 낭독으로 말하므로 따로 잇지 않는다.
+    'features/account/AccountPanel.tsx :: busy || problem !== null': null,
     "features/annual-simulation/AnnualSimulation.tsx :: state.status === 'running' || !office":
       'annual-sim-office-only',
     // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
@@ -283,6 +283,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
       'vy-import-commit-note',
     // 행마다 다른 사유라 `id`가 행별로 만들어진다.
     'features/voyage-management/VoyagePanel.tsx :: busy || blocker !== null': 'vy-blocker-',
+    // 10/7 — 다음 계획 행의 「항해 시작」 글자 링크. 같은 행별 사유 id를 잇는다.
+    'features/voyage-management/VoyagePanel.tsx :: busy || primaryBlocker !== null': 'vy-blocker-',
     // 좌표가 없는 playback은 시간을 만들지 않으며, live status가 그 사유를 낭독한다.
     'features/annual-simulation/visualization/PlaybackControls.tsx :: !available': 'statusId',
   }

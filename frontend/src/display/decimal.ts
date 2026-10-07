@@ -84,3 +84,18 @@ export function shareOfMax(values: readonly string[], digits: number): number[] 
   if (max <= 0n) return scaled.map(() => 0)
   return scaled.map((n) => Number((n * 1000n) / max) / 10)
 }
+
+/**
+ * 기준 대비 증감률(%) — 표시 자릿수 값끼리 `BigInt`로 나눈다 (10/7 항목별 타일).
+ * 소수 한 자리, 반올림은 0에서 먼 쪽. 기준이 0 이하이면 `null`.
+ * @example percentChangeFixed('4.31', '5.12', 2) // '-15.8'
+ */
+export function percentChangeFixed(value: string, base: string, digits: number): string | null {
+  const b = displayScaled(base, digits)
+  if (b <= 0n) return null
+  const diff = displayScaled(value, digits) - b
+  const scaled = diff * 2000n
+  let q = scaled / b
+  q = q < 0n ? (q - 1n) / 2n : (q + 1n) / 2n
+  return unscale(q, 1)
+}

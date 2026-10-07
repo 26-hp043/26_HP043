@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { AccountPanel, TOUR_ROLE_FIXED_NOTICE } from './AccountPanel'
 import { RegulationParametersSection } from '../parameters/RegulationParametersSection'
-import { visibleSections } from '../../pages/settingsSections'
+import { settingsSection, visibleSections } from '../../pages/settingsSections'
 import { ROLE_LABEL, WITHDRAWAL_NOTICE } from '../auth/authRules'
 import * as session from '../../auth/session'
 
@@ -34,12 +34,24 @@ function stubUser(role: session.UserRole = 'FIELD', hasAvatar = false) {
   })
 }
 
-function renderPanel() {
+/**
+ * 설정 탭(10/7 결정 · #2321)에 맞춰 `part`로 나뉜다 — `account`는 내 프로필 탭, `team`은
+ * 관리자 전용 「팀 · 역할」 탭이다. 기본은 내 프로필.
+ */
+function renderPanel(part: 'account' | 'team' = 'account') {
   return render(
     <MemoryRouter>
-      <AccountPanel />
+      <AccountPanel part={part} />
     </MemoryRouter>,
   )
+}
+
+/** 역할 지정 절의 낭독 이름 — 목차 목록에서 가져온다(표시 문구를 리터럴로 두지 않는다). */
+const ROLE_SECTION_NAME = settingsSection('account-role').label
+
+/** 탈퇴는 글자 링크 뒤에 접혀 있다(10/7 결정 · #2321) — 링크를 눌러 확인 단계를 연다. */
+function openWithdrawal() {
+  fireEvent.click(screen.getByRole('button', { name: '탈퇴하기' }))
 }
 
 afterEach(() => {
@@ -58,6 +70,8 @@ describe('탈퇴 절이 존재한다 (#754)', () => {
   it('`PRD §6.3` 문구가 **그대로** 나온다', () => {
     stubUser()
     renderPanel()
+    // 10/7 결정(#2321)으로 문구는 「탈퇴하기」 링크를 누른 확인 단계에 나온다 — 단언은 그대로다.
+    openWithdrawal()
 
     /*
      * 정본이 원문을 확정한 문구다(`AGENTS §4.6`). 화면이 새로 적으면 안 된다 —
@@ -70,6 +84,7 @@ describe('탈퇴 절이 존재한다 (#754)', () => {
   it('세 사실을 모두 알린다 — 로그인 불가 · 기록 보존 · 재가입 가능', () => {
     stubUser()
     renderPanel()
+    openWithdrawal()
 
     const notice = screen.getByText(WITHDRAWAL_NOTICE).textContent ?? ''
     expect(notice).toContain('로그인할 수 없습니다')
@@ -197,17 +212,23 @@ describe('비밀번호 변경 — 서버 필드 오류 (#877)', () => {
 describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => {
   it('현장직은 자기 역할을 보되 역할 지정 절은 없다', () => {
     stubUser('FIELD')
-    renderPanel()
+    const list = vi.spyOn(session, 'listUsers')
+    const { unmount } = renderPanel()
     expect(screen.getByTestId('acc-role').textContent).toBe('현장직')
-    expect(screen.queryByRole('region', { name: '계정 · 역할' })).toBeNull()
-    expect(session.listUsers).toBeDefined()
+    unmount()
+    // 팀 구획을 억지로 그려도 비어 있다 — 계정 목록을 묻지도 않는다.
+    renderPanel('team')
+    expect(screen.queryByRole('region', { name: ROLE_SECTION_NAME })).toBeNull()
+    expect(list).not.toHaveBeenCalled()
   })
 
   it('사무직도 자기 역할만 보고 역할 지정 절은 못 본다 — 계정 관리는 관리자 전용 (#1301)', () => {
     stubUser('OFFICE')
-    renderPanel()
+    const { unmount } = renderPanel()
     expect(screen.getByTestId('acc-role').textContent).toBe('사무직')
-    expect(screen.queryByRole('region', { name: '계정 · 역할' })).toBeNull()
+    unmount()
+    renderPanel('team')
+    expect(screen.queryByRole('region', { name: ROLE_SECTION_NAME })).toBeNull()
   })
 
   it('관리자는 계정 목록을 받아 셀렉트로 역할을 바꾼다 — 선택지는 3종', async () => {
@@ -220,9 +241,13 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
     const update = vi
       .spyOn(session, 'updateUserRole')
       .mockResolvedValue({ ...rows[1], role: 'OFFICE' })
-    renderPanel()
-
+    const { unmount } = renderPanel()
     expect(screen.getByTestId('acc-role').textContent).toBe('관리자')
+    unmount()
+
+    // 역할 지정은 「팀 · 역할」 탭이다 (#2321).
+    renderPanel('team')
+    expect(screen.getByRole('region', { name: ROLE_SECTION_NAME })).toBeTruthy()
     const select = (await screen.findByLabelText(/crew@bluelog.local/)) as HTMLSelectElement
     expect(select.value).toBe('FIELD')
     // 선택지가 3종이다 — 현장직·사무직·관리자를 모두 지정할 수 있다.
@@ -245,7 +270,7 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
     vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
     const message = '마지막 관리자 계정은 탈퇴하거나 다른 역할로 바꿀 수 없습니다. 다른 계정을 먼저 관리자로 지정해 주세요.'
     vi.spyOn(session, 'updateUserRole').mockRejectedValue(new session.AuthRequestError(message, 409))
-    renderPanel()
+    renderPanel('team')
 
     const select = (await screen.findByLabelText(/demo@bluelog.local/)) as HTMLSelectElement
     fireEvent.change(select, { target: { value: 'FIELD' } })
@@ -262,7 +287,7 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
     ]
     vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
     const update = vi.spyOn(session, 'updateUserRole')
-    renderPanel()
+    renderPanel('team')
 
     // 다른 행은 선택 상자가 있다
     expect(await screen.findByLabelText(/crew@bluelog.local/)).toBeTruthy()
@@ -280,7 +305,7 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
   it('목록 조회가 실패하면 실패라고 말한다 — 빈 목록으로 보이지 않는다', async () => {
     stubUser('ADMIN')
     vi.spyOn(session, 'listUsers').mockRejectedValue(new session.AuthRequestError('계정 목록을 불러오지 못했습니다.', 500))
-    renderPanel()
+    renderPanel('team')
     await waitFor(() => expect(screen.getByText('계정 목록을 불러오지 못했습니다.')).toBeTruthy())
     expect(screen.queryByTestId('acc-users')).toBeNull()
   })
@@ -328,9 +353,11 @@ describe('비밀번호 변경 성공 안내 (#1099)', () => {
 describe('설정 목차의 모든 절이 화면에 있다 (#2074)', () => {
   function renderSettings(role: session.UserRole) {
     stubUser(role)
+    // 탭 셋(#2321)을 한꺼번에 그린다 — 어느 탭에 있든 목록의 절은 실재해야 한다.
     return render(
       <MemoryRouter>
-        <AccountPanel />
+        <AccountPanel part="account" />
+        <AccountPanel part="team" />
         <RegulationParametersSection />
       </MemoryRouter>,
     )
@@ -347,15 +374,20 @@ describe('설정 목차의 모든 절이 화면에 있다 (#2074)', () => {
     ).toEqual([])
   })
 
-  it('표시 이름이 「계정 정보」가 아니라 **자기 절** 안에 있다', () => {
+  it('표시 이름이 **목록에 있는 절** 안에 있다 — 목차로 찾을 수 있다', () => {
     /*
-     * 「계정 정보」는 바꿀 수 없는 사실(이메일 · 역할)만 진다. 폼이 그 절로 다시
-     * 들어가면 목차에서 또 사라지는데, 위 검사는 `#profile`이 비어 있어도 통과한다.
+     * `#2074`의 사각은 「목록에 없는 자리에 있는 폼」이었다. 10/7 결정(#2321)으로 따로 있던
+     * `#profile` 절은 없어지고, 표시 이름은 「프로필」 카드(`#account-info`)의 「내 정보」로
+     * 들어갔다. 지키려던 것은 절 이름이 아니라 **목차가 가리키는 절 안에 있다**는 성질이다.
      */
     renderSettings('FIELD')
     const input = screen.getByLabelText('표시 이름')
-    expect(input.closest('#profile'), '표시 이름이 프로필 절 안에 없습니다').not.toBeNull()
-    expect(input.closest('#account-info')).toBeNull()
+    const owner = input.closest('section[id]')
+    expect(owner, '표시 이름이 어느 절에도 들어 있지 않습니다').not.toBeNull()
+    expect(
+      visibleSections(false).map((section) => section.id),
+      '표시 이름이 목차에 없는 절 안에 있습니다',
+    ).toContain(owner!.id)
   })
 
   it('목차 이름이 화면의 절 제목과 같다 — 둘이 갈리지 않는다', () => {
@@ -379,16 +411,29 @@ describe('설정 목차의 모든 절이 화면에 있다 (#2074)', () => {
 })
 
 describe('프로필 이미지 — #2080', () => {
-  it('고르기 전에는 「올리기」가 잠겨 있다 — 올릴 것이 없다', () => {
+  it('고르기 전에는 올리는 단추가 없다 — 올릴 것이 없다', () => {
     /*
-     * 잠근 사유는 곁의 「선택된 파일 없음」이 **글자로** 말한다(`PRD §6.4` 파일 선택
-     * 행 · `§14`). 그래서 따로 사유를 잇지 않는다 — `a11yWiring`에 그렇게 등재돼 있다.
+     * 종전에는 잠긴 「올리기」가 늘 서 있었다. 10/7 결정(#2321)으로 사진의 「+」로 파일을
+     * 고른 뒤에야 「이 사진으로 바꾸기」 · 「취소」가 뜬다 — 고르기 전에는 누를 것 자체가 없다.
      */
     stubUser()
     renderPanel()
-    expect((screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    expect(screen.queryByRole('button', { name: '이 사진으로 바꾸기' })).toBeNull()
+    // 파일 고르기는 「+」 레이블로 닿는다 — 이름이 있는 컨트롤이다.
+    expect(screen.getByLabelText('프로필 이미지 파일').getAttribute('id')).toBe('acc-avatar')
+    expect(document.querySelector('label[for="acc-avatar"]')?.textContent?.trim()).not.toBe('')
+  })
+
+  it('고른 뒤 「취소」하면 단추가 걷히고 아무것도 올리지 않는다', () => {
+    stubUser()
+    const upload = vi.spyOn(session, 'uploadAvatar')
+    renderPanel()
+    const file = new File([new Uint8Array([1, 2, 3])], 'me.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [file] } })
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }))
+    expect(screen.queryByRole('button', { name: '이 사진으로 바꾸기' })).toBeNull()
+    expect(upload).not.toHaveBeenCalled()
   })
 
   it('고르면 풀리고, 올리면 그 파일이 서버로 간다', async () => {
@@ -406,7 +451,7 @@ describe('프로필 이미지 — #2080', () => {
     const file = new File([new Uint8Array([1, 2, 3])], 'me.png', { type: 'image/png' })
     fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [file] } })
 
-    const button = screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: '이 사진으로 바꾸기' }) as HTMLButtonElement
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
 
@@ -428,7 +473,7 @@ describe('프로필 이미지 — #2080', () => {
     const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], 'big.png', { type: 'image/png' })
     fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [big] } })
 
-    const button = screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement
+    const button = screen.getByRole('button', { name: '이 사진으로 바꾸기' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
     expect(screen.getByRole('alert').textContent).toContain('2MB')
     fireEvent.click(button)
@@ -447,7 +492,9 @@ describe('프로필 이미지 — #2080', () => {
     const svg = new File(['<svg/>'], 'logo.svg', { type: 'image/svg+xml' })
     fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [svg] } })
 
-    expect((screen.getByRole('button', { name: '올리기' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: '이 사진으로 바꾸기' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
     expect(screen.getByRole('alert').textContent).toContain('PNG')
   })
 
@@ -458,12 +505,12 @@ describe('프로필 이미지 — #2080', () => {
      */
     stubUser('FIELD', false)
     const { unmount } = renderPanel()
-    expect(screen.queryByRole('button', { name: '지우기' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /지우기/ })).toBeNull()
     unmount()
 
     stubUser('FIELD', true)
     renderPanel()
-    expect(screen.getByRole('button', { name: '지우기' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /지우기/ })).toBeTruthy()
   })
 
   it('받는 형식이 서버와 같고 **SVG가 없다**', () => {

@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
+import { Icon } from '../../components/Icon'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
 import { Field } from '../../components/Field'
@@ -192,6 +194,7 @@ export function AuthField({
   error,
   autoComplete,
   hint,
+  revealable = false,
 }: {
   id: string
   label: string
@@ -201,23 +204,48 @@ export function AuthField({
   error?: string
   autoComplete?: string
   hint?: string
+  /** 비밀번호 보기 단추 (10/7) — 누르는 동안이 아니라 눌러서 켜고 끈다. */
+  revealable?: boolean
 }) {
+  const [shown, setShown] = useState(false)
   /*
    * 배선은 공용 `Field`가 준다 (`#936` · `§8.4`). 여기 남는 것은 **로그인 폼의
    * 입력칸 모양**뿐이다 — 호출부 열 곳은 그대로 둔다.
    */
   return (
     <Field id={id} label={label} hint={hint} error={error}>
-      {(control) => (
-        <input
-          {...control}
-          className="auth-input"
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete={autoComplete}
-        />
-      )}
+      {(control) =>
+        revealable && type === 'password' ? (
+          <span className="auth-input-wrap">
+            <input
+              {...control}
+              className="auth-input auth-input--reveal"
+              type={shown ? 'text' : 'password'}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              autoComplete={autoComplete}
+            />
+            <button
+              type="button"
+              className="auth-reveal"
+              aria-label={shown ? '비밀번호 숨기기' : '비밀번호 보기'}
+              aria-pressed={shown}
+              onClick={() => setShown((was) => !was)}
+            >
+              <Icon glyph={shown ? EyeOff : Eye} size="inline" />
+            </button>
+          </span>
+        ) : (
+          <input
+            {...control}
+            className="auth-input"
+            type={type}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            autoComplete={autoComplete}
+          />
+        )
+      }
     </Field>
   )
 }

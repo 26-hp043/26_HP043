@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { settingsSection } from '../../pages/settingsSections'
 import { Avatar } from '../../components/Avatar'
-import { FilePicker } from '../../components/FilePicker'
+import { Icon } from '../../components/Icon'
+import { Plus } from 'lucide-react'
 import {
   EMAIL_IMMUTABLE_NOTICE,
   ROLE_DESCRIPTION,
@@ -85,27 +86,43 @@ function SettingsSectionCard({
   )
 }
 
-export function AccountPanel() {
+/**
+ * 설정 탭 (10/7 디자인 결정) — `account`는 내 계정(프로필 · 계정 정보 한 카드 + 비밀번호 + 탈퇴 링크),
+ * `team`은 관리자 전용 계정 · 역할 목록이다.
+ */
+export function AccountPanel({ part = 'account' }: { part?: 'account' | 'team' }) {
   const user = useAuthUser()
   if (!user) return null
+
+  if (part === 'team') {
+    return <div className="acc">{isAdmin(user) ? <RoleSection me={user} /> : null}</div>
+  }
 
   return (
     <div className="acc">
       <SettingsSectionCard id="account-info">
-
-        <dl className="acc__facts">
-          <div>
-            <dt>이메일</dt>
-            <dd>{user.email}</dd>
+        {/*
+          프로필 머리 (10/7 디자인 결정) — 사진을 가운데 크게 두고, 사진 오른쪽 아래 「+」로 바꾼다.
+          그 아래 이름 · 이메일 · 역할, 다시 그 아래 「내 정보」 칸들.
+        */}
+        <ProfileHero user={user} />
+        <div className="acc__info">
+          <h3 className="acc__info-title">내 정보</h3>
+          <DisplayNameForm initial={user.displayName ?? ''} />
+          <div className="acc__readonly">
+            <span className="acc__readonly-label">이메일</span>
+            <span className="acc__readonly-value">{user.email}</span>
           </div>
-          <div>
-            <dt>역할</dt>
-            <dd data-testid="acc-role">{ROLE_LABEL[user.role]}</dd>
+          <div className="acc__readonly">
+            <span className="acc__readonly-label">역할</span>
+            <span className="acc__readonly-value" data-testid="acc-role">
+              {ROLE_LABEL[user.role]}
+            </span>
           </div>
-        </dl>
         <p className="acc__notice">{EMAIL_IMMUTABLE_NOTICE}</p>
         {/* `PRD §6.3` 「역할 설명」 — 정본 문구다. 세 역할 모두 자기 역할이 무엇을 뜻하는지 본다. */}
         <p className="acc__notice">{ROLE_DESCRIPTION}</p>
+        </div>
       </SettingsSectionCard>
 
       {/*
@@ -113,12 +130,6 @@ export function AccountPanel() {
         진다. 종전에는 이 폼이 그 절 안쪽 맨 아래에 제목 없이 들어 있어 목차로는
         찾을 수 없었다.
       */}
-      <SettingsSectionCard id="profile">
-        <AvatarForm user={user} />
-        <DisplayNameForm initial={user.displayName ?? ''} />
-      </SettingsSectionCard>
-
-      {isAdmin(user) ? <RoleSection me={user} /> : null}
       <PasswordSection />
       <WithdrawalSection />
     </div>
@@ -246,97 +257,6 @@ function RoleSection({ me }: { me: CurrentUser }) {
 /** 둘러보기 계정 행에 붙는 까닭 — 서버가 같은 이유로 거절한다(`API_SPEC §1.2.6`). */
 export const TOUR_ROLE_FIXED_NOTICE = '역할을 바꿀 수 없는 계정입니다.'
 
-/**
- * 프로필 이미지 (`#2080` · `API_SPEC §1.2.5a`).
- *
- * ## 고른 뒤 한 번 더 누른다
- *
- * 고르자마자 올리지 않는다. 올리기는 **되돌리기 어려운 쪽**이라(서버가 다시 그려
- * 저장하므로 원본이 남지 않는다) 사용자가 무엇을 올리는지 보고 누르게 둔다 —
- * `#2049`가 CSV 가져오기에 둔 「파일 선택 → 검증」과 같은 모양이다.
- *
- * ## 지우기는 올린 뒤에만 보인다
- *
- * 없는 것을 지우는 단추는 **무엇을 하는지 알 수 없다.** 서버는 멱등이라 눌러도
- * 성공하지만, 그 성공이 화면에서는 아무 변화가 아니다.
- */
-function AvatarForm({ user }: { user: CurrentUser }) {
-  const [picked, setPicked] = useState<File | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const run = async (action: () => Promise<unknown>, message: string) => {
-    setBusy(true)
-    setFailure(null)
-    setDone(null)
-    try {
-      await action()
-      setPicked(null)
-      setDone(message)
-    } catch (caught) {
-      setFailure(splitSubmitFailure(caught, '프로필 이미지를 바꾸지 못했습니다.', {}).failure)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="acc__avatar">
-      <div className="acc__avatar-row">
-        {/*
-          지금 상태를 그대로 보인다 — 고른 파일의 미리보기가 아니다. 서버가 **다시
-          그려서** 저장하므로(자르기·크기·형식) 고른 원본을 미리 보여 주면 올린 뒤의
-          결과와 다르다.
-        */}
-        <Avatar hasAvatar={user.hasAvatar} name={user.displayName ?? user.email} place="profile" />
-        <div className="acc__avatar-controls">
-          <FilePicker
-            id="acc-avatar"
-            ariaLabel="프로필 이미지 파일"
-            accept={AVATAR_ACCEPT}
-            file={picked}
-            onPick={(file) => {
-              setPicked(file)
-              setDone(null)
-              // 고른 자리에서 말한다 (`#2107`) — 올려 본 뒤에야 알게 두지 않는다.
-              setFailure(file === null ? null : avatarFileProblem(file))
-            }}
-          />
-          <button
-            type="button"
-            className="acc__submit"
-            disabled={busy || picked === null || avatarFileProblem(picked) !== null}
-            onClick={() => {
-              if (picked !== null) void run(() => uploadAvatar(picked), '프로필 이미지를 올렸습니다.')
-            }}
-          >
-            {busy ? '올리는 중' : '올리기'}
-          </button>
-          {user.hasAvatar ? (
-            <button
-              type="button"
-              className="acc__submit acc__submit--danger"
-              disabled={busy}
-              onClick={() => void run(deleteAvatar, '프로필 이미지를 지웠습니다.')}
-            >
-              지우기
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      <p className="acc__notice">{AVATAR_NOTICE}</p>
-
-      {failure ? <ErrorState level="region" size="compact" message={failure} /> : null}
-      {done ? (
-        <p className="acc__ok" role="status">
-          {done}
-        </p>
-      ) : null}
-    </div>
-  )
-}
 
 function DisplayNameForm({ initial }: { initial: string }) {
   const [name, setName] = useState(initial)
@@ -590,13 +510,14 @@ function WithdrawalSection() {
   }
 
   return (
-    <SettingsSectionCard id="withdrawal" danger>
+    /* 탈퇴는 카드가 아니라 맨 아래 글자 링크 (10/7) — 누르면 정본 문구와 확인 줄이 펼쳐진다. */
+    <section id="withdrawal" className="acc__withdraw" aria-label="탈퇴">
 
       {/*
         `PRD §6.3`이 원문을 확정한 **정본 문구**다. 화면에서 새로 적지 않는다
         (`AGENTS §4.6`). 확인 단계 전에도 보여 준다 — 무엇을 누르려는지 알고 눌러야 한다.
       */}
-      <p className="acc__notice">{WITHDRAWAL_NOTICE}</p>
+      {confirming ? <p className="acc__notice">{WITHDRAWAL_NOTICE}</p> : null}
 
       {error !== null ? (
         <ErrorState level="region" size="compact" message={error} />
@@ -627,12 +548,111 @@ function WithdrawalSection() {
       ) : (
         <button
           type="button"
-          className="acc__submit acc__submit--danger"
+          className="acc__withdraw-link"
           onClick={() => setConfirming(true)}
         >
           탈퇴하기
         </button>
       )}
-    </SettingsSectionCard>
+    </section>
+  )
+}
+
+/**
+ * 가운데 큰 프로필 사진 (10/7). 「+」 버튼이 파일 고르기다 — 고르면 이름 아래에 올리기 · 취소가 뜬다.
+ * 보이는 사진은 지금 저장된 것이다(고른 원본을 미리 보이지 않는다 — 서버가 다시 그려 저장한다).
+ */
+function ProfileHero({ user }: { user: CurrentUser }) {
+  const [picked, setPicked] = useState<File | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const problem = picked === null ? null : avatarFileProblem(picked)
+
+  const run = async (action: () => Promise<unknown>, message: string) => {
+    setBusy(true)
+    setFailure(null)
+    setDone(null)
+    try {
+      await action()
+      setPicked(null)
+      setDone(message)
+    } catch (caught) {
+      setFailure(splitSubmitFailure(caught, '프로필 이미지를 바꾸지 못했습니다.', {}).failure)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="acc-hero">
+      <div className="acc-hero__photo">
+        <Avatar
+          hasAvatar={user.hasAvatar}
+          name={user.displayName ?? user.email}
+          place="profile"
+          className="acc-hero__avatar"
+        />
+        <input
+          id="acc-avatar"
+          type="file"
+          accept={AVATAR_ACCEPT}
+          aria-label="프로필 이미지 파일"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0] ?? null
+            setPicked(file)
+            setDone(null)
+            setFailure(file === null ? null : avatarFileProblem(file))
+            event.target.value = ''
+          }}
+        />
+        <label htmlFor="acc-avatar" className="acc-hero__add" title="사진 바꾸기">
+          <Icon glyph={Plus} size="inline" />
+          <span className="sr-only">사진 바꾸기</span>
+        </label>
+      </div>
+      <div className="acc-hero__body">
+      <p className="acc-hero__name">{user.displayName || user.email}</p>
+      <p className="acc-hero__meta">
+        <span>{user.email}</span>
+        <span className="acc__role-chip">{ROLE_LABEL[user.role]}</span>
+      </p>
+
+      {picked !== null ? (
+        <div className="acc-hero__pending">
+          <span className="acc-hero__file">{picked.name}</span>
+          <button
+            type="button"
+            className="acc__submit acc__submit--primary"
+            disabled={busy || problem !== null}
+            onClick={() => void run(() => uploadAvatar(picked), '프로필 이미지를 올렸습니다.')}
+          >
+            {busy ? '올리는 중' : '이 사진으로 바꾸기'}
+          </button>
+          <button type="button" className="acc__submit" disabled={busy} onClick={() => { setPicked(null); setFailure(null) }}>
+            취소
+          </button>
+        </div>
+      ) : user.hasAvatar ? (
+        <button
+          type="button"
+          className="acc-hero__remove"
+          disabled={busy}
+          onClick={() => void run(deleteAvatar, '프로필 이미지를 지웠습니다.')}
+        >
+          사진 지우기
+        </button>
+      ) : null}
+
+      <p className="acc-hero__hint">{AVATAR_NOTICE}</p>
+      {failure ? <ErrorState level="region" size="compact" message={failure} /> : null}
+      {done ? (
+        <p className="acc__ok" role="status">
+          {done}
+        </p>
+      ) : null}
+      </div>
+    </div>
   )
 }

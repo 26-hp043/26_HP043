@@ -533,7 +533,7 @@
 .assistant__input {
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface-2);
+  background: var(--color-control-bg);
   padding: var(--space-8);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -641,7 +641,6 @@
   line-height: var(--line-height-label);
 }
 
-.assistant__target-label,
 .assistant__target-hint {
   color: var(--color-text-muted);
 }
@@ -680,4 +679,274 @@
 .assistant__example:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+/* ── 10/7 디자인 결정 — 오른쪽에 붙는 패널 ───────────────────────────────
+ * 떠 있는 작은 창(560px)이라 대화가 몇 줄만 보였다. 화면 오른쪽 끝에 위아래로 붙이고,
+ * 넓은 화면(1280 이상)에서는 본문이 패널 폭만큼 좁아질 뿐 가려지지 않는다.
+ */
+:root {
+  --assistant-panel-width: 400px;
+}
+
+.assistant[aria-label] {
+  top: 0;
+  right: 0;
+  bottom: 0;
+  inline-size: min(var(--assistant-panel-width), 100vw);
+  width: min(var(--assistant-panel-width), 100vw);
+  height: 100vh;
+  border: 0;
+  border-inline-start: var(--borderWidth-default) solid var(--border-default);
+  border-radius: 0;
+  padding: 0;
+  gap: 0;
+  box-shadow: var(--shadow-overlay);
+}
+
+@media (min-width: 1280px) {
+  .assistant[aria-label] {
+    box-shadow: none;
+  }
+
+  .app-shell--assistant-open,
+  .app-shell--assistant-open:not(:has(.vessel-management)) {
+    padding-inline-end: var(--assistant-panel-width);
+  }
+}
+
+.assistant__head {
+  justify-content: flex-start;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+}
+
+.assistant__head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.assistant__head .assistant__title {
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--font-size-heading);
+}
+
+.assistant__title-sub {
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-body);
+  color: var(--text-secondary);
+}
+
+.assistant__head .assistant__target {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assistant__head .assistant__target strong {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-strong);
+}
+
+.assistant__body {
+  padding: var(--space-16);
+  gap: var(--space-12);
+}
+
+.assistant__examples-label {
+  margin: var(--space-8) 0 0;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.assistant__example {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border-color: var(--border-default);
+  border-radius: var(--radius-card);
+  color: var(--color-link);
+}
+
+.assistant__example-arrow {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+/* 말풍선 — 내 질문은 진한 남색, 범이 답은 옅은 면 */
+.assistant__turn--user {
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
+  border-radius: 12px 12px 4px 12px;
+}
+
+.assistant__turn--assistant {
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: 4px 12px 12px 12px;
+}
+
+/* 입력 — 한 칸 안에 글자와 보내기 */
+.assistant__form {
+  position: relative;
+  padding: var(--space-12) var(--space-16) var(--space-16);
+  border-block-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+.assistant__input {
+  inline-size: 100%;
+  min-block-size: 64px;
+  /* 오른쪽은 보내기 단추 자리 — 칸 끝에서 단추까지(8) + 단추 폭 + 글자와의 틈(12) */
+  padding: var(--space-12) calc(var(--space-8) + var(--target-button) + var(--space-12)) var(--space-12) var(--space-12);
+  border-radius: var(--radius-card);
+  font-size: var(--font-size-body);
+  resize: none;
+  box-sizing: border-box;
+}
+
+.assistant__send {
+  position: absolute;
+  inset-inline-end: calc(var(--space-16) + var(--space-8));
+  inset-block-end: calc(var(--space-16) + var(--space-8));
+  display: grid;
+  place-items: center;
+  inline-size: var(--target-button);
+  block-size: var(--target-button);
+  padding: 0;
+  border-radius: var(--radius-control);
+}
+
+.assistant__disclaimer {
+  margin: 0;
+  padding: var(--space-8) var(--space-16) 0;
+}
+
+/* 머리 줄 높이 = 상단바 높이 (10/7) — 두 머리가 한 선에서 끝난다 */
+.assistant__head {
+  box-sizing: border-box;
+  block-size: var(--shell-topbar-height);
+  min-block-size: var(--shell-topbar-height);
+  padding-block: 0;
+  flex: none;
+}
+
+.assistant__head .assistant__head-avatar {
+  /* 크기 변수만 바꾼다 — 높이 리터럴을 두지 않는다 (#2150) */
+  --assistant-head-avatar-size: 36px;
+}
+
+.assistant__head .assistant__title {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.assistant__intro-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
+}
+
+.assistant__intro-wrap .assistant__intro {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+}
+
+.assistant__intro-more > summary {
+  cursor: pointer;
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.assistant__intro-more p {
+  margin: var(--space-8) 0 0;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-label);
+  color: var(--text-secondary);
+  text-align: start;
+}
+
+/* 문의 유형 → 질문 펼침 */
+.assistant__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.assistant__group {
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  background: var(--surface-card);
+}
+
+.assistant__group[open] {
+  border-color: var(--color-border-control);
+}
+
+.assistant__group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  padding: var(--space-12);
+  cursor: pointer;
+  list-style: none;
+}
+
+.assistant__group-head::-webkit-details-marker {
+  display: none;
+}
+
+.assistant__group-head::after {
+  content: '';
+  margin-inline-start: auto;
+  align-self: center;
+  inline-size: 16px;
+  block-size: 16px;
+  background: var(--select-chevron) center / 16px no-repeat;
+  transition: transform 120ms ease;
+}
+
+.assistant__group[open] > .assistant__group-head::after {
+  transform: rotate(180deg);
+}
+
+.assistant__group-head:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-card);
+}
+
+.assistant__group-title {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+}
+
+.assistant__group-hint {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+.assistant__group .assistant__examples {
+  padding: 0 var(--space-8) var(--space-8);
+}
+
+.assistant__group .assistant__example {
+  border: 0;
+  border-radius: var(--radius-control);
+}
+
+.assistant__group .assistant__example:hover:not(:disabled) {
+  background: var(--surface-inset);
 }

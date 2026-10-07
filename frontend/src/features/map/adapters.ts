@@ -205,7 +205,7 @@ function routePorts(
     const waypoint = request.via ? portAt(request.via.lon, request.via.lat) : undefined
     found.push({
       id: `departure:${departure?.locode ?? `${request.fromLon}:${request.fromLat}`}`,
-      role: 'departure', label: departure?.name_ko ?? '출발지', coordinate: [request.fromLon, request.fromLat],
+      role: 'departure', label: departure?.name_ko ?? '현재 위치', coordinate: [request.fromLon, request.fromLat],
     })
     found.push({
       id: `destination:${destination?.locode ?? `${request.toLon}:${request.toLat}`}`,

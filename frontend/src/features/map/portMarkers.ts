@@ -68,13 +68,25 @@ export function portMarkerElement(marker: PortMarkerModel): HTMLElement {
   element.className = `map-port map-port--${marker.role}`
   element.setAttribute('aria-label', `${marker.label} · ${marker.role === 'departure' ? '출발항' : marker.role === 'destination' ? '도착항' : marker.role === 'berth' ? '정박 항만' : '경유항'}`)
   if (!marker.onActivate) element.setAttribute('role', 'img')
+  /*
+   * 위치 핀 (10/7 디자인 결정) — 원 안 글자(「출」 「도」 「경」)는 작은 지도에서 읽히지 않았다.
+   * 핀 모양으로 「여기」를 말하고, 역할은 이름표 앞에 글자로 붙인다(「출발 부산」).
+   * 핀 색은 역할로 갈린다: 출발 · 도착은 브랜드 남색, 경유는 우회선과 같은 색.
+   */
   const pin = document.createElement('span')
   pin.className = 'map-port__pin'
-  pin.textContent = marker.role === 'departure' ? '출' : marker.role === 'destination' ? '도' : marker.role === 'berth' ? '정' : '경'
+  pin.innerHTML =
+    '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">' +
+    '<path d="M12 22s-7-6.2-7-12a7 7 0 1 1 14 0c0 5.8-7 12-7 12z" fill="currentColor" stroke="var(--color-surface)" stroke-width="1.5"/>' +
+    '<circle cx="12" cy="10" r="2.6" fill="var(--color-surface)"/></svg>'
   pin.setAttribute('aria-hidden', 'true')
+  const role = marker.role === 'departure' ? '출발' : marker.role === 'destination' ? '도착' : marker.role === 'berth' ? '정박' : '경유'
   const label = document.createElement('span')
   label.className = 'map-port__label'
-  label.textContent = marker.label
+  const roleText = document.createElement('b')
+  roleText.className = 'map-port__role'
+  roleText.textContent = role
+  label.append(roleText, ` ${marker.label}`)
   label.setAttribute('aria-hidden', 'true')
   element.append(pin, label)
   if (marker.onActivate) element.addEventListener('click', () => {

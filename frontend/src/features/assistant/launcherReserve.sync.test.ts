@@ -31,6 +31,23 @@ function code(path: string): string {
   return readFileSync(path, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
 }
 
+/** `padding` 단축 속성의 아래쪽 값 — 괄호 안의 공백으로는 가르지 않는다. */
+function bottomOf(shorthand: string): string {
+  const parts: string[] = []
+  let depth = 0
+  let current = ''
+  for (const ch of shorthand.trim()) {
+    if (ch === '(') depth += 1
+    if (ch === ')') depth -= 1
+    if (/\s/.test(ch) && depth === 0) {
+      if (current) parts.push(current)
+      current = ''
+    } else current += ch
+  }
+  if (current) parts.push(current)
+  return parts.length >= 3 ? parts[2] : (parts[0] ?? '')
+}
+
 describe('어시스턴트 런처가 본문 마지막 줄을 가리지 않는다 (#1375)', () => {
   it('런처 쪽이 예약 폭을 선언한다', () => {
     expect(
@@ -40,10 +57,19 @@ describe('어시스턴트 런처가 본문 마지막 줄을 가리지 않는다 
   })
 
   it('셸이 그 값을 아래쪽 여백에 쓴다', () => {
+    /*
+     * 셸 정리(10/7)로 `padding-block-end` 한 줄이 `padding` 단축 속성으로 합쳐졌다. 지키려던 것은
+     * 속성 이름이 아니라 **아래쪽 여백에 예약 폭이 들어간다**는 것이므로, 단축 속성이면 아래 자리
+     * (값 3개 이상일 때 셋째, 하나·둘일 때 첫째)를 읽는다.
+     */
     const shell = code(SHELL_CSS)
+    const bottoms = [
+      ...[...shell.matchAll(/padding-block-end:\s*([^;]*);/g)].map((m) => m[1]),
+      ...[...shell.matchAll(/(?:^|[\s{;])padding:\s*([^;]*);/g)].map((m) => bottomOf(m[1])),
+    ]
     expect(
-      new RegExp(`padding-block-end:[^;]*var\\(${NAME}`).test(shell),
-      `AppShell.css가 ${NAME}를 padding-block-end에 쓰지 않습니다.`,
+      bottoms.some((value) => value.includes(`var(${NAME}`)),
+      `AppShell.css가 ${NAME}를 아래쪽 여백(padding-block-end 또는 padding의 아래 값)에 쓰지 않습니다.`,
     ).toBe(true)
   })
 
