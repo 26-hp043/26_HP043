@@ -8,7 +8,8 @@
 * 대화 하나를 지우는 엔드포인트가 없었다 — `routes/chat.py`의 라우트는 `POST /chat` 하나뿐
 * **탈퇴해도 그 사용자의 대화 원문이 남았다** — `delete_me`는 `is_deleted`·세션 폐기·감사만 했다
 * 90일 만료 삭제 `purge_expired.py`는 `csql`에 **`-p`를 넘기지 않아** 배포 DB에서
-  전부 실패했다. crontab이 매일 돌면서도 **한 번도 지워지지 않았다.**
+  전부 실패했다. crontab에 걸려 있었다면(확인하지 못했다) 매일 돌면서도 **한 번도 지우지
+  못했을 것이다.**
 
 ## 왜 한 파일에 모으나
 
@@ -64,7 +65,7 @@ def test_purge_passes_the_password_to_csql() -> None:
     """⚠️ **이것이 빠져 `PRD §16.3`의 90일 삭제가 운영에서 한 번도 돌지 않았다.**
 
     `db_backup.py`는 *「`-p`를 빠뜨리면 … `errno=-171`로 선다」* 고 적고 넘기는데,
-    `purge_expired.py`만 빠져 있었다. **실패해도 cron은 조용하다.**
+    `purge_expired.py`만 빠져 있었다. **실패해도 주기 실행은 조용하다.**
     """
     purge_expired = _load_script("purge_expired")
 

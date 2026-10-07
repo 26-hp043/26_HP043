@@ -147,8 +147,8 @@ def test_a_failing_table_does_not_stop_the_others() -> None:
 def test_failure_makes_the_exit_code_nonzero(monkeypatch: pytest.MonkeyPatch) -> None:
     """IT-PURGE-005 — 실패가 있으면 **0을 내지 않는다**.
 
-    cron이 성공으로 읽으면 아무도 모른다. 「돌긴 도는데 아무것도 안 지워지는」 상태가
-    가장 오래 숨는다.
+    호출한 쪽(`ops.yml purge`)이 성공으로 읽으면 아무도 모른다. 「돌긴 도는데 아무것도 안
+    지워지는」 상태가 가장 오래 숨는다.
     """
     db = _FakeDb(fail={"chat_session"})
     monkeypatch.setattr(purge_expired, "Db", lambda *_a, **_k: db)

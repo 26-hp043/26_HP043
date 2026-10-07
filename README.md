@@ -283,7 +283,7 @@ python3 scripts/purge_expired.py
   COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid \
     python3 scripts/purge_expired.py --dry-run
   ```
-- ⚠️ **이 스크립트는 `#1330` 이전에 배포 DB에서 한 번도 성공하지 못했다.** `csql`에 `-p "$CUBRID_PASSWORD"`를 넘기지 않아 **세 표 모두 인증에서 실패**했고(감사 INSERT까지), crontab이 매일 돌면서도 `PRD §16.3`의 90일 삭제가 **한 번도 일어나지 않았다.** 스크립트는 실패를 종료 코드 1로 알리므로 **그 결과를 보는 경로가 있어야 한다** — `ops.yml purge`는 종료 코드 1을 Actions 실행 실패로 보인다
+- ⚠️ **이 스크립트는 `#1330` 이전에 배포 DB에서 한 번도 성공하지 못했다.** `csql`에 `-p "$CUBRID_PASSWORD"`를 넘기지 않아 **세 표 모두 인증에서 실패**했고(감사 INSERT까지), README가 적은 crontab에 걸려 있었다면 매일 실패했을 것이고(걸려 있었는지는 확인하지 못했다) 이 스크립트로는 `PRD §16.3`의 90일 삭제가 **한 번도 성공하지 못했다.** 스크립트는 실패를 종료 코드 1로 알리므로 **그 결과를 보는 경로가 있어야 한다** — `ops.yml purge`는 종료 코드 1을 Actions 실행 실패로 보인다
 
 ### 지도 자산 (`#763` · `#985`) — 평소엔 손댈 일 없음
 
@@ -764,4 +764,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-06 | `#2233` | 문서 구조 표의 `PRD.md` **v4.20**(§5.1 「알림」 MAY) · `API_SPEC.md` **v1.52**(§2.19 「알림」 신설 · `GET /fleet/notifications`) — #2204 |
 | 2026-10-06 | `#2244` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.36**으로 — `§15`의 토큰 선언 블록(168줄)을 걷고 「값은 이 문서가 들고 있지 않다」를 확정으로 적었으며, `§2.2` 중립 표를 실제 토큰 이름·값으로 다시 맞췄다 (#2149) |
 | 2026-10-07 | `#2265` | **진입 문서의 낡은 서술 정정** — 「`api/main.py:165-168`」 줄번호 인용을 심볼 인용으로(그 줄은 미들웨어 스택 주석이 돼 있었다). 문서 구조 표는 그대로 (#2141) |
-| 2026-10-07 | `#___` | 「만료 행 정리」 절의 crontab 한 줄을 **`ops.yml purge`**(기본 `--dry-run` · `confirm`에 `cii`)로 정정하고 주기 실행을 두지 않는 이유를 적었다 — `PRD §16.3`·`docs/OPERATIONS.md` §3.8과 같은 결정 (#2116) |
+| 2026-10-07 | `#___` | 「만료 행 정리」 절의 crontab 한 줄을 **`ops.yml purge`**(기본 `--dry-run` · `confirm`에 `cii`)로 정정하고 주기 실행을 두지 않는 이유를 적었다 — `PRD §16.3`·`docs/OPERATIONS.md` §3.8과 같은 결정. 「crontab이 매일 돌면서도 90일 삭제가 한 번도 일어나지 않았다」는 걸려 있었는지 확인되지 않은 추정이라 가정형으로 고쳤다 (#2116) |

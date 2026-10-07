@@ -108,8 +108,8 @@ async def chat(
         chat_session = await chat_repo.get_session_row(session, session_id=payload.session_id)
         # `#1632` — **만료된 대화도 없는 대화다.** 청소(`purge_expired`)는 주기 실행이 아니라
         # 수동(`ops.yml purge`)이라, 그 사이에 만료된 대화로 외부 모델을 부르고 메시지를
-        # 쌓을 수 있었다. 남의 대화와
-        # 같은 404로 답한다 — 다른 코드를 두면 「있었지만 만료됐다」가 새어 존재 여부를 알린다.
+        # 쌓을 수 있었다. 남의 대화와 같은 404로 답한다 — 다른 코드를 두면 「있었지만
+        # 만료됐다」가 새어 존재 여부를 알린다.
         if (
             chat_session is None
             or chat_session.user_id != user.id
