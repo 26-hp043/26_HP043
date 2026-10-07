@@ -168,6 +168,49 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
     expect(draft.plannedDepartureAt).toBe('2026-06-01T09:00')
   })
 
+  it('항차 번호 없이도 만들 수 있다 — 번호는 선택이다 (#2130 · D-11)', async () => {
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ create })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0][1].voyageNo).toBe('')
+  })
+
+  it('번호 없는 항차는 목록에서 빈칸이 아니라 값 없음 표시와 항로로 보인다 (#2130)', async () => {
+    const unnumbered: ManagedVoyage = { ...IN_PROGRESS, voyageNo: null }
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({
+            voyages: [unnumbered],
+            fuelTypes: ['HFO'],
+            nextCursor: null,
+            hasMore: false,
+          })),
+        })}
+      />,
+    )
+    const row = await waitFor(() => {
+      const found = document.getElementById(`voyage-${unnumbered.id}`)
+      expect(found).toBeTruthy()
+      return found as HTMLElement
+    })
+    const header = row.querySelector('th')
+    expect(header?.textContent?.trim()).not.toBe('')
+    // 항로 칸이 식별을 맡는다 — 출발항·도착항이 그 행에 있다.
+    expect(row.textContent).toContain(unnumbered.departurePortName)
+    expect(row.textContent).toContain(unnumbered.arrivalPortName)
+  })
+
   /**
    * 만든 항차가 목록 앞에 붙을 때 **key가 겹치지 않는다** (`#1616`).
    *

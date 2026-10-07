@@ -150,6 +150,13 @@ describe('validateDraft — API_SPEC §3.3', () => {
     expect(hasErrors(validateDraft(draft({ regulationYear: '' })))).toBe(false)
   })
 
+  it('항차 번호는 선택이다 — 비어 있어도 통과한다 (#2130 · D-11)', () => {
+    // 서버 스키마(`str | None`)와 계획 저장 폼(「(선택)」)과 같은 규칙이다. 종전에는 이 폼만 막았다.
+    expect(validateDraft(draft({ voyageNo: '' })).voyageNo).toBeUndefined()
+    expect(validateDraft(draft({ voyageNo: '   ' })).voyageNo).toBeUndefined()
+    expect(hasErrors(validateDraft(draft({ voyageNo: '' })))).toBe(false)
+  })
+
   it('속력 하한은 1.0 kn다', () => {
     expect(validateDraft(draft({ plannedSpeedKn: '0.5' })).plannedSpeedKn).toBeDefined()
   })

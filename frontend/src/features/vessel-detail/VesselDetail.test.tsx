@@ -532,6 +532,8 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
 
     const remove = await screen.findByRole('button', { name: /구간 삭제|삭제/ })
     fireEvent.click(remove)
+    // 첫 누름은 카드 안 확인 줄만 연다 — 지우는 것은 두 번째 누름이다 (#2130).
+    fireEvent.click(await screen.findByTestId('nu-caution-confirm'))
 
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
     vi.unstubAllGlobals()
@@ -544,6 +546,8 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
   async function openNotUnderwayAndRemove() {
     fireEvent.click(await screen.findByRole('tab', { name: NOT_UNDERWAY_TAB }))
     fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+    // 첫 누름은 카드 안 확인 줄만 연다 — 지우는 것은 두 번째 누름이다 (#2130).
+    fireEvent.click(await screen.findByTestId('nu-caution-confirm'))
   }
 
   /*
@@ -579,6 +583,8 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
     expect(row).not.toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /구간 삭제|삭제/ }))
+    // 첫 누름은 카드 안 확인 줄만 연다 — 지우는 것은 두 번째 누름이다 (#2130).
+    fireEvent.click(screen.getByTestId('nu-caution-confirm'))
 
     // 다시 부르는 동안에도 입력이 그 자리에 있다 — 로딩으로 교체되지 않았다.
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))

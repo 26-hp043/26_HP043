@@ -60,7 +60,8 @@ async def test_periods_and_fuel_are_stored(session, vessel_id):
     """IT-CSV-009 — 구간과 연료가 함께 들어가고 CF 스냅샷이 붙는다."""
     content = _csv(
         "IN_PORT,2026-03-01T00:00:00+09:00,2026-03-02T00:00:00+09:00,0,HFO,12.5,AUX_ENGINE,BUSAN",
-        "AT_ANCHOR,2026-03-05T00:00:00+09:00,2026-03-06T00:00:00+09:00,3.5,HFO,4,,",
+        # 거리가 있는 유형이어야 한다 — 접안·묘박은 0만 받는다 (`#2130`).
+        "DRIFTING,2026-03-05T00:00:00+09:00,2026-03-06T00:00:00+09:00,3.5,HFO,4,,",
     )
 
     result = await import_not_underway_periods(session, vessel_id, content=content)
@@ -77,7 +78,7 @@ async def test_periods_and_fuel_are_stored(session, vessel_id):
             {"vid": vessel_id},
         )
     ).all()
-    assert [r.period_type for r in rows] == ["IN_PORT", "AT_ANCHOR"]
+    assert [r.period_type for r in rows] == ["IN_PORT", "DRIFTING"]
     assert float(rows[1].distance_nm) == 3.5
     # 비운 소비원은 보조기관이다 — 정박 중 연료의 대부분이 그것이다.
     assert rows[1].consumer_type == "AUX_ENGINE"
@@ -160,6 +161,36 @@ async def test_missing_required_column_rejects_the_whole_file(session, vessel_id
         assert "필수 컬럼" in str(error)
     else:  # pragma: no cover - 실패 경로
         raise AssertionError("필수 컬럼이 없는 파일이 통과했다")
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_berth_row_with_distance_is_a_row_error(session, vessel_id, dry_run):
+    """#2130 — 접안·묘박 행에 이동 거리가 있으면 **그 행만** 거부한다.
+
+    수기 API와 같은 규칙이다(`API_SPEC §2.10`). 화면에만 두면 CSV와 API 직접 호출이 그대로
+    통과한다. `dry_run`도 같은 판정이어야 한다 — 파서가 먼저 보므로 저장 단계까지 가지 않는다.
+    """
+    from cii_platform.services.not_underway import STATIONARY_DISTANCE_MESSAGE
+
+    content = _csv(
+        "IN_PORT,2026-04-01T00:00:00+09:00,2026-04-02T00:00:00+09:00,50,HFO,1,,",
+        "AT_ANCHOR,2026-04-03T00:00:00+09:00,2026-04-04T00:00:00+09:00,0.01,HFO,1,,",
+        # 대조군 — 접안 0과 운하 통과 거리는 들어간다.
+        "IN_PORT,2026-04-05T00:00:00+09:00,2026-04-06T00:00:00+09:00,0,HFO,1,,",
+        "CANAL_TRANSIT,2026-04-07T00:00:00+09:00,2026-04-08T00:00:00+09:00,80,HFO,1,,",
+    )
+
+    result = await import_not_underway_periods(session, vessel_id, content=content, dry_run=dry_run)
+
+    assert result["imported_count"] == 2, result
+    assert [(e["row"], e["field"]) for e in result["errors"]] == [
+        (2, "distance_nm"),
+        (3, "distance_nm"),
+    ], result["errors"]
+    # 문구는 수기 API와 같은 문장에 입력 원문을 붙인 것이다.
+    assert result["errors"][0]["message"] == (
+        f"{STATIONARY_DISTANCE_MESSAGE.removesuffix('.')}: 50"
+    ), result["errors"]
 
 
 async def test_fuel_zero_row_is_a_row_error_not_a_500(session, vessel_id):

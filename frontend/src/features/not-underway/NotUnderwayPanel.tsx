@@ -1,22 +1,26 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { createApiNotUnderwayProvider, NotUnderwayError } from './apiProvider'
 import { DISPLAY_DIGITS, DISPLAY_UNITS } from '../../display/format'
 import {
   CONSUMER_TYPE_LABELS,
   PERIOD_TYPE_LABELS,
+  distanceLocked,
   formatRange,
+  fuelUseDeleteCaution,
   hasErrors,
   labelOf,
+  periodDeleteCaution,
   toIso,
   toLocalInput,
   quantityText,
   totalFuelTon,
   validateDraft,
   validateFuelDraft,
+  type DeleteCaution,
   type DraftErrors,
 } from './periodRules'
-import type { FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } from './types'
+import type { FuelUse, FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } from './types'
 import './NotUnderwayPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
@@ -202,6 +206,38 @@ function PeriodRow({
    */
   const [fuelDraft, setFuelDraft] = useState<FuelUseDraft | null>(null)
   const [fuelError, setFuelError] = useState<string | null>(null)
+  /*
+   * 지우기 전에 한 번 더 묻는다 (`#2130` · 전수검수 D-11). 구간 삭제와 연료 한 줄 삭제는
+   * 누적 CII의 분자·분모를 바꾸고 화면에서 되돌릴 길이 없다. 같은 선박 상세의 항차 카드가
+   * 같은 성격의 동작(취소·보관)에 **카드 안 확인 줄**을 두므로 그 모양을 그대로 쓴다
+   * (`VoyagePanel`의 `#1598`). 브라우저 `confirm()`은 쓰지 않는다 — 창 안에 달라지는 값을
+   * 보여 줄 수 없고, 계정 패널이 같은 이유로 거부했다.
+   *
+   * 한 행에 확인 줄은 하나다 — 구간 삭제와 연료 한 줄 삭제가 동시에 열려 있으면 어느
+   * 「삭제하기」가 무엇을 지우는지 읽히지 않는다.
+   */
+  const [pending, setPending] = useState<
+    { kind: 'period' } | { kind: 'fuel'; fuelUse: FuelUse } | null
+  >(null)
+  const pendingTrigger = useRef<HTMLButtonElement | null>(null)
+  const keepRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    // 줄이 열리면 **안전한 쪽**(「그만두기」)에 초점 — Enter를 한 번 더 눌러 실행되지 않게.
+    if (pending !== null) keepRef.current?.focus()
+  }, [pending])
+  const closePending = () => {
+    setPending(null)
+    // 초점을 누른 버튼으로 돌려준다 — 줄이 사라지면 초점이 문서 머리로 떨어진다.
+    pendingTrigger.current?.focus()
+  }
+  const openPending = (
+    next: { kind: 'period' } | { kind: 'fuel'; fuelUse: FuelUse },
+    trigger: HTMLButtonElement,
+  ) => {
+    pendingTrigger.current = trigger
+    setPending(next)
+  }
+  const cautionId = `nu-caution-${period.id}`
 
   const guard = async (action: () => Promise<void>) => {
     try {
@@ -274,13 +310,29 @@ function PeriodRow({
                 type="button"
                 className="nu__fuel-remove"
                 aria-label={`${labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)} ${fu.fuelType} 연료 기록 삭제`}
-                onClick={() => guard(() => onRemoveFuel(fu.id))}
+                aria-expanded={pending?.kind === 'fuel' && pending.fuelUse.id === fu.id}
+                onClick={(event) => openPending({ kind: 'fuel', fuelUse: fu }, event.currentTarget)}
               >
                 삭제
               </button>
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/* 연료 한 줄의 확인 줄은 그 목록 바로 아래 — 지울 줄이 바로 위에 보여야 판단할 수 있다. */}
+      {pending?.kind === 'fuel' ? (
+        <DeleteCautionRow
+          id={cautionId}
+          caution={fuelUseDeleteCaution(pending.fuelUse)}
+          keepRef={keepRef}
+          onKeep={closePending}
+          onConfirm={() => {
+            const fuelUseId = pending.fuelUse.id
+            setPending(null)
+            void guard(() => onRemoveFuel(fuelUseId))
+          }}
+        />
       ) : null}
 
       {/*
@@ -417,13 +469,82 @@ function PeriodRow({
         <button
           type="button"
           className="nu__button nu__danger"
-          onClick={() => guard(onRemove)}
+          aria-expanded={pending?.kind === 'period'}
+          onClick={(event) => openPending({ kind: 'period' }, event.currentTarget)}
           data-testid="nu-remove"
         >
           삭제
         </button>
       </div>
+
+      {pending?.kind === 'period' ? (
+        <DeleteCautionRow
+          id={cautionId}
+          caution={periodDeleteCaution(period)}
+          keepRef={keepRef}
+          onKeep={closePending}
+          onConfirm={() => {
+            setPending(null)
+            void guard(onRemove)
+          }}
+        />
+      ) : null}
     </li>
+  )
+}
+
+/**
+ * 카드 안 확인 줄 (`#2130`). 항차 카드의 확인 줄(`VoyagePanel` · `#1598`)과 같은 규칙이다 —
+ * 무엇이 달라지는지 적고, 실행 버튼은 동사로 끝나며, 초점은 「그만두기」에 먼저 간다.
+ * Escape도 「그만두기」다. 모달을 두지 않는 이유도 같다 — 저장소에 모달이 없고
+ * (`DESIGN_SYSTEM §16` 항목 17 미결), 확인할 대상이 줄 바로 위에 보여야 판단할 수 있다.
+ */
+function DeleteCautionRow({
+  id,
+  caution,
+  keepRef,
+  onKeep,
+  onConfirm,
+}: {
+  id: string
+  caution: DeleteCaution
+  keepRef: RefObject<HTMLButtonElement | null>
+  onKeep: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div
+      className="nu__caution"
+      role="group"
+      aria-labelledby={id}
+      data-testid="nu-caution"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onKeep()
+      }}
+    >
+      <p id={id} className="nu__caution-text">
+        {caution.message}
+      </p>
+      <div className="nu__caution-actions">
+        <button
+          type="button"
+          className="nu__button nu__danger"
+          onClick={onConfirm}
+          data-testid="nu-caution-confirm"
+        >
+          {caution.confirm}
+        </button>
+        <button
+          type="button"
+          ref={keepRef}
+          className="nu__text-action"
+          onClick={onKeep}
+          data-testid="nu-caution-keep"
+        >
+          그만두기
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -468,13 +589,21 @@ function PeriodForm({
     )
   }
 
+  const effectiveType = periodType || choices.periodTypes[0]
+  /*
+   * 접안·묘박은 이동 거리가 0이다 (`#2130` · D-11). 칸을 잠그고 `0`을 보낸다 — 서버도 같은
+   * 규칙으로 422를 낸다(`API_SPEC §2.10`). 잠그기 전에 적어 둔 값은 지우지 않고 두었다가
+   * 거리가 있는 유형으로 돌아가면 다시 보인다.
+   */
+  const locked = distanceLocked(effectiveType)
+
   const submit = async () => {
     const draft: PeriodDraft = {
-      periodType: periodType || choices.periodTypes[0],
+      periodType: effectiveType,
       startedAt,
       endedAt: endedAt || null,
       portName: portName.trim() || null,
-      distanceNm,
+      distanceNm: locked ? '0' : distanceNm,
       fuelUses,
     }
     const found = validateDraft(draft)
@@ -511,7 +640,7 @@ function PeriodForm({
           {(control) => (
             <select
               {...control}
-              value={periodType || choices.periodTypes[0]}
+              value={effectiveType}
               onChange={(event) => setPeriodType(event.target.value)}
               data-testid="nu-period-type"
             >
@@ -579,7 +708,8 @@ function PeriodForm({
               type="number"
               min={0}
               step="0.01"
-              value={distanceNm}
+              value={locked ? '0' : distanceNm}
+              disabled={locked}
               onChange={(event) => setDistanceNm(event.target.value)}
               data-testid="nu-distance"
             />

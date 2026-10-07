@@ -179,6 +179,17 @@ describe('create — API_SPEC §3.3', () => {
     expect(sent.planned_distance_nm).toBe(2800)
   })
 
+  it('항차 번호를 비우면 null을 보낸다 — 빈 문자열은 「번호 없음」이 아니다 (#2130)', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', { ...DRAFT, voyageNo: '  ' })
+    expect(bodyOf(fetchMock).voyage_no).toBeNull()
+
+    // 대조군 — 적은 번호는 다듬어 그대로 보낸다.
+    const filled = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(filled, '').create('v-1', { ...DRAFT, voyageNo: ' V-9 ' })
+    expect(bodyOf(filled).voyage_no).toBe('V-9')
+  })
+
   it('쉼표·전각으로 적은 숫자를 검증과 같은 값으로 보낸다 (#2124)', async () => {
     // 검증(`validateDraft`)은 통과시키는데 조립이 `Number()`로 다시 읽으면 `NaN` → `null`이 나간다.
     const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })

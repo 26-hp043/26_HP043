@@ -93,4 +93,18 @@ describe('텍스트 버튼 높이 — 같은 줄의 컨트롤과 같다 (DESIGN_
     expect(borderWidth(text)).toBe(borderWidth(neighbor))
     expect(decl(text, 'font-size')).toBe(decl(neighbor, 'font-size'))
   })
+
+  it('정박 구간 확인 줄 — 「그만두기」가 옆 「삭제하기」와 같은 상자를 쓴다 (#2130)', () => {
+    const css = read('src/features/not-underway/NotUnderwayPanel.css')
+    const text = ruleOf(css, '.nu__text-action')
+    // 확인 줄의 실행 버튼은 이 화면의 카드 버튼(`.nu__button nu__danger`)이다.
+    const neighbor = ruleOf(css, '.nu__button')
+
+    expect(paddingBlock(text)).toBe(paddingBlock(neighbor))
+    expect(borderWidth(text)).toBe(borderWidth(neighbor))
+    expect(decl(text, 'font-size')).toBe(decl(neighbor, 'font-size'))
+    // 텍스트 버튼의 모양 — 면이 없다 (`§8`).
+    expect(decl(text, 'background')).toBe('transparent')
+    expect(decl(text, 'color')).toBe('var(--text-primary)')
+  })
 })

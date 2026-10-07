@@ -46,6 +46,7 @@ from cii_platform.services.not_underway import (
     CONSUMER_TYPES,
     PERIOD_TYPES,
     create_period,
+    stationary_distance_violation,
 )
 from cii_platform.services.voyage import require_vessel
 from cii_platform.services.voyage_import import (
@@ -176,6 +177,14 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     if ended_at is not None and started_at is not None and ended_at <= started_at:
         raise RowError("ended_at", "종료 시각은 시작 시각보다 뒤여야 합니다.")
 
+    # 접안·묘박은 이동 거리가 0이어야 한다 (`#2130`). 저장 단계(`create_period`)도 같은
+    # 함수로 막지만 **여기서 먼저 본다** — 그래야 `dry_run`이 실제 가져오기와 같은 판정을 낸다
+    # (`API_SPEC §8.2` 「부분 성공의 범위」).
+    distance_nm = _decimal(row, "distance_nm", label="이동 거리")
+    violation = stationary_distance_violation(period_type, distance_nm)
+    if violation is not None:
+        raise RowError("distance_nm", _with_raw(violation, _text(row, "distance_nm")))
+
     return {
         "period_type": period_type,
         "started_at": started_at,
@@ -183,7 +192,7 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "port_name": _port_name(row),
         "lat": _optional_decimal(row, "lat", label="위도"),
         "lon": _optional_decimal(row, "lon", label="경도"),
-        "distance_nm": _decimal(row, "distance_nm", label="이동 거리"),
+        "distance_nm": distance_nm,
         "fuel_type": fuel_type,
         "fuel_ton": _decimal(row, "fuel_ton", label="연료량", positive=True),
         "consumer_type": consumer_type,

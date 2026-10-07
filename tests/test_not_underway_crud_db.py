@@ -17,8 +17,10 @@ DB 없이 볼 수 있는 규칙(연도 귀속)은 순수 함수로 보고, 나�
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -29,6 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.db.repositories import not_underway as nu_repo
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services.not_underway import (
+    PERIOD_TYPES,
+    STATIONARY_DISTANCE_MESSAGE,
+    STATIONARY_PERIOD_TYPES,
     _resolve_regulation_year,
     add_fuel_use,
     create_period,
@@ -95,6 +100,36 @@ def test_open_period_allows_only_the_start_year():
     """진행 중 구간은 끝난 해를 알 수 없으므로 시작 연도만 허용한다."""
     with pytest.raises(ValidationError):
         _resolve_regulation_year(_at(8, 10), None, YEAR + 1)
+
+
+# ── 접안·묘박의 이동 거리 — 화면과 같은 규칙인가 (#2130) ─────────────────────
+
+_PERIOD_RULES_TS = (
+    Path(__file__).resolve().parents[1] / "frontend/src/features/not-underway/periodRules.ts"
+)
+
+
+def test_stationary_distance_rule_matches_the_screen():
+    """화면이 잠그는 유형·문구가 서버가 거부하는 유형·문구와 **같다** (`#2130` · D-11).
+
+    결정이 「두 검사가 어긋나지 않게 같은 규칙을 쓴다」고 정했다. 화면은 파이썬을 import 할 수
+    없으므로 두 목록이 생긴다 — 갈리면 화면은 잠그지 않은 칸을 서버가 422로 막거나, 화면이
+    잠근 칸을 서버는 받는 상태가 된다. 소스 글자로 대조한다.
+    """
+    source = _PERIOD_RULES_TS.read_text(encoding="utf-8")
+    types = re.search(r"STATIONARY_PERIOD_TYPES[^=]*=\s*\[([^\]]*)\]", source)
+    assert types is not None, "periodRules.ts에서 STATIONARY_PERIOD_TYPES를 찾지 못했습니다"
+    assert tuple(re.findall(r"'([A-Z_]+)'", types.group(1))) == STATIONARY_PERIOD_TYPES
+
+    message = re.search(r"STATIONARY_DISTANCE_MESSAGE\s*=\s*'([^']*)'", source)
+    assert message is not None, "periodRules.ts에서 STATIONARY_DISTANCE_MESSAGE를 찾지 못했습니다"
+    assert message.group(1) == STATIONARY_DISTANCE_MESSAGE
+
+
+def test_stationary_types_are_period_types():
+    """규칙이 가리키는 유형은 실재하는 유형이다 — 오타면 규칙이 아무것도 막지 않는다."""
+    assert set(STATIONARY_PERIOD_TYPES) <= set(PERIOD_TYPES)
+    assert STATIONARY_PERIOD_TYPES == ("IN_PORT", "AT_ANCHOR")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -330,6 +365,94 @@ async def test_unknown_consumer_type_is_422_not_500(session, vessel_id):
             end=_at(8, 12),
             fuel_uses=[{"consumer_type": "GALLEY", "fuel_type": "HFO", "fuel_ton": Decimal("1")}],
         )
+
+
+# ── 접안·묘박의 이동 거리 (#2130) ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("period_type", "distance"), [("IN_PORT", "50"), ("AT_ANCHOR", "0.01")])
+async def test_berth_period_with_distance_is_rejected(session, vessel_id, period_type, distance):
+    """접안·묘박에 거리가 있으면 422다 — 이 거리는 CII 분모에 더해져 등급을 좋게 바꾼다."""
+    with pytest.raises(ValidationError) as caught:
+        await _create(
+            session,
+            vessel_id,
+            start=_at(8, 10),
+            end=_at(8, 12),
+            period_type=period_type,
+            distance_nm=Decimal(distance),
+        )
+    assert caught.value.message == STATIONARY_DISTANCE_MESSAGE
+    assert caught.value.details[0]["field"] == "distance_nm"
+
+
+@pytest.mark.asyncio
+async def test_berth_zero_and_moving_types_with_distance_are_allowed(session, vessel_id):
+    """대조군 — 접안 0과, 움직이는 유형의 거리는 그대로 들어간다."""
+    berth = await _create(session, vessel_id, start=_at(8, 1), end=_at(8, 2), period_type="IN_PORT")
+    assert berth["distance_nm"] == 0
+    for day, period_type in ((3, "DRIFTING"), (5, "STS"), (7, "CANAL_TRANSIT"), (9, "DRYDOCK")):
+        moving = await _create(
+            session,
+            vessel_id,
+            start=_at(8, day),
+            end=_at(8, day + 1),
+            period_type=period_type,
+            distance_nm=Decimal("12.5"),
+        )
+        assert moving["distance_nm"] == 12.5, period_type
+
+
+@pytest.mark.asyncio
+async def test_update_checks_the_berth_distance_with_merged_values(session, vessel_id):
+    """수정은 **바뀐 뒤의 값으로** 본다 — 유형만 바꾸든 거리만 바꾸든 결과가 같아야 한다."""
+    anchor = await _create(session, vessel_id, start=_at(8, 10), end=_at(8, 12))
+    with pytest.raises(ValidationError):
+        await update_period(session, uuid_of(anchor), distance_nm=Decimal("50"))
+
+    canal = await _create(
+        session,
+        vessel_id,
+        start=_at(8, 20),
+        end=_at(8, 21),
+        period_type="CANAL_TRANSIT",
+        distance_nm=Decimal("50"),
+    )
+    # 유형만 접안으로 — 저장된 거리 50이 남으므로 거부다.
+    with pytest.raises(ValidationError):
+        await update_period(session, uuid_of(canal), period_type="IN_PORT")
+    # 둘을 함께 고치면 통과다.
+    fixed = await update_period(
+        session, uuid_of(canal), period_type="IN_PORT", distance_nm=Decimal("0")
+    )
+    assert (fixed["period_type"], fixed["distance_nm"]) == ("IN_PORT", 0)
+
+
+@pytest.mark.asyncio
+async def test_closing_an_old_berth_row_with_distance_is_not_blocked(session, vessel_id):
+    """규칙 이전에 저장된 「접안 + 거리」 행도 **종료 확정은 된다** (`#2130`).
+
+    수정 경로의 주 용도가 종료 확정이다(`API_SPEC §2.11`). 그 요청은 유형·거리를 보내지
+    않으므로 이 규칙으로 막지 않는다 — 막으면 사용자는 고칠 수 없는 이유로 구간을 닫지 못한다.
+    """
+    canal = await _create(
+        session,
+        vessel_id,
+        start=_at(8, 10),
+        end=None,
+        period_type="CANAL_TRANSIT",
+        distance_nm=Decimal("50"),
+    )
+    # 규칙 이전의 행을 흉내 낸다 — 서비스를 지나지 않고 유형만 바꾼다.
+    await session.execute(
+        text("UPDATE not_underway_period SET period_type = 'IN_PORT' WHERE id = :id"),
+        {"id": uuid_of(canal)},
+    )
+    session.expire_all()
+    closed = await update_period(session, uuid_of(canal), ended_at=_at(8, 12))
+    assert closed["ended_at"] is not None
+    assert (closed["period_type"], closed["distance_nm"]) == ("IN_PORT", 50)
 
 
 # ── 수정 ─────────────────────────────────────────────────────────────────────
