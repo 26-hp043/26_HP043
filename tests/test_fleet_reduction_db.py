@@ -201,8 +201,14 @@ async def test_costs_use_the_prices_given_and_leave_missing_ones_empty(session, 
     assert priced["costs"]["net"] == "577.78"
 
 
-async def _make_e_rated(session, vessel_id: UUID, *, gross_tonnage: int) -> None:
-    """연료를 크게 늘려 연말 예상을 E로 만들고 GT를 정한다 (#2132)."""
+async def _make_e_rated(session, vessel_id: UUID, *, gross_tonnage: int | None) -> None:
+    """연료를 크게 늘려 연말 예상을 E로 만들고 GT를 정한다 (#2132).
+
+    ``is_cii_applicable_hint``도 GT에 맞춰 둔다 — 등록 시 서버가 내리는 값과 같게
+    (GT ``NULL``이면 ``False``). 서버 판정은 힌트가 아니라 GT 원본을 보지만
+    (`services/applicability.py`), 힌트를 시드 값(``True``)으로 남겨 두면 GT ``NULL`` 경우가
+    실제 저장 상태와 달라진다.
+    """
     await session.execute(
         text(
             "UPDATE voyage_fuel_use SET planned_fuel_ton = 3000, "
@@ -212,16 +218,22 @@ async def _make_e_rated(session, vessel_id: UUID, *, gross_tonnage: int) -> None
         {"vid": vessel_id},
     )
     await session.execute(
-        text("UPDATE vessel SET gross_tonnage = :gt WHERE id = :vid"),
-        {"gt": gross_tonnage, "vid": vessel_id},
+        text(
+            "UPDATE vessel SET gross_tonnage = :gt, is_cii_applicable_hint = :hint WHERE id = :vid"
+        ),
+        {
+            "gt": gross_tonnage,
+            "hint": gross_tonnage is not None and gross_tonnage >= 5000,
+            "vid": vessel_id,
+        },
     )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("gross_tonnage", "expected_met"),
-    [(4999, True), (5000, False)],
-    ids=["GT4999_not_applicable", "GT5000_applicable"],
+    [(4999, True), (5000, False), (None, False)],
+    ids=["GT4999_not_applicable", "GT5000_applicable", "GT_NULL_unknown"],
 )
 async def test_no_at_risk_target_skips_a_non_applicable_e_vessel(
     session, vessel_id, gross_tonnage, expected_met
@@ -229,6 +241,8 @@ async def test_no_at_risk_target_skips_a_non_applicable_e_vessel(
     """⚠️ GT 4,999 선박은 E등급이어도 「위험 선박 0척」 목표의 걸림돌이 아니다 (#2132).
 
     같은 입력에서 GT만 5,000으로 올리면 목표 D를 못 넘어 미달이다 — **GT 하나만 다르다.**
+    GT가 ``NULL``이면 **면제하지 않는다**(`PRD §3.3.7` 결정 1 — 판정 불가는 위험 판정에 남는다).
+    힌트는 GT 4,999와 같이 거짓이라, 면제를 힌트로 가르면 이 경우가 「달성」으로 바뀐다.
     등급(`after.rating`)과 목표 등급(`target_rating`)은 두 경우 모두 그대로 실린다 — 바뀌는 것은
     판정(`meets_target`)과 선대 전체 `target_met`이다.
     """

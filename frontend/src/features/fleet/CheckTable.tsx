@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
 import { SCREEN_BY_ID } from '../../screens'
 import { VESSEL_QUERY_KEY } from '../../layout/globalContext'
@@ -80,6 +81,18 @@ export function CheckTable({
                       </button>
                     )}
                   </span>
+                  {/*
+                    CII 적용 대상 배지 — 선박을 식별하는 자리마다 같은 배지를 둔다 (`#653` ·
+                    `#2132` 결정 3 · `DESIGN_SYSTEM §8.2`). 적용 대상이 아닌 선박은 E여도 위험
+                    선박이 아니다(`PRD §3.3.7`) — 그 이유를 같은 행에서 읽게 한다. 판정은 공용
+                    `applicabilityState`(hint · GT)이고, 적용 대상이면 아무것도 그리지 않는다.
+                    이름 줄이 블록(flex)이라 배지는 이름 아래 줄에 놓인다 — 감축 계획 행과 같다.
+                  */}
+                  <ApplicabilityBadge
+                    isCiiApplicableHint={vessel.isCiiApplicableHint}
+                    grossTonnage={vessel.grossTonnage}
+                    vesselName={vessel.name}
+                  />
                   <span className="check__meta">
                     {shipTypeLabel(vessel.shipType)} · <UnderwayChip vessel={vessel} />
                   </span>

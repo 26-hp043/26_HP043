@@ -113,7 +113,8 @@ function vessel(id: string, name: string) {
     current_lon: null as string | null,
     position_updated_at: null,
     is_cii_applicable_hint: true,
-    gross_tonnage: 30000,
+    /* GT 미입력(`null`) 선박을 만드는 검사(#2132)가 덮어쓴다. */
+    gross_tonnage: 30000 as number | null,
     data_available: true,
     ytd_attained_cii: '5.0000',
     ytd_required_cii: '5.5000',
@@ -847,9 +848,11 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
     expect(within(row).getByText('E등급 1년차')).toBeTruthy()
   })
 
-  it('⚠️ CII 적용 대상이 아닌 E등급 선박은 「규제 대상 아님」만 보이고 위험 선박이 아니다 (#2132)', async () => {
+  it('⚠️ CII 적용 대상이 아닌 E등급 선박은 「규제 대상 아님」 배지가 붙고 위험 선박이 아니다 (#2132)', async () => {
     // 서버가 `risk_reasons`를 비우고 `at_risk`에서 뺀다 — 화면은 그 값을 그대로 쓴다.
     // GT를 알고 5,000 미만이면 E여도 시정조치계획 대상이 아니다(`PRD §3.3.7`).
+    // 그 이유가 같은 행에 없으면 「E · 이상 없음」이 모순으로 읽힌다 — 선박명 칸에 배지를 둔다
+    // (`DESIGN_SYSTEM §8.2` 「선박을 식별하는 자리마다」).
     const small = {
       ...vessel('v1', '소형선'),
       ytd_rating: 'E',
@@ -860,10 +863,36 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
       days_to_d_reason: 'ALREADY_AT_OR_BELOW',
     }
     renderWith({ at_risk: 0 }, [small])
-    const card = (await screen.findByText('소형선')).closest('li') as HTMLElement
-    expect(within(card).getByText('규제 대상 아님')).toBeTruthy()
-    expect(within(card).queryByText('E 1년차')).toBeNull()
+    const row = (await screen.findByRole('link', { name: '소형선' })).closest('tr') as HTMLElement
+    const badge = within(row).getByRole('img', { name: /소형선/ })
+    // 정본 문구 (DESIGN_SYSTEM §8.2) — 바꾸려면 정본 개정이 먼저다.
+    expect(badge.textContent).toBe('규제 대상 아님')
+    // 배지는 선박을 식별하는 칸(선박명 칸)에 붙는다.
+    expect(badge.closest('td')).toBe(within(row).getByRole('link', { name: '소형선' }).closest('td'))
+    // 위험 선박이 아니다 — 조치 행으로 올라가지 않고 경고 배너도 서지 않는다.
+    expect(row.className).not.toContain('check__row--action')
+    expect(within(row).queryByText(/E등급 1년차/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('GT 미입력 선박(E)의 행에는 「GT 미입력」 배지가 붙는다 — 「규제 대상 아님」으로 합치지 않는다 (#2132)', async () => {
+    // GT가 비어 있으면 판정 불가다. 서버는 이 배를 위험 판정에 남긴다(`PRD §3.3.7` 결정 1).
+    const noGt = {
+      ...vessel('v2', '톤수없는선'),
+      ytd_rating: 'E',
+      is_cii_applicable_hint: false,
+      gross_tonnage: null,
+      risk_reasons: ['E_THIS_YEAR'],
+      days_to_d: null,
+      days_to_d_reason: 'ALREADY_AT_OR_BELOW',
+    }
+    renderWith({ at_risk: 1 }, [noGt])
+    const row = (await screen.findByRole('link', { name: '톤수없는선' })).closest('tr') as HTMLElement
+    const badge = within(row).getByRole('img', { name: /톤수없는선/ })
+    // 정본 문구 (DESIGN_SYSTEM §8.2) — 바꾸려면 정본 개정이 먼저다.
+    expect(badge.textContent).toBe('GT 미입력')
+    // 정본 문구 (DESIGN_SYSTEM §8.2) — 바꾸려면 정본 개정이 먼저다.
+    expect(within(row).queryByText('규제 대상 아님')).toBeNull()
   })
 })
 

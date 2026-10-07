@@ -731,11 +731,17 @@ async def test_non_applicable_vessel_is_left_out_of_the_d_entry_alert(session):
     """「D등급 진입 임박」 알림도 GT 4,999는 뺀다 — `RISK` 단계는 규제 의무가 걸린 것이다 (#2132).
 
     **`days_to_d` 자체는 그대로다** — 선대 요약 행은 값을 싣고, 알림만 거른다.
+    GT를 모르는 선박(``NULL`` · 힌트는 GT 4,999와 같이 거짓)은 **남는다** — 판정 불가는 뺄
+    근거가 없다(`PRD §3.3.7` 결정 1). 힌트로 거르면 이 배까지 빠진다.
     """
     await _seed_parameters(session)
     await _hide_seeded_vessels(session)
     ids = {}
-    for imo, name, gt in [("9200111", "SMALL SOON", 4999), ("9200112", "BIG SOON", 30000)]:
+    for imo, name, gt in [
+        ("9200111", "SMALL SOON", 4999),
+        ("9200112", "BIG SOON", 30000),
+        ("9200113", "NOGT SOON", None),
+    ]:
         ids[name] = await _insert_vessel(
             session,
             imo=imo,
@@ -756,10 +762,14 @@ async def test_non_applicable_vessel_is_left_out_of_the_d_entry_alert(session):
     rows = {r["name"]: r for r in result["vessels"]}
     assert isinstance(rows["SMALL SOON"]["days_to_d"], int)
     assert isinstance(rows["BIG SOON"]["days_to_d"], int)
+    assert isinstance(rows["NOGT SOON"]["days_to_d"], int)
+    # 전제 — GT 미입력 선박의 힌트도 거짓이다. 힌트만으로는 GT 4,999와 갈리지 않는다.
+    assert rows["NOGT SOON"]["is_cii_applicable_hint"] is False
+    assert rows["SMALL SOON"]["is_cii_applicable_hint"] is False
 
     notes = await get_notifications(session, regulation_year=YEAR, as_of=as_of)
     soon = {i["vessel_name"] for i in notes["items"] if i["kind"] == "D_ENTRY_SOON"}
-    assert soon == {"BIG SOON"}
+    assert soon == {"BIG SOON", "NOGT SOON"}
 
 
 @pytest.mark.asyncio
