@@ -2127,11 +2127,10 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
   })
 
   /*
-   * 10/7 디자인 결정(#2313)이 `#2056` C③(「묶지 않는다」)을 바꿨다 — 남은 해가 **모두** 같은
-   * 등급이면 「2027–2029년 모두 D」 한 항목으로 줄인다. 등급이 하나라도 다르면 위 검사대로
-   * 해마다 적는다.
+   * `#2056` C②(2026-09-29 확정 · `UIFLOW 2-3`) — 같은 등급이 이어져도 「2027–2029 D」로 묶지 않는다.
+   * 해마다 적어야 기준선이 해마다 내려간다는 사실이 보인다. 10/7(#2313)에 한때 묶었다가 되돌렸다(#2335).
    */
-  it('남은 해가 모두 같은 등급이면 「첫 해–끝 해 모두 등급」 한 항목으로 줄인다 (10/7 · #2056 C③ 변경)', async () => {
+  it('남은 해가 모두 같은 등급이어도 묶지 않고 해마다 적는다 (#2056 C② · #2335)', async () => {
     const sameRating = OUTLOOK.slice(0, 3).map((row) => ({ ...row, projected_rating: 'D' as const }))
     stubWith(withOutlook(sameRating))
     renderScreen()
@@ -2139,24 +2138,32 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
 
     const line = screen.getByTestId('annual-sim-future-years')
     const years = within(line).getAllByTestId('annual-sim-future-year')
-    expect(years).toHaveLength(1)
-    // 첫 해와 끝 해를 모두 적는다 — 구간이 어디서 어디까지인지 빠지지 않는다
-    expect(years[0].textContent).toMatch(/2027\s*[–-]\s*2029/)
-    expect(within(years[0]).getByText('D')).toBeTruthy()
+    expect(years).toHaveLength(sameRating.length)
+    years.forEach((node, index) => {
+      expect(node.textContent).toContain(String(sameRating[index].regulation_year))
+      expect(within(node).getByText('D')).toBeTruthy()
+    })
+    // 구간 표기(「2027–2029」)가 어디에도 없다
+    expect(line.textContent).not.toMatch(/\d{4}\s*[–-]\s*\d{4}/)
   })
 
-  it('가정 문구는 줄 바로 아래에 있고 하단 면책 배너에 합쳐지지 않는다 (#2056 C④)', async () => {
+  it('가정 문구는 줄 바로 아래 보이는 한 줄이고 하단 면책 배너에 합쳐지지 않는다 (#2056 C③·C④ · #2335)', async () => {
     stubWith(withOutlook(OUTLOOK))
     renderScreen()
     await runOnce()
 
     const line = screen.getByTestId('annual-sim-future-years')
-    const assumption = within(line).getByText(ANNUAL_COPY.futureYearsAssumption)
-    // 10/7(#2313) — 가정은 「이대로면 …」 줄 **안**에 붙는다(짧은 꼬리 + 전문은 풀이·낭독).
-    // 한정하는 대상과 같은 줄이라 무엇에 대한 가정인지 떨어지지 않는다.
-    const row = assumption.closest('p') as HTMLElement
+    // 정본 문장이 한 번만 — 풀이(title)나 시각 숨김 사본으로 두 벌이 되지 않는다.
+    const matches = within(line).getAllByText(ANNUAL_COPY.futureYearsAssumption)
+    expect(matches).toHaveLength(1)
+    const assumption = matches[0]
+    // 보이는 글자다 — 시각 숨김 안에 있지 않고, 키보드·터치에서 안 보이는 풀이에만 기대지 않는다.
+    expect(assumption.closest('.sr-only')).toBeNull()
+    expect(line.querySelector('[title]')).toBeNull()
+    // 「이대로면 …」 줄 바로 다음 형제 — 무엇에 대한 가정인지 떨어지지 않는다.
+    const row = within(line).getAllByTestId('annual-sim-future-year')[0].closest('p') as HTMLElement
     expect(row.textContent).toContain(ANNUAL_COPY.futureYearsLabel)
-    expect(row.getAttribute('title')).toBe(ANNUAL_COPY.futureYearsAssumption)
+    expect(row.nextElementSibling).toBe(assumption)
     // 배너(`role="note"` · `.disclaimer-banner`) 안에 있지 않다.
     expect(assumption.closest('[role="note"], .disclaimer-banner')).toBeNull()
     for (const banner of document.querySelectorAll('[role="note"], .disclaimer-banner')) {

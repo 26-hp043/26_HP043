@@ -874,30 +874,27 @@ function FutureYearsLine({
         <p className="annual-sim__notice">{futureYearsUnavailableText(year)}</p>
       ) : (
         /*
-          10/7 — 한 줄로. 해마다 같은 등급이면 「2027–2030년 모두 E」로 줄이고, 가정 문장(확정
-          문구 · `#2056`)은 뒤에 짧게 붙인 뒤 전문은 풀이(title)로 둔다.
+          `#2056` C②·C③(2026-09-29 확정 · UIFLOW 2-3)대로 되돌린다(#2335). 10/7(#2313)에 같은
+          등급이면 「2027–2030년 모두 E」로 묶고 정본 가정 문장을 풀이(title)·낭독으로만 뒀는데,
+          ⑴ 묶으면 기준선이 해마다 내려간다는 사실이 사라지고 ⑵ 풀이는 키보드·터치에서 보이지
+          않는다. 해마다 적고, 가정 문장(`PRD §6.3` 정본)은 줄 바로 아래 보이는 한 줄로 둔다.
         */
-        <p className="annual-sim__meta-line" title={ANNUAL_COPY.futureYearsAssumption}>
-          <span className="annual-sim__conditions-label">{ANNUAL_COPY.futureYearsLabel}</span>{' '}
-          {outlook.every((row) => row.projected_rating === outlook[0].projected_rating) &&
-          outlook.length > 1 ? (
-            <span data-testid="annual-sim-future-year">
-              {`${outlook[0].regulation_year}–${outlook[outlook.length - 1].regulation_year}${ANNUAL_COPY.futureYearSuffix} 모두`}{' '}
-              <strong>{outlook[0].projected_rating}</strong>
-            </span>
-          ) : (
-            outlook.map((row, index) => (
+        <>
+          <p className="annual-sim__meta-line">
+            <span className="annual-sim__conditions-label">{ANNUAL_COPY.futureYearsLabel}</span>{' '}
+            {outlook.map((row, index) => (
               <span key={row.regulation_year} data-testid="annual-sim-future-year">
                 {index > 0 ? ' · ' : null}
                 {`${row.regulation_year}${ANNUAL_COPY.futureYearSuffix}`}{' '}
                 <strong>{row.projected_rating}</strong>
                 <span className="sr-only">{` ${ANNUAL_COPY.futureYearRatingUnit}`}</span>
               </span>
-            ))
-          )}
-          <span className="annual-sim__meta-sub"> · 올해 연말 값이 그대로일 때의 참고 등급</span>
-          <span className="sr-only"> {ANNUAL_COPY.futureYearsAssumption}</span>
-        </p>
+            ))}
+          </p>
+          <p className="annual-sim__meta-line annual-sim__meta-line--muted">
+            {ANNUAL_COPY.futureYearsAssumption}
+          </p>
+        </>
       )}
     </div>
   )

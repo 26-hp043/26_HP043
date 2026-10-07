@@ -1160,7 +1160,6 @@
   color: var(--text-primary);
 }
 
-.annual-sim__meta-sub,
 .annual-sim__meta-line--muted {
   font-size: var(--font-size-caption);
   color: var(--color-text-muted);
