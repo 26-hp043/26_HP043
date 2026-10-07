@@ -123,6 +123,10 @@ def added_rows(commit: Counter[Key], parents: list[Counter[Key]]) -> Counter[Key
     값을 늘어난 수가 아니라 **그 시점의 행 수**로 두는 것은 `#1607` 때문이다. 한 커밋이
     ``#1606`` 행을, 다음 커밋이 ``#1606`` ⑵ 행을 실으면 늘어난 수는 각각 1이라 최댓값이
     1에 머물고, 충돌 해결에서 하나가 빠져도 보이지 않는다.
+
+    ⚠️ 그 대가로 남는 오탐이 하나 있다. 옛 `main`에 같은 키의 행이 있고, `main`이 그 키를
+    고친 뒤에 옛 `main` 위의 PR 커밋이 **같은 키의** 행을 더하면 걸린다 — 그 시점의 행 수에
+    옛 `main`의 행이 함께 들어가기 때문이다. 트리 전부를 세던 종전에도 걸리던 모양이다.
     """
     inherited: Counter[Key] = Counter()
     for parent in parents:

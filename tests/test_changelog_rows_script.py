@@ -383,3 +383,44 @@ def test_실제_git_이력에서_두_커밋에_나눠_실은_행_중_하나가_�
 
     problems = rows.check(tmp_path, "main")
     assert any("커밋에 있던 행" in p and "#1606" in p for p in problems)
+
+
+def test_두_번_최신화한_PR의_첫_머지가_끌어온_행을_PR의_행으로_세지_않는다(tmp_path):
+    """`#2286` — `#2231` 두 번째 갱신의 모양. 머지 커밋은 **부모 전부**와 견줘야 한다.
+
+    첫 머지가 `main`의 ``#2080`` 행을 끌어오고, 그 뒤 `main`이 그 행의 커밋 열을 고친다.
+    첫 부모(PR 쪽)하고만 견주면 첫 머지가 ``#2080``을 스스로 더한 것으로 읽힌다. 머지는
+    흉내가 아니라 실제 ``git merge``다 — PR이 정본을 건드리지 않아 충돌이 없다.
+    """
+    doc = tmp_path / "API_SPEC.md"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    doc.write_text(_table("| 2026-09-30 | `#2070` | a |"), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "갈라지는 자리")
+
+    _git(tmp_path, "checkout", "-qb", "pr")
+    (tmp_path / "uv.lock").write_text("정본이 아닌 변경", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "PR 커밋")
+
+    _git(tmp_path, "checkout", "-q", "main")
+    doc.write_text(
+        _table("| 2026-09-30 | `#2070` | a |", "| 2026-10-01 | `#2080` | 이슈 번호로 적힌 행 |"),
+        encoding="utf-8",
+    )
+    _git(tmp_path, "commit", "-qam", "이슈 번호로 행을 싣는다")
+    _git(tmp_path, "checkout", "-q", "pr")
+    _git(tmp_path, "merge", "-q", "--no-ff", "-m", "첫 최신화", "main")
+
+    _git(tmp_path, "checkout", "-q", "main")
+    doc.write_text(
+        _table("| 2026-09-30 | `#2070` | a |", "| 2026-10-01 | `#2259` | PR 번호로 고친 행 |"),
+        encoding="utf-8",
+    )
+    _git(tmp_path, "commit", "-qam", "커밋 열을 고친다")
+    _git(tmp_path, "checkout", "-q", "pr")
+    _git(tmp_path, "merge", "-q", "--no-ff", "-m", "두 번째 최신화", "main")
+
+    assert len(_git(tmp_path, "rev-list", "--merges", "main..HEAD").split()) == 2
+    assert "#2259" in doc.read_text(encoding="utf-8")
+    assert rows.check(tmp_path, "main") == []
