@@ -10,10 +10,16 @@
 3. **가입 표시 이름** — ``PATCH /auth/me``는 공백을 떼고 빈 값을 ``null``로 접는데 가입은
    받은 값을 그대로 저장했다.
 
+여기에 `#2108`이 넷째를 더한다.
+
+4. **최초 관리자는 인증 뒤에** — ``INITIAL_ADMIN_EMAILS``의 주소로 먼저 가입한 사람이 메일함이
+   없어도 곧바로 관리자였다. 가입은 현장직이고, 인증 링크를 눌러야(또는 인증된 계정이
+   로그인해야) 관리자가 된다. 인증 확인과 로그인이 **같은 함수**를 지나는지도 본다.
+
 ``app_fresh_engine``(NullPool) + 커밋 기반이다 — `conn` fixture는 TestClient의 포털 루프와
 연결을 공유해 쓸 수 없다(`test_tour_login_db.py`와 같은 이유).
 
-케이스: (`TEST_PLAN §14.5` 정의 없음 — #2109의 회귀 검사다)
+케이스: (`TEST_PLAN §14.5` 정의 없음 — #2109 · #2108의 회귀 검사다)
 """
 
 from __future__ import annotations
@@ -28,7 +34,7 @@ from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.api.routes.auth import _normalize_email
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_tokens import TOKEN_INVALID_MESSAGE
-from cii_platform.auth import tour_gate
+from cii_platform.auth import role_bootstrap, tour_gate
 from cii_platform.auth.reserved_emails import (
     DEV_STUB_EMAIL,
     RESERVED_EMAILS,
@@ -38,6 +44,7 @@ from cii_platform.auth.reserved_emails import (
 from cii_platform.auth.session import SESSION_COOKIE_NAME
 from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
 from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY, PURPOSE_PASSWORD_RESET
+from cii_platform.db.types import JSONText
 from cii_platform.services.auth_token import issue_token
 
 _BASE = "https://testserver"
@@ -63,6 +70,12 @@ async def _cleanup(*emails: str) -> None:
         for email in emails:
             owner = "(SELECT id FROM app_user WHERE email = :e)"
             await s.execute(text(f"DELETE FROM user_token WHERE user_id IN {owner}"), {"e": email})
+            await s.execute(
+                text(
+                    f"DELETE FROM audit_log WHERE entity_type = 'app_user' AND entity_id IN {owner}"
+                ),
+                {"e": email},
+            )
             await s.execute(
                 text(f"DELETE FROM user_session WHERE user_id IN {owner}"), {"e": email}
             )
@@ -383,5 +396,156 @@ class TestSignupDisplayName:
                 json={"display_name": padded},
             )
             assert patched.status_code == 422, patched.text
+        finally:
+            await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. 최초 관리자는 인증 뒤에 (#2108)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _role_of(email: str) -> str:
+    return await _scalar('SELECT "role" FROM app_user WHERE email = :e', email)
+
+
+async def _role_changes(email: str) -> list[dict]:
+    """``ROLE_CHANGE`` 감사 기록 — 대상 계정 기준이다."""
+    async with _maker() as s:
+        rows = await s.execute(
+            text(
+                # `action`·`timestamp`는 CUBRID 예약어다. `entity_id`는 CHAR(32)라 타입을 붙인다.
+                "SELECT user_id, details_json FROM audit_log "
+                "WHERE \"action\" = 'ROLE_CHANGE' AND entity_id = "
+                "(SELECT id FROM app_user WHERE email = :e) "
+                'ORDER BY "timestamp"'
+            ).columns(details_json=JSONText()),
+            {"e": email},
+        )
+        return [dict(r._mapping) for r in rows]
+
+
+def _login(client: TestClient, email: str):
+    return client.post(f"{API_V1_PREFIX}/auth/login", json={"email": email, "password": PASSWORD})
+
+
+class TestInitialAdminNeedsVerifiedEmail:
+    """목록의 주소는 **메일함의 주인**이 확인된 뒤에만 관리자가 된다."""
+
+    async def test_unverified_signup_is_field_in_response_and_db(self, client, monkeypatch):
+        """🔴 종전에는 가입 응답이 `ADMIN`이었다 — 그 주소의 메일함이 없어도."""
+        email = "initial-unverified@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            resp = _signup(client, email)
+
+            assert resp.status_code == 201, resp.text
+            assert resp.json()["data"]["role"] == "FIELD"
+            assert await _role_of(email) == "FIELD"
+            assert await _role_changes(email) == [], "가입은 역할 변경이 아니다"
+        finally:
+            await _cleanup(email)
+
+    async def test_unverified_login_keeps_field_and_still_logs_in(self, client, monkeypatch):
+        """🔴 인증 전 로그인은 허용하되(`PRD §7.10`) 관리자로 올리지 않는다.
+
+        종전에는 이 로그인이 곧바로 `FIELD → ADMIN`으로 올렸다 — 다른 사람이 그 주소로
+        먼저 가입해 둔 계정에 **목록의 주인이 아닌 사람이** 들어가도 관리자였다.
+        """
+        email = "initial-login-unverified@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            assert _signup(client, email).status_code == 201
+
+            resp = _login(client, email)
+
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["data"]["role"] == "FIELD"
+            assert await _role_of(email) == "FIELD"
+            assert await _role_changes(email) == []
+        finally:
+            await _cleanup(email)
+
+    async def test_verification_promotes_and_audits_once(self, client, monkeypatch):
+        """🔴 인증 확인 직후 관리자가 되고 `ROLE_CHANGE`가 **한 건** 남는다."""
+        email = "initial-verified@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, f" {email.upper()} ")
+        try:
+            assert _signup(client, email).status_code == 201
+            raw = await _issue(email, PURPOSE_EMAIL_VERIFY)
+
+            resp = _verify_confirm(client, raw)
+
+            assert resp.status_code == 200, resp.text
+            assert await _role_of(email) == "ADMIN"
+            changes = await _role_changes(email)
+            assert [c["details_json"] for c in changes] == [
+                {"role_before": "FIELD", "role_after": "ADMIN"}
+            ]
+            user_id = await _scalar("SELECT id FROM app_user WHERE email = :e", email)
+            assert str(changes[0]["user_id"]).replace("-", "") == str(user_id).replace("-", "")
+            me = client.get(f"{API_V1_PREFIX}/auth/me")
+            assert me.json()["data"]["role"] == "ADMIN", "인증을 누른 세션이 곧바로 관리자다"
+        finally:
+            await _cleanup(email)
+
+    async def test_relogin_keeps_admin_without_a_second_audit_row(self, client, monkeypatch):
+        email = "initial-relogin@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            assert _signup(client, email).status_code == 201
+            assert (
+                _verify_confirm(client, await _issue(email, PURPOSE_EMAIL_VERIFY)).status_code
+                == 200
+            )
+
+            resp = _login(client, email)
+
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["data"]["role"] == "ADMIN"
+            assert await _role_of(email) == "ADMIN"
+            assert len(await _role_changes(email)) == 1, "ADMIN → ADMIN이 쌓이면 안 된다"
+        finally:
+            await _cleanup(email)
+
+    async def test_verified_account_demoted_while_listed_returns_on_next_login(
+        self, client, monkeypatch
+    ):
+        """「목록에 있는 동안은 항상 관리자」(#1301 · #672)는 **인증된 계정에** 그대로다."""
+        email = "initial-demoted@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            assert _signup(client, email).status_code == 201
+            assert (
+                _verify_confirm(client, await _issue(email, PURPOSE_EMAIL_VERIFY)).status_code
+                == 200
+            )
+            async with _maker() as s:
+                await s.execute(
+                    text("UPDATE app_user SET \"role\" = 'FIELD' WHERE email = :e"), {"e": email}
+                )
+                await s.commit()
+
+            resp = _login(client, email)
+
+            assert resp.json()["data"]["role"] == "ADMIN"
+            assert await _role_of(email) == "ADMIN"
+        finally:
+            await _cleanup(email)
+
+    async def test_verified_address_outside_the_list_stays_field(self, client, monkeypatch):
+        """대조군 — 인증만으로 관리자가 되는 구현을 잡는다. 목록이 문이다."""
+        email = "not-listed@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, "someone-else@example.com")
+        try:
+            assert _signup(client, email).status_code == 201
+            assert (
+                _verify_confirm(client, await _issue(email, PURPOSE_EMAIL_VERIFY)).status_code
+                == 200
+            )
+
+            assert await _role_of(email) == "FIELD"
+            assert _login(client, email).json()["data"]["role"] == "FIELD"
+            assert await _role_changes(email) == []
         finally:
             await _cleanup(email)

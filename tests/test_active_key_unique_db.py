@@ -405,14 +405,16 @@ class TestConcurrentSignup:
         await _delete_user_rows(RACE_EMAIL)
         gate = threading.Event()
         original = auth_routes._issue_session
-        real_is_initial_admin = auth_routes.is_initial_admin
+        real_normalize_display_name = auth_routes._normalize_display_name
         calls = {"n": 0, "past_precheck": 0}
 
-        def counting_is_initial_admin(email: str) -> bool:
-            # 라우트는 중복 확인을 **지난 뒤** `AppUser(...)`의 역할 인자로 이것을 부른다 —
-            # 두 번째 요청이 사전 확인의 409로 끝나면 이 수가 1에 머문다.
+        def counting_normalize_display_name(value):
+            # 라우트는 중복 확인을 **지난 뒤** `AppUser(...)`의 표시 이름 인자로 이것을 부른다 —
+            # 두 번째 요청이 사전 확인의 409로 끝나면 이 수가 1에 머문다. (종전에는 역할
+            # 인자의 `is_initial_admin`을 셌는데, #2108로 가입은 늘 현장직이 되어 그 호출이
+            # 가입 경로에서 빠졌다.)
             calls["past_precheck"] += 1
-            return real_is_initial_admin(email)
+            return real_normalize_display_name(value)
 
         async def held_issue_session(session, request, user):
             calls["n"] += 1
@@ -427,7 +429,7 @@ class TestConcurrentSignup:
                 await asyncio.sleep(0.2)  # 그 flush가 유니크 인덱스에서 대기에 들어갈 틈
             return await original(session, request, user)
 
-        monkeypatch.setattr(auth_routes, "is_initial_admin", counting_is_initial_admin)
+        monkeypatch.setattr(auth_routes, "_normalize_display_name", counting_normalize_display_name)
         monkeypatch.setattr(auth_routes, "_issue_session", held_issue_session)
 
         def post():

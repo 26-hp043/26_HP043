@@ -2,8 +2,8 @@
 
 `PRD §20 O-14`가 「역할 2종 도입」으로 바뀌었다. 여기서 잠그는 것은 다섯이다.
 
-1. **새 계정은 현장직**이고, `INITIAL_ADMIN_EMAILS`에 든 이메일만 가입·로그인에서 관리자가 된다
-   — 새 DB에서 관리자 0명이 되지 않게(`auth/role_bootstrap.py`)
+1. **새 계정은 현장직**이고, `INITIAL_ADMIN_EMAILS`에 든 이메일은 **인증을 마친 뒤**(인증 확인 직후·
+   로그인) 관리자가 된다 — 새 DB에서 관리자 0명이 되지 않게(`auth/role_bootstrap.py` · `#2108`)
 2. **현장직은 사무직 전용 경로에서 `403 FORBIDDEN_ROLE`** — CSRF의 403과 코드가 다르다
 3. **사무직 전용 경로 목록은 `API_SPEC §1.2` 표와 소스가 같다** — 한쪽만 바뀌면 여기서 걸린다
 4. **마지막 사무직은 탈퇴도 강등도 못 한다** — 0명이 되면 아무도 되돌릴 수 없다
@@ -20,6 +20,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from conftest import issue_email_verify_token
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
@@ -95,6 +96,18 @@ async def _cleanup(emails: list[str]) -> None:
                 {"e": email},
             )
             await s.execute(text("DELETE FROM app_user WHERE email = :e"), {"e": email})
+        await s.commit()
+
+
+async def _mark_verified(email: str) -> None:
+    """``email_verified_at``만 세운다 — 인증 링크를 누른 계정의 상태를 직접 만든다 (#2108)."""
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text("UPDATE app_user SET email_verified_at = CURRENT_TIMESTAMP WHERE email = :e"),
+            {"e": email},
+        )
         await s.commit()
 
 
@@ -184,6 +197,21 @@ def _signup(client: TestClient, email: str) -> dict:
     return resp.json()["data"]
 
 
+async def _signup_admin(client: TestClient, email: str) -> dict:
+    """가입하고 인증 링크까지 눌러 **관리자**가 된 계정의 `/auth/me` 값을 돌려준다 (#2108).
+
+    호출하는 쪽이 `INITIAL_ADMIN_EMAILS`에 ``email``을 넣어 둔 상태여야 한다 — 가입은 항상
+    현장직이고, 인증 확인이 그 목록을 보고 올린다.
+    """
+    assert _signup(client, email)["role"] == "FIELD"
+    token = await issue_email_verify_token(email)
+    confirmed = client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+    assert confirmed.status_code == 200, confirmed.text
+    me = client.get(f"{API_V1_PREFIX}/auth/me")
+    assert me.status_code == 200, me.text
+    return me.json()["data"]
+
+
 def _login(client: TestClient, email: str) -> dict:
     resp = client.post(f"{API_V1_PREFIX}/auth/login", json={"email": email, "password": PASSWORD})
     assert resp.status_code == 200, resp.text
@@ -235,8 +263,14 @@ def test_real_app_lifespan_runs_the_initial_admin_check(monkeypatch: pytest.Monk
         pass  # pragma: no cover - 진입 자체가 실패한다
 
 
-async def test_new_signup_is_field_and_initial_admin_email_is_admin(client, monkeypatch):
-    """새 계정은 현장직, 목록에 든 이메일만 **관리자** — 응답과 DB 둘 다 본다 (#1301)."""
+async def test_new_signup_is_field_and_initial_admin_email_is_admin_once_verified(
+    client, monkeypatch
+):
+    """새 계정은 **항상** 현장직 — 목록의 이메일은 인증을 마쳐야 **관리자**가 된다 (#1301 · #2108).
+
+    응답과 DB 둘 다 본다. 세부(미인증 로그인 · 재로그인 · 감사)는
+    ``test_auth_path_consistency_db.py``가 잠근다.
+    """
     field_email = "role-new@example.com"
     admin_email = "role-initial@example.com"
     try:
@@ -244,22 +278,30 @@ async def test_new_signup_is_field_and_initial_admin_email_is_admin(client, monk
         assert await _role_in_db(field_email) == "FIELD"
 
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", " Role-Initial@example.com ")
-        admin = _signup(client, admin_email)
-        assert admin["role"] == "ADMIN"
+        pending = _signup(client, admin_email)
+        assert pending["role"] == "FIELD", "목록의 주소도 가입 시점에는 현장직이다"
+        assert await _role_in_db(admin_email) == "FIELD"
+
+        token = await issue_email_verify_token(admin_email)
+        confirmed = client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+        assert confirmed.status_code == 200, confirmed.text
+        assert await _role_in_db(admin_email) == "ADMIN"
+        me = client.get(f"{API_V1_PREFIX}/auth/me").json()["data"]
         # `#2203` — 사람 관리자는 둘러보기가 아니다. 화면은 이 값으로만 「관리자」와
         # 「둘러보기」를 가른다(둘러보기 계정도 ADMIN이다)
-        assert admin["is_tour"] is False
-        assert await _role_in_db(admin_email) == "ADMIN"
+        assert me["role"] == "ADMIN"
+        assert me["is_tour"] is False
     finally:
         await _cleanup([field_email, admin_email])
 
 
-async def test_login_promotes_an_initial_admin_email_and_audits_once(client, monkeypatch):
-    """044 이전 가입자·화면에서 강등된 계정도 목록에 있으면 로그인에서 **관리자**가 된다."""
+async def test_login_promotes_a_verified_initial_admin_email_and_audits_once(client, monkeypatch):
+    """044 이전 가입자·강등된 계정도 목록에 있으면 로그인에서 **관리자**가 된다 — 인증했다면."""
     email = "role-promote@example.com"
     try:
         user = _signup(client, email)
         assert user["role"] == "FIELD"
+        await _mark_verified(email)
 
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", email)
         assert _login(client, email)["role"] == "ADMIN"
@@ -470,7 +512,7 @@ async def test_user_list_and_role_update_share_the_user_contract(client, monkeyp
     other = "role-office-target@example.com"
     try:
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", office)
-        me = _signup(client, office)
+        me = await _signup_admin(client, office)
         assert me["role"] == "ADMIN"
         monkeypatch.delenv("INITIAL_ADMIN_EMAILS")
         with TestClient(app, base_url=_BASE) as second:
@@ -543,7 +585,7 @@ async def test_tour_account_role_cannot_be_changed(client, monkeypatch):
     tour_email = "tour@bluelog.local"
     try:
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", admin)
-        _signup(client, admin)
+        await _signup_admin(client, admin)
         monkeypatch.delenv("INITIAL_ADMIN_EMAILS")
         with TestClient(app, base_url=_BASE) as second:
             other_me = _signup(second, other)
@@ -589,7 +631,7 @@ async def test_last_admin_cannot_be_demoted_or_deleted(client, monkeypatch):
     demoted: list[UUID] = []
     try:
         monkeypatch.setenv("INITIAL_ADMIN_EMAILS", f"{solo},{second}")
-        me = _signup(client, solo)
+        me = await _signup_admin(client, solo)
         demoted = await _demote_other_admin_users(keep=[solo])
 
         # ⑴ 자기 강등 → 409
@@ -612,7 +654,7 @@ async def test_last_admin_cannot_be_demoted_or_deleted(client, monkeypatch):
 
         # ⑶ 관리자가 하나 더 생기면 강등도 탈퇴도 된다
         with TestClient(app, base_url=_BASE) as other:
-            other_me = _signup(other, second)
+            other_me = await _signup_admin(other, second)
             assert other_me["role"] == "ADMIN"
             resp = other.patch(
                 f"{API_V1_PREFIX}/auth/users/{me['id']}/role",

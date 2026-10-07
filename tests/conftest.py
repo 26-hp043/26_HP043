@@ -764,6 +764,28 @@ async def insert_returning_id(session, sql: str, params: dict) -> str:
     return generated_id
 
 
+async def issue_email_verify_token(email: str) -> str:
+    """가입한 계정의 **인증 링크 토큰 원문**을 얻는다 — 메일을 보내지 않고 서비스로 직접 발급한다.
+
+    `INITIAL_ADMIN_EMAILS`의 주소는 가입만으로는 관리자가 되지 않고 **인증을 마쳐야** 된다
+    (#2108). 관리자 계정이 필요한 검사는 가입 뒤 이 토큰으로 ``POST /auth/verify-email/confirm``을
+    눌러 실제 경로로 올린다. ``app_fresh_engine``(NullPool)이 켜진 검사에서 쓴다.
+    """
+    from sqlalchemy import text
+
+    from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
+    from cii_platform.db.session import get_sessionmaker
+    from cii_platform.services.auth_token import issue_token
+
+    async with get_sessionmaker()() as s:
+        user_id = (
+            await s.execute(text("SELECT id FROM app_user WHERE email = :e"), {"e": email})
+        ).scalar_one()
+        raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
+        await s.commit()
+    return raw
+
+
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
