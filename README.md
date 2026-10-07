@@ -255,7 +255,7 @@ python3 scripts/db_backup.py restore backups/<파일>.dump --confirm "$CUBRID_DB
 - **트리거 수가 매니페스트에 실리고 리허설이 대조한다.** 이 배포에서 트리거는 **제약 그 자체**다(`DB_SCHEMA §7.4` — CHECK 60개가 트리거로 강제된다). 트리거가 빠진 복구는 제약이 없는 DB다
 - **교체는 `cubrid renamedb`이고, 그 전에 `cubrid server stop`이 필요하다.** 순서 — 앱 중지 → 서버 중지 → 이름 변경 2회 → 서버 기동 → 앱 기동. **중간에 실패하면 되돌리거나 멈추고, 운영 DB가 제자리에 떠 있을 때만 앱을 켠다**(`#1635` · 단계별 상태와 수동 복구는 `docs/OPERATIONS.md` §3.6.6). 분리 배포(db-01에는 앱이 없다)는 `APP_SERVICE=none`으로 두고 app-01에서 앱을 먼저 멈춘 뒤 `--app-stopped`를 붙인다 새 DB는 `databases.txt`가 가리키는 **운영 DB와 같은 디렉터리**에 만든다(`renamedb`는 볼륨을 제자리에서 이름만 바꾸므로, 다른 곳에 만들면 교체 뒤 운영 DB의 볼륨을 찾을 수 없다)
 
-- **주기는 하루 한 번이다** — 호스트 crontab 한 줄: `17 3 * * * cd <저장소> && python3 scripts/db_backup.py backup && python3 scripts/db_backup.py rehearse "$(ls -1 backups/*.dump | tail -1)"`. 보존 개수는 `BACKUP_KEEP`, 위치는 `BACKUP_DIR`(기본 `backups/` · `.gitignore`·`.dockerignore`)로 바꾼다
+- **주기 실행은 두지 않는다 — 운영 워크플로 `ops.yml`의 `backup`·`rehearse`를 손으로 돌린다** (`#788` 결정 — 2026-09-17 「10/10까지 수동 + 시연 전날 1회」 · 2026-09-26 실행 경로는 `ops.yml`). 사람이 서버에 들어가 명령을 치는 경로가 없어 호스트 crontab으로 걸 수도 없다(`ops.yml` 머리주석 · `docs/OPERATIONS.md` §3.8). 그래서 **되돌릴 수 없는 downgrade와 만료 행 정리(`purge`) 앞에는 그때마다 `backup`을 먼저 돌린다.** 보존 개수는 `BACKUP_KEEP`, 위치는 `BACKUP_DIR`(기본 `backups/` · `.gitignore`·`.dockerignore`)로 바꾼다
 - **덤프는 같은 호스트에 쌓인다.** 호스트 자체를 잃는 사고에는 쓸 수 없다 — 호스트 밖으로 옮기는 것은 DB를 어디에 둘지(`#788`)와 함께 정한다
 - **되돌릴 수 없는 downgrade 전에는 반드시 한 번 더 뜬다.** 프로덕션 가드가 24시간 안의 `DB_BACKUP` 기록을 요구하며, 없으면 `ALLOW_IRREVERSIBLE_DOWNGRADE`로 명시해도 막힌다(`DB_SCHEMA §8.1.2`)
 - CI의 docker 잡이 프로덕션 스택에서 **백업 → 리허설 → 교체**를 매 실행 돌린다 — 절차가 낡으면 거기서 드러난다(실제로 CUBRID 전환 뒤 이 단계가 `sh: psql: command not found`로 그 잡을 혼자 빨갛게 만들고 있었다)
@@ -284,7 +284,7 @@ python3 scripts/purge_expired.py
   COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid \
     python3 scripts/purge_expired.py --dry-run
   ```
-- ⚠️ **이 스크립트는 `#1330` 이전에 배포 DB에서 한 번도 성공하지 못했다.** `csql`에 `-p "$CUBRID_PASSWORD"`를 넘기지 않아 **세 표 모두 인증에서 실패**했고(감사 INSERT까지), README가 적은 crontab에 걸려 있었다면 매일 실패했을 것이고(걸려 있었는지는 확인하지 못했다) 이 스크립트로는 `PRD §16.3`의 90일 삭제가 **한 번도 성공하지 못했다.** 스크립트는 실패를 종료 코드 1로 알리므로 **그 결과를 보는 경로가 있어야 한다** — `ops.yml purge`는 종료 코드 1을 Actions 실행 실패로 보인다
+- ⚠️ **이 스크립트는 `#1330` 이전에 배포 DB에서 한 번도 성공하지 못했다.** `csql`에 `-p "$CUBRID_PASSWORD"`를 넘기지 않아 **세 표 모두 인증에서 실패**했고(감사 INSERT까지), README가 그때 적어 두었던 crontab에 걸려 있었다면 매일 실패했을 것이고(걸려 있었는지는 확인하지 못했다) 이 스크립트로는 `PRD §16.3`의 90일 삭제가 **한 번도 성공하지 못했다.** 스크립트는 실패를 종료 코드 1로 알리므로 **그 결과를 보는 경로가 있어야 한다** — `ops.yml purge`는 종료 코드 1을 Actions 실행 실패로 보인다
 
 ### 지도 자산 (`#763` · `#985`) — 평소엔 손댈 일 없음
 
@@ -768,3 +768,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-07 | `#2326` | 「만료 행 정리」 절의 crontab 한 줄을 **`ops.yml purge`**(기본 `--dry-run` · `confirm`에 `cii`)로 정정하고 주기 실행을 두지 않는 이유를 적었다 — `PRD §16.3`·`docs/OPERATIONS.md` §3.8과 같은 결정. 「crontab이 매일 돌면서도 90일 삭제가 한 번도 일어나지 않았다」는 걸려 있었는지 확인되지 않은 추정이라 가정형으로 고쳤다 (#2116) |
 | 2026-10-07 | `#2331` | 배포 절의 최초 관리자 서술 두 곳 — `INITIAL_ADMIN_EMAILS`의 주소는 **이메일 인증을 마친 뒤에** 관리자가 된다(가입은 현장직). 문서 구조 표는 그대로 (#2108) |
 | 2026-10-07 | `#2330` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.37**로 — 10/7 화면 개편(`§7.1` 셸 산술 · `§7.2` 계정 카드 맨 아래 · `§2.6` 보조 토큰 · `§9.5` 대시보드 지도 카드) (#2324) |
+| 2026-10-08 | `#2341` | 「백업·복구」 절의 **「주기는 하루 한 번 — 호스트 crontab 한 줄」을 「주기 실행 없음 · `ops.yml backup`을 손으로」로 정정** (`#2329`). 백업 주기는 `#788` 결정(2026-09-17 「10/10까지 수동 + 시연 전날 1회」)이고 실행 경로는 같은 이슈의 2026-09-26 결정(`ops.yml`)이다 — 사람이 서버에 들어가 명령을 치는 경로가 없어 crontab을 걸 수도 없다. 「만료 행 정리」 절의 「README가 적은 crontab」은 지금 README에 그 줄이 없으므로 「그때 적어 두었던」으로 고쳤다. 같은 전제를 쓰던 `DB_SCHEMA §8.1.2` · `docs/OPERATIONS.md` 체크리스트 · `scripts/db_backup.py` 머리주석도 함께 맞췄다 (#2329) |
