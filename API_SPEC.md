@@ -959,6 +959,8 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 
 > **`transport_capacity_basis` (#356 추가).** 응답 최상위에 표시 단위의 축(`DWT` · `GT`)을 함께 싣는다. `DESIGN_SYSTEM §4.1` 🔒이 `gCO₂/(DWT·nm)`과 `gCO₂/(GT·nm)`을 **선종에 따라 갈리는 값**으로 규정하고 고정 문자열을 금지하기 때문이다. 화면이 선종에서 축을 유추하면 선종이 늘 때 서버와 갈라지고, **크루즈선에 `DWT`가 표시돼도 화면은 깨지지 않아 발견이 늦다.** 축을 정하는 것은 `calc.capacity.capacity_axis`이며 그 결과를 그대로 반환한다. 연도별로 달라지지 않는 선박 속성이라 `years` 안이 아니라 최상위에 둔다.
 
+> **`excluded_confirmed_voyage_count` (#2133 추가).** 응답 최상위에 **연간 반영 안 함(`EXCLUDE`)으로 남은 실적 확정(`CONFIRMED`) 항차 수**(integer · 0 이상)를 싣는다. 삭제된 항차는 세지 않는다. 선박 상세 개요는 올해 누적이 비어 있을 때 이 값으로 「항차 실적이 없다」와 「확정 항차가 연간에서 빠져 있다」를 가른다 — 종전 사유는 `NO_DATA`·`NO_REGULATION_PARAMS` 둘뿐이라 **규제연도 없이 확정한 항차가 있는 선박도 「올해 등록된 항차 실적이 없습니다」**를 들었다. **연도로 거르지 않는다** — 규제연도 없이 확정된 항차는 어느 해에도 속하지 않으므로(`DB_SCHEMA §2.2` `chk_year_policy`), 연도로 거르면 정작 세어야 할 행이 빠진다. 그래서 `years` 안이 아니라 최상위에 둔다. 리포트(`§8.4`)·선대 요약(`§2.8`)이 같은 이력 서비스를 부르지만 이 값은 이 엔드포인트만 싣는다.
+
 #### 쿼리 파라미터
 
 | 파라미터 | 타입 | 필수 | 설명 |
@@ -1020,6 +1022,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
     "from": 2024,
     "to": 2026,
     "transport_capacity_basis": "DWT",
+    "excluded_confirmed_voyage_count": 0,
     "years": [
       {
         "regulation_year": 2024,
@@ -2481,6 +2484,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 
 > **[#150] `regulation_year`는 optional이다.** 주어지면 `VAL-005`(`regulation_year` 테이블에 해당 연도 존재)로 검증한다. `annual_inclusion_policy = EXCLUDE`인 동안에는 없어도 되고, **`INCLUDE_AS_PLAN` 전환 시점에는 반드시 있어야 한다**(§3.5 전환 가드 · `PRD §8.1.1`). 생성 시 넣지 않았다면 §3.4 PATCH로 설정한다.
 
+> **[#2133] `regulation_year`는 출항 또는 도착 시각의 UTC 해 중 하나여야 한다** (`PRD §8.3` 「항차의 귀속 연도」). `VAL-005`(409)를 통과한 뒤 `planned_departure_at`·`planned_arrival_at`의 **UTC** 해(`#1333`)와 대조해, 어느 쪽 해도 아니면 422 `VALIDATION_ERROR`(`field` `regulation_year` · `field_label` 「기준연도」 · 문구 「규제연도는 항차가 걸친 연도(2026)여야 합니다.」 — 괄호 안은 허용 연도이며 해를 걸친 항차는 「2026 또는 2027」)다. 예: 2026-03-10 출항 항차에 `2025`는 422, 2026-12-28 출항·2027-01-03 도착 항차에는 `2026`·`2027` 모두 201이다. **`planned_departure_at`이 없으면 대조하지 않는다** — 계획 단계에서 시각을 모르는 항차는 대조할 값이 없다(도착 시각만 있어도 같다). 허용 집합은 정박 구간(`§2.10`)과 **같은 함수**(`services/voyage.spanned_utc_years`)가 만들고 문구 모양도 같다(정박 구간은 「구간이 걸친 연도」). 같은 검사를 지나는 경로는 이 생성 · `§3.4` 수정 · `§5.2` `CREATE_NEW_VOYAGE`(원본 항차의 연도를 새 출항 시각과 대조한다)다. `§8.2` CSV 가져오기는 연도 열이 없어 늘 `null`로 저장되므로 대조할 값이 없다. 종전에는 `VAL-005`만 봐서 2026년 3월 항차를 2025년으로 저장할 수 있었고, 그 항차는 두 해의 누적과 등급을 모두 조용히 바꿨다.
+
 #### 응답 (201 Created)
 
 생성된 항차 객체. 초기 `status = DRAFT`, `annual_inclusion_policy = EXCLUDE` (자동 설정).
@@ -2498,6 +2503,8 @@ PATCH /api/v1/voyages/{voyage_id}
 > **[#1256] `planned_distance_nm`을 바꾸면서 `planned_distance_source`를 생략하면 출처는 `null`(「모른다」)로 돌아간다.** 출처는 항차가 아니라 **숫자에 붙은 표시**다 — 좌표로 채운 항차(`COORDINATE_ESTIMATE`)의 거리를 사람이 고쳤는데 「추정값입니다」가 남아 있으면 `PRD §0.3`이 금하는 거짓말이고, 서버는 새 숫자를 어떻게 얻었는지 모르므로 직접 입력이라고도 적지 않는다(§3.3 생성 기본값과 같은 규칙). 거리와 출처를 **함께** 보내면 그 출처가 붙고, 출처만 보내면(거리 생략) 표시만 바뀌며, 명시적 `null`은 지움이다(#312 규약). 거리를 건드리지 않는 요청은 출처를 그대로 둔다. 시나리오 채택(`§5.2` `UPDATE_EXISTING_PLAN`)도 거리를 갈아 끼우므로 같은 규칙으로 `null`이 된다. **출처 변경은 거리와 같은 상태(`DRAFT`·`PLANNED`)에서만 된다** — 재계산 대상은 아니지만 계획 거리에 붙은 표시라, 확정된 항차의 거리에 사후로 「추정」을 붙이거나 떼면 `422 STATE_TRANSITION_ERROR`다(`#865` 가드와 같은 문구).
 
 > **[#2090] 시각 순서는 합친 결과로 본다.** `planned_departure_at`·`planned_arrival_at` 중 하나라도 요청에 있으면 **요청 값과 저장된 값을 합친 쌍**으로 `§3.3` 규칙(도착은 출항보다 뒤 · 같은 시각 거부)을 다시 검사한다 — 도착만 앞당겨 저장된 출항보다 이르게 만드는 요청도 422(`planned_arrival_at`)다. 시각을 건드리지 않는 요청은 이 검사를 받지 않는다(이미 뒤집혀 저장된 행의 메모 수정까지 막지 않는다).
+
+> **[#2133] 귀속 연도도 합친 결과로 본다.** `regulation_year`·`planned_departure_at`·`planned_arrival_at` 중 하나라도 요청에 있으면 **요청 값과 저장된 값을 합친 결과**로 `§3.3` `[#2133]` 대조를 다시 한다 — 연도만 바꾸는 요청도, 시각만 이듬해로 옮겨 저장된 연도와 어긋나게 하는 요청도 422(`regulation_year`)다. **정박 구간 수정(`§2.11`)과 달리 연도를 따라 옮기지 않는다** — 항차의 연도는 비워 둘 수 있는 사용자 입력이라 서버가 대신 고르면 사용자가 넣은 값이 말없이 바뀐다. 시각과 연도를 **한 요청에 함께** 보내면 된다. 셋 다 건드리지 않는 요청은 이 검사를 받지 않는다(이미 어긋나 저장된 행의 메모 수정까지 막지 않는다 — `#2090`과 같은 쪽).
 
 ### 3.5 항차 상태 전환
 
@@ -4343,7 +4350,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | Content-Type 검증 | `text/csv`, `application/vnd.ms-excel` 허용. 그 외 거부 |
 | 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 앞에 `'` (apostrophe)를 prefix하여 escape (formula injection 방지). 숫자 컬럼은 numeric parser로 검증하여 문자열 수식 거부 |
 | 필수 컬럼 | `voyage_no`, `departure_port_name`, `arrival_port_name`, `planned_distance_nm`, `planned_speed_kn`, `fuel_type`, `planned_fuel_ton` — **「필수 컬럼」은 그 열이 파일에 있어야 한다는 뜻이다**(없으면 파일 전체 422). 값의 필수 여부는 별개다 (`#2130`) — `voyage_no`는 수기 API(`§3.3`)에서 **선택**이지만, CSV에서는 지금 빈 값이 **그 행 오류**(「값을 입력해 주세요.」)다. 빈 번호는 서로 묶지 않는다. 같은 번호의 연료 행은 위 묶음 규칙(`#2094`)을 따르며, 번호 값의 필수 규칙은 유지한다 |
-| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없으면 그 행 오류 · 저장은 UTC (#906). **둘 다 있는데 `planned_arrival_at`이 `planned_departure_at`보다 이르거나 같으면 그 행 오류**(`field` `planned_arrival_at` · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」 · `§3.3` 같은 판정, #2090) |
+| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없으면 그 행 오류 · 저장은 UTC (#906). **둘 다 있는데 `planned_arrival_at`이 `planned_departure_at`보다 이르거나 같으면 그 행 오류**(`field` `planned_arrival_at` · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」 · `§3.3` 같은 판정, #2090). `regulation_year` 열은 없다 — 가져온 항차는 연도 없이(`null`) 저장되므로 `§3.3` `[#2133]` 귀속 연도 대조를 받지 않는다 |
 
 #### 응답 (200 OK)
 

@@ -28,7 +28,10 @@ from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services.cii_current import get_current_cii
-from cii_platform.services.cii_history import list_cii_history
+from cii_platform.services.cii_history import (
+    count_excluded_confirmed_voyages,
+    list_cii_history,
+)
 from cii_platform.services.cii_ytd_series import get_ytd_series
 from cii_platform.services.sample_vessels import list_sample_vessels
 from cii_platform.services.vessel import (
@@ -138,6 +141,11 @@ async def get_cii_history_route(
             # 표시 단위의 축(DWT·GT) — `DESIGN_SYSTEM §4.1`이 고정 문자열을 금지하므로
             # 화면이 선종에서 유추하지 않고 서버가 정한 값을 쓴다 (#356).
             "transport_capacity_basis": history["transport_capacity_basis"],
+            # 연간 반영 안 함으로 남은 확정 항차 수 — 개요가 「실적 없음」과 가른다 (#2133).
+            # 선박 실재는 위 `list_cii_history`가 이미 확인했다(없으면 404).
+            "excluded_confirmed_voyage_count": await count_excluded_confirmed_voyages(
+                session, vessel_id=vessel_id
+            ),
             "years": history["years"],
         },
         "meta": _meta(request, as_of=as_of.isoformat() if isinstance(as_of, datetime) else as_of),

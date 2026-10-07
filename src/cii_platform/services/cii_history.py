@@ -45,6 +45,7 @@ from cii_platform.calc.precision import (
 )
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
 from cii_platform.services.cii_current import (
     MAX_REGULATION_YEAR,
@@ -383,3 +384,18 @@ async def list_cii_history(
         "transport_capacity_basis": capacity_axis(vessel.ship_type),
         "years": years,
     }
+
+
+async def count_excluded_confirmed_voyages(session: AsyncSession, *, vessel_id: UUID) -> int:
+    """연간 반영 안 함으로 남은 실적 확정 항차 수 (`API_SPEC §2.7` · `#2133`).
+
+    선박 개요의 「올해 누적」이 비어 있을 때, 화면이 **「항차 실적이 없다」와 「확정 항차가
+    연간에서 빠져 있다」를 가르는** 값이다. 종전에는 사유가 ``NO_DATA``·
+    ``NO_REGULATION_PARAMS`` 둘뿐이라 규제연도 없이 확정한 항차가 있는 선박도 「올해 등록된
+    항차 실적이 없습니다」를 들었다 — 사용자는 입력이 사라진 것으로 읽는다.
+
+    :func:`list_cii_history`에 넣지 않고 따로 둔다. 그 함수는 리포트(``report``)와 선대
+    요약(``fleet_summary``)도 부르는데, 둘은 이 값을 쓰지 않으므로 선박마다 조회를 하나씩
+    늘릴 이유가 없다. 이력 라우트만 이 함수를 함께 부른다.
+    """
+    return await voyage_repo.count_excluded_confirmed(session, vessel_id)

@@ -184,7 +184,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 선박 ID |
 | `voyage_no` | VARCHAR(100) | NULL | 사용자 입력 항차 번호 |
 | `status` | VARCHAR(20) | NOT NULL | DRAFT, PLANNED, IN_PROGRESS, COMPLETED, CONFIRMED, CANCELLED, ARCHIVED |
-| `regulation_year` | INTEGER | NULL **[C-1 추가]** | 해당 항차가 포함될 규정연도. `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL 필수 |
+| `regulation_year` | INTEGER | NULL **[C-1 추가]** | 해당 항차가 포함될 규정연도. `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL 필수. **값은 출항 또는 도착 시각의 UTC 해 중 하나**이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3` · `#2133`). 이 대조는 서비스가 쓰기 때 한다 — DB 제약이 아니므로 규칙 전에 저장된 행은 어긋난 채 남을 수 있다 |
 | `departure_port_name` | VARCHAR(200) | NOT NULL | 출발항 |
 | `departure_lat` | NUMERIC(9,6) | NULL | 출발항 위도 |
 | `departure_lon` | NUMERIC(9,6) | NULL | 출발항 경도 |

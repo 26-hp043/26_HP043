@@ -63,6 +63,7 @@ const DETAIL: Detail = {
   },
   capacityBasis: 'DWT',
   years: [],
+  excludedConfirmedVoyageCount: 0,
   asOf: '2026-08-23T00:00:00Z',
 }
 
@@ -445,6 +446,51 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     )
 
     expect(await screen.findByText(/올해 등록된 항차 실적이 없습니다/)).toBeTruthy()
+  })
+
+  /*
+   * 연간에서 빠진 확정 항차가 있으면 「실적이 없다」로만 말하지 않는다 (#2133).
+   *
+   * 문구는 표시 문구라 리터럴로 단언하지 않는다(`AGENTS §4.6`). 지키려는 것은 셋이다 —
+   * ⑴ 종전 「없음」 문구와 **다른 말**이다 ⑵ **몇 건인지**가 들어 있다 ⑶ 파라미터 없음이 먼저다.
+   */
+  const NO_DATA_YEAR: CiiYear = {
+    ...YEAR_WITHOUT_RATING,
+    dataAvailable: false,
+    reason: 'NO_DATA',
+    attainedCii: null,
+    requiredCii: null,
+    voyageCount: 0,
+  }
+
+  async function noDataLine(year: CiiYear, excludedConfirmedVoyageCount: number) {
+    const provider = stub({
+      load: vi.fn().mockResolvedValue({ ...DETAIL, years: [year], excludedConfirmedVoyageCount }),
+    })
+    const { container, unmount } = renderAt(provider)
+    let text = ''
+    await waitFor(() => {
+      const line = container.querySelector('.vd__nodata')
+      expect(line).toBeTruthy()
+      text = line?.textContent ?? ''
+    })
+    unmount()
+    return text
+  }
+
+  it('연간 반영 안 함인 확정 항차가 있으면 「없음」과 다른 말로 그 건수를 말한다 (#2133)', async () => {
+    const none = await noDataLine(NO_DATA_YEAR, 0)
+    const excluded = await noDataLine(NO_DATA_YEAR, 3)
+
+    expect(excluded).not.toBe(none)
+    expect(excluded).toMatch(/3건/)
+    expect(none).not.toMatch(/3건/)
+  })
+
+  it('파라미터가 없는 해는 빠진 항차가 있어도 파라미터 사유가 먼저다 (#2133)', async () => {
+    const noParams: CiiYear = { ...NO_DATA_YEAR, reason: 'NO_REGULATION_PARAMS' }
+
+    expect(await noDataLine(noParams, 3)).toBe(await noDataLine(noParams, 0))
   })
 
   it('올해 카드의 항차 칸은 「완료 항차」이고 진행분을 함께 적는다 (#987)', async () => {

@@ -277,7 +277,11 @@ export function createApiVesselDetailProvider(
 
       const vessel = (vesselBody.data ?? null) as ServerVessel | null
       const history = (historyBody.data ?? null) as
-        | { transport_capacity_basis?: string; years?: ServerYear[] }
+        | {
+            transport_capacity_basis?: string
+            excluded_confirmed_voyage_count?: unknown
+            years?: ServerYear[]
+          }
         | null
       const meta = (historyBody.meta ?? {}) as { as_of?: string }
 
@@ -299,6 +303,14 @@ export function createApiVesselDetailProvider(
         vessel: toSpec(vessel),
         capacityBasis: basis as CapacityBasis,
         years: (history.years ?? []).map(toYear),
+        /*
+         * 개수를 모르면 0으로 둔다 (#2133). 이 값은 「실적이 없습니다」 문구를 **더 구체적으로**
+         * 바꾸는 데만 쓰므로, 모를 때 종전 문구로 돌아가는 것이 가장 덜 틀린다.
+         */
+        excludedConfirmedVoyageCount:
+          typeof history.excluded_confirmed_voyage_count === 'number'
+            ? history.excluded_confirmed_voyage_count
+            : 0,
         asOf: meta.as_of ?? '',
       }
     },
