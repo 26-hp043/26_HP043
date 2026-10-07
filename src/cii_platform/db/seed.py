@@ -22,7 +22,10 @@
 
 신규 환경 부트스트랩은 이 모듈이 하지 않는다 — data migration ``6c7496c4d122``가
 63행(연료 CF 8 · 규제 42 · 기상 계수 10 · 시뮬레이션 3)을 넣으며 ``alembic upgrade head``
-하나로 적재가 끝난다. :func:`seed_all`의 upsert는 **규제 개정 시 재적재** 경로다.
+하나로 적재가 끝난다. :func:`seed_all`의 upsert는 **규제 개정 시 재적재** 경로이며,
+배포 워크플로(``deploy.yml``)가 ``alembic upgrade head`` 뒤에 매 배포 실행한다. 있는 행을
+upsert하므로 값이 같으면 행 수와 값 열이 그대로다. ``REPLACE``로 넣는 세 표(``fuel_type`` ·
+``simulation_parameter`` · ``weather_model_parameter``)는 실행마다 ``id``가 새로 부여된다.
 
 리비전 번호는 CUBRID 전환(`#1058`)에서 바뀌었다. 종전 017(연료 CF) · 032(규제 42행)
 등이 스키마 통합 때 사라졌고 ``6c7496c4d122``가 한 리비전으로 되살렸다. ``fuel_type``의

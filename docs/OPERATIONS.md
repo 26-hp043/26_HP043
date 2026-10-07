@@ -224,7 +224,7 @@ GitHub Actions (deploy.yml)
   │   │    DATABASE_URL의 CUBRID_PASSWORD URL 인코딩도 러너에서 한다)
   │   ├─ GHCR 로그인 + 이미지 풀
   │   ├─ Alembic 마이그레이션 (one-shot)
-  │   ├─ 규제 파라미터 seed
+  │   ├─ 규제 파라미터 seed (`python -m cii_platform.db.seed` — 매 배포 실행 · upsert라 값이 같으면 행 수·값 열 불변 · #2264)
   │   └─ docker compose up -d backend
   │
   └─ health check
