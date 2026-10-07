@@ -53,7 +53,7 @@ from cii_platform.services.cii_current import (
     resolve_in_progress_state,
 )
 from cii_platform.services.request_cache import cached
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 from cii_platform.services.ytd_cii import compute_ytd_cii
 
 if TYPE_CHECKING:
@@ -337,7 +337,7 @@ async def list_cii_history(
     판정하면서 집계는 연도 전체를 훑어, 상태와 숫자가 다른 시점을 가리켰다.
     """
     resolved = resolve_as_of(as_of)
-    current_year = resolved.year
+    current_year = current_regulation_year(resolved)
     end = to_year if to_year is not None else current_year
     # 기본 창의 시작은 하한 아래로 내려가지 않는다 — `to=2020`만 준 요청이 `from=2018`로
     # 계산돼 422가 되던 자리다(`#2100`). 리포트의 같은 계산(`report.py`)과 같은 처리다.

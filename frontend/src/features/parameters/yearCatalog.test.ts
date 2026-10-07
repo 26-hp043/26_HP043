@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+import '../../test/renderSetup'
+import { renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -5,6 +8,7 @@ import {
   createApiYearCatalog,
   createYearCatalog,
   displayYears,
+  useYearOptions,
 } from './yearCatalog'
 
 /**
@@ -197,5 +201,34 @@ describe('연도 선택지 — 최신 연도부터 · 조회 화면은 올해까
     const rows = [2023, 2024]
     displayYears(rows, null)
     expect(rows).toEqual([2023, 2024])
+  })
+})
+
+describe('조회 화면의 「올해까지」는 KST 달력의 해다 (#2131)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('UTC로는 아직 지난해인 KST 새해 첫 아홉 시간에도 새해가 선택지에 든다', async () => {
+    // UTC 2025-12-31 17:00 = KST 2026-01-01 02:00. 기기 시간대(UTC)의 해를 쓰면 2026이 빠진다.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2025-12-31T17:00:00Z'))
+    mockFetch(() => jsonResponse({ data: [{ year: 2025 }, { year: 2026 }, { year: 2027 }] }))
+
+    const { result } = renderHook(() => useYearOptions(CONTAINER_VESSEL_ID, { throughCurrentYear: true }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.years).toEqual([2026, 2025])
+  })
+
+  it('KST로도 아직 지난해인 순간에는 새해를 넣지 않는다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2025-12-31T14:59:00Z'))
+    mockFetch(() => jsonResponse({ data: [{ year: 2025 }, { year: 2026 }] }))
+
+    const { result } = renderHook(() => useYearOptions(CONTAINER_VESSEL_ID, { throughCurrentYear: true }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.years).toEqual([2025])
   })
 })

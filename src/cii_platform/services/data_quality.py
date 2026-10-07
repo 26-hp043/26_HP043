@@ -84,7 +84,7 @@ from cii_platform.services.fleet_summary import (
 from cii_platform.services.request_cache import cached
 from cii_platform.services.request_cache import enable as enable_request_cache
 from cii_platform.services.request_cache import put as cache_put
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     SUBSTITUTION_AXIS_DISTANCE,
@@ -430,7 +430,11 @@ async def get_fleet_data_quality(
 
     **선박이 0척이면 빈 결과다** — 선대 요약(`§2.8`)과 같은 이유로 오류가 아니다.
     """
-    year = regulation_year if regulation_year is not None else resolve_as_of(None).year
+    year = (
+        regulation_year
+        if regulation_year is not None
+        else current_regulation_year(resolve_as_of(None))
+    )
 
     enable_request_cache(session)
     vessels = await vessel_repo.list_all_active(session)

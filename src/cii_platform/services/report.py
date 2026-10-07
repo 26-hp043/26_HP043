@@ -70,7 +70,7 @@ from cii_platform.services.cii_history import (
     list_cii_history,
 )
 from cii_platform.services.scenario_compare import SCENARIO_NAMES
-from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.services.simulation_clock import current_regulation_year, resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     _select_rating_boundary,
@@ -502,7 +502,7 @@ async def build_voyage_report(
         raise NotFoundError(f"선박을 찾을 수 없습니다: {voyage.vessel_id}")
 
     resolved = resolve_as_of(as_of)
-    year = voyage.regulation_year or resolved.year
+    year = voyage.regulation_year or current_regulation_year(resolved)
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
 
     # YTD는 「이 항차가 연간 누적에서 차지한 비중」을 내기 위해 필요하다.
@@ -540,7 +540,7 @@ async def build_voyage_report(
     #
     # ⚠️ **연도는 따로 보지 않는다.** 이슈 `#1090`은 「``regulation_year``가 다른 항차」도
     # 같은 결함이라고 적었으나, 실측상 그 경우는 없다 — 위에서 ``year``를
-    # ``voyage.regulation_year``로 잡고(없으면 ``resolved.year``), DB 트리거
+    # ``voyage.regulation_year``로 잡고(없으면 ``current_regulation_year(resolved)``), DB 트리거
     # ``trg_voyage_enum_*``(``048``)이 ``annual_inclusion_policy = 'EXCLUDE' OR
     # regulation_year IS NOT NULL``을 강제한다. 즉 ``INCLUDE_AS_ACTUAL``이면 연도가
     # 반드시 있고 ``year``가 그 연도이므로 **어긋날 수 없다.** 조건을 더 걸면 닿지 않는
@@ -931,7 +931,7 @@ async def build_annual_report(
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
     resolved = resolve_as_of(as_of)
-    target_year = year if year is not None else resolved.year
+    target_year = year if year is not None else current_regulation_year(resolved)
     if not 2019 <= target_year <= 2100:
         raise ValidationError(
             "규제연도는 2019~2100 범위여야 합니다.", field="year", field_label="규제연도"

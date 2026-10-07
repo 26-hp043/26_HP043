@@ -19,6 +19,7 @@ import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
   DISPLAY_UNIT_DAILY_FUEL,
+  currentKstYear,
   formatDecimalString,
   formatGrouped,
   toDecimalInput,
@@ -158,7 +159,7 @@ export function VoyageCiiForm({
   const regulationYear =
     years.length === 0
       ? rawState.regulationYear
-      : pickDefaultYear(years, new Date().getFullYear(), rawState.regulationYear)
+      : pickDefaultYear(years, currentKstYear(), rawState.regulationYear)
   const state = useMemo(
     () => (regulationYear === rawState.regulationYear ? rawState : { ...rawState, regulationYear }),
     [rawState, regulationYear],

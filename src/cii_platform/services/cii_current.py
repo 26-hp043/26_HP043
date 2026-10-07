@@ -71,6 +71,7 @@ from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.simulation_clock import (
     NotUnderwayWindow,
     compute_progress,
+    current_regulation_year,
     resolve_as_of,
 )
 from cii_platform.services.ytd_cii import (
@@ -639,13 +640,17 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
     항차에 계획이 있는데 선박 기본값을 쓰면 그 항차의 계획이 무시되고, 두 값이
     다를 때 화면과 계획서가 어긋난다.
     """
+    # 귀속 연도와 맞춰야 하는 **조회 키**라 UTC 해다(`as_of`는 이미 UTC) — 정박 구간은 UTC로
+    # 귀속되므로(`not_underway._utc_year`, #1333) KST 해로 바꾸면 연초 9시간 동안 그 구간을
+    # 빼지 못한다. 「기본 연도」가 아니다. #2133 소관.
+    voyage_year = voyage.regulation_year or as_of.year
     periods = await cached(
         session,
-        ("not_underway_periods", vessel.id, voyage.regulation_year or as_of.year, as_of_key(as_of)),
+        ("not_underway_periods", vessel.id, voyage_year, as_of_key(as_of)),
         lambda: not_underway_repo.list_periods_for_year(
             session,
             vessel_id=vessel.id,
-            regulation_year=voyage.regulation_year or as_of.year,
+            regulation_year=voyage_year,
             as_of=as_of,
         ),
     )
@@ -970,7 +975,7 @@ async def get_current_cii(
         라우트가 그대로 응답 ``meta``에 합친다.
     """
     resolved_as_of = resolve_as_of(as_of)
-    regulation_year = year if year is not None else resolved_as_of.year
+    regulation_year = year if year is not None else current_regulation_year(resolved_as_of)
     _validate_year(regulation_year)
 
     vessel = await vessel_repo.get_by_id(session, vessel_id)

@@ -40,12 +40,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 from cii_platform.calc.fuel_estimator import MIN_SPEED_KN, estimate_fuel_ton
 from cii_platform.calc.precision import layer1_context
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+#: 「올해」를 정하는 달력의 시간대 (`#2131`). 호스트 시간대와 무관하게 고정한다.
+_REGULATION_YEAR_TIMEZONE = ZoneInfo("Asia/Seoul")
 
 #: 하루의 시간(h) — 일일 소모율을 시간당으로 환산할 때 쓴다.
 HOURS_PER_DAY = Decimal("24")
@@ -66,6 +70,21 @@ def resolve_as_of(as_of: datetime | None) -> datetime:
     if as_of.tzinfo is None:
         return as_of.replace(tzinfo=UTC)
     return as_of.astimezone(UTC)
+
+
+def current_regulation_year(as_of: datetime) -> int:
+    """연도를 지정하지 않았을 때의 「올해」 — 기준 시각의 **한국 달력** 해 (`#2131`).
+
+    ``as_of.year``는 오프셋이 붙은 값의 현지 연도라 UTC로 확정한 ``as_of``에서는
+    KST 연초 0시~8시 59분에 전년도가 나온다. 사용자는 KST로 일하므로
+    (``DESIGN_SYSTEM §4.4`` · ``PRD §12.7``) ``Asia/Seoul``로 환산해 해를 읽는다.
+
+    ⚠️ 항차·정박 구간의 **귀속 연도**(UTC 고정, `#1333`)와는 다른 질문이다 —
+    이 함수는 「연도를 안 줬을 때의 기본값」만 정한다.
+    """
+    if as_of.tzinfo is None:
+        as_of = as_of.replace(tzinfo=UTC)
+    return as_of.astimezone(_REGULATION_YEAR_TIMEZONE).year
 
 
 @dataclass(frozen=True)
