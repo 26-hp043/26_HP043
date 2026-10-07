@@ -40,3 +40,32 @@ def test_pages_deploy_takes_no_positional_directory():
         after = line.split("pages deploy", 1)[1].split()
         assert not after or after[0].startswith("-"), line
         assert "--project-name" not in line, line
+
+
+def test_port_8001_is_only_called_through_loopback():
+    """코드 블록의 `:8001` 호출은 루프백뿐이다 — 공인 IP로는 닿지 않는다 (`#2141`).
+
+    백엔드는 `127.0.0.1:8001`에만 게시된다(`#786`). 공인 IP나 `<호스트>`로 `:8001`을 부르는
+    명령은 따라 하면 실패한다. 호스트 밖에서는 터널 주소(`bluelog-api.kpubdata.com`)를 쓴다.
+    """
+    offenders = [
+        line.strip()
+        for line in _code_lines()
+        if re.search(r"https?://(?!localhost\b|127\.0\.0\.1\b)[^\s/]+:8001", line)
+    ]
+    assert not offenders, offenders
+
+
+def test_pr_template_lint_item_matches_the_ci_commands():
+    """PR 템플릿의 ruff 항목이 `ci.yml` `lint` 잡의 명령과 같다 (`#2141`).
+
+    CI는 `src/ alembic/ tests/ scripts/` 네 곳을 보는데 템플릿이 `src tests`만 적어, 템플릿대로
+    돌려 통과해도 CI에서 떨어질 수 있었다. `AGENTS §7` 본문 템플릿(정본)은 이 검사의 대상이 아니다.
+    """
+    root = _OPS.parents[1]
+    ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    template = (root / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    ci_cmds = re.findall(r"- run: (ruff (?:check|format --check) .+)", ci)
+    assert ci_cmds, "ci.yml의 ruff 단계가 사라졌다면 이 검사도 함께 고친다"
+    for cmd in ci_cmds:
+        assert cmd in template, cmd

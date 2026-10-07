@@ -307,7 +307,24 @@ async def test_multi_fuel_uses_a_mass_weighted_cf(session) -> None:
 
 @pytest.mark.asyncio
 async def test_a_single_fuel_is_the_same_either_way(session) -> None:
-    """대조군 — 유종이 하나면 두 방식이 같다. 위 검사가 그 사실에 기대지 않게 한다."""
-    one = (await _estimate(session, BULK))["data"]["annual_impact"]
+    """대조군 — 유종이 하나면 두 방식이 같다. 위 검사가 그 사실에 기대지 않게 한다.
 
+    ⚠️ 종전에는 `one is not None`만 봤다 — 「같다」를 보지 않았다(`#2142`). 질량가중
+    평균과 「첫 유종의 CF」가 갈리지 않는 경우는 **CF가 하나뿐일 때**다. 같은 연료를
+    두 줄로 나눠 넣어도(200 t + 50 t) 한 줄(250 t)과 같은 `(연료, CF)` 쌍이 나와야 한다.
+    """
+    from cii_platform.calc.cii_engine import FuelUse
+    from cii_platform.services.voyage_cii import _effective_cf
+
+    one = (await _estimate(session, BULK))["data"]["annual_impact"]
     assert one is not None
+
+    cf = Decimal("3.114")
+    whole = _effective_cf([FuelUse(fuel_code="HFO", fuel_ton=Decimal("250"), cf_value=cf)])
+    split = _effective_cf(
+        [
+            FuelUse(fuel_code="HFO", fuel_ton=Decimal("200"), cf_value=cf),
+            FuelUse(fuel_code="HFO", fuel_ton=Decimal("50"), cf_value=cf),
+        ]
+    )
+    assert whole == split == (Decimal("250"), cf)

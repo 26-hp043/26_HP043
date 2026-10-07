@@ -218,11 +218,18 @@ describe('실패 경로', () => {
     ).rejects.toThrow(message)
   })
 
-  it('서버가 문구를 안 주면 상태 코드라도 말한다', async () => {
+  it('서버가 문구를 안 줘도 실패를 말한다 — 상태 코드는 문구가 아니라 콘솔에 남긴다 (#2221)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn().mockResolvedValue(new Response('', { status: 500 }))
-    await expect(
-      createApiReportsProvider(fetchImpl).previewHtml(ANNUAL),
-    ).rejects.toThrow(/HTTP 500/)
+
+    const failure = await createApiReportsProvider(fetchImpl)
+      .previewHtml(ANNUAL)
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).not.toBe('')
+    expect((failure as Error).message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 
   it('네트워크 실패를 삼키지 않고 원인을 보존한다', async () => {

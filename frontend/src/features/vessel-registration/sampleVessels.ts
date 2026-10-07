@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 import type { VesselFormState } from './formRules'
 
@@ -140,7 +140,7 @@ export async function fetchSampleVessels(
     credentials: 'include',
     headers: { Accept: 'application/json' },
   })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) throw new Error(fallbackMessage('샘플 선박을 불러오지 못했습니다.', response.status))
   const body = (await response.json()) as { data?: unknown }
   if (!Array.isArray(body.data) || !body.data.every(isSample)) {
     throw new Error('샘플 선박 응답이 계약과 다릅니다.')

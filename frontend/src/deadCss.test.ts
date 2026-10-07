@@ -28,8 +28,10 @@ const SRC = dirOf(import.meta.url)
 
 /** 의도적으로 남긴 것. 지우려면 근거 주석과 함께 여기서도 빼야 한다. */
 const KEPT: Readonly<Record<string, string>> = {
-  // `AppShell.tsx:40-42` — "접힘 동작 자체는 MVP 범위 밖 … 나중에 셸을 다시 만들지
-  // 않기 위한 준비". 의도를 코드가 밝히고 있어 유지가 맞다.
+  // `.app-shell--collapsed`를 붙이는 코드는 없다 — 창 폭에 따른 축소는 `AppShell.css`의
+  // `1100px` 미디어 규칙이 맡는다(`DESIGN_SYSTEM §7.2` · `#1885`). 이 클래스는 클래스 토글용
+  // 폭 전환 규칙으로 남겨 둔 것이고, 그 사실을 `AppShell.tsx` 머리 주석이 적는다.
+  // (아래 값의 「MVP 범위 밖」은 `#1885` 이전 문구다 — 접힘 자체는 이제 범위 안이다.)
   'app-shell--collapsed': 'AppShell.tsx:40-42 — MVP 범위 밖, 준비된 자리',
 }
 

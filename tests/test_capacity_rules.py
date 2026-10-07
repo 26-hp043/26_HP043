@@ -314,6 +314,23 @@ def test_missing_reference_line_for_ship_type():
         select_reference_line(vessel, [])
 
 
+def test_no_matching_condition_names_the_capacity_and_the_candidates():
+    """선종은 있는데 어느 구간에도 안 걸리면 **임의로 고르지 않고** 원인을 말한다 (#2144).
+
+    시드는 구간이 완전해 이 줄에 닿지 않는다(`test_seed_intervals_are_exhaustive_and_disjoint`).
+    그래서 CI에서 한 번도 실행되지 않았고, 첫 후보를 돌려주도록 바뀌어도 통과했다 —
+    50,000 DWT 벌크선이 279,000 DWT 고정 구간의 기준선으로 계산된다.
+    """
+    vessel = FakeVessel("BULK_CARRIER", deadweight=50000)
+    only_the_large_band = [get_reference_line("BULK_CARRIER", "DWT >= 279000")]
+
+    with pytest.raises(ValueError, match="No reference line condition matched") as raised:
+        select_reference_line(vessel, only_the_large_band)
+
+    assert "DWT=50000" in str(raised.value)
+    assert "DWT >= 279000" in str(raised.value)
+
+
 def test_ambiguous_reference_line_rejected():
     """구간이 겹치면 임의로 하나를 고르지 않는다."""
     vessel = FakeVessel("BULK_CARRIER", deadweight=300000)

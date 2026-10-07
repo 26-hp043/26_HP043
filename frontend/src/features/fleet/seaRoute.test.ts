@@ -81,8 +81,12 @@ describe('fetchSeaRoute — 질의와 응답 계약', () => {
   })
 
   it('실패 응답은 던진다 — 선을 지어내지 않는다', async () => {
+    // 상태 코드는 문구가 아니라 콘솔에 남는다 (#2221).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn(async () => jsonResponse({ error: {} }, 500))
-    await expect(fetchSeaRoute(BUSAN_TO_SINGAPORE, fetchImpl)).rejects.toThrow(/500/)
+    await expect(fetchSeaRoute(BUSAN_TO_SINGAPORE, fetchImpl)).rejects.not.toThrow(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 
   it.each([

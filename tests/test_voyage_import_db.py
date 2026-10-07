@@ -508,17 +508,26 @@ def test_row_limit_truncates_instead_of_rejecting():
     assert truncated == 3
 
 
-def test_truncation_is_reported_not_silent():
+async def test_truncation_is_reported_not_silent(session, vessel_id):
     """**잘랐다는 사실이 응답에 남는다.**
 
     개수만 맞추고 말하지 않으면 사용자는 「전부 들어갔다」로 읽는다. 오늘 이 저장소가
     반복해서 고친 형태가 그것이다 — 규칙은 지켜졌고 그 사실이 보이지 않았다.
+
+    ⚠️ 종전에는 `read_rows`의 **반환값**만 봤다 — 그 수가 응답에 실리는지는 보지
+    않았다(`#2142`). 응답(`API_SPEC §8.2`)을 본다. `dry_run`도 같은 응답을 조립한다.
     """
     rows = [f"V-{i},Busan,Tokyo,1000,13.5,HFO,80" for i in range(MAX_ROWS + 2)]
 
-    _, truncated = read_rows(csv_bytes(*rows))
+    result = await import_voyages(session, vessel_id, content=csv_bytes(*rows), dry_run=True)
 
-    assert truncated == 2
+    assert result["imported_count"] == MAX_ROWS
+    # 잘린 2행이 **행 수로** 보인다 — 합이 올린 행 수와 같다.
+    assert result["imported_count"] + result["skipped_count"] == MAX_ROWS + 2
+    # 그리고 **말로도** 남는다 — 파일 단위 항목 하나가 잘린 행 수를 적는다(문구는 표시 문구).
+    notices = [e for e in result["errors"] if e["field"] == "file"]
+    assert len(notices) == 1, result["errors"]
+    assert "2" in notices[0]["message"] and str(MAX_ROWS) in notices[0]["message"]
 
 
 def test_non_utf8_file_is_rejected_with_a_readable_message():

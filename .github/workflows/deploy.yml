@@ -78,6 +78,16 @@ on:
       - 'Dockerfile'
       - 'docker-compose.prod.*.yml'
       - 'ops/**'
+      # 서버에서 실제로 도는 스크립트 둘만 넣는다 (#2117). 서버의 저장소 사본은 이 워크플로가
+      # 배포 커밋으로 맞출 때만 갱신되므로, 여기 없으면 스크립트만 바꾼 머지는 서버에 닿지
+      # 않는다 — `ops.yml`의 백업·복구(db_backup.py)가 옛 판으로 돌고, purge_expired.py를
+      # crontab에 걸어 두었다면 그것도 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체
+      # (이미지 빌드 · db-01 · app-01 · 화면)를 돌린다 — `ops/**`와 같은 성질이다.
+      # `scripts/**` 전체를 넣지 않는 것은 로컬·CI 전용 스크립트 변경까지 운영 재배포를
+      # 일으키기 때문이다. 서버에서 도는 스크립트가 늘면 여기와
+      # `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
+      - 'scripts/db_backup.py'
+      - 'scripts/purge_expired.py'
       - 'frontend/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
@@ -161,7 +171,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # deploy-db가 CUBRID_PASSWORD 하나만 보다가 비어 있으면 죽었다 — 하나 고칠 때마다
   # 다음 것이 또 비는지 확인하는 루프였다(실측: 시크릿 0건 상태로 5연속 실패).
-  # 여기서 9종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
+  # 여기서 10종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
+  # `INITIAL_ADMIN_EMAILS`도 본다 (#2117) — 비면 staging에서는 관리자 0명으로 조용히 뜬다.
   # ---------------------------------------------------------------------------
   preflight:
     # 시연 동결이면 push 자동 배포를 건너뛴다 — 위 `freeze` 잡 참조 (#789).
@@ -181,12 +192,13 @@ jobs:
           CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
           CORS_ALLOW_ORIGINS: ${{ secrets.CORS_ALLOW_ORIGINS }}
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          INITIAL_ADMIN_EMAILS: ${{ secrets.INITIAL_ADMIN_EMAILS }}
         run: |
           missing=0
           for name in \
             OCI_SSH_PRIVATE_KEY OCI_SSH_USER OCI_DB_HOST OCI_APP_HOST \
             OCI_DB_PRIVATE_IP OCI_APP_PRIVATE_IP CUBRID_PASSWORD \
-            CORS_ALLOW_ORIGINS APP_PUBLIC_URL; do
+            CORS_ALLOW_ORIGINS APP_PUBLIC_URL INITIAL_ADMIN_EMAILS; do
             if [ -z "${!name}" ]; then
               echo "::error::시크릿 ${name} 가 비어 있다"
               missing=1
@@ -196,7 +208,7 @@ jobs:
             echo "::error::위 시크릿을 Settings → Secrets and variables → Actions 에서 등록한다 (docs/OPERATIONS.md §3.1 · #1234)"
             exit 1
           fi
-          echo "[preflight] 필수 시크릿 9종 확인"
+          echo "[preflight] 필수 시크릿 10종 확인"
 
   # ---------------------------------------------------------------------------
   # 이미지 빌드 & GHCR 푸시
@@ -623,7 +635,7 @@ jobs:
           # 마이그레이션 체인에 넣지 않고 필요할 때만 부른다」. 조건을 지우면
           # `tests/test_deploy_demo_seed.py`가 빨개진다.
           #
-          # 적재는 덮어쓰지 않으므로(IntegrityError를 삼킨다) 시각을 새로 잡으려면
+          # 적재는 덮어쓰지 않으므로(PK·유니크 중복을 건너뛴다) 시각을 새로 잡으려면
           # clear_demo를 함께 켠다. 시드 시각이 **적재일 기준 상대값**이라(`#792`)
           # 오래된 적재는 진행 중 항차가 도착 예정을 넘긴 상태로 보인다.
           if [ "${CLEAR_DEMO}" = "true" ]; then
@@ -652,6 +664,31 @@ jobs:
           echo "[app-01] backend 컨테이너 시작"
           docker compose -f docker-compose.prod.app.yml up -d backend </dev/null
           docker compose -f docker-compose.prod.app.yml ps backend </dev/null || true
+
+          # 옛 백엔드 이미지 정리 (#2041) — 배포마다 새 태그가 쌓여 2026-09-29에
+          # 루트 디스크가 100%(45G)까지 찼다(`bluelog-backend` 253개 · 36G).
+          #
+          # 실행 중 이미지 + 최근 KEEP_IMAGES개만 남긴다. 롤백은 GHCR에서 태그로 다시
+          # 받으므로(OPERATIONS §3.6.2 · ops.yml rollback-drill) 여기 없어도 된다.
+          # `docker image prune -a`·`system prune`은 쓰지 않는다 — 같은 VM의 our-tax
+          # 이미지까지 지우고, `--volumes`는 §9.2의 복구 가능성을 없앤다.
+          # 정리는 배포의 일부가 아니다 — 실패해도 배포를 실패시키지 않는다.
+          KEEP_IMAGES=3
+          running_image="$(docker inspect cii-backend --format '{{.Config.Image}}' 2>/dev/null || true)"
+          if [ -n "${running_image}" ]; then
+            image_repo="${running_image%:*}"
+            # 지울 목록은 변수로 받는다 (#2178) — 고정 경로 임시 파일은 쓰거나 읽지 못하면
+            # 스크립트를 죽이고, 쓰기만 실패하면 지난 실행의 목록으로 지운다.
+            stale_images=$(docker images "${image_repo}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+              | sort -r | cut -f2 | grep -vxF "${running_image}" | grep -v ':<none>$' \
+              | tail -n +"$((KEEP_IMAGES + 1))" || true)
+            stale_count=$(printf '%s\n' "${stale_images}" | grep -c . || true)
+            echo "[app-01] 옛 이미지 정리: ${image_repo} ${stale_count:-0}개 (실행 중 ${running_image##*:} + 최근 ${KEEP_IMAGES}개 보존)"
+            printf '%s\n' "${stale_images}" | xargs -r docker rmi >/dev/null || echo "::warning::옛 이미지 일부를 지우지 못했다 (#2041)"
+          else
+            echo "::warning::cii-backend 이미지를 읽지 못해 옛 이미지 정리를 건너뛴다 (#2041)"
+          fi
+          df -h / | tail -1 | awk '{print "[app-01] 루트 디스크 " $3 " / " $2 " (" $5 ")"}' || true
           echo "[app-01] === END $(date -u +%FT%TZ) ==="
           ENDSSH
 

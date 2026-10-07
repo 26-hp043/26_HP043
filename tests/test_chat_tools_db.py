@@ -1,4 +1,4 @@
-"""챗봇 도구 5종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~009 · `#1533`).
+"""챗봇 도구 5종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~012 · `#1533`).
 
 ## 왜 필요한가
 
@@ -192,10 +192,15 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
         direct_distance_nm=Decimal("5000"),
         base_daily_foc_ton=Decimal("30"),
     )
+    # ⚠️ 종전에는 **행 수**만 대조했다 — 순서를 뒤섞어도 통과했다(`#2142`). 봉투에는
+    # 시나리오 종류가 나가지 않으므로(화이트리스트), 나가는 값인 CII의 **순서**로 본다.
     expected = [
-        row.get("scenario_type")
+        Decimal(str(row["attained_cii"]))
         for row in (await compare_scenarios(session, payload))["data"]["scenarios"]
     ]
+    assert expected != sorted(expected), (
+        "서비스 순서가 이미 CII 오름차순이다 — 정렬해도 같아 아무것도 가르지 못한다"
+    )
 
     raw = await chat_tools.run_tool(
         session,
@@ -212,14 +217,14 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
     body = _parsed(raw)
     assert "error" not in body, body
     rows = body["result"]["scenarios"]
-    assert len(rows) == len(expected), (rows, expected)
+    assert [Decimal(str(row["attained_cii"])) for row in rows] == expected, (rows, expected)
     for row in rows:
         assert set(row) <= set(chat_tools._PUBLISH_MAP.values()), row
     assert VESSEL_NAME not in _flat(body)
 
 
 async def test_scenario_comparison_tool_stores_no_scenario_rows(session, vessel_id):
-    """IT-CHATDB-008 — ⚠️ **비교 도구는 ``voyage_scenario``에 아무것도 남기지 않는다** (#2088).
+    """IT-CHATDB-012 — ⚠️ **비교 도구는 ``voyage_scenario``에 아무것도 남기지 않는다** (#2088).
 
     ``persist=False``는 「저장하지 않는 경로」인데 ``calculation_run``만 건너뛰고 시나리오
     3행은 넣고 있었다. 챗봇 라우트가 답변 뒤 같은 세션을 커밋하므로, 도구가 불릴 때마다

@@ -59,6 +59,24 @@ export function GradeBadge({ rating, label, size = 'lg' }: GradeBadgeProps) {
   const text = rating ?? NO_GRADE_TEXT
   const defaultLabel = rating === null ? '등급 없음' : `등급 ${rating}`
 
+  /*
+   * `none`의 **문자와 테두리는 등급 토큰이 아니다** (`#2147` · 선례 `#829` ⑷ · `#1170` ⑴).
+   *
+   * 이 배지는 등급 없음일 때 `—` 하나를 그린다 — A~E 문자가 없다. `§0.2` 제약 2가
+   * 등급 색을 **문자와 함께** 두라고 하므로 그 자리는 등급 채널이 아니다. 대시보드의
+   * 같은 배지(`.vessel__mark--none`)는 두 번에 걸쳐 이미 중립으로 옮겨졌고,
+   * **이 공용 배지만 남아 있었다.**
+   *
+   * 대비도 거기서 갈린다 — `--cii-none-text`는 제 배지면 위에서 다크 `3.79`로
+   * `1.4.3`의 4.5:1에 미달이고(라이트 4.82), `--cii-none-border`는 라이트 `1.51` ·
+   * 다크 `1.72`로 `1.4.11`의 3:1에 미달이다. 중립 토큰은 문자 라이트 `5.77` ·
+   * 다크 `7.01`, 테두리 배지면 위 라이트 `3.77` · 다크 `4.12`다.
+   *
+   * ⚠️ **면(`bg`)은 등급 토큰 그대로다.** `§2.4.3` 확정(2026-09-10)이 `--cii-none-bg`를
+   * 중립 표면(`--surface-inset`)과 **같은 값**으로 두었으므로 그 자체가 중립이다.
+   */
+  const none = rating === null
+
   return (
     <span
       className={`grade-badge grade-badge--${size} grade-badge--${variant}`}
@@ -66,8 +84,8 @@ export function GradeBadge({ rating, label, size = 'lg' }: GradeBadgeProps) {
       aria-label={label ?? defaultLabel}
       style={{
         backgroundColor: `var(--cii-${variant}-bg)`,
-        borderColor: `var(--cii-${variant}-border)`,
-        color: `var(--cii-${variant}-text)`,
+        borderColor: none ? 'var(--color-border-control)' : `var(--cii-${variant}-border)`,
+        color: none ? 'var(--color-text-muted)' : `var(--cii-${variant}-text)`,
       }}
     >
       {text}

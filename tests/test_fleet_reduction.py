@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
@@ -93,6 +94,53 @@ def test_reduction_beyond_the_cap_is_rejected():
         apply_slowdown([VOYAGE], [LEG], MAX_REDUCTION_PERCENT + 1)
 
 
+def test_negative_reduction_is_rejected():
+    """`PRD §12.3.2` ⑴ — `p`는 0~50%다 (#2144).
+
+    음수는 「가속」이라 연료가 **늘어난** 계획이 된다.
+    """
+    with pytest.raises(ValueError):
+        apply_slowdown([VOYAGE], [LEG], Decimal(-1))
+
+
+def test_the_speed_floor_also_drives_fuel_and_sailing_days():
+    """속력 하한에 걸린 항차는 **연료와 항해일도 잘린 속력으로** 낸다 (`PRD §12.3.2` ⑴~⑶) (#2144).
+
+    1.6kn에 50%면 0.8kn인데 하한이 1.0kn이다. `v' = max(v × (1 − p/100), 1.0kn)`이고
+    ⑵·⑶은 그 `v'`를 쓴다 — 잘리기 전 속력(0.8kn)으로 연료를 내면 절감이 부풀려진다.
+
+    상한 50%가 받아들여지는 것과 잘린 **속력**은
+    `test_remaining_voyage_identity.py::test_slowdown_clamps_to_floor`가 이미 본다.
+
+        연료     100 × (1.0/1.6)² = 39.0625t        (잘리기 전이면 25t)
+        항해일   2,880 ÷ (1.0 × 24) − 2,880 ÷ (1.6 × 24) = 120 − 75 = 45일   (잘리기 전이면 75일)
+    """
+    slow = RemainingVoyage(
+        distance_nm=2880.0,
+        fuel_ton=100.0,
+        cf=3.114,
+        speed_kn=1.6,
+        reference_speed_kn=12.0,
+        base_daily_foc_ton=24.0,
+    )
+    leg = PlannedLeg(
+        distance_nm=Decimal("2880"),
+        speed_kn=Decimal("1.6"),
+        fuel_ton_by_type={"HFO": Decimal("100")},
+    )
+
+    result = apply_slowdown([slow], [leg], MAX_REDUCTION_PERCENT)
+
+    speed, floor = Fraction(16, 10), Fraction(1)
+    ratio = (floor / speed) ** 2
+    assert result.remaining[0].speed_kn == 1.0
+    assert Fraction(result.remaining[0].fuel_ton) == 100 * ratio
+    assert Fraction(result.fuel_saved_ton_by_type["HFO"]) == 100 * (1 - ratio)
+    assert Fraction(result.extra_days) == Fraction(2880) / (floor * 24) - Fraction(2880) / (
+        speed * 24
+    )
+
+
 def test_lists_that_do_not_line_up_are_rejected():
     """두 목록이 어긋나면 유종별 절감이 다른 항차의 연료로 계산된다 — 조용히 넘기지 않는다."""
     with pytest.raises(ValueError):
@@ -154,6 +202,12 @@ def test_a_vessel_that_was_not_slowed_needs_no_price():
 )
 def test_target_rating_follows_the_warning_banner_rule(target, prior, expected):
     assert target_rating_for(target, prior_ratings=prior) == expected
+
+
+def test_an_unknown_target_is_rejected_rather_than_defaulted():
+    """`PRD §12.3.2` ⑸의 목표는 둘뿐이다 — 모르는 값을 느슨한 쪽(D)으로 읽지 않는다 (#2144)."""
+    with pytest.raises(ValueError, match="ALL_B_OR_BETTER"):
+        target_rating_for("ALL_B_OR_BETTER", prior_ratings=[])
 
 
 def test_meeting_a_target_means_that_grade_or_better():

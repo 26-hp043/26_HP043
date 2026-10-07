@@ -31,6 +31,7 @@ from cii_platform.services.fleet_reduction import (
     save_reduction_plan,
 )
 from cii_platform.services.fleet_summary import get_fleet_summary
+from cii_platform.services.notifications import get_notifications
 
 router = APIRouter(tags=["fleet"])
 
@@ -103,8 +104,31 @@ async def get_fleet_data_quality_route(
     return {"data": data, "meta": _meta(request)}
 
 
+@router.get("/fleet/notifications")
+async def get_fleet_notifications_route(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    regulation_year: Annotated[
+        int | None,
+        Query(ge=2000, le=2100, description="대상 규제연도. 미지정이면 as_of 연도"),
+    ] = None,
+    as_of: Annotated[
+        datetime | None,
+        Query(description="기준 시각 (ISO 8601 UTC). 미지정이면 서버가 확정"),
+    ] = None,
+) -> dict[str, object]:
+    """상단바 종 버튼의 알림 — **지금 걸려 있는 상태 목록**이다 (`API_SPEC §2.19` · #2204).
+
+    발생 기록이 아니다 — 읽음 · 안 읽음을 저장하지 않고, 해결되면 다음 조회에서 사라진다.
+    판정은 선대 요약(`§2.8`) · 데이터 점검(`§2.16`)과 같은 것을 쓴다(``services.notifications``).
+    역할 가드를 두지 않는다 — 두 출처가 모두 역할과 무관하게 열려 있다.
+    """
+    data = await get_notifications(session, regulation_year=regulation_year, as_of=as_of)
+    return {"data": data, "meta": _meta(request, as_of=data["as_of"])}
+
+
 def _payload(body: ReductionPlanRequest) -> dict[str, object]:
-    """요청 모델 → 서비스 인자. 수치는 **문자열로** 넘긴다 — 저장본(JSONB)에 float가 섞이지 않게."""
+    """요청 모델 → 서비스 인자. 수치는 **문자열로** 넘긴다 — 저장본(JSON)에 float가 섞이지 않게."""
     return {
         "regulation_year": body.regulation_year,
         "target": body.target,

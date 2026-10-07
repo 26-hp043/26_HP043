@@ -112,12 +112,17 @@ describe('createApiDataQualityProvider', () => {
     expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
   })
 
-  it('서버 오류는 상태 코드와 함께 알린다', async () => {
+  it('서버 오류는 던지되 문구에 상태 코드를 싣지 않는다 — 콘솔에만 남긴다 (#2221)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse({}, 409))
 
-    await expect(
-      createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').load(2026),
-    ).rejects.toThrow('HTTP 409')
+    const failure = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1')
+      .load(2026)
+      .catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('409')
+    warn.mockRestore()
   })
 })
 

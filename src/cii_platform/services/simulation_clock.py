@@ -42,6 +42,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.calc.fuel_estimator import MIN_SPEED_KN, estimate_fuel_ton
+from cii_platform.calc.precision import layer1_context
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -143,6 +144,7 @@ def _overlap_hours(
     return total
 
 
+@layer1_context
 def compute_progress(
     *,
     as_of: datetime,
@@ -198,6 +200,11 @@ def compute_progress(
     그래서 정박 중에는 거리도 under way 연료도 늘지 않고, 정박 연료(``#345``
     ``not_underway_fuel_use``)만 별도로 집계된다 — 이것이 「정박이 지속되면 등급이
     나빠진다」가 성립하는 구조다.
+
+    **Layer 1 컨텍스트 안에서 돈다** (`#2254` · `TECH_SPEC §1.2.1`). 여기서 만든 거리·연료가
+    그대로 Layer 1 계산의 입력이 된다 — 경과 시간(초 ÷ 3600)과 ``속도 × 시간``을 호출
+    스레드의 기본 정밀도(28자리)로 내면 그 입력이 28자리에서 시작한다. :func:`_overlap_hours` ·
+    :func:`_accrued_fuel`은 이 함수 안에서만 부르므로 같은 컨텍스트에서 돈다.
     """
     zero = Decimal(0)
     if departure_at is None:
@@ -250,7 +257,8 @@ def compute_progress(
     # ``planned / speed``를 먼저 구해 **다시 곱하는** 형태를 쓰지 않는 이유는
     # 그 형태가 ``Decimal`` 문맥의 정밀도에 기대기 때문이다. 이 저장소의 기본
     # 28자리에서는 우연히 맞아떨어지지만(실측), ``prec=8``에서는
-    # ``(3000/14)×14 = 2999.9999``로 **계획에 닿지 못한다**. 값을 그대로 넣으면
+    # ``(3000/14)×14 = 2999.9999``로 **계획에 닿지 못한다**. 이 함수가 도는 작업
+    # 정밀도 50자리에서도 `2999.99…9`다(실측 · `#2254`). 값을 그대로 넣으면
     # 그 의존이 없다.
     #
     # 시간도 함께 멎어야 한다. 거리만 자르면 ``underway_hours``가 계속 자라

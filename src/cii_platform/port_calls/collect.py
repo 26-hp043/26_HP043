@@ -10,6 +10,11 @@
 장애가 다른 선박의 대조까지 비우지 않게 한다. 실패가 하나라도 있으면 종료 코드 1이다 — 운영
 로그에서 「조용히 반쯤 받았다」를 가리기 위해서다.
 
+제공자가 내는 **어떤 예외든** 그 쌍의 실패다(`#2113`). 응답 형식이 달라져 제공자 밖으로 새는
+``ValueError`` 하나가 실행 전체를 멈추면, :func:`main`의 한 트랜잭션이 이미 받은 쌍까지 되돌린다.
+그리고 **저장할 수 없는 기항**(시간대 없는 시각 · 빈 차수 · 연도 없음)이 하나라도 섞인 쌍은
+통째로 넣지 않고 실패로 남긴다 — 제공자가 무엇이든 표에는 시간대 있는 시각만 들어간다.
+
 ## 무엇을 바꾸지 않나
 
 항차·정박 구간·선박 제원은 읽지도 쓰지도 않는다. 받은 기록은 데이터 점검이 **견주기만** 한다
@@ -38,7 +43,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from cii_platform.port_calls.provider import PortCallProvider
+    from cii_platform.port_calls.provider import PortCall, PortCallProvider
 
 #: 기본 조회 기간 — 오늘(KST)부터 거슬러 올라가는 일수. 시연 대상 두 척의 기록(`#1197` 09-23
 #: 코멘트 §2 · 2025-08 ~ 2026-09)을 덮는다.
@@ -53,6 +58,22 @@ class CollectResult:
     inserted: int = 0
     updated: int = 0
     failures: list[tuple[str, str, str]] = field(default_factory=list)
+
+
+def _unstorable(call: PortCall) -> str | None:
+    """이 기항을 저장할 수 없는 사유 — 저장할 수 있으면 ``None``. 값은 문구에 싣지 않는다.
+
+    제공자 계약(``PortCallProvider``)은 시각의 시간대나 키의 채움을 강제하지 않는다. 여기서
+    한 번 더 본다 — 시간대 없는 시각이 들어가면 대조(``reconcile._nearest``)의 뺄셈이
+    ``TypeError``이고, 빈 차수·연도 0은 유일 키에서 서로 다른 기항을 한 행으로 합친다.
+    """
+    if call.call_year <= 0:
+        return "저장 불가 — 입항 연도가 없다"
+    if not call.call_seq.strip():
+        return "저장 불가 — 입항 차수가 비어 있다"
+    if any(report.at.utcoffset() is None for report in call.reports):
+        return "저장 불가 — 시간대 없는 시각"
+    return None
 
 
 async def collect(
@@ -86,16 +107,22 @@ async def collect(
                 calls = await provider.fetch(
                     call_sign=sign, port_authority_code=authority, start=start, end=end
                 )
-            except (PortCallApiError, httpx.HTTPError) as exc:
-                # 예외 문구에 키가 없다(`PortCallApiError` · URL을 싣지 않는다). httpx 오류는
-                # 요청 URL을 문구에 담을 수 있어 **종류 이름만** 남긴다.
+            except Exception as exc:
+                # 무엇이 나든 이 쌍의 실패다 — 좁게 잡으면 그 밖의 예외가 실행을 멈추고 받은
+                # 것을 되돌린다(`#2113`). 예외 문구에 키가 없는 것은 `PortCallApiError`뿐이다
+                # (URL·바깥 값을 싣지 않는다). 그 밖은 문구에 요청 URL(httpx)이나 응답의 값
+                # (`ValueError`)이 섞일 수 있어 **종류 이름만** 남긴다.
                 reason = str(exc) if isinstance(exc, PortCallApiError) else type(exc).__name__
                 result.failures.append((sign, authority, reason))
                 continue
-            for call in calls:
-                # 호출부호는 선택 조건이다 — 응답이 다른 배를 섞어 주면 저장하지 않는다.
-                if call.call_sign != sign:
-                    continue
+            # 호출부호는 선택 조건이다 — 응답이 다른 배를 섞어 주면 저장하지 않는다.
+            own = [call for call in calls if call.call_sign == sign]
+            defect = next(filter(None, map(_unstorable, own)), None)
+            if defect is not None:
+                # 멀쩡한 기항만 골라 넣지 않는다 — 반쯤 받은 쌍은 「받았다」로 읽힌다.
+                result.failures.append((sign, authority, defect))
+                continue
+            for call in own:
                 if await port_call_repo.upsert_port_call(session, call, fetched_at=stamp):
                     result.inserted += 1
                 else:

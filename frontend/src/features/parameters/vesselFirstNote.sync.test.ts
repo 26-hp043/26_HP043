@@ -2,10 +2,10 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { SELECT_VESSEL_FIRST } from './yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY } from './yearCatalog'
 
 /**
- * 「선박을 먼저 선택해 주세요」는 **한 곳에서 나온다** (#2048).
+ * 연도 칸의 상태 문구는 **한 곳에서 나온다** (#2048 · `#2155`).
  *
  * ## 왜 검사인가
  *
@@ -16,6 +16,12 @@ import { SELECT_VESSEL_FIRST } from './yearCatalog'
  *
  * `#829`·`#1171` ⑶이 고친 것이 바로 이 갈림이고, 갈리면 다시 「값이 없다」와
  * 「아직 물어보지 않았다」가 섞인다. 한 곳에서 나오는지를 **소스로** 본다.
+ *
+ * ## 빈 목록 문구도 같은 자리다 (`#2155`)
+ *
+ * 위 주석이 *「같은 자리의 빈 상태 문구는 지금도 「등재된…」과 「등록된…」으로 갈려
+ * 있다」*고 적어 둔 그 갈림이다. 낱말은 `#2183`이 맞췄지만 **문장은 세 곳에 따로 적혀
+ * 있었다** — 한쪽이 바뀌면 나머지가 낡는 상태는 그대로였다. 두 문구를 같은 방식으로 본다.
  */
 const SRC = join(process.cwd(), 'src')
 const HOME = 'features/parameters/yearCatalog.ts'
@@ -53,16 +59,44 @@ function sourceFiles(dir: string): string[] {
  * 이전부터 있었고 어느 상태로 쓰는지가 화면마다 갈려 있다 — 문구 소관은 디자인이므로
  * (`AGENTS §4.6`) 여기서 고치지 않고 후속으로 둔다. 이 검사는 **마침표 없는 쪽**만 본다.
  */
-const directLiteral = new RegExp(`${SELECT_VESSEL_FIRST}(?!\\.)`)
+/**
+ * 한 곳에서만 나와야 하는 문구와 **그 집**.
+ *
+ * ⚠️ 종전에는 「마침표가 붙은 것은 다른 문자열이다」로 두 자리를 **후속으로 비켜** 두었다
+ * (`reports/reportRules.ts` · `annual-simulation/copy.ts`). `#2155`가 그 둘을 닫았다 —
+ * 마침표는 **자리가 정한다**(컨트롤 한 줄은 찍지 않고 안내 문단은 찍는다). 문구 자체는
+ * 어느 자리든 이 상수에서 나오므로, 이제 **마침표를 가리지 않고** 본다.
+ */
+const ONE_SOURCE: readonly { readonly text: string; readonly name: string }[] = [
+  { text: SELECT_VESSEL_FIRST, name: 'SELECT_VESSEL_FIRST' },
+  { text: YEAR_STATE_COPY.empty, name: 'YEAR_STATE_COPY.empty' },
+]
+
+/*
+ * 훑기는 **한 번만** 한다 (`#2250`). 아래 검사는 문구마다 한 번씩 도는데, 종전에는 돌
+ * 때마다 `src/`의 모든 소스를 다시 읽고 주석을 다시 걷었다 — 문구가 달라도 읽는 대상은
+ * 같다. 검사 파일은 실행마다 새로 불려 오므로 이 기억이 다음 실행으로 넘어가지 않는다.
+ */
+let scanned: readonly { readonly file: string; readonly code: string }[] | undefined
+
+function scannedSources(): readonly { readonly file: string; readonly code: string }[] {
+  scanned ??= sourceFiles(SRC).map((file) => ({ file, code: code(file) }))
+  return scanned
+}
+
+/*
+ * 기본 5초를 쓰지 않는다 (`#2250`). `src/` 전체를 읽는 값은 디스크가 정한다 — CI에서는
+ * 0.1초 안쪽이지만, 저장소가 느린 파일 시스템 위에 있고 다른 작업이 함께 돌면 한 번
+ * 읽는 데 3~4초가 걸려 5초에 닿았다. 20초는 `deadCss.test.ts`가 같은 훑기에 준 값이다.
+ */
+const SCAN_TIMEOUT_MS = 20_000
 
 describe('선행 선택 안내 문구는 한 곳에서 나온다 (#2048 · `PRD §6.4`)', () => {
-  it('문장이 화면 소스에 직접 적혀 있지 않다', () => {
-    const found = sourceFiles(SRC)
-      .filter((file) => directLiteral.test(code(file)))
-      .map((file) => relative(SRC, file))
-    expect(found, '문장을 직접 적은 파일이 있습니다 — `SELECT_VESSEL_FIRST`를 쓰세요').toEqual([
-      HOME,
-    ])
+  it.each(ONE_SOURCE)('$name — 문장이 화면 소스에 직접 적혀 있지 않다', { timeout: SCAN_TIMEOUT_MS }, ({ text, name }) => {
+    const found = scannedSources()
+      .filter((source) => source.code.includes(text))
+      .map((source) => relative(SRC, source.file))
+    expect(found, `문장을 직접 적은 파일이 있습니다 — \`${name}\`을 쓰세요`).toEqual([HOME])
   })
 
   it('⚠️ `PRD §6.4`의 패턴과 마침표 규칙을 지킨다', () => {
@@ -73,6 +107,23 @@ describe('선행 선택 안내 문구는 한 곳에서 나온다 (#2048 · `PRD 
      */
     expect(SELECT_VESSEL_FIRST).toMatch(/먼저 선택해 주세요$/)
     expect(SELECT_VESSEL_FIRST.endsWith('.'), '마침표를 찍지 않는다 (관례 ②)').toBe(false)
+    expect(YEAR_STATE_COPY.empty).toMatch(/^등록된/)
+    expect(YEAR_STATE_COPY.empty.endsWith('.'), '마침표를 찍지 않는다 (관례 ②)').toBe(false)
+  })
+
+  /**
+   * **마침표는 자리가 정한다** (`#2155`).
+   *
+   * 안내 문단 자리는 마침표를 찍는다 — 결과 영역의 `<p>` 한 문단이고 옆 줄들이 모두
+   * 찍는다. 그 자리도 **문구는 공용 상수에서** 나와야 한다. 문장을 다시 적고 마침표만
+   * 붙이면 그것이 곧 두 벌이다 — 종전 「상단에서 선박을 먼저 선택해 주세요.」가 그랬다.
+   */
+  it('문단 자리는 상수에 마침표만 붙여 쓴다', () => {
+    const copy = code(join(SRC, 'features/annual-simulation/copy.ts'))
+    expect(copy, '문구를 다시 적었다 — 상수를 보간해 쓴다').toContain(
+      '`${SELECT_VESSEL_FIRST}.`',
+    )
+    expect(copy).not.toContain('상단에서 선박을')
   })
 
   it('정본이 이 상태를 실제로 등재하고 있다', () => {

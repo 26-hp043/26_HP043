@@ -1919,7 +1919,7 @@ def _uuid_binds(*names: str) -> list[Any]:
 
 
 def _json(value: object) -> str:
-    """JSONB 파라미터용 직렬화. ``ensure_ascii=False``로 한글을 그대로 남긴다."""
+    """``JSONText`` 열 파라미터용 직렬화. ``ensure_ascii=False``로 한글을 그대로 남긴다."""
     import json
 
     return json.dumps(value, ensure_ascii=False)

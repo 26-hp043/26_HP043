@@ -142,11 +142,15 @@ def co2_grams(fuel: list[tuple[Decimal, Decimal]]) -> Decimal:
     return sum((ton * cf * _GRAMS_PER_TON for ton, cf in fuel), Decimal(0))
 
 
+@layer1_context
 def completeness_ratio(measured_g: Decimal, total_g: Decimal) -> Decimal | None:
     """데이터 완결성 — 누적 CO₂ 중 **실측으로 계산된 비율** (``PRD §17.4.3``).
 
     ``total_g``가 0 이하면 ``None``이다. 배출이 없는 것을 「100% 완결」로 적으면
     **데이터가 없는 선박이 가장 깨끗해 보인다.**
+
+    나눗셈은 적용 지점 안에서 한다 (`#2212` · ``TECH_SPEC §1.2.1`` 「파생값 계산도 적용
+    지점 안에서 한다」) — 호출부가 ``async``라 밖에서는 기본 정밀도(28자리)로 나뉜다.
     """
     if total_g <= 0:
         return None

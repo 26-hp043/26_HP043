@@ -16,11 +16,18 @@
 #   docker compose -f docker-compose.prod.app.yml --profile migrate \
 #     run --rm migrate python -m cii_platform.db.seed
 #
-# CUBRID_HOST 기본값은 cubrid이므로 단일 호스트(docker-compose.prod.db.yml과 함께)에서도
-# 동작한다. 프로덕션에서는 db-01 사설 IP를 설정한다.
+# CUBRID_HOST에는 db-01 사설 IP를 설정한다. 기본값 cubrid는 자리만 채운 값이다 (#2118) —
+# 이 파일에는 그 이름의 서비스가 없다. 두 파일의 정의로 보면, 한 호스트에서 함께 띄워도
+# 기본값으로는 붙지 않는다 (실행으로 확인한 것은 아니다):
+#   - backend는 app-net에만 붙고 docker-compose.prod.db.yml의 cubrid 서비스에는 networks가
+#     없어 app-net에 들지 않는다 — 이름이 풀리지 않는다.
+#   - migrate는 networks가 없어 기본 네트워크에 놓이므로 이름은 풀릴 수 있으나, 아래 URL의
+#     포트 33100은 그 파일이 db-01 사설 IP에 게시하는 호스트 포트이고 컨테이너 안 포트는
+#     33000이다.
 
-# DATABASE_URL / DATABASE_SYNC_URL은 .env에서 주입한다. 비밀번호에 URL 예약 문자가
-# 있을 수 있으므로 compose 인라인 조합 대신 완성된 URL을 넣는다 (#152 패턴).
+# DATABASE_URL은 .env에서 주입한다. 비밀번호에 URL 예약 문자가 있을 수 있으므로
+# compose 인라인 조합 대신 완성된 URL을 넣는다 (#152 패턴). .env에 없으면 아래 기본값이
+# CUBRID_PASSWORD·CUBRID_HOST로 조립하는데, 그 조립은 비밀번호를 인코딩하지 않는다.
 x-cubrid-url: &cubrid-url
   "${DATABASE_URL:-cubrid+pycubrid://dba:${CUBRID_PASSWORD:-}@${CUBRID_HOST:-cubrid}:33100/cii}"
 

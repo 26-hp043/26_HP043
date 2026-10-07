@@ -77,8 +77,14 @@ describe('fetchSampleVessels', () => {
   })
 
   it('HTTP 실패도 던진다', async () => {
+    // 상태 코드는 문구가 아니라 콘솔에 남긴다 (#2221).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as Response)
-    await expect(fetchSampleVessels(fetchImpl as unknown as typeof fetch, '/api/v1')).rejects.toThrow('500')
+    await expect(
+      fetchSampleVessels(fetchImpl as unknown as typeof fetch, '/api/v1'),
+    ).rejects.not.toThrow(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 })
 

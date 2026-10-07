@@ -176,6 +176,14 @@ async def test_voyage_report_shows_its_share_of_the_year(session, vessel_id):
     rows = dict(_section(document, "CII 기여도").rows)
     assert rows["연간 누적에서 차지한 비중"].endswith("%")
 
+    # ⚠️ 종전에는 `%`로 끝나는지만 봤다 — 어떤 수가 찍혀도 통과했다(`#2142`).
+    # 독립 검산(`AGENTS §5` — 엔진을 다시 부르지 않는다). 이 선박의 올해 집계에는 이 항차
+    # 하나뿐이므로 비중은 100%이고, CO₂는 260 t × 3.114 = 809.64 t다. 표시는 소수 1자리
+    # (`DESIGN_SYSTEM §4`)이며 절사·반올림 어느 쪽이어도 809.6이다.
+    assert Decimal(rows["연간 누적에서 차지한 비중"].rstrip("%")) == Decimal("100")
+    assert Decimal(rows["항차 CO₂ 배출량 (tCO₂)"].replace(",", "")) == Decimal("809.6")
+    assert Decimal(rows["연간 누적 CO₂ (tCO₂)"].replace(",", "")) == Decimal("809.6")
+
 
 @pytest.mark.asyncio
 async def test_scenario_section_is_omitted_when_there_is_no_history(session, vessel_id):
@@ -590,6 +598,15 @@ async def test_annual_report_reuses_computed_values(session, vessel_id):
 
     assert rows["실적 CII (attained)"] == _display(current["ytd"]["attained_cii"], "cii")
     assert rows["현재 누적 기준 예상 등급"] == current["ytd"]["rating"]
+    # ⚠️ 위 둘은 **같은 엔진의 값끼리** 대조한다 — 엔진이 틀리면 함께 틀린다(`#2142`).
+    # 독립 검산(`AGENTS §5` · 정수 연산): 260 t × 3.114 × 10⁶ g = 809,640,000 g,
+    #   50,000 DWT × 3,100 nm = 155,000,000 → 809,640,000 ÷ 155,000,000 = 5.22348387…
+    # 표시는 소수 3자리(`DESIGN_SYSTEM §4`)이며 절사·반올림 어느 쪽이어도 5.223이다.
+    assert Decimal(rows["실적 CII (attained)"]) == Decimal("5.223")
+    # 등급도 독립 검산값으로 굳힌다. required = 4745 × 50000^-0.622 × (1 − 0.11) ≈ 5.045066
+    # (50자리 `decimal`로 테스트 밖에서 계산), 비율 5.223484 ÷ 5.045066 ≈ 1.0354 —
+    # 0.94 초과 · 1.06 이하라 C다(`PRD §3.3.6`). 가까운 경계 1.06까지 약 2.5%p 남는다.
+    assert rows["현재 누적 기준 예상 등급"] == "C"
     # 표시 규칙이 실제로 걸렸는지도 함께 본다 — 위 단언만으로는 둘 다 원문이어도 통과한다.
     assert (
         rows["실적 CII (attained)"] != current["ytd"]["attained_cii"]
@@ -978,13 +995,34 @@ async def test_real_document_csv_keeps_user_input_escaped_next_to_numbers(sessio
 
 
 def _all_values(document) -> list[str]:
-    """문서에 실린 모든 문자열 — meta · 항목·값 · 표 행."""
+    """문서에 실린 모든 문자열 — meta · 항목·값 · 표 행 · **차트 절이 품은 표와 표식**.
+
+    ⚠️ 종전에는 `section.rows`만 훑었다. 차트 절(`ChartSection`)은 행을 `table.rows`에
+    두므로 **통째로 건너뛰었다** — 「문서 어디에도」가 차트 절에서는 거짓이었다(`#2142`).
+    """
     values = [value for _, value in document.meta]
     for section in document.sections:
-        rows = getattr(section, "rows", [])
-        for row in rows:
-            values.extend(str(cell) for cell in row)
+        for table in (section, getattr(section, "table", None)):
+            for row in getattr(table, "rows", None) or []:
+                values.extend(str(cell) for cell in row)
+        for marker in getattr(section, "markers", None) or []:
+            values.extend(str(cell) for cell in marker)
     return values
+
+
+@pytest.mark.asyncio
+async def test_the_scan_reaches_inside_chart_sections(session, vessel_id):
+    """훑기가 차트 절 안까지 닿는다 — 닿지 않으면 아래 「어디에도」 검사가 그 절을 못 본다."""
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    charts = [s for s in document.sections if isinstance(s, ChartSection)]
+    assert charts, "연간 리포트에 차트 절이 없다 — 이 검사가 아무것도 보지 않는다"
+    values = _all_values(document)
+    for chart in charts:
+        assert chart.table.rows, chart.title
+        for row in chart.table.rows:
+            assert all(str(cell) in values for cell in row), (chart.title, row)
 
 
 @pytest.mark.asyncio
@@ -998,10 +1036,13 @@ async def test_voyage_report_times_are_kst(session, vessel_id):
     document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
     rows = dict(_section(document, "항차 요약").rows)
 
-    for label in ("출항 (실적)", "입항 (실적)"):
-        assert label in rows
-        if rows[label] != "—":
-            assert rows[label].endswith("KST"), f"{label}: {rows[label]}"
+    # ⚠️ 종전에는 `if rows[label] != "—":` 안에서만 단언했다 — 두 칸이 **비어 나가도**
+    # 통과했다(`#2142`). 픽스처는 출항 03-01 · 입항 03-10 00:00 UTC를 넣으므로 값이 있어야
+    # 하고, KST는 그보다 9시간 앞선 **09시**다.
+    for label, day in (("출항 (실적)", "2026-03-01"), ("입항 (실적)", "2026-03-10")):
+        assert rows[label] != "—", f"{label}: 실적 시각을 넣었는데 비어 있다"
+        assert rows[label].endswith("KST"), f"{label}: {rows[label]}"
+        assert rows[label].startswith(f"{day} 09:00"), f"{label}: {rows[label]}"
 
 
 @pytest.mark.asyncio

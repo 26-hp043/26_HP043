@@ -92,7 +92,7 @@ from cii_platform.services.calc_errors import log_calculation_failure, selection
 from cii_platform.services.request_cache import as_of_key, cached
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -423,15 +423,23 @@ async def compute_ytd_cii(
         )
     )
 
+    # ⚠️ 아래 합 셋은 **작업 정밀도로** 더한다 (`#2254` · `TECH_SPEC §1.2.1`). 이 함수는
+    # 코루틴이라 호출 스레드의 기본 정밀도(28자리)로 돌고, ``aggregated``에는 진행분
+    # (시계와 ``_split_fuel``이 50자리로 낸 값)이 섞여 있다. 그대로 더하면 28자리로 깎인
+    # 합이 응답의 ``total_fuel_ton`` · ``fuel_ton_breakdown`` · ``total_distance_nm``으로 나간다.
     fuel_ton_breakdown = _fuel_ton_breakdown(aggregated)
-    total_fuel_ton = sum(fuel_ton_breakdown.values(), Decimal(0))
+    total_fuel_ton = _sum_at_working_precision(fuel_ton_breakdown.values())
     # `#1658` — 정박 몫만 따로 센다. `data_available`가 거짓이어도 값은 있다(거리가 0인 해).
+    # 입력은 ``not_underway_fuel_use.fuel_ton``(``Numeric(12, 2)``)을 SQL ``SUM``으로 합친 행이라
+    # 소수 2자리 값끼리의 합이고 28자리에서 정확하다 — 그대로 둔다.
     not_underway_fuel_ton = sum(
         (Decimal(row.fuel_ton) for row in aggregated.not_underway_fuel), Decimal(0)
     )
 
     # 분모는 두 갈래의 **합**이다 (MEPC.412(84) §4.2).
-    total_distance_nm = aggregated.underway_distance_nm + aggregated.not_underway_distance_nm
+    total_distance_nm = _add_at_working_precision(
+        aggregated.underway_distance_nm, aggregated.not_underway_distance_nm
+    )
 
     # M/0 방어 — 「데이터가 아직 없다」는 오류가 아니라 정상 상태다. 예외를 던지면
     # 화면이 500을 받게 되고, 신규 등록 선박이 전부 오류로 보인다.
@@ -536,6 +544,7 @@ async def compute_ytd_cii(
     )
 
 
+@layer1_context
 def _fuel_ton_breakdown(aggregated: _Aggregated) -> dict[str, Decimal]:
     """유종별 투입 톤을 두 갈래에서 모아 합친다 (`#769`).
 
@@ -543,6 +552,9 @@ def _fuel_ton_breakdown(aggregated: _Aggregated) -> dict[str, Decimal]:
     같은 유종에 snapshot이 둘 이상 생긴다). 배출량 계산은 묶음별로 해야 맞지만,
     **투입량은 유종 하나로 합쳐야** 사용자가 읽을 수 있다 — 화면에 `HFO`가 CF만 다른
     두 줄로 나오면 같은 기름을 두 종류로 읽는다.
+
+    덧셈을 **작업 정밀도로** 한다 (`#2254` · `TECH_SPEC §1.2.1`). 진행분 묶음은 50자리
+    값이라, 부르는 코루틴의 28자리에서 완료 항차 묶음과 합치면 꼬리가 깎인다.
     """
     totals: dict[str, Decimal] = {}
     for (code, _cf), ton in aggregated.underway_fuel.items():
@@ -553,6 +565,31 @@ def _fuel_ton_breakdown(aggregated: _Aggregated) -> dict[str, Decimal]:
 
 
 # --- 집계 -------------------------------------------------------------------------
+
+
+@layer1_context
+def _add_at_working_precision(left: Decimal, right: Decimal) -> Decimal:
+    """두 값을 **작업 정밀도로** 더한다 (`TECH_SPEC §1.2.1` · `#2254`).
+
+    :func:`_aggregate`는 코루틴이라 데코레이터를 달 수 없고, 그 안의 덧셈은 호출 스레드의
+    기본 정밀도(28자리)로 돈다. 진행 중 항차의 거리·연료는 시계와 ``_split_fuel``이 작업
+    정밀도(50자리)로 낸 값이어서, 거기서 바로 더하면 28자리로 깎인 합이
+    :func:`_compute_layer1`의 입력이 된다(50 → 28 → 50). 구간 CII의 참값이 전송 자릿수
+    경계에 놓이는 입력에서 그 차이가 응답에 드러난다 — 8 kn · 일일 25 t · 출항 864,004초 뒤,
+    진행분만 있는 해에 참값 ``519/64 = 8.109375``가 ``8.109374``로 나갔다.
+    """
+    return left + right
+
+
+@layer1_context
+def _sum_at_working_precision(values: Iterable[Decimal]) -> Decimal:
+    """값들을 **작업 정밀도로** 더한다 (`TECH_SPEC §1.2.1` · `#2254`).
+
+    :func:`_add_at_working_precision`의 여럿 판이다. :func:`compute_ytd_cii`가 응답의
+    ``total_fuel_ton``을 유종별 투입 톤에서 모으는 자리에 쓴다 — 그 함수는 코루틴이라
+    ``sum()``을 그대로 부르면 호출 스레드의 기본 정밀도(28자리)로 돈다.
+    """
+    return sum(values, Decimal(0))
 
 
 async def _aggregate(
@@ -670,11 +707,16 @@ async def _aggregate(
     # #368 주입분(진행 중 항차)은 voyage_fuel_use 행이 없어 cf_used snapshot이 없다.
     # 진행 중 항차는 **현재 계산**이므로 현재 활성 CF를 붙인다(PRD §8.4 — 변경 이후
     # 계산에 적용). snapshot이 있는 묶음과 섞지 않고 **별개 묶음**으로 더한다 (#863).
+    #
+    # ⚠️ 이 갈래의 덧셈 셋만 :func:`_add_at_working_precision`을 지난다 — 진행분은 50자리
+    # 값이다. 위 루프의 덧셈은 저장된 ``NUMERIC(12,2)``(거리) · ``NUMERIC(12,4)``(연료)
+    # 값끼리라 28자리에서 정확하다: 한 값이 유효숫자 12자리이고, 합이 28자리를 넘으려면
+    # 항차가 10¹⁶건을 넘어야 한다.
     if in_progress is not None:
-        distance += in_progress.distance_nm
+        distance = _add_at_working_precision(distance, in_progress.distance_nm)
         pending: dict[str, Decimal] = {}
         for code, ton in in_progress.fuel_uses:
-            pending[code] = pending.get(code, Decimal(0)) + Decimal(ton)
+            pending[code] = _add_at_working_precision(pending.get(code, Decimal(0)), Decimal(ton))
         if pending:
             codes = tuple(sorted(pending))
             rows = await cached(
@@ -690,7 +732,9 @@ async def _aggregate(
                         field_label="연료 종류",
                     )
                 key = (code, Decimal(rows[code].cf))
-                underway_fuel[key] = underway_fuel.get(key, Decimal(0)) + Decimal(ton)
+                underway_fuel[key] = _add_at_working_precision(
+                    underway_fuel.get(key, Decimal(0)), ton
+                )
 
     not_underway_totals = await cached(
         session,

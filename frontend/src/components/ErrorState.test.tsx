@@ -27,7 +27,13 @@ describe('층위와 재시도 (#694)', () => {
   it('compact는 제목을 두지 않는다 — 한 줄이 곧 제목이자 본문이다', () => {
     render(<ErrorState level="region" size="compact" message="목록을 불러오지 못했습니다." />)
     expect(screen.getByText('목록을 불러오지 못했습니다.')).toBeTruthy()
-    expect(screen.queryByText('불러오지 못했습니다')).toBeNull()
+    /*
+     * 종전 단언 `queryByText('불러오지 못했습니다')`는 **노드 전체 글과 같아야** 맞으므로
+     * 제목이 그려져도 `null`이었다 (`#2145`). 제목 요소가 없고, 글은 본문 한 줄뿐인지를 본다.
+     */
+    const alert = screen.getByRole('alert')
+    expect(alert.querySelector('.error-state__title')).toBeNull()
+    expect(alert.textContent).toBe('목록을 불러오지 못했습니다.')
   })
 
   it('재시도 문구는 「다시 시도」 하나다', () => {
@@ -76,9 +82,19 @@ describe('제목은 대상 명사에서 짓는다 — 2026-09-11 확정 B', () =
      * 기본값이 있으면 그 기본값이 쓰이고, 주어를 붙여 두던 자리도 옮기며 주어를 잃는다.
      * 타입이 `subject`·`action` 중 하나를 요구하므로 여기서는 두 경로의 결과를 본다.
      */
-    for (const props of [{ subject: '연료 목록' }, { action: '비교' }]) {
-      const { unmount } = render(<ErrorState level="region" message="실패." {...props} />)
-      expect(screen.queryByText('불러오지 못했습니다')).toBeNull()
+    /*
+     * 종전 단언 `queryByText('불러오지 못했습니다')`는 노드 전체 글과 같아야 맞는다 —
+     * 제목이 대상 명사를 잃어도 마침표·앞말 하나만 다르면 `null`이었다 (`#2145`).
+     * 제목이 **있고**, 넘긴 명사로 시작하며, 명사를 뺀 기본 제목과 다른지를 본다.
+     */
+    for (const [props, noun] of [
+      [{ subject: '연료 목록' }, '연료 목록'],
+      [{ action: '비교' }, '비교'],
+    ] as const) {
+      const { container, unmount } = render(<ErrorState level="region" message="실패." {...props} />)
+      const title = container.querySelector('.error-state__title')?.textContent ?? ''
+      expect(title.startsWith(noun), title).toBe(true)
+      expect(title.length).toBeGreaterThan(noun.length)
       unmount()
     }
   })

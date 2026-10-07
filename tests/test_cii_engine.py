@@ -3,7 +3,8 @@
 TEST_PLAN §2.1 중 본 이슈 범위: UT-CII-002 · 003 · 004 · 006 · 007.
 (001은 required_cii(#38)·등급(#39)까지 필요, 005는 #38, 008은 Layer 2(#63) 소관)
 
-케이스: UT-CII-001 (`TEST_PLAN §14.5`)
+NOT-COVERED: UT-CII-001 — Fixture 1 **전체** 대조의 소재는 `test_layer1_fixtures.py`다.
+이 파일은 attained CII까지만 본다(`#2142`에서 옮겼다).
 """
 
 from decimal import Decimal

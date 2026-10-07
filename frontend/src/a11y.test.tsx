@@ -161,6 +161,49 @@ describe('A11Y-001 — 위험도는 색 없이도 읽힌다', () => {
 
 // ── A11Y-002 키보드 이동 — Tab 키로 주요 액션 접근 가능 ─────────────────────
 
+/**
+ * 렌더된 요소에 React가 달아 둔 props (`#2145`).
+ *
+ * React는 처리기를 DOM 속성으로 내보내지 않고 루트에서 위임하므로, `onClick`이 달렸는지는
+ * 마크업만으로 알 수 없다. React DOM이 요소마다 붙여 두는 `__reactProps$…` 키로 읽는다.
+ * 그 키가 사라지면(React가 내부를 바꾸면) 아래 `clickHandlerCount`가 0이 되어 검사가
+ * 「처리기가 하나도 없다」로 실패한다 — 조용히 통과하지 않는다.
+ */
+function reactProps(el: Element): Record<string, unknown> {
+  const key = Object.keys(el).find((name) => name.startsWith('__reactProps$'))
+  return key === undefined ? {} : ((el as unknown as Record<string, unknown>)[key] as Record<string, unknown>)
+}
+
+const POINTER_HANDLERS = ['onClick', 'onMouseDown', 'onPointerDown'] as const
+const KEY_HANDLERS = ['onKeyDown', 'onKeyUp', 'onKeyPress'] as const
+
+function hasPointerHandler(el: Element): boolean {
+  const props = reactProps(el)
+  return POINTER_HANDLERS.some((name) => typeof props[name] === 'function')
+}
+
+function clickHandlerCount(container: Element): number {
+  return [...container.querySelectorAll('*')].filter(hasPointerHandler).length
+}
+
+/**
+ * 포인터 처리기를 달았는데 **키보드로는 누를 수 없는** 요소.
+ *
+ * 누를 수 있는 것은 둘이다 — 브라우저가 키보드 동작을 주는 요소(`button` · `a[href]` ·
+ * 폼 컨트롤 · `summary`), 또는 초점을 받고(`tabindex` 0 이상) 키 처리기를 함께 단 요소.
+ * `href` 없는 `a`와 `role="button"`만 단 `div`는 어느 쪽도 아니다.
+ */
+function clickOnlyElements(container: Element): Element[] {
+  return [...container.querySelectorAll('*')].filter((el) => {
+    if (!hasPointerHandler(el)) return false
+    if (el.matches('button, a[href], input, select, textarea, summary')) return false
+    const props = reactProps(el)
+    const focusable = Number(el.getAttribute('tabindex') ?? '-1') >= 0
+    const keyed = KEY_HANDLERS.some((name) => typeof props[name] === 'function')
+    return !(focusable && keyed)
+  })
+}
+
 describe('A11Y-002 — Tab 키로 주요 액션에 닿는다', () => {
   function stubShellServer() {
     vi.stubGlobal(
@@ -240,6 +283,42 @@ describe('A11Y-002 — Tab 키로 주요 액션에 닿는다', () => {
     for (const el of container.querySelectorAll('[role="button"]')) {
       expect(el.getAttribute('tabindex'), el.outerHTML).toBe('0')
     }
+    /*
+     * 위 둘은 「초점을 받는 요소가 많다」와 「`role="button"`은 tabindex를 갖는다」만 본다 —
+     * `<div onClick>`이 하나 생겨도 둘 다 그대로 통과했다 (`#2145`). 제목이 말하는 것은
+     * **클릭 처리기를 단 요소**이므로 그것을 직접 센다.
+     */
+    expect(clickHandlerCount(container)).toBeGreaterThan(0)
+    expect(clickOnlyElements(container).map((el) => el.outerHTML)).toEqual([])
+  })
+
+  it('클릭 전용 요소를 찾는 검사가 실제로 잡는다 — 잡을 꼴과 잡지 않을 꼴', () => {
+    const { container } = render(
+      <div>
+        <div data-case="div" onClick={() => {}}>열기</div>
+        <span data-case="span-mousedown" onMouseDown={() => {}}>열기</span>
+        <a data-case="a-without-href" onClick={() => {}}>열기</a>
+        <div data-case="role-without-tabindex" role="button" onClick={() => {}}>열기</div>
+        <div data-case="tabindex-without-key" tabIndex={0} onClick={() => {}}>열기</div>
+
+        <button type="button" onClick={() => {}}>열기</button>
+        <a href="/x" onClick={() => {}}>열기</a>
+        <input aria-label="값" onClick={() => {}} />
+        <details>
+          <summary onClick={() => {}}>펼치기</summary>
+        </details>
+        <div role="button" tabIndex={0} onClick={() => {}} onKeyDown={() => {}}>열기</div>
+        <div>처리기 없음</div>
+      </div>,
+    )
+    expect(clickOnlyElements(container).map((el) => el.getAttribute('data-case'))).toEqual([
+      'div',
+      'span-mousedown',
+      'a-without-href',
+      'role-without-tabindex',
+      'tabindex-without-key',
+    ])
+    expect(clickHandlerCount(container)).toBe(10)
   })
 })
 

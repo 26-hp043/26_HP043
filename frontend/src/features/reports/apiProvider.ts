@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { isReportable } from './reportRules'
 import { filenameFrom, saveBlob } from '../../download/file'
 import type {
@@ -97,7 +97,7 @@ export function createApiReportsProvider(
         error?: { message?: string }
       } | null
       throw new ReportsError(
-        body?.error?.message ?? `생성하지 못했습니다 (HTTP ${response.status}).`,
+        body?.error?.message ?? fallbackMessage('생성하지 못했습니다.', response.status),
       )
     }
     return response

@@ -1022,7 +1022,23 @@ describe('선대 대시보드 — 마커 팝오버 (#1831)', () => {
   })
 
   it('그 배가 목록에서 사라지면 카드를 닫는다 — 기준점 없는 카드를 남기지 않는다', async () => {
-    stubFetchWithMap()
+    /*
+     * 종전 검사는 정렬을 바꾼 뒤에도 **같은 두 척**이 돌아오는 대역을 써서 「나선」이
+     * 사라지는 일이 없었고, 단언도 「카드가 남아 있다」였다 — 제목과 반대다 (`#2145`).
+     * 여기서는 이름순 첫 페이지에서 「나선」을 빼고, 위험순으로 돌아오면 다시 넣는다.
+     */
+    const fetchImpl = stubFetchWithMap()
+    const base = fetchImpl.getMockImplementation()!
+    fetchImpl.mockImplementation(async (input: unknown) => {
+      const raw = String(input)
+      const url = new URL(raw, 'https://x')
+      if (!raw.includes('.pmtiles') && url.searchParams.get('sort') === 'name') {
+        const only = { ...vessel('v1', '가선'), current_lat: '35.1000', current_lon: '129.0000' }
+        const body = page([only], { next_cursor: null, has_more: false })
+        return { ok: true, status: 200, json: async () => body } as Response
+      }
+      return base(input)
+    })
     render(
       <MemoryRouter>
         <FleetDashboard />
@@ -1032,10 +1048,16 @@ describe('선대 대시보드 — 마커 팝오버 (#1831)', () => {
     fireEvent.click(await findMarker('나선'))
     await waitFor(() => expect(screen.getByRole('dialog', { name: '나선 요약' })).toBeTruthy())
 
-    // 정렬을 바꾸면 첫 페이지를 다시 받는다 — 「다선」만 오는 커서 페이지가 아니므로
-    // 목록에는 남지만, 여기서는 목록 자체가 갈리는 경로를 쓴다.
+    // 이름순 첫 페이지에는 「나선」이 없다 — 마커도 카드도 사라진다.
     fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
-    await waitFor(() => expect(screen.getByRole('dialog', { name: '나선 요약' })).toBeTruthy())
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^나선 ·/ })).toBeNull())
+    expect(marker('가선')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    // **닫은 것이지 가린 것이 아니다** — 그 배가 목록에 돌아와도 카드가 저절로 다시 뜨지 않는다.
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'risk' } })
+    await findMarker('나선')
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('닫으면 초점이 눌렀던 마커로 돌아간다 — body로 떨어지지 않는다', async () => {
@@ -1206,5 +1228,40 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('요약 문장 한 줄 (#2199)', () => {
+  function renderWith(summary: Record<string, unknown>) {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    const withSummary = { ...body, data: { ...body.data, summary: { ...body.data.summary, ...summary } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => withSummary }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+  }
+
+  it('숫자 칸들 위에 문장으로 — 수치와 등급만 강조한다', async () => {
+    renderWith({
+      rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 2 },
+      soonest_d_entry: { vessel_id: 'v9', name: '임박선', days: 39 },
+    })
+    const line = await screen.findByTestId('fleet-summary')
+    expect(line.textContent).toMatch(/척 중 2척 E등급 · 1척은 39일 뒤 D등급 위험$/)
+    const strong = Array.from(line.querySelectorAll('b')).map((el) => el.textContent)
+    expect(strong).toEqual(['2', 'E', '1', '39일', 'D'])
+    const strip = screen.getByRole('region', { name: '선대 요약' })
+    expect(line.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('E등급도 올해 D 진입도 없으면 줄을 두지 않는다', async () => {
+    renderWith({ rating_distribution: { A: 0, B: 1, C: 0, D: 0, E: 0 }, soonest_d_entry: null })
+    await screen.findByRole('region', { name: '선대 요약' })
+    expect(screen.queryByTestId('fleet-summary')).toBeNull()
   })
 })

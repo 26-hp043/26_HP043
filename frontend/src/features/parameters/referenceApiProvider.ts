@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { ParametersError } from '../../api/parameters'
 
 /**
@@ -148,7 +148,7 @@ export function createApiReferenceParametersProvider(
       throw new ParametersError(
         typeof serverMessage === 'string' && serverMessage !== ''
           ? serverMessage
-          : `${label}을 불러오지 못했습니다 (HTTP ${response.status}).`,
+          : fallbackMessage(`${label}을 불러오지 못했습니다.`, response.status),
       )
     }
 

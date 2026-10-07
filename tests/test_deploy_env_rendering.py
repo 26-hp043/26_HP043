@@ -35,6 +35,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 _ROOT = Path(__file__).resolve().parents[1]
 _DEPLOY = _ROOT / ".github" / "workflows" / "deploy.yml"
 _PROD_APP = _ROOT / "docker-compose.prod.app.yml"
@@ -107,6 +109,79 @@ def test_initial_admin_emails_reaches_the_container():
     assert name in _rendered_keys(), (
         f"deploy.yml의 `.env` 렌더에 {name}이 없다 — 배포가 `.env`를 덮어쓰므로 "
         "손으로 적어 둔 값도 사라진다 (#1475)."
+    )
+
+
+def _preflight_step() -> dict:
+    workflow = yaml.safe_load(_DEPLOY.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["preflight"]["steps"]
+    assert len(steps) == 1, "preflight 잡의 단계 수가 바뀌었다 — 이 검사가 볼 단계를 다시 고른다."
+    return steps[0]
+
+
+def _preflight_checked_names() -> set[str]:
+    """preflight가 **실제로 비었는지 보는** 이름 — `for name in … ; do` 루프의 목록."""
+    loop = re.search(r"for name in(.*?);\s*do\b", _preflight_step()["run"], re.S)
+    assert loop, "preflight `run:`에서 `for name in … ; do` 루프를 찾지 못했다."
+    return set(re.findall(r"[A-Z][A-Z0-9_]*", loop.group(1)))
+
+
+def test_preflight_checks_initial_admin_emails():
+    """🔴 preflight가 `INITIAL_ADMIN_EMAILS`를 **받고, 본다** (#2117 ⑵).
+
+    렌더 쪽 세 고리(위 검사)가 다 있어도 **시크릿이 비어 있으면** `.env`에는 빈 값이 실린다.
+    `staging`은 그대로 뜨므로(관리자 0명) 배포가 서는 자리는 preflight뿐이다.
+
+    `env:`에만 있고 루프에 없으면 검사하지 않고, 루프에만 있고 `env:`에 없으면 **언제나
+    비어 있다**고 읽어 모든 배포가 선다 — 그래서 둘을 함께 본다.
+    """
+    name = "INITIAL_ADMIN_EMAILS"
+    step = _preflight_step()
+    checked = _preflight_checked_names()
+
+    assert step["env"].get(name) == f"${{{{ secrets.{name} }}}}", (
+        f"preflight `env:`가 {name}을 시크릿에서 받지 않는다."
+    )
+    assert name in checked, (
+        f"preflight 루프가 {name}을 보지 않는다 — 시크릿이 비어도 배포가 서지 않는다."
+    )
+    assert checked == set(step["env"]), (
+        "preflight의 `env:`와 루프 목록이 다르다 — 받지 않은 이름을 보면 모든 배포가 서고, "
+        "받고도 보지 않으면 검사가 없는 것이다."
+    )
+
+
+#: `OPERATIONS §5.1` 표의 행 가운데 **화면 배포**가 따로 보는 넷.
+#: 표 아래 각주가 이 넷을 갈라 적고, `deploy-frontend` 잡이 자기 단계에서 멈춘다.
+_FRONTEND_ONLY_SECRETS = frozenset(
+    {"CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "API_ORIGIN", "PROXY_CLIENT_IP_SECRET"}
+)
+
+
+def test_preflight_list_matches_the_operations_required_table():
+    """🔴 `OPERATIONS §5.1` 필수 표의 백엔드 쪽 이름과 preflight 목록이 **같다** (#2117 ⑵).
+
+    표는 「등록하는 사람」이 보고 preflight는 「배포」가 본다. 둘이 갈리면 표에 필수라고 적힌
+    값이 비어도 배포가 지나간다 — `INITIAL_ADMIN_EMAILS`가 그 상태였다. 각주의 개수도 함께 본다.
+    """
+    operations = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    start = operations.index("### 5.1 필수 시크릿")
+    section = operations[start : operations.index("### 5.2 ", start)]
+    documented = set(re.findall(r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|", section, re.M))
+
+    assert documented >= _FRONTEND_ONLY_SECRETS, "§5.1 표에서 화면 배포 쪽 넷을 찾지 못했다."
+    backend = documented - _FRONTEND_ONLY_SECRETS
+    checked = _preflight_checked_names()
+    assert backend == checked, (
+        "OPERATIONS §5.1 필수 표(화면 배포 넷 제외)와 preflight 목록이 다르다 — "
+        f"표에만: {sorted(backend - checked)} · preflight에만: {sorted(checked - backend)}. "
+        "화면 배포만 쓰는 시크릿을 표에 더한 것이면 `_FRONTEND_ONLY_SECRETS`에 넣는다."
+    )
+
+    counted = re.search(r"앞의 (\d+)종이 없으면", section)
+    assert counted, "§5.1 각주에서 「앞의 N종이 없으면」을 찾지 못했다."
+    assert int(counted.group(1)) == len(backend), (
+        f"§5.1 각주는 {counted.group(1)}종이라고 적는데 표의 백엔드 쪽은 {len(backend)}종이다."
     )
 
 

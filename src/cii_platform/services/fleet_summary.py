@@ -777,6 +777,38 @@ async def get_fleet_summary(
     # 같은 요청 안에서 규제 파라미터·선박을 다시 읽지 않는다 (`#989` ⑴). 이 경로는
     # 읽기만 하므로 요청이 도는 동안 그 값이 바뀌지 않는다 — 고치는 경로는 캐시를 켜지
     # 않는다(`services/request_cache.py`).
+    rows, actions = await compute_fleet_rows(session, year=year, resolved=resolved)
+
+    ordered = sort_fleet_rows(rows, sort)
+    page = ordered[offset : offset + page_size]
+    has_more = offset + page_size < len(ordered)
+    return {
+        "as_of": resolved.isoformat(),
+        "regulation_year": year,
+        # 선대 전체 — 페이지와 무관하다(위 docstring).
+        "summary": _aggregate_counts(rows),
+        "vessels": page,
+        "actions": actions,
+        # 라우트가 `meta`로 옮긴다(`§1.5`). `data`에 남기지 않는다.
+        "_page": {
+            "next_cursor": _encode_fleet_cursor(offset + page_size, sort) if has_more else None,
+            "has_more": has_more,
+        },
+    }
+
+
+async def compute_fleet_rows(
+    session: AsyncSession,
+    *,
+    year: int,
+    resolved: datetime,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """선대 **전 선박**의 행과 조치 항목을 계산한다 — 정렬 · 페이지 전 (#2204로 분리).
+
+    `get_fleet_summary`(`API_SPEC §2.8`)와 알림(`services.notifications` · `§2.19`)이 같은
+    판정을 쓴다. 두 곳이 각자 계산하면 대시보드의 「조치 필요」와 종 버튼의 수가 갈릴 자리가
+    생긴다 — 그래서 계산은 여기 하나다.
+    """
     enable_request_cache(session)
 
     # 선박 목록은 한 번에 가져온다. 여기서 개별 조회를 돌면 그 자체가 N+1이다.
@@ -882,22 +914,7 @@ async def get_fleet_summary(
                 }
             )
 
-    ordered = sort_fleet_rows(rows, sort)
-    page = ordered[offset : offset + page_size]
-    has_more = offset + page_size < len(ordered)
-    return {
-        "as_of": resolved.isoformat(),
-        "regulation_year": year,
-        # 선대 전체 — 페이지와 무관하다(위 docstring).
-        "summary": _aggregate_counts(rows),
-        "vessels": page,
-        "actions": actions,
-        # 라우트가 `meta`로 옮긴다(`§1.5`). `data`에 남기지 않는다.
-        "_page": {
-            "next_cursor": _encode_fleet_cursor(offset + page_size, sort) if has_more else None,
-            "has_more": has_more,
-        },
-    }
+    return rows, actions
 
 
 def _rating_rank(row: dict[str, object]) -> int:

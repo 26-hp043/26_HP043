@@ -8,6 +8,7 @@ import { needsVesselNote } from './vesselNote'
 import type { AssistantProvider, ChatTurn } from './types'
 import { avatarMood, turnMood, type AvatarMood } from './avatarMood'
 import { stripMarkdown } from './plainText'
+import { closeIntroHint, dismissIntroHint, shouldShowIntroHint } from './introHint'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 
@@ -40,6 +41,17 @@ const PANEL_LABEL = 'AI 어시스턴트'
 
 /** 열기 버튼 문구. 실험 기능임을 **버튼에서부터** 밝힌다. */
 const OPEN_LABEL = 'AI 어시스턴트 열기 (실험)'
+
+/*
+ * 첫 방문 안내 (#2205). 범이는 패널을 열어야만 무엇을 하는지 보였다.
+ *
+ * **기능만 안내한다** — `UIFLOW 2-7` No-Advice(행동 제안 금지)는 답변의 규칙이지만,
+ * 그 입구에서 「감속하세요」 같은 말을 하면 같은 규칙을 어기는 셈이다. 무엇을 물을 수
+ * 있는지만 말한다(패널 첫 화면의 예시 질문 셋 — 연말 예상 · 속도 시나리오 · 용어).
+ */
+const INTRO_HINT_TEXT = 'CII가 처음이라면 범이에게 물어보세요. 화면의 숫자와 용어를 풀어 드려요.'
+const INTRO_HINT_CLOSE = '닫기'
+const INTRO_HINT_DISMISS = '다시 보지 않기'
 
 /*
  * 범이 에셋 (`#2008` · `frontend/public/brand/beomi/`).
@@ -181,6 +193,8 @@ export interface AssistantOverlayProps {
 
 export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange }: AssistantOverlayProps) {
   const [open, setOpen] = useState(false)
+  /** 첫 방문 안내 (#2205) — 첫 렌더에 한 번 읽는다. */
+  const [introHint, setIntroHint] = useState(shouldShowIntroHint)
   const [turns, setTurns] = useState<readonly ChatTurn[]>([])
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
@@ -197,6 +211,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
   const launcherRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLElement | null>(null)
   /** 한 번이라도 열렸는지. 첫 렌더에서 초점을 빼앗지 않기 위한 표시다. */
   const openedOnceRef = useRef(false)
   const panelId = useId()
@@ -251,6 +266,29 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       launcherRef.current?.focus()
     }
   }, [open])
+
+  useEffect(() => {
+    /*
+     * 입력이 닫혀 있으면 **패널이 초점을 받는다** (#2128). 「쓸 수 없음」에서 입력은
+     * `disabled`라 초점을 받지 못하고, 이미 받은 뒤 닫히면 잃는다 — 어느 쪽이든 초점이
+     * `body`에 남아 패널의 Escape가 닿지 않았다. 패널은 `tabindex="-1"`인 프로그램적
+     * 초점 대상이다(`DESIGN_SYSTEM §14` — 링을 그리지 않는다).
+     *
+     * 초점이 **떨어진 경우에만** 옮긴다 — `body`에 있거나, 패널 안의 닫힌 입력에 남아 있을
+     * 때다. 패널 안의 살아 있는 요소(닫기 버튼)나 패널 밖 본문을 조작하는 사람의 자리는
+     * 빼앗지 않는다. 패널은 모달이 아니라서, 질문을 보내고 본문으로 나간 뒤에 응답이
+     * 「쓸 수 없음」으로 돌아올 수 있다.
+     */
+    if (!open || !stopped) return
+    const panel = panelRef.current
+    const active = document.activeElement
+    if (!panel) return
+    const dropped =
+      active === null ||
+      active === document.body ||
+      (panel.contains(active) && active.matches(':disabled'))
+    if (dropped) panel.focus()
+  }, [open, stopped])
 
   useEffect(() => {
     // 새 말풍선이 생기면 아래로 붙인다 — 사용자가 스크롤을 찾아 내려가지 않게.
@@ -311,27 +349,65 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="assistant__launcher"
-        ref={launcherRef}
-        /*
-         * 이름을 `aria-label`로 옮긴다 — 라벨이 그림으로 바뀌어 글자가 남지 않는다.
-         * 값은 **그대로**여야 한다: `AssistantOverlay.test.tsx`가 `/AI 어시스턴트 열기/`로
-         * 이 버튼을 찾는 자리가 다섯 군데다(초점 복귀 · `aria-controls` 검사 포함).
-         */
-        aria-label={OPEN_LABEL}
-        aria-expanded={false}
-        onClick={() => setOpen(true)}
-      >
-        {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
-        <img
-          className="assistant__launcher-img"
-          src={LAUNCHER_FACE_1X}
-          srcSet={`${LAUNCHER_FACE_1X} 1x, ${LAUNCHER_FACE_2X} 2x`}
-          alt=""
-        />
-      </button>
+      <>
+        {/*
+          첫 방문 안내 (#2205) — 런처 바로 위의 말풍선. **비모달이고 초점을 가져가지
+          않는다.** `role="status"`라 낭독은 한 번이며 하던 일을 끊지 않는다.
+        */}
+        {introHint ? (
+          <div className="assistant__hint" role="status">
+            <p className="assistant__hint-text">{INTRO_HINT_TEXT}</p>
+            <div className="assistant__hint-actions">
+              <button
+                type="button"
+                className="assistant__hint-button"
+                onClick={() => {
+                  dismissIntroHint()
+                  setIntroHint(false)
+                }}
+              >
+                {INTRO_HINT_DISMISS}
+              </button>
+              <button
+                type="button"
+                className="assistant__hint-button"
+                onClick={() => {
+                  closeIntroHint()
+                  setIntroHint(false)
+                }}
+              >
+                {INTRO_HINT_CLOSE}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          className="assistant__launcher"
+          ref={launcherRef}
+          /*
+           * 이름을 `aria-label`로 옮긴다 — 라벨이 그림으로 바뀌어 글자가 남지 않는다.
+           * 값은 **그대로**여야 한다: `AssistantOverlay.test.tsx`가 `/AI 어시스턴트 열기/`로
+           * 이 버튼을 찾는 자리가 다섯 군데다(초점 복귀 · `aria-controls` 검사 포함).
+           */
+          aria-label={OPEN_LABEL}
+          aria-expanded={false}
+          onClick={() => {
+            // 패널을 한 번 열었으면 범이를 찾은 것이다 — 안내를 다시 띄우지 않는다 (#2205).
+            dismissIntroHint()
+            setIntroHint(false)
+            setOpen(true)
+          }}
+        >
+          {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
+          <img
+            className="assistant__launcher-img"
+            src={LAUNCHER_FACE_1X}
+            srcSet={`${LAUNCHER_FACE_1X} 1x, ${LAUNCHER_FACE_2X} 2x`}
+            alt=""
+          />
+        </button>
+      </>
     )
   }
 
@@ -353,6 +429,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
        * `body`로 떨어지면 위의 Escape가 닿지 않는다.
        */
       tabIndex={-1}
+      ref={panelRef}
     >
       <header className="assistant__head">
         {/*

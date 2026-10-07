@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { createApiParametersProvider } from '../../api/parameters'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { overlapText } from './periodRules'
 import type {
   FuelUse,
@@ -148,7 +148,7 @@ export function createApiNotUnderwayProvider(
               startedAt: detail.overlap_started_at,
               endedAt: detail.overlap_ended_at ?? null,
             })
-          : (body?.error?.message ?? `요청에 실패했습니다 (HTTP ${response.status}).`),
+          : (body?.error?.message ?? fallbackMessage('요청에 실패했습니다.', response.status)),
         { field: detail?.field },
       )
     }

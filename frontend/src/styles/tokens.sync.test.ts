@@ -88,6 +88,32 @@ function blockAfter(marker: string): string {
 const rootBlock = blockAfter('\n:root {')
 const darkBlock = blockAfter(":root[data-theme='dark'] {")
 
+/**
+ * `@media (prefers-color-scheme: dark)` 안의 `:root:not([data-theme='light'])` 본문 (`#2145`).
+ *
+ * 다크 값은 **두 블록**에 적힌다 — OS가 다크인 사람은 이 블록을, 다크를 직접 고른 사람은
+ * `darkBlock`을 받는다. 종전 대조는 `darkBlock`만 보았고 이 블록은 「문자열이 있다」만
+ * 확인해, 한쪽만 어긋나면 **OS 다크 사용자에게만** 옛 색이 나가는데 아무것도 실패하지 않았다.
+ *
+ * 블록은 한 단 들여쓰여 있어 `blockAfter`(`\n}`에서 끊는다)로는 자를 수 없다. 머리말
+ * 주석에도 같은 `@media …` 글이 있으므로 **줄 머리**에서 찾는다.
+ */
+function mediaDarkBlockOf(text: string): string {
+  const media = text.indexOf('\n@media (prefers-color-scheme: dark) {')
+  expect(media, '@media (prefers-color-scheme: dark) 블록이 생성물에 없습니다').toBeGreaterThan(-1)
+  const selector = text.indexOf(":root:not([data-theme='light']) {", media)
+  expect(selector, "@media 안에 :root:not([data-theme='light'])가 없습니다").toBeGreaterThan(-1)
+  const open = text.indexOf('{', selector)
+  return text.slice(open, text.indexOf('\n  }', open))
+}
+
+const mediaDarkBlock = mediaDarkBlockOf(css)
+
+/** 블록 본문의 선언을 `이름: 값` 줄 목록으로. 두 블록을 통째로 견줄 때 쓴다. */
+function declarationLines(block: string): string[] {
+  return [...block.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map(([, name, value]) => `${name}: ${value.trim()}`)
+}
+
 const REGENERATE = '`npm run build:tokens`를 실행하십시오.'
 
 /**
@@ -184,6 +210,132 @@ describe('포커스 링은 outline이다 (#1167)', () => {
   })
 })
 
+/** 생성물 `:root` 블록에서 값 하나를 꺼낸다. */
+function generatedValue(name: string): string | undefined {
+  return new RegExp(`${name}:\\s*([^;]+);`).exec(rootBlock)?.[1]?.trim()
+}
+
+/** `src` 아래 모든 CSS. */
+function allCss(dir = fileURLToPath(new URL('..', import.meta.url)), out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name !== 'node_modules') allCss(full, out)
+    } else if (entry.name.endsWith('.css')) out.push(full)
+  }
+  return out
+}
+
+/**
+ * **자간은 `em`이다** (`#2150`).
+ *
+ * `DESIGN_SYSTEM §3`은 자간을 `-0.02em`·`-0.01em`으로 적는데 종전 내보내기는 `px`
+ * 소수(`-0.32`·`-0.16`)였다. 그 px은 **글자 크기가 16px일 때만** 같은 값이라
+ * `display`(32)·`page`(28)·`title`(20)에서는 `§3`이 말하는 것의 절반 남짓만 걸렸다 —
+ * **이 열의 값이 맞는 크기가 한 줄뿐**이었다(`§9.1`이 배율에서 겪은 것과 같은 꼴이다).
+ *
+ * ⚠️ **단위만 보지 않는다.** Figma가 다시 px 숫자(`-0.32`)를 내보내면 이 자리가
+ * `-0.32em` — 스무 배가 된다. 단위와 크기를 함께 본다.
+ */
+describe('자간 토큰이 §3의 단위와 범위 안이다 (#2150)', () => {
+  const TYPE_DOC = readFileSync(
+    join(fileURLToPath(new URL('..', import.meta.url)), '..', '..', 'DESIGN_SYSTEM.md'),
+    'utf-8',
+  )
+
+  it.each(['--letterSpacing-tight', '--letterSpacing-snug', '--letterSpacing-none'])(
+    '%s — em이고 0.05em을 넘지 않는다',
+    (name) => {
+      const value = generatedValue(name)
+      expect(value, `${name}을 찾지 못했습니다`).toBeDefined()
+      expect(value, '자간은 em이다 — px은 16px에서만 §3과 같다').toMatch(/em$/)
+      expect(Math.abs(Number.parseFloat(value as string))).toBeLessThanOrEqual(0.05)
+    },
+  )
+
+  /**
+   * `§3` **표의 자간 칸을 읽는다** — 「문서 어딘가에 그 글자가 있다」로 보지 않는다.
+   *
+   * ⚠️ 처음 쓴 검사는 `toContain('-0.02em')`이었다. 변이로 두드려 보니 표의 **여덟 줄을
+   * 전부** 바꿔야 붉어졌다 — `display` 한 줄만 어긋나면 나머지 세 줄이 그 글자를
+   * 가지고 있어 초록이 났다. `#2150`이 고치는 결함이 바로 「한 줄만 맞았다」였으므로,
+   * 한 줄의 어긋남을 못 보는 검사는 같은 결함을 다시 들인다.
+   */
+  /**
+   * ⚠️ 셀은 `[^|\n]`으로 센다 — `[^|]`은 **줄바꿈을 먹는다.** 처음 쓴 정규식이 그래서
+   * `§2`의 두 칸 표 여러 줄을 하나의 다섯 칸 줄로 읽어 `fill`·`text`를 끌어왔고, 위
+   * 「실제로 읽었다」가 그것을 잡았다. 절의 범위도 `§3`으로 자른다.
+   */
+  const ROW = /^\|\s*`(\w+)`\s*\|[^|\n]*\|[^|\n]*\|[^|\n]*\|\s*([^|\n]+?)\s*\|/gm
+
+  /** `§3` 절만 — 같은 모양의 표가 다른 절에도 있다. */
+  const SECTION = TYPE_DOC.slice(TYPE_DOC.indexOf('## 3. 타이포그래피')).split(/^## 4\. /m)[0]
+
+  const tracking = [...SECTION.matchAll(ROW)].map(([, token, value]) => ({
+    token,
+    value: value === '0' ? '0em' : value,
+  }))
+
+  it('§3 타입 표를 실제로 읽었다 — 파서가 조용히 0건을 내지 않게', () => {
+    // 표가 안 잡히면 아래 대조가 빈 목록으로 통과한다. §3은 여덟 줄이다.
+    expect(tracking.map((r) => r.token)).toEqual([
+      'display',
+      'page',
+      'title',
+      'heading',
+      'body',
+      'label',
+      'caption',
+      'micro',
+    ])
+  })
+
+  it('§3 표의 모든 줄이 자간 토큰 중 하나를 적는다', () => {
+    const tokens = new Map([
+      ['--letterSpacing-tight', generatedValue('--letterSpacing-tight')],
+      ['--letterSpacing-snug', generatedValue('--letterSpacing-snug')],
+      ['--letterSpacing-none', generatedValue('--letterSpacing-none')],
+    ])
+    const values = new Set(tokens.values())
+    const adrift = tracking
+      .filter((r) => !values.has(r.value))
+      .map((r) => `${r.token} — §3은 ${r.value}, 토큰은 ${[...values].join(' · ')}`)
+    expect(adrift, '정본의 한 줄만 어긋나도 그 크기에서 자간이 틀린다').toEqual([])
+  })
+
+  it('자간 토큰이 모두 §3에서 쓰인다 — 아무도 안 쓰는 값이 남지 않게', () => {
+    const used = new Set(tracking.map((r) => r.value))
+    for (const [name, value] of [
+      ['--letterSpacing-tight', generatedValue('--letterSpacing-tight')],
+      ['--letterSpacing-snug', generatedValue('--letterSpacing-snug')],
+      ['--letterSpacing-none', generatedValue('--letterSpacing-none')],
+    ] as const) {
+      expect(used, `${name}(${value})을 §3 표의 어느 줄도 적지 않습니다`).toContain(value)
+    }
+  })
+})
+
+/**
+ * **컨트롤 높이는 토큰에서 온다** (`#2150`).
+ *
+ * `40px`이 CSS에 **스물두 곳** 직접 적혀 있었다 — 전부 입력칸과 그 줄의 제출 버튼이다.
+ * 같은 저장소에 `--target-row`(40) · `--target-button`(36)이 이미 있었고, 리터럴은 그
+ * 둘 어느 쪽과도 이어져 있지 않았다. 값을 바꾸려면 스물두 곳을 찾아야 하고,
+ * **하나를 빠뜨려도 화면은 멀쩡해 보인다.**
+ */
+describe('컨트롤 높이가 토큰에서 온다 (#2150)', () => {
+  it('높이를 40px·36px로 직접 적은 CSS가 없다', () => {
+    const literals: string[] = []
+    for (const file of allCss()) {
+      const body = stripComments(readFileSync(file, 'utf8'))
+      for (const found of body.matchAll(/^\s*(?:min-)?(?:block-size|height):\s*(?:40|36)px;/gm)) {
+        literals.push(`${file.split('/src/')[1]} :: ${found[0].trim()}`)
+      }
+    }
+    expect(literals.sort()).toEqual([])
+  })
+})
+
 describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', () => {
   function cssFiles(dir: URL, out: URL[] = []): URL[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -202,8 +354,20 @@ describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', (
     for (const file of files) {
       const body = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
       for (const [, name] of body.matchAll(/(--[\w-]+)\s*:/g)) declared.add(name)
-      // 닫는 괄호가 바로 오는 것만 센다 — 쉼표가 오면 대체값이 있다.
-      for (const [, name] of body.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
+      /*
+       * **대체값이 있어도 센다** (`#2150`).
+       *
+       * ⚠️ 종전에는 닫는 괄호가 바로 오는 것만 셌다 — 쉼표가 오면 대체값이 있으니
+       * 그려지기는 한다는 판단이었다. 그런데 그 때문에 **어디에도 정의되지 않은 이름
+       * 다섯**이 조용히 살아 있었다(`--cii-space-2` · `--cii-space-3` ·
+       * `--cii-font-size-sm` · `--cii-text-muted` · `--borderWidth-strong`).
+       * 늘 대체값만 그려지므로 **토큰을 쓴 것처럼 보이는 리터럴**이고, 토큰을 고쳐도
+       * 그 자리는 따라오지 않는다.
+       *
+       * 대체값은 **값이 늦게 오는 자리**(마크업이 넣는 변수)를 위한 안전망이지 이름을
+       * 면제하는 장치가 아니다. 그 자리들도 CSS에 기본값을 선언해 두면 된다.
+       */
+      for (const [, name] of body.matchAll(/var\(\s*(--[\w-]+)\s*[,)]/g)) {
         const at = referenced.get(name) ?? new Set<string>()
         at.add(file.pathname.split('/src/')[1] ?? file.pathname)
         referenced.set(name, at)
@@ -259,6 +423,21 @@ describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
     // 그것을 `outline:`에 넣어 **20개 선택자에 링이 없었고**, 잘못 쓰면 즉시
     // 드러나도록 `--focus-outline`으로 바꿨다. 정본이 그 이력을 적고 있다.
     '--focus-ring': '#1167 개명 기록 — `--focus-outline`으로 바뀌었다',
+    /*
+     * `#831` ⑷가 **참조 0건**으로 걷어낸 차트 계열색. 정본(`§15` · `§9.3`)은 「걷었다」는
+     * 사실과 그 사유를 적기 위해 이름을 쓴다 — 되살리면 그 PR이 막은 *「차트 색 체계가
+     * 여기 있다」*가 다시 읽힌다. 아래 「두 목록이 낡지 않았다」가 부재를 잠근다.
+     */
+    '--chart-actual': '#831 ⑷가 참조 0건으로 걷었다 — 3계열 차트가 생길 때 신설',
+    '--chart-axis': '#831 ⑷가 참조 0건으로 걷었다 — 3계열 차트가 생길 때 신설',
+    '--chart-band': '#831 ⑷가 참조 0건으로 걷었다 — 3계열 차트가 생길 때 신설',
+    '--chart-boundary': '#831 ⑷가 참조 0건으로 걷었다 — 3계열 차트가 생길 때 신설',
+    // `§2.2`가 행으로 들고 있던 이름 — **정의된 적이 없다**(`#2149` 정정 기록).
+    // 차트 그리드선은 `--chart-grid`이고 그쪽은 실재한다.
+    '--color-grid': '#2149 정정 기록 — 정의된 적 없던 이름(실제는 --chart-grid)',
+    // 걷어낸 `§15` 블록이 쓰던 타입 이름. 실제는 `--font-size-body`이며, 정본은
+    // 「블록의 이름이 실제와 달랐다」는 사실을 적기 위해 이 이름을 쓴다 (`#2149`).
+    '--font-body': '#2149 정정 기록 — 정의된 적 없던 이름(실제는 --font-size-body)',
   }
 
   /**
@@ -278,6 +457,33 @@ describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
     expect(
       missing.sort(),
       '정본이 이름을 적었는데 정의가 없다. 잠긴 규격이 조용히 안 지켜지는 자리다.',
+    ).toEqual([])
+  })
+
+  /**
+   * **코드블록 안의 선언도 센다** (`#2149`).
+   *
+   * ⚠️ 위 검사는 **백틱으로 감싼 이름**만 읽는다. 그래서 `§15`에 있던 `:root { … }`
+   * 선언 블록(168줄)은 통째로 시야 밖이었고, 그 안에서 **CSS에 정의된 적 없는 이름
+   * 26개**가 조용히 살아 있었다 — `--color-grid` · `--chart-series-1~3` ·
+   * `--font-body` · `--tracking-*` 꼴이다. 블록은 `#2149`가 걷었고(값의 소유는 생성
+   * 파일이다 · `§0.2`), 여기서 **그 자리가 다시 열리지 않게** 막는다.
+   *
+   * 선언 꼴(`--name:`)만 센다 — 참조(`var(--name)`)는 예시에서 설명용으로 쓰일 수
+   * 있지만, **선언은 「이 토큰이 있다」는 주장**이라 틀리면 그대로 거짓이 된다.
+   */
+  it('코드블록이 선언한 토큰 이름도 CSS에 정의돼 있다 (#2149)', () => {
+    const defined = definedEverywhere()
+    const declared = new Set<string>()
+    for (const [, body] of designSystem.matchAll(/```[\w]*\n([\s\S]*?)```/g)) {
+      for (const [, name] of body.matchAll(/(--[\w-]+)\s*:/g)) declared.add(name)
+    }
+    const missing = [...declared].filter(
+      (name) => !defined.has(name) && !(name in RETIRED) && !(name in UNRESOLVED),
+    )
+    expect(
+      missing.sort(),
+      '코드블록이 없는 토큰을 선언한다 — 읽는 쪽은 그것이 있다고 믿는다.',
     ).toEqual([])
   })
 
@@ -318,6 +524,48 @@ describe('디자인 토큰 — JSON과 생성 CSS가 일치한다', () => {
       mismatched,
       `Dark.tokens.json과 tokens.generated.css가 어긋납니다. ${REGENERATE}`,
     ).toEqual([])
+  })
+
+  it('다크 색 토큰이 @media (prefers-color-scheme: dark) 블록에도 모두 있다 (#2145)', () => {
+    const mismatched = Object.entries(dark)
+      .filter(([path, token]) => !mediaDarkBlock.includes(`${cssName(path)}: ${hexOf(token)};`))
+      .map(([path, token]) => `${cssName(path)}: ${hexOf(token)}`)
+
+    expect(
+      mismatched,
+      `Dark.tokens.json과 tokens.generated.css의 @media 블록이 어긋납니다. ${REGENERATE}`,
+    ).toEqual([])
+  })
+
+  it('생성물의 두 다크 블록이 같은 선언을 갖는다 — OS 다크와 명시 다크가 갈리지 않는다 (#2145)', () => {
+    // JSON에 없는 선언이 한쪽에만 끼어도 잡는다 — 위 대조는 JSON에 있는 이름만 본다.
+    expect(declarationLines(darkBlock).length).toBeGreaterThanOrEqual(Object.keys(dark).length)
+    expect(declarationLines(mediaDarkBlock)).toEqual(declarationLines(darkBlock))
+  })
+
+  it('@media 블록을 자르는 눈이 맞다 — 머리말 주석이 아니라 규칙을 읽는다 (#2145)', () => {
+    const sample = [
+      '/*',
+      ' *   @media (prefers-color-scheme: dark)   → 다크',
+      " *     :root:not([data-theme='light']) { --in-comment: #000000; }",
+      ' */',
+      ':root {',
+      '  --a: #ffffff;',
+      '}',
+      '',
+      '@media (prefers-color-scheme: dark) {',
+      "  :root:not([data-theme='light']) {",
+      '    --a: #111111;',
+      '    --b: #222222;',
+      '  }',
+      '}',
+      '',
+      ":root[data-theme='dark'] {",
+      '  --a: #333333;',
+      '}',
+    ].join('\n')
+    // 주석 속 선언도, 기본 블록도, 뒤의 명시 다크 블록도 끌어오지 않는다.
+    expect(declarationLines(mediaDarkBlockOf(sample))).toEqual(['--a: #111111', '--b: #222222'])
   })
 
   it('두 테마의 색 토큰 키 집합이 같다', () => {
@@ -982,6 +1230,94 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
         `${face} 위 배지 테두리 — 1.4.11 비텍스트 3:1 (#1170 ⑴)`,
       ).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  /*
+   * **공용 배지도 같은 자리다** (`#2147`).
+   *
+   * 위 두 검사는 **대시보드의 배지**(`.vessel__mark--none`)만 본다. 같은 판단이
+   * 필요한 공용 `GradeBadge`는 그 눈 밖에 있었고, `--cii-none-*`를 그대로 쓰고
+   * 있었다 — 기능①·②·③ · 대시보드 · 실시간 CII · 선박 상세 **여섯 화면**이 그 배지다.
+   *
+   * 범위를 좁게 잡아 같은 결함이 옆자리에 남은 것이 `#1202`가 적은 그 패턴이고,
+   * 이것이 **세 번째**다(`#829` ⑶ · `#1170` ⑴ 다음).
+   *
+   * 색을 **마크업이 인라인으로** 넣으므로 TSX를 읽는다. 토큰 이름이 아니라 **실제
+   * 대비**를 재는 것은 위와 같다 — `#748`이 이름 기반 가드로 밟은 함정이다.
+   */
+  const gradeBadgeSource = readFileSync(
+    join(fileURLToPath(new URL('.', import.meta.url)), '../components/GradeBadge.tsx'),
+    'utf-8',
+  )
+
+  /** `none`일 때 고르는 쪽만 꺼낸다 — A~E 가지는 등급 토큰이 맞다. */
+  function noneBranch(property: string): string {
+    const found = new RegExp(`${property}:\\s*none \\? '([^']+)'`).exec(gradeBadgeSource)
+    expect(found, `GradeBadge의 ${property} none 가지를 찾지 못했습니다`).not.toBeNull()
+    return (found as RegExpExecArray)[1]
+  }
+
+  it.each(THEMES)('$name — 공용 배지의 등급 없음 문자가 등급 축 밖이고 4.5:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const expr = noneBranch('color')
+    expect(
+      /--cii-/.test(expr),
+      `공용 배지의 등급 없음 문자가 등급 토큰(${expr})이다 — 이 배지는 \`—\` 하나를 그린다 (§0.2 제약 2)`,
+    ).toBe(false)
+
+    const text = evaluate(expr, generated, alias)
+    const bg = evaluate(generated['--cii-none-bg'], generated, alias)
+    expect(contrast(text, bg), '공용 배지의 등급 없음 문자 — 1.4.3 4.5:1').toBeGreaterThanOrEqual(4.5)
+  })
+
+  it.each(THEMES)('$name — 공용 배지의 등급 없음 테두리가 등급 축 밖이고 3:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const expr = noneBranch('borderColor')
+    expect(
+      /--cii-/.test(expr),
+      `공용 배지의 등급 없음 테두리가 등급 토큰(${expr})이다 (§0.2 제약 2)`,
+    ).toBe(false)
+
+    const value = evaluate(expr, generated, alias)
+    for (const face of NONE_FACES) {
+      expect(
+        contrast(value, evaluate(generated[face] ?? `var(${face})`, generated, alias)),
+        `${face} 위 공용 배지 테두리 — 1.4.11 비텍스트 3:1`,
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  /*
+   * **채움 Primary는 짝으로 정의된 토큰을 쓴다** (`#2147`).
+   *
+   * 면을 `--semantic-primary`로, 글자를 `--surface-card`로 각각 집어 오면 **두 값이
+   * 서로의 짝이 아니다.** 오류 화면 주 버튼이 그랬고 다크에서 `3.76`이었다 —
+   * 라이트는 `12.14`라 **라이트에서만 보면 멀쩡했다.**
+   *
+   * 저장소 전체에서 **`--color-on-primary`를 글자로 쓰는 규칙**을 찾아, 그 면이
+   * 짝인 `--color-primary-solid`인지와 실제 대비를 함께 본다.
+   */
+  it.each(THEMES)('$name — 채움 Primary의 글자가 면 위에서 4.5:1 이상이다 (#2147)', ({
+    generated,
+    alias,
+  }) => {
+    const text = evaluate('var(--color-on-primary)', generated, alias)
+    const face = evaluate('var(--color-primary-solid)', generated, alias)
+    expect(contrast(text, face), '채움 Primary — 1.4.3 4.5:1').toBeGreaterThanOrEqual(4.5)
+
+    const errorCss = readFileSync(
+      join(fileURLToPath(new URL('.', import.meta.url)), '../components/ErrorBoundary.css'),
+      'utf-8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '')
+    const rule = /\.error-screen__button--primary\s*\{([^}]*)\}/.exec(errorCss)
+    expect(rule, '오류 화면 주 버튼 규칙을 찾지 못했습니다').not.toBeNull()
+    const body = (rule as RegExpExecArray)[1]
+    expect(body).toContain('var(--color-primary-solid)')
+    expect(body).toContain('var(--color-on-primary)')
   })
 
   /*

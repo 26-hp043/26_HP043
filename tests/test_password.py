@@ -96,11 +96,34 @@ class TestTimingDefence:
         """
         verify_dummy("anything-at-all")
 
-    def test_dummy_hash_never_matches_a_real_password(self):
-        """더미 해시로 로그인이 되면 안 된다."""
-        # verify_dummy는 결과를 돌려주지 않으므로 간접 확인 — 더미 해시는
-        # 모듈 내부 상수이고, 어떤 입력으로도 인증을 통과시키지 않는다.
-        assert verify_password("dummy-password-for-timing-equalisation", "") is False
+    def test_matching_the_dummy_hash_still_yields_no_result(self):
+        """더미 해시로 로그인이 되면 안 된다.
+
+        ⚠️ 더미 해시는 **실제 argon2 해시**라서 그 원문을 넣으면 검증 자체는 **맞는다**
+        (아래 첫 단언이 그 전제다). 막는 것은 해시가 아니라 `verify_dummy`가 **결과를
+        돌려주지 않는다**는 사실이다 — 호출부가 그 값으로 로그인을 열 수 없다.
+
+        종전 이름은 `test_dummy_hash_never_matches_a_real_password`였고 빈 해시 `""`로
+        `verify_password`를 불렀다 — 더미 해시를 한 번도 읽지 않았다(`#2142`). 「어떤
+        비밀번호와도 맞지 않는다」는 이 모듈에 없는 성질이라 이름을 실제 검사에 맞췄다.
+        """
+        from cii_platform.auth import password as password_module
+
+        dummy_plain = "dummy-password-for-timing-equalisation"
+        assert verify_password(dummy_plain, password_module._DUMMY_HASH) is True, (
+            "전제가 깨졌다 — 더미 해시에 맞는 입력이 있어야 아래 단언이 무엇인가를 막는다"
+        )
+        assert verify_dummy(dummy_plain) is None
+
+    def test_dummy_hash_costs_the_same_as_a_real_one(self):
+        """더미 해시가 **현재 파라미터의 실제 해시**여야 시간이 맞는다.
+
+        빈 문자열·깨진 해시면 `verify_password`가 해싱 없이 곧바로 `False`를 낸다 —
+        없는 계정만 빨리 끝나 가입 여부가 응답 시간으로 샌다.
+        """
+        from cii_platform.auth import password as password_module
+
+        assert needs_rehash(password_module._DUMMY_HASH) is False
 
 
 class TestRehash:

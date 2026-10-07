@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import {
   ScenarioComparisonError,
   type ScenarioComparisonErrorCode,
@@ -227,7 +227,7 @@ export function createApiScenarioProvider(
         const detail = body?.error?.details?.[0]
         throw new ScenarioComparisonError(
           SERVER_CODE_MAP[serverCode] ?? 'CALCULATION_ERROR',
-          body?.error?.message ?? `비교하지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('비교하지 못했습니다.', response.status),
           detail?.field,
         )
       }
@@ -330,7 +330,7 @@ export function createApiScenarioProvider(
         // **무엇이 막혔는지**를 서버가 가장 정확히 안다(`STATE_TRANSITION_ERROR` 409).
         throw new ScenarioComparisonError(
           SERVER_CODE_MAP[body?.error?.code ?? 'INTERNAL_ERROR'] ?? 'CALCULATION_ERROR',
-          body?.error?.message ?? `계획에 반영하지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('계획에 반영하지 못했습니다.', response.status),
         )
       }
 

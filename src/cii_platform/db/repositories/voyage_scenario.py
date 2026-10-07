@@ -37,8 +37,8 @@ async def insert(
 
     기능②(#57)의 시나리오는 항차에 묶이지 않는다 — ``voyage_id``는 NULL이다
     (DB_SCHEMA §2.4 [S-8] 독립 시나리오 허용). ``scenario_id``를 응답에 실어야
-    하므로 flush 한다 — PK가 ``gen_random_uuid()`` server_default라 DB에 문장을
-    보내기 전에는 값이 없다.
+    하므로 flush 한다 — PK가 컬럼 기본값(``default=uuid.uuid4``)이라 INSERT를 만드는
+    flush 전에는 값이 없다.
 
     ``cii_value``는 [M-8] denormalized 캐시다. canonical 값은 ``calculation_run``의
     ``result_json``이 소유하므로, 여기 들어가는 값은 컬럼 스케일(15,8)로 반올림된

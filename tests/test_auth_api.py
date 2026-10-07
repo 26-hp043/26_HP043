@@ -503,6 +503,8 @@ class TestLastLoginAt:
             second = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
             second_stamp = dt.datetime.fromisoformat(second.json()["data"]["last_login_at"])
 
-            assert second_stamp >= first_stamp, "두 번째 로그인이 시각을 뒤로 돌렸다"
+            # ⚠️ 종전에는 `>=`였다 — **처음 한 번만 찍는** 구현도 같은 값이라 통과했다
+            # (`#2142`). 두 요청 사이에 argon2 검증이 끼므로 시각은 반드시 달라진다.
+            assert second_stamp > first_stamp, "두 번째 로그인이 시각을 갱신하지 않았다"
         finally:
             await _cleanup([email])

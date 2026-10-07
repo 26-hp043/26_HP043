@@ -15,12 +15,14 @@ from __future__ import annotations
 import csv
 import io
 import re
+import warnings
 from decimal import Decimal
 from html import escape
 from uuid import UUID, uuid4
 
 from conftest import insert_returning_id
 from fastapi.testclient import TestClient
+from pdf_env import pdf_environment_gap
 from sqlalchemy import text
 
 from cii_platform.api.main import app
@@ -215,13 +217,20 @@ async def test_비교_채택_완료_뒤_리포트가_3종과_실적을_싣는다
             assert html.text.count(escape(VOYAGE_CII_NOTE)) == 2
             assert "50,000 DWT" in html.text
 
-            # PDF는 같은 문서에서 나온다 — 렌더러가 없는 환경에서는 건너뛴다.
+            # PDF는 같은 문서에서 나온다 — 렌더러가 없는 환경에서는 건너뛴다. 건너뛸지는
+            # 제품의 판정에 묻지 않는다(`#2276`): 판정이 틀려 「없다」고 답하면 이 부분이
+            # 흔적 없이 빠진다. 환경이 없을 때는 경고로 그 사실을 남긴다.
             from cii_platform.reports import pdf as pdf_module
 
-            if pdf_module.is_available() and pdf_module.has_korean_font():
+            gap = pdf_environment_gap()
+            if gap is None:
+                assert pdf_module.is_available(), "환경이 갖춰졌는데 렌더러를 불러오지 못했다"
+                assert pdf_module.has_korean_font(), "환경이 갖춰졌는데 폰트 판정이 거짓이다"
                 pdf = client.get(f"/api/v1/voyages/{voyage_id}/report", params={"format": "pdf"})
                 assert pdf.status_code == 200, pdf.text
                 assert pdf.content.startswith(b"%PDF-")
+            else:
+                warnings.warn(f"PDF 부분을 건너뛰었다 — {gap}", stacklevel=1)
     finally:
         if vessel_id:
             async with sessionmaker() as s:

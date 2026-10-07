@@ -6,6 +6,7 @@ import {
   type ThemeChoice,
 } from './theme'
 import { useI18n, useTextLang } from '../i18n/core'
+import { moveRadioByArrow } from '../components/radioArrowKeys'
 import './ThemeToggle.css'
 
 /**
@@ -20,6 +21,7 @@ import './ThemeToggle.css'
  * ## 접근성
  *
  * `radiogroup`으로 노출한다 — 상호배타 선택이라 툴바 버튼보다 의미가 맞는다.
+ * 그 역할이 약속하는 키보드 조작(화살표 이동 · 선택된 칸만 Tab)도 함께 낸다 (#2128).
  * 아이콘만 있으므로 각 칸에 `aria-label`을 붙이고, SVG는 `aria-hidden`으로 감춘다.
  *
  * ## `labelledBy` — 보이는 라벨이 이미 있는 자리 (#1422)
@@ -52,6 +54,7 @@ export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
       lang={textLang}
       aria-label={labelledBy ? undefined : t('theme.groupLabel')}
       aria-labelledby={labelledBy}
+      onKeyDown={moveRadioByArrow}
     >
       <Option current={theme} value="light" label={t('theme.light')} textLang={textLang} />
       <Option current={theme} value="dark" label={t('theme.dark')} textLang={textLang} />
@@ -78,6 +81,8 @@ function Option({
       role="radio"
       lang={textLang}
       aria-checked={selected}
+      // 선택된 칸만 Tab을 받는다 — 나머지는 화살표로 닿는다(`moveRadioByArrow`).
+      tabIndex={selected ? 0 : -1}
       aria-label={label}
       title={label}
       className={

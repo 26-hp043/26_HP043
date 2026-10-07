@@ -38,7 +38,7 @@ import {
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from "./apiProvider";
 import { regulationParametersPath } from "../parameters/referenceRules";
 import { STATUS_LABELS, voyageActualsPath } from "../voyage-management/voyageRules";
-import { CURRENT_VOYAGE_SEGMENT, voyagePath } from "../../layout/globalContext";
+import { CURRENT_VOYAGE_SEGMENT, VESSEL_QUERY_KEY, voyagePath } from "../../layout/globalContext";
 import { portDisplayName, useSamplePorts } from "../ports/samplePorts";
 import {
   POLL_INTERVAL_MS,
@@ -645,6 +645,22 @@ export function RealtimeCiiView({
             <li key={code}>{warningText(code)}</li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        다음 행동 — 결과 맨 아래 한 줄, 하나만 (#2224 · `DESIGN_SYSTEM §8` 결과 카드). 띠의 보조
+        결론 「연말 예상」을 **목표 달성 확률**로 이어 보는 곳이 연간 등급 관리다 — 같은 배가
+        선택된 채로 간다(쿼리로 선박을 담는 화면). 근거 확인 링크(「기준값 근거」 · 「데이터
+        점검」)는 이미 각 근거 바로 아래(단서 자리)라 그대로 둔다(rlatnals4114 결정).
+      */}
+      {vesselId ? (
+        <p className="result-card__next">
+          <Link
+            to={`${SCREEN_BY_ID.ANNUAL_GRADE.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: vesselId })}`}
+          >
+            {SCREEN_BY_ID.ANNUAL_GRADE.label}
+          </Link>
+        </p>
       ) : null}
 
       <DisclaimerBanner />

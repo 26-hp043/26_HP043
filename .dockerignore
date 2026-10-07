@@ -46,6 +46,18 @@ Thumbs.db
 # 문서 (이미지 빌드에 불필요)
 *.md
 
+# 백엔드 이미지에 들어가지 않는 디렉터리 (#2118)
+#
+# 루트 Dockerfile이 COPY하는 것은 pyproject.toml · src · alembic.ini · alembic뿐이다.
+# 아래는 컨텍스트로 보내 봐야 쓰이지 않는다. 화면은 frontend/를 자기 컨텍스트로
+# 따로 빌드하고(frontend/.dockerignore), ops/는 실행 때 볼륨으로 붙는다.
+# Dockerfile에 COPY를 더하면 여기서 그 경로를 뺀다.
+frontend/
+docs/
+scripts/
+ops/
+.github/
+
 # 잠금 파일 (pip install -e . 는 pyproject 기준)
 uv.lock
 

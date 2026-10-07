@@ -21,6 +21,9 @@
 3. 비운 뒤 부르면 **실제 데이터 건수와 정확히 같다** — 「뭔가 됐다」가 아니라 몇 건인지
 
 `clear_demo`의 삭제 건수도 같은 근거로 함께 본다.
+
+`#2105` — 0이 「이미 있다」만 뜻하게 한다. 트리거·FK·NOT NULL로 **거부된** 행까지 0으로
+세면 위 2번의 숫자가 다시 두 가지를 뜻하게 된다(파일 끝 절).
 """
 
 from __future__ import annotations
@@ -33,6 +36,8 @@ import sqlalchemy as sa
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
+from cii_platform.db import demo_seed
+from cii_platform.db.cubrid_errors import violated_unique_index
 from cii_platform.db.demo_seed import (
     SEED_PERIOD_FUELS,
     SEED_PERIODS,
@@ -44,6 +49,7 @@ from cii_platform.db.demo_seed import (
     SEED_VOYAGE_FUELS,
     SEED_VOYAGES,
     SEED_VOYAGES_WATCH,
+    _insert_ignoring_existing,
     clear_demo,
     seed_demo,
 )
@@ -397,3 +403,107 @@ async def test_clear_then_seed_replaces_a_stale_vessel_position(conn: AsyncConne
         assert row.position_updated_at == datetime.fromisoformat(updated), (
             f"{vid}: 위치 기록 시각이 시드 값이 아니다"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 건너뛰는 것은 중복뿐이다 — 거부된 행을 「이미 있다」로 세지 않는다 (#2105)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 일곱 자리이지만 숫자가 아니다 — ``trg_chk_imo_format_ins``(049)의
+#: ``IF NOT (new.imo_number REGEXP '^[0-9]{7}$') EXECUTE REJECT``에 걸린다. 길이는
+#: 열 폭(7) 안이라 「값이 길다」가 아니라 **트리거의 거부**로 실패한다.
+IMO_REJECTED_BY_TRIGGER = "ABCDEFG"
+
+
+def _fresh_id() -> str:
+    """DB에 없는 PK. 중복이 아닌 행이어야 「삼켜졌는가」를 볼 수 있다."""
+    return str(uuid.uuid4())
+
+
+def _assert_not_a_duplicate(excinfo: pytest.ExceptionInfo[sa.exc.IntegrityError]) -> None:
+    """올라온 위반이 **중복이 아닌 갈래**인지 확인한다.
+
+    전제 확인이다 — 깨뜨린 행이 엉뚱하게 유니크 인덱스에 걸렸다면 이 검사는 다른 것을
+    보고 있다.
+    """
+    assert violated_unique_index(excinfo.value.orig) is None, str(excinfo.value.orig)
+
+
+@pytest.mark.asyncio
+async def test_row_rejected_by_value_trigger_raises_instead_of_being_skipped(
+    conn: AsyncConnection,
+):
+    """값 트리거가 거부한 행은 **건너뛰지 않고** 예외로 올라온다.
+
+    종전에는 ``except IntegrityError: pass``가 이 거부까지 삼켜 0을 돌려줬다 —
+    「이미 있다」와 구분되지 않는 값이다.
+    """
+    row = {**SEED_VESSELS[0], "id": _fresh_id(), "imo_number": IMO_REJECTED_BY_TRIGGER}
+
+    with pytest.raises(sa.exc.IntegrityError) as excinfo:
+        await _insert_ignoring_existing(conn, demo_seed._vessel, [row])
+
+    _assert_not_a_duplicate(excinfo)
+
+
+@pytest.mark.asyncio
+async def test_row_with_broken_foreign_key_raises_instead_of_being_skipped(
+    conn: AsyncConnection,
+):
+    """없는 선박을 가리키는 항차는 건너뛰지 않고 예외로 올라온다."""
+    row = {**SEED_VOYAGES[0], "id": _fresh_id(), "vessel_id": _fresh_id()}
+
+    with pytest.raises(sa.exc.IntegrityError) as excinfo:
+        await _insert_ignoring_existing(conn, demo_seed.voyage_tbl, [row])
+
+    _assert_not_a_duplicate(excinfo)
+
+
+@pytest.mark.asyncio
+async def test_row_missing_a_required_value_raises_instead_of_being_skipped(
+    conn: AsyncConnection,
+):
+    """NOT NULL 열이 **빠진** 항차도 같은 갈래다 — 선박은 실재하므로 FK에는 걸리지 않는다.
+
+    키를 빼서 만든다(``Missing value for attribute`` · errno -225). ``None``을 명시해
+    넣는 쪽은 드라이버가 다른 번호(-205)의 ``DatabaseError``로 올려 ``IntegrityError``
+    포획에 애초에 걸리지 않았다 — 삼켜지던 것은 키가 빠진 쪽이다(2026-10-06 실측).
+    """
+    row = {**SEED_VOYAGES[0], "id": _fresh_id()}
+    del row["departure_port_name"]
+
+    with pytest.raises(sa.exc.IntegrityError) as excinfo:
+        await _insert_ignoring_existing(conn, demo_seed.voyage_tbl, [row])
+
+    _assert_not_a_duplicate(excinfo)
+
+
+@pytest.mark.asyncio
+async def test_row_that_already_exists_is_still_skipped(conn: AsyncConnection):
+    """대조군 — **이미 있는 PK**는 여전히 예외 없이 건너뛰고 0으로 센다.
+
+    위 세 검사만 있으면 「모든 ``IntegrityError``를 올리는 구현」도 통과한다. 그 구현은
+    재적재를 깨뜨린다. 트리거가 있는 표(``vessel`` — 위반이 트리거 액션 안에서 난다)와
+    없는 표(``voyage`` — 직접 위반)는 드라이버가 주는 errno가 달라 둘 다 본다. 시연 계정
+    (``app_user`` — ``vessel``과 같은 갈래)의 재적재는 ``test_demo_user_seed.py``가 본다.
+    """
+    assert await _insert_ignoring_existing(conn, demo_seed._vessel, SEED_VESSELS[:1]) == 0
+    assert await _insert_ignoring_existing(conn, demo_seed.voyage_tbl, SEED_VOYAGES[:1]) == 0
+
+
+@pytest.mark.asyncio
+async def test_seed_fails_when_a_seed_constant_trips_a_value_trigger(
+    conn: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+):
+    """**이슈의 완료 기준이다** — 시드 상수가 값 트리거에 걸리면 시드가 예외로 끝난다.
+
+    상수 하나를 깨진 값으로 바꾼 뒤 ``seed_demo``를 부른다. 종전에는 예외 없이 끝나고
+    그 행이 ``vessel: 0행 신규 적재``에 묻혔다.
+    """
+    broken = {**SEED_VESSEL_WATCH[0], "id": _fresh_id(), "imo_number": IMO_REJECTED_BY_TRIGGER}
+    monkeypatch.setattr(demo_seed, "SEED_VESSEL_WATCH", [broken])
+
+    with pytest.raises(sa.exc.IntegrityError) as excinfo:
+        await seed_demo(conn)
+
+    _assert_not_a_duplicate(excinfo)

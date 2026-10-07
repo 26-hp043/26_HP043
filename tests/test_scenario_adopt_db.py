@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import random
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -36,6 +37,7 @@ from cii_platform.services.scenario_adopt import (
     MODE_CREATE,
     SOURCE_MODEL_ESTIMATE,
     UPDATED_FIELDS,
+    _fuel_shares,
     adopt_scenario,
 )
 
@@ -85,16 +87,26 @@ async def _new_voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> U
 
 
 async def _new_scenario(
-    session, vessel_id: UUID, *, scenario_type: str = "SLOW_STEAMING", distance: str = "2000"
+    session,
+    vessel_id: UUID,
+    *,
+    scenario_type: str = "SLOW_STEAMING",
+    distance: str = "2000",
+    fuel: str = "120.25",
 ) -> UUID:
     return UUID(
         await insert_returning_id(
             session,
             "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
             " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
-            "VALUES (:vid, :st, '감속 운항', :dist, 10.5, 190.5, 120.25, 5.1, 'C', 'MEDIUM') "
+            "VALUES (:vid, :st, '감속 운항', :dist, 10.5, 190.5, :fuel, 5.1, 'C', 'MEDIUM') "
             "RETURNING id",
-            {"vid": vessel_id, "st": scenario_type, "dist": Decimal(distance)},
+            {
+                "vid": vessel_id,
+                "st": scenario_type,
+                "dist": Decimal(distance),
+                "fuel": Decimal(fuel),
+            },
         )
     )
 
@@ -496,14 +508,45 @@ def test_the_route_is_registered():
     assert "post" in app.openapi()["paths"]["/api/v1/scenarios/{scenario_id}/adopt"]
 
 
-def test_compare_response_carries_scenario_ids():
+@pytest.mark.asyncio
+async def test_compare_response_carries_scenario_ids(session, vessel_id):
     """IT-ADOPT-004 — 채택하려면 **비교 응답에 id가 있어야** 한다.
 
     `#57`이 이미 넣었으나 그 사실이 이 이슈의 전제이므로 여기서 함께 잠근다.
-    """
-    from cii_platform.services.scenario_compare import _serialize_scenarios
 
-    assert "scenario_ids" in _serialize_scenarios.__code__.co_varnames
+    ⚠️ 종전에는 직렬화 함수의 **지역 변수 이름**(`co_varnames`)에 `scenario_ids`가 있는지만
+    봤다 — 변수는 두고 응답 값만 비워도 통과했다(`#2142`). 실제 비교 응답을 받아, 그 id가
+    **저장된 행을 가리키는지**까지 본다(채택은 그 id로 행을 찾는다).
+    """
+    from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
+
+    # 비교는 기준 속도가 있어야 돈다(`PRD §11.4.1`). 이 파일의 선박에는 없다.
+    await session.execute(
+        text("UPDATE vessel SET reference_speed_kn = 14 WHERE id = :id"), {"id": vessel_id}
+    )
+    response = await compare_scenarios(
+        session,
+        ScenarioCompareInput(
+            vessel_id=vessel_id,
+            regulation_year=2026,
+            current_speed_kn=Decimal("12"),
+            fuel_type="HFO",
+            direct_distance_nm=Decimal("5000"),
+            base_daily_foc_ton=Decimal("30"),
+        ),
+    )
+
+    ids = [row["scenario_id"] for row in response["data"]["scenarios"]]
+    assert len(ids) == 3 and all(ids), ids
+    assert len(set(ids)) == 3, ids
+    for scenario_id in ids:
+        found = await session.execute(
+            text("SELECT COUNT(*) FROM voyage_scenario WHERE id = :id").bindparams(
+                bindparam("id", type_=UuidText())
+            ),
+            {"id": scenario_id},
+        )
+        assert found.scalar_one() == 1, f"응답의 id {scenario_id}가 저장된 행을 가리키지 않는다"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -633,6 +676,30 @@ async def test_apportioned_shares_still_sum_to_the_total_when_rounding(session, 
 
 
 @pytest.mark.asyncio
+async def test_a_tiny_total_empties_the_rows_that_get_no_share(session, vessel_id):
+    """총량이 너무 작아 몫을 받지 못한 양수 비중 행은 계획값이 `NULL`로 비워진다 (#2275).
+
+    옛 값을 두면 항차의 계획 연료 합이 「옛 값 + 총량」이 된다. `chk_fuel_positive`는
+    `NULL`을 받으므로 비우면 양수 비중이던 행 전체의 합이 시나리오 총량과 정확히 같다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)  # HFO 80
+    await _add_fuel(session, voyage_id, "DIESEL_GAS_OIL", Decimal("20"), "3.206")
+    await _add_fuel(session, voyage_id, "LNG", Decimal("5"), "2.750")
+
+    data = await adopt_scenario(
+        session, await _new_scenario(session, vessel_id, fuel="0.0001"), target_voyage_id=voyage_id
+    )
+    assert FIELD_PLANNED_FUEL in data["updated_fields"]
+
+    rows = await _fuel_rows(session, voyage_id)
+    by_type = {row.fuel_type: row.planned_fuel_ton for row in rows}
+    assert by_type == {"HFO": Decimal("0.0001"), "DIESEL_GAS_OIL": None, "LNG": None}
+    # **항차의 계획 연료 합이 시나리오 총량과 정확히 같다.**
+    assert sum((row.planned_fuel_ton or 0) for row in rows) == Decimal("0.0001")
+    assert {row.source for row in rows} == {SOURCE_MODEL_ESTIMATE}
+
+
+@pytest.mark.asyncio
 async def test_a_row_without_a_planned_amount_is_left_alone(session, vessel_id):
     """비중이 없는 행은 **건드리지 않는다.**
 
@@ -720,3 +787,96 @@ async def test_adopting_is_not_blocked_when_the_fuel_type_is_unknown(session):
     # **바꾸지 않은 것을 바꿨다고 적지 않는다.**
     assert FIELD_PLANNED_FUEL not in data["updated_fields"]
     assert data["updated_fields"] == [f for f in UPDATED_FIELDS if f != FIELD_PLANNED_FUEL]
+
+
+# ---------------------------------------------------------------------------
+# `_fuel_shares` — 아주 작은 총량에서도 합이 총량과 같다 (#2275). DB 없이 도는 단위 검사다.
+# ---------------------------------------------------------------------------
+
+FUEL_STEP = Decimal("0.0001")
+
+
+def _assert_valid_shares(total: Decimal, weights: list[Decimal]) -> dict[int, Decimal]:
+    shares = _fuel_shares(total, weights)
+    assert sum(shares.values()) == total, (total, weights, shares)
+    assert all(share >= FUEL_STEP for share in shares.values()), shares
+    assert all(share == share.quantize(FUEL_STEP) for share in shares.values()), shares
+    assert all(weights[index] > 0 for index in shares), shares
+    return shares
+
+
+@pytest.mark.parametrize(
+    ("total", "rows"), [("0.0001", 2), ("0.0002", 3), ("0.0010", 20)], ids=["1/2", "2/3", "10/20"]
+)
+def test_tiny_total_is_filled_one_step_at_a_time(total: str, rows: int):
+    """총량이 「양수 비중 행 수 × 0.0001」보다 작으면 비중 큰 행부터 `0.0001`씩 채운다.
+
+    종전에는 잔차를 흡수한 행을 다시 `0.0001`로 올려 **합이 총량을 넘었다**(이슈 본문의
+    세 입력). 몫이 0이 되는 행은 결과에 없다 — `chk_fuel_positive`가 0을 거부한다.
+    """
+    weights = [Decimal(rows - index) for index in range(rows)]  # 앞 행일수록 비중이 크다
+    shares = _assert_valid_shares(Decimal(total), weights)
+    units = int(Decimal(total) / FUEL_STEP)
+    assert shares == {index: FUEL_STEP for index in range(units)}
+
+
+@pytest.mark.parametrize("rows", [1, 2, 3, 4, 7])
+def test_boundary_at_rows_times_step(rows: int):
+    """경계 — 행 수 × 0.0001 **정확히** · 그 바로 아래 · 바로 위에서 모두 합이 총량이다."""
+    weights = [Decimal(1)] * rows
+    exact = FUEL_STEP * rows
+    assert _assert_valid_shares(exact, weights) == {index: FUEL_STEP for index in range(rows)}
+    if rows > 1:
+        below = _assert_valid_shares(exact - FUEL_STEP, weights)
+        assert len(below) == rows - 1 and rows - 1 not in below, "비중이 같으면 뒤 행이 빠진다"
+    # 바로 위는 보통 갈래(반올림 + 잔차 흡수)로 끝난다 — 모든 행이 몫을 받고 종전 결과 그대로다.
+    above = _assert_valid_shares(exact + FUEL_STEP, weights)
+    assert len(above) == rows and FUEL_STEP * 2 in above.values()
+
+
+def test_total_above_rows_times_step_can_still_underflow():
+    """총량이 행 수 × 0.0001 **이상**이어도 반올림 잔차가 흡수 행을 0으로 만들 수 있다.
+
+    `0.0006`을 같은 비중 4행에 나누면 `0.00015 → 0.0002` 넷의 합이 `0.0008`이라 흡수 행이
+    `0`이 됐고, 종전 코드는 그것을 `0.0001`로 올려 합이 `0.0007`이었다.
+    """
+    assert _assert_valid_shares(Decimal("0.0006"), [Decimal(1)] * 4) == {
+        0: FUEL_STEP * 2,
+        1: FUEL_STEP * 2,
+        2: FUEL_STEP,
+        3: FUEL_STEP,
+    }
+
+
+def test_random_inputs_always_preserve_the_total():
+    """성질 검사 — 무작위 총량·비중에서 합 == 총량, 모든 몫 ≥ 0.0001, 4자리 격자."""
+    rng = random.Random(2275)
+    for _ in range(20_000):
+        rows = rng.randint(1, 12)
+        units = rng.randint(1, 4 * rows) if rng.random() < 0.7 else rng.randint(1, 10**7)
+        weights = [Decimal(rng.randint(0, 1000)) for _ in range(rows)]
+        if not any(weights):
+            weights[0] = Decimal(1)
+        _assert_valid_shares(FUEL_STEP * units, weights)
+
+
+def test_rows_without_weight_never_receive_a_share():
+    """비중 0인 행은 작은 총량 갈래에서도 몫을 받지 않는다.
+
+    `0.0001`은 양수 비중 행 2개보다 단위 수가 적어 작은 총량 갈래를 탄다 — 비중 0 행을
+    건너뛰고 비중이 큰 행 하나만 받는다. `0.0002`는 보통 갈래로 끝나 둘 다 받는다.
+    """
+    weights = [Decimal(0), Decimal(5), Decimal(0), Decimal(3)]
+    assert _assert_valid_shares(Decimal("0.0001"), weights) == {1: FUEL_STEP}
+    assert _assert_valid_shares(Decimal("0.0002"), weights) == {1: FUEL_STEP, 3: FUEL_STEP}
+
+
+@pytest.mark.parametrize("total", ["0", "0.00005", "0.00015"])
+def test_total_off_the_storage_grid_is_rejected(total: str):
+    """`0.0001` 격자 밖의 총량은 받지 않는다 — 격자 위에서 「합 = 총량」을 만들 수 없다.
+
+    제품은 `voyage_scenario.fuel_ton`(`NUMERIC(12,4)` · `chk_scenario_fuel_positive`)만
+    넘기므로 실제로는 닿지 않는 입력이다.
+    """
+    with pytest.raises(ValueError):
+        _fuel_shares(Decimal(total), [Decimal(1)])

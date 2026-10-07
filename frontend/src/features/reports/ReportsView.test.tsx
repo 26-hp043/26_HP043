@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { ReportsView } from './ReportsView'
-import { SELECT_VESSEL_FIRST } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY } from '../parameters/yearCatalog'
 import type { ReportsProvider, VesselOption, VoyageOption } from './types'
 
 /**
@@ -629,5 +629,288 @@ describe('내려받기 완료 안내는 조건을 따라간다 (#2125)', () => {
     fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
 
     expect(notice()?.textContent).toContain('report-a-1.pdf')
+  })
+})
+
+/**
+ * 연도 목록이 없으면 연간 리포트를 요청하지 않는다 (#2183 · `#2120` 후속).
+ *
+ * 종전에는 연도 상태의 초깃값이 **기기 시계의 해**였고, `/parameters/regulation-years`가
+ * 실패하거나 빈 목록이면 그 값으로 연간 리포트를 요청했다 — 목록에서 고를 수 없는 연도로
+ * 문서를 묻는 것이다. 이제 연도는 목록에서 정하고(없으면 `null`), 그때 미리보기·PDF·CSV
+ * 셋이 잠기며 요청이 한 건도 나가지 않는다. 항차 리포트는 연도와 무관하므로 영향이 없다.
+ *
+ * 연도 조회는 `fetch`로 세운다(`#2048`과 같은 자리) — `useYearOptions`가 만드는 API
+ * 카탈로그는 마운트 때의 `globalThis.fetch`를 붙들므로 렌더 **전에** 세워야 한다.
+ */
+describe('연도 목록이 없으면 연간 리포트를 요청하지 않는다 (#2183)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    })
+
+  /** 규제연도 조회만 `reply`로 답하고 나머지 요청은 빈 200이다. */
+  function stubYears(reply: () => Promise<Response>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('regulation-years') ? reply() : json({}),
+      ),
+    )
+  }
+
+  const yearsReply = (years: number[]) => json({ data: years.map((year) => ({ year })) })
+
+  /** 응답 시점을 검사가 쥔다 — 「도착 전」과 「도착 후」를 나눠 본다. */
+  function deferred() {
+    let resolve!: (response: Response) => void
+    const promise = new Promise<Response>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+
+  const buttons = () =>
+    (['preview-button', 'pdf-button', 'csv-button'] as const).map(
+      (id) => screen.getByTestId(id) as HTMLButtonElement,
+    )
+  const yearSelect = () => screen.getByTestId('year-select') as HTMLSelectElement
+  /**
+   * 연도 칸의 상태 문구. 같은 문장이 결과 기둥의 자리표시에도 서므로(`#2048`과 같은 배선)
+   * 문장으로 찾지 않고 버튼이 가리키는 자리(`rp-year-state`)를 읽는다.
+   */
+  const yearState = () => document.getElementById('rp-year-state')?.textContent ?? null
+  /** 셸의 선박은 선박 목록이 온 뒤에야 이 화면에 반영된다 — 그 전의 「열림」은 선박 미선택이다. */
+  const untilVessel = (id: string) => waitFor(() => expect(vesselSelect().value).toBe(id))
+
+  /** 셋이 전부 잠겼고, 각 버튼이 사유(연도 칸의 상태 문구)를 가리킨다. */
+  function expectLockedWithReason() {
+    for (const button of buttons()) {
+      expect(button.disabled, `${button.dataset.testid}가 열려 있습니다`).toBe(true)
+      const reasonId = button.getAttribute('aria-describedby')
+      expect(reasonId, `${button.dataset.testid}가 사유를 가리키지 않습니다`).not.toBeNull()
+      expect(document.getElementById(reasonId as string)?.textContent?.trim()).not.toBe('')
+    }
+  }
+
+  function expectUnlocked() {
+    for (const button of buttons()) {
+      expect(button.disabled, `${button.dataset.testid}가 잠겨 있습니다`).toBe(false)
+      expect(button.getAttribute('aria-describedby')).toBeNull()
+    }
+  }
+
+  it('⚠️ 목록 조회가 500이면 셋이 잠기고 요청이 한 건도 나가지 않는다', async () => {
+    stubYears(async () => json({ detail: 'boom' }, 500))
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    // 실패가 연도 칸에 적히는 때가 곧 판정이 끝난 때다 — 그 뒤에 버튼을 본다.
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearState()).toBe(YEAR_STATE_COPY.failed))
+    expectLockedWithReason()
+    expect(yearSelect().disabled).toBe(true)
+
+    for (const button of buttons()) fireEvent.click(button)
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+    expect(provider.download).not.toHaveBeenCalled()
+  })
+
+  it('빈 목록이어도 같다 — 고를 연도가 없다', async () => {
+    stubYears(async () => yearsReply([]))
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearState()).toBe(YEAR_STATE_COPY.empty))
+    expectLockedWithReason()
+
+    for (const button of buttons()) fireEvent.click(button)
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+    expect(provider.download).not.toHaveBeenCalled()
+  })
+
+  it('목록이 오면 풀리고 목록의 가장 최근 해로 요청한다 — 기기 시계의 해가 아니다', async () => {
+    // 올해가 목록에 없는 상태 — 종전 초깃값(기기 시계의 해)이 그대로 요청에 실릴 수 있던 자리다.
+    stubYears(async () => yearsReply([2023, 2024]))
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearSelect().value).toBe('2024'))
+    expectUnlocked()
+    expect(yearState()).toBeNull()
+
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+    expect(provider.previewHtml).toHaveBeenCalledWith({
+      kind: 'ANNUAL',
+      vesselId: 'v-a',
+      year: 2024,
+    })
+
+    fireEvent.click(screen.getByTestId('pdf-button'))
+    await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))
+    expect(provider.download).toHaveBeenCalledWith(
+      { kind: 'ANNUAL', vesselId: 'v-a', year: 2024 },
+      'pdf',
+    )
+  })
+
+  it('불러오는 동안 잠기고, 도착하면 풀린다 — 도착 전에 누른 것은 요청이 되지 않는다', async () => {
+    const pending = deferred()
+    stubYears(() => pending.promise)
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearState()).toBe(YEAR_STATE_COPY.loading))
+    expectLockedWithReason()
+    for (const button of buttons()) fireEvent.click(button)
+
+    pending.resolve(yearsReply([2025]))
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    expectUnlocked()
+    expect(yearState()).toBeNull()
+    // 도착 전의 클릭은 요청이 아니었고, 도착 자체도 요청을 만들지 않는다 — 누르기 전의
+    // 문서는 누구의 질문도 아니다(#1768).
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+    expect(provider.download).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('csv-button'))
+    await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))
+    expect(provider.download).toHaveBeenCalledWith(
+      { kind: 'ANNUAL', vesselId: 'v-a', year: 2025 },
+      'csv',
+    )
+  })
+
+  it('불러오다 실패하면 잠긴 채 실패로 바뀐다 — 「불러오는 중」이 남지 않는다', async () => {
+    const pending = deferred()
+    stubYears(() => pending.promise)
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearState()).toBe(YEAR_STATE_COPY.loading))
+    pending.resolve(json({ detail: 'boom' }, 500))
+
+    await waitFor(() => expect(yearState()).toBe(YEAR_STATE_COPY.failed))
+    expect(screen.queryAllByText(YEAR_STATE_COPY.loading)).toEqual([])
+    expectLockedWithReason()
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+  })
+
+  it('선박을 바꾸면 새 선박의 문서를 목록의 연도로 한 번만 다시 만든다', async () => {
+    /*
+     * 실 API 카탈로그는 성공한 목록을 붙들어 재사용하므로(`createApiYearCatalog`) 두 번째
+     * 선박의 목록은 조회 없이 같은 목록이다 — 다시 받는 동안의 잠김은 위 「불러오는 동안」
+     * 검사가 본다. 여기서 보는 것은 연도를 목록에서 **렌더 중에 정해도** 미리보기가 조건을
+     * 따라가고(#1768), 같은 조건으로 두 번 묻지 않는다는 것이다.
+     */
+    stubYears(async () => yearsReply([2024, 2025]))
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(vesselSelect(), { target: { value: 'v-b' } })
+
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(2))
+    expect(provider.previewHtml).toHaveBeenLastCalledWith({
+      kind: 'ANNUAL',
+      vesselId: 'v-b',
+      year: 2025,
+    })
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    expectUnlocked()
+    // 목록이 다시 온 뒤에도 같은 조건이면 다시 묻지 않는다.
+    expect(provider.previewHtml).toHaveBeenCalledTimes(2)
+  })
+
+  it('문서가 연도 목록보다 늦게 와도 새 선박의 문서는 한 번만 묻는다', async () => {
+    /*
+     * 위 검사의 문서 스텁은 곧바로 답해, 목록이 다시 서는 렌더에는 이미 새 선박의 문서가
+     * 와 있다. 실제 순서는 반대다 — 목록은 붙들어 둔 답이라 즉시 오고 문서는 서버를 다녀온다.
+     * 그 순서에서 선박을 바꾼 렌더가 앞 선박의 목록으로 한 번 묻고, 목록이 다시 선 렌더가
+     * (앞 문서가 아직 안 와서) 같은 조건으로 한 번 더 물었다.
+     */
+    stubYears(async () => yearsReply([2024, 2025]))
+    const held: Array<(html: string) => void> = []
+    let calls = 0
+    const provider = stub({
+      previewHtml: vi.fn(async () => {
+        calls += 1
+        // 첫 문서(선박 A)는 곧바로 온다. 그 뒤의 문서는 검사가 풀 때까지 오지 않는다.
+        if (calls === 1) return '<p>a</p>'
+        return new Promise<string>((done) => {
+          held.push(done)
+        })
+      }),
+    })
+    renderInShell(provider, { vesselId: 'v-a' })
+
+    await untilVessel('v-a')
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+    await waitFor(() => expectUnlocked())
+
+    fireEvent.change(vesselSelect(), { target: { value: 'v-b' } })
+    // 목록이 다시 서고(연도 칸이 값을 되찾고) 새 선박의 문서를 묻는다 — 문서는 아직 오지 않았다.
+    await waitFor(() => expect(yearSelect().value).toBe('2025'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(2))
+    await new Promise((done) => setTimeout(done, 0))
+
+    expect(provider.previewHtml).toHaveBeenCalledTimes(2)
+    expect(provider.previewHtml).toHaveBeenLastCalledWith({
+      kind: 'ANNUAL',
+      vesselId: 'v-b',
+      year: 2025,
+    })
+    for (const release of held) release('<p>b</p>')
+    await waitFor(() => expectUnlocked())
+    expect(provider.previewHtml).toHaveBeenCalledTimes(2)
+  })
+
+  it('선박을 고르기 전에는 잠그지 않는다 — 종전대로 누르면 사유를 말한다', async () => {
+    stubYears(async () => json({ detail: 'boom' }, 500))
+    const provider = stub()
+    render(<ReportsView provider={provider} />)
+    await screen.findByRole('option', { name: /STAR SKIPPER/ })
+
+    expectUnlocked()
+    fireEvent.click(screen.getByTestId('preview-button'))
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+    // 선박을 고르라는 사유가 뜬다 — 연도 칸의 상태 문구가 아니다.
+    // 정본 문구 (PRD §6.4 검증 오류 「{대상}을/를 선택해 주세요.」) — 바꾸려면 PRD 개정이 먼저다.
+    expect(screen.getByText(/선박을 선택해 주세요/)).toBeTruthy()
+    expect(yearState()).toBeNull()
+  })
+
+  it('항차 리포트는 연도와 무관하다 — 목록이 500이어도 종전대로 만든다', async () => {
+    stubYears(async () => json({ detail: 'boom' }, 500))
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-1' })
+    await chooseVoyageKind()
+    await untilVessel('v-a')
+    await waitFor(() => expect(voyageSelect().value).toBe('a-1'))
+
+    expectUnlocked()
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+    expect(provider.previewHtml).toHaveBeenCalledWith({ kind: 'VOYAGE', voyageId: 'a-1' })
+
+    fireEvent.click(screen.getByTestId('pdf-button'))
+    await waitFor(() => expect(provider.download).toHaveBeenCalledTimes(1))
+    expect(provider.download).toHaveBeenCalledWith({ kind: 'VOYAGE', voyageId: 'a-1' }, 'pdf')
   })
 })

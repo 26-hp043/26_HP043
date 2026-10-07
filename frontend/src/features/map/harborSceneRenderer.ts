@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { HarborRendererModel } from './harborRenderer'
 import type { MapRenderer } from './renderer'
 import { mapQualityPolicy } from './quality'
+import { fallbackMessage } from '../../api/base'
 
 type Point = readonly [number, number]
 interface HarborData {
@@ -82,7 +83,7 @@ function mountScene(target: HTMLElement, model: HarborRendererModel, emit: Param
   target.addEventListener('keydown', keydown)
 
   void fetch(PORTS[model.port].url, { signal: abort.signal }).then(async (response) => {
-    if (!response.ok) throw new Error(`항만 데이터 조회 실패 (HTTP ${response.status})`)
+    if (!response.ok) throw new Error(fallbackMessage('항만 데이터 조회 실패', response.status))
     return response.json() as Promise<HarborData>
   }).then((data) => {
     if (disposed) return

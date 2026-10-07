@@ -18,6 +18,7 @@ from __future__ import annotations
 import platform
 import sys
 from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
@@ -46,6 +47,7 @@ from cii_platform.calc.annual_simulation import (
     backsolve_required_cut,
     feedback_factor,
     fuel_cf_alternative_projection,
+    profile_from_rows,
     project_deterministic,
     rate_against_future_year,
     rng_metadata,
@@ -167,7 +169,13 @@ def test_non_positive_capacity_is_rejected():
 # ── `TECH_SPEC §2.3.1` [ORACLE-S-1] — 계획값 0 이하 거부 (#967) ───────────────
 
 
-def _voyage(**over) -> RemainingVoyage:
+def _voyage_without_specs(**over) -> RemainingVoyage:
+    """속도-연료 모델 제원이 **없는** 잔여 항차.
+
+    ⚠️ 종전 이름은 `_voyage`였다 — 파일 머리의 `_voyage`(제원 있음)를 **덮어써서**, 이 아래
+    모든 검사가 제원 없는 항차로 돌았다(`#2142`). 「일부만 제원이 빠졌다」를 만들려던
+    검사가 실제로는 「전부 빠졌다」를 보고 있었다.
+    """
     kwargs = {
         "distance_nm": 3000.0,
         "fuel_ton": 250.0,
@@ -194,7 +202,7 @@ def test_deterministic_projection_rejects_non_positive_plan_values(bad):
     종전 구현은 폭 0 표본으로 받아 넘겼다(`#967`). 거리 0은 분모에 기여하지 않아 결과가
     틀리지는 않지만, 입력 누락이 어디에도 드러나지 않는다. 메시지에 **어느 항차**인지 싣는다.
     """
-    remaining = [_voyage(), _voyage(**bad)]
+    remaining = [_voyage_without_specs(), _voyage_without_specs(**bad)]
     with pytest.raises(ValueError, match=r"잔여 항차 1의 계획값이 0 이하"):
         _project(remaining=remaining)
 
@@ -202,7 +210,18 @@ def test_deterministic_projection_rejects_non_positive_plan_values(bad):
 def test_monte_carlo_rejects_non_positive_plan_values_before_sampling():
     """결정론과 같은 가드가 Monte Carlo에도 걸린다 — 두 경로가 다른 입력을 받으면 안 된다."""
     with pytest.raises(ValueError, match=r"잔여 항차 0의 계획값이 0 이하"):
-        _simulate(remaining=[_voyage(distance_nm=0.0)])
+        _simulate(remaining=[_voyage_without_specs(distance_nm=0.0)])
+
+
+def test_monte_carlo_stops_when_there_is_no_distance_at_all():
+    """`PRD §12.8` — `completed_W + planned_W = 0`이면 **계산 중단**이다 (#2144).
+
+    결정론 경로의 같은 가드는 검사가 있었고 Monte Carlo 쪽 줄은 CI에서 실행된 적이 없다.
+    가드가 빠지면 0으로 나눈 `nan`이 등급 확률로 집계된다.
+    """
+    nothing = CompletedTotals(co2_g=0.0, distance_nm=0.0)
+    with pytest.raises(ValueError, match=r"completed_W \+ planned_W = 0"):
+        _simulate(completed=nothing, remaining=[])
 
 
 def test_degenerate_band_still_returns_the_plan_value():
@@ -528,6 +547,22 @@ def test_sensitivity_covers_the_prd_levers():
     entries, _ = _sens()
     variables = {e.variable for e in entries}
     assert {"fuel", "distance", "speed", "voyage_count"} <= variables
+
+
+def test_sensitivity_has_no_voyage_count_lever_without_remaining_voyages():
+    """`PRD §12.6` 「잔여 항차 1개 취소/추가」는 **항차가 있을 때만** 성립한다 (#2144).
+
+    잔여 항차가 없으면 뺄 항차도, 복제할 항차도 없다 — 나머지 지렛대는 그대로 낸다.
+    """
+    entries, _ = analyze_sensitivity(
+        completed=COMPLETED,
+        remaining=[],
+        transport_capacity=CAPACITY,
+        required_cii=REQUIRED,
+        d_vector=D_VECTOR,
+    )
+
+    assert {e.variable for e in entries} == {"fuel", "distance", "speed"}
 
 
 def test_sensitivity_fuel_direction():
@@ -981,22 +1016,57 @@ def _cut(**over):
     return backsolve_required_cut(**kwargs)
 
 
-@pytest.mark.parametrize("target", ["A", "B", "C", "D"])
-def test_cutting_the_required_amount_lands_exactly_on_the_target_boundary(target):
+# 기대값은 **이 파일의 정수에서** 만든다 — 제품 함수를 다시 불러 만들지 않는다(`AGENTS §5`).
+# 50,000 DWT · 확정 5,000 nm · 400 t, 잔여 3,000 nm × 4항차, `CF` 3.114, `required` 5.0.
+_CUT_W = Fraction(50_000) * (5_000 + 4 * 3_000)
+_CUT_COMPLETED_M = Fraction(400 * 3_114_000)
+_CUT_TARGET_CII = {
+    "A": Fraction(5) * Fraction(86, 100),
+    "B": Fraction(5) * Fraction(94, 100),
+    "C": Fraction(5) * Fraction(106, 100),
+    "D": Fraction(5) * Fraction(118, 100),
+}
+
+
+def _cut_planned_m(fuel_ton: int) -> Fraction:
+    return Fraction(4 * fuel_ton * 3_114_000)
+
+
+def _cut_allowed_m(target: str) -> Fraction:
+    return _CUT_TARGET_CII[target] * _CUT_W - _CUT_COMPLETED_M
+
+
+def _cut_case(fuel_ton: int, target: str):
+    remaining = [_voyage(fuel_ton=float(fuel_ton)) for _ in range(4)]
+    projection = _project(remaining=remaining)
+    return _cut(projection=projection, remaining=remaining, target_rating=target)
+
+
+# 잔여 항차당 250 t(기본 픽스처)는 연말 CII가 5.1289라 C·D는 이미 달성이다. 종전에는 그
+# 둘을 `pytest.skip`으로 넘겨 **C·D 경계의 역산은 한 번도 돌지 않았다**(`#2143`).
+# 350 t은 6.594로 D 경계(5.9)도 넘으므로 네 목표 모두 실제로 줄일 것이 있다.
+_NEEDS_CUT = [(250, "A"), (250, "B"), (350, "A"), (350, "B"), (350, "C"), (350, "D")]
+# 150 t은 3.663으로 A 경계(4.3) 안이라 네 목표 모두 이미 달성이다.
+_ALREADY_INSIDE = [(250, "C"), (250, "D"), (150, "A"), (150, "B"), (150, "C"), (150, "D")]
+
+
+@pytest.mark.parametrize(("fuel_ton", "target"), _NEEDS_CUT)
+def test_cutting_the_required_amount_lands_exactly_on_the_target_boundary(fuel_ton, target):
     """⚠️ **역산의 실질** — 줄이라는 만큼 줄이면 목표 경계에 **정확히** 닿는다.
 
     산식을 옮겨 적기만 하면 항 하나가 틀려도 「그럴듯한 양」이 나온다. 되짚어
-    계산해 경계와 맞춰야 그것이 드러난다.
+    계산해 경계와 맞춰야 그것이 드러난다. 네 목표 모두에서 돈다 — 건너뛰지 않는다.
     """
-    projection = _project()
-    plan = _cut(projection=projection, target_rating=target)
-    if plan.required_cut_g == 0:
-        pytest.skip(f"목표 {target}는 이미 달성 상태라 역산할 것이 없다")
+    planned_m = _cut_planned_m(fuel_ton)
+    expected = planned_m - _cut_allowed_m(target)
+    assert expected > 0, "이 입력은 줄일 것이 있는 갈래여야 한다"
 
-    total_m = projection.completed_co2_g + projection.planned_co2_g - plan.required_cut_g
-    total_w = CAPACITY * (projection.completed_distance_nm + projection.planned_distance_nm)
+    plan = _cut_case(fuel_ton, target)
+    cut = Fraction(plan.required_cut_g)
 
-    assert total_m / total_w == plan.target_cii
+    assert cut == expected
+    assert (_CUT_COMPLETED_M + planned_m - cut) / _CUT_W == _CUT_TARGET_CII[target]
+    assert plan.achievable
 
 
 def test_the_target_boundary_comes_from_the_same_table_as_the_rating():
@@ -1011,14 +1081,22 @@ def test_the_target_boundary_comes_from_the_same_table_as_the_rating():
     assert _cut(target_rating="D").target_cii == projection.boundaries["inferior_boundary"]
 
 
-def test_already_inside_the_target_needs_no_cut():
-    """이미 목표 안이면 **0**이다 — 음수로 내려가지 않는다.
+@pytest.mark.parametrize(("fuel_ton", "target"), _ALREADY_INSIDE)
+def test_already_inside_the_target_needs_no_cut(fuel_ton, target):
+    """이미 목표 안이면 **0**이다 — 음수로 내려가지 않는다 (`PRD §12.3.1`).
 
-    음수를 그대로 두면 화면이 「−30t 줄이세요」를 그린다.
+    음수를 그대로 두면 화면이 「−30t 줄이세요」를 그린다. 연료 환산도 `0`이지
+    `None`이 아니다 — `None`은 잔여 계획이 없을 때의 값이다(`API_SPEC §6.1.1`).
     """
-    plan = _cut(target_rating="D")
-    assert plan.required_cut_g >= 0
-    assert plan.achievable
+    allowed = _cut_allowed_m(target)
+    assert _cut_planned_m(fuel_ton) < allowed, "이 입력은 이미 달성인 갈래여야 한다"
+
+    plan = _cut_case(fuel_ton, target)
+
+    assert plan.required_cut_g == 0
+    assert plan.required_cut_fuel_ton == 0
+    assert plan.achievable is True
+    assert Fraction(plan.allowed_planned_co2_g) == allowed
 
 
 def test_fuel_conversion_keeps_the_planned_fuel_mix():
@@ -1446,3 +1524,27 @@ def test_reproduce_compares_the_future_years_block_only_when_the_original_has_it
             {**base, "future_years_outlook": outlook},
             {**base, "future_years_outlook": [{**outlook[0], "projected_rating": "C"}]},
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 분포 프로파일 조립 — `profile_from_rows` (#2144)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_a_non_factor_row_does_not_become_a_distance_or_fuel_band():
+    """`bound_type`이 `FACTOR`가 아닌 거리·연료 행은 **기본값으로 남긴다**.
+
+    `TriangularBand`는 계획값의 **배수**다. 덧셈 폭(`DELTA` −1 ~ +1)을 배수로 읽으면
+    거리가 계획의 −1배 ~ +1배로 뽑힌다. 이 줄은 CI에서 실행된 적이 없다.
+    """
+    delta = SimpleNamespace(
+        variable="DISTANCE", bound_type="DELTA", min_value=-1.0, mode_value=0.0, max_value=1.0
+    )
+    factor = SimpleNamespace(
+        variable="FUEL", bound_type="FACTOR", min_value=0.8, mode_value=1.0, max_value=1.3
+    )
+
+    profile = profile_from_rows([delta, factor])
+
+    assert profile.distance == DEFAULT_PROFILE.distance
+    assert profile.fuel == TriangularBand(min_factor=0.8, max_factor=1.3, mode_factor=1.0)

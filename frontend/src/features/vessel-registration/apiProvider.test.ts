@@ -149,9 +149,13 @@ describe('오류 매핑', () => {
   })
 
   it('오류 본문 형태가 깨져 있어도 예외를 만들어 낸다', () => {
+    // 상태 코드는 문구가 아니라 콘솔에 남긴다 (#2221).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const error = toVesselRegistrationError(500, { detail: 'nope' })
     expect(error.code).toBe('REGISTRATION_ERROR')
-    expect(error.message).toContain('HTTP 500')
+    expect(error.message).not.toMatch(/HTTP|\d{3}/)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 
   it('401은 세션 만료로 알린다', async () => {

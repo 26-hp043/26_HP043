@@ -5,7 +5,7 @@
 되어 도착 예정 시각과 연간 시뮬레이션까지 흘러간다. CUBRID는 CHECK를 검사하지 않으므로
 (``DB_SCHEMA §7.4``) 실제로 위반을 넣어 보고 거부되는지만 본다.
 
-케이스: DB-CHK-023 (`TEST_PLAN §5.1`)
+케이스: DB-CHK-024 (`TEST_PLAN §5.1`)
 
 트리거 검사는 ``conn`` fixture의 트랜잭션 안이라 롤백된다 — 행을 남기지 않는다.
 """
@@ -83,7 +83,7 @@ async def test_vessel_accepts_speed_up_to_60_and_null(conn: AsyncConnection, val
 
 @pytest.mark.parametrize("value", ["60.01", "125", "9999.99"])
 async def test_vessel_insert_rejects_speed_above_60(conn: AsyncConnection, value):
-    """DB-CHK-023 — API를 거치지 않은 INSERT도 60을 넘으면 거부된다."""
+    """DB-CHK-024 — API를 거치지 않은 INSERT도 60을 넘으면 거부된다."""
     with pytest.raises(IntegrityError, match="trg_chk_speed_max_ins"):
         await _insert_vessel(conn, value)
 

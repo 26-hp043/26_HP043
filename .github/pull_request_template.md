@@ -52,7 +52,7 @@ Closes #
 <!-- 해당하는 것만 남기고 나머지는 지웁니다. 로컬에서 미리 돌리면 CI 실패를 먼저 봅니다. -->
 
 - [ ] `pytest -q` 통과
-- [ ] `ruff check src tests` 통과
+- [ ] `ruff check src/ alembic/ tests/ scripts/` · `ruff format --check src/ alembic/ tests/ scripts/` 통과
 - [ ] `cd frontend && npm run lint` 통과
 - [ ] `cd frontend && npm run test` 통과
 - [ ] `cd frontend && npm run build` 통과

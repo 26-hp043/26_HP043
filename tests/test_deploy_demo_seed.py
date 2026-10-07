@@ -131,7 +131,7 @@ def _enclosing_shell_guard(text: str, line_no: int, var: str) -> bool:
 def test_demo_seed_module_exposes_clear():
     """``--clear`` 진입점이 있다 (#1485).
 
-    적재는 **덮어쓰지 않는다**(`_insert_ignoring_existing`이 `IntegrityError`를 삼킨다).
+    적재는 **덮어쓰지 않는다**(`_insert_ignoring_existing`이 PK·유니크 중복을 건너뛴다).
     그런데 시드 시각은 **적재일 기준 상대값**이라(`#792`) 오래된 적재는 진행 중 항차가
     도착 예정을 넘긴 상태로 보인다 — 다시 넣어서는 되돌릴 수 없고 지우고 넣어야 한다.
 
