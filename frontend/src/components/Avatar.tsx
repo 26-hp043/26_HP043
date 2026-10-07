@@ -25,21 +25,27 @@ export function Avatar({
   hasAvatar,
   name,
   className,
-  size,
+  place,
 }: {
   readonly hasAvatar: boolean
   /** 머리글자를 뽑을 이름. 표시 이름이 없으면 이메일을 넘긴다. */
   readonly name: string
   readonly className?: string
-  /** 한 변의 길이(px). 안 주면 쓰는 쪽 CSS가 정한다. */
-  readonly size?: number
+  /**
+   * 크기를 정하는 **자리** (`DESIGN_SYSTEM §8` 〔확정 2026-10-06 `#2152`〕).
+   *
+   * 숫자를 받지 않는다 — 받으면 호출부마다 치수가 생겨 `§8`이 그 값을 말할 수
+   * 없다(종전 `size={72}`가 그 자리였다). 안 주면 셸 자리 값(`--target-icon-button`)이다.
+   */
+  readonly place?: 'profile'
 }) {
-  const classes = ['avatar', className].filter(Boolean).join(' ')
-  const style = size === undefined ? undefined : { inlineSize: size, blockSize: size }
+  const classes = ['avatar', place === undefined ? '' : `avatar--${place}`, className]
+    .filter(Boolean)
+    .join(' ')
 
   if (!hasAvatar) {
     return (
-      <span className={classes} style={style} aria-hidden="true">
+      <span className={classes} aria-hidden="true">
         {initialOf(name)}
       </span>
     )
@@ -48,7 +54,6 @@ export function Avatar({
   return (
     <img
       className={`${classes} avatar--image`}
-      style={style}
       src={avatarSrc()}
       alt=""
       aria-hidden="true"
