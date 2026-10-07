@@ -17,7 +17,7 @@
 | 필드 | 근거 | 성격 |
 |---|---|---|
 | ``risk_level`` | `PRD §9.4.1` | 표시용 4단계 (LOW·MEDIUM·HIGH·CRITICAL) |
-| ``risk_reasons`` | `PRD §3.3.7` | **규제 트리거** — 시정조치계획 의무 발생 여부 |
+| ``risk_reasons`` | `PRD §3.3.7` | **규제 트리거** — 시정조치계획 의무 (적용 대상 선박 한정) |
 
 둘은 다른 것을 본다. ``risk_level``은 「지금 여유가 얼마나 있나」이고,
 ``risk_reasons``는 「MARPOL Reg 28.7에 걸렸나」다. C등급이어도 여유가 없으면
@@ -50,6 +50,7 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
+from cii_platform.services.applicability import STATE_NOT_APPLICABLE, applicability_state
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.pagination import normalize_limit
@@ -414,18 +415,33 @@ def evaluate_risk_reasons(
     *,
     ytd_rating: str | None,
     prior_ratings: list[str | None],
+    applicability: str,
 ) -> list[str]:
     """`PRD §3.3.7` 「경고 배너 판정 기준」을 그대로 옮긴다.
 
     > 1. 올해 YTD 등급이 **E**
     > 2. 직전 2개 규제연도의 확정 등급이 연속 **D**이고, 올해 YTD 등급도 **D**
+    > 위 둘은 **CII 적용 대상 선박에 한한다.**
+
+    ## CII 적용 대상이 아닌 선박은 위험 선박이 아니다 (#2132)
+
+    시정조치계획은 MARPOL Annex VI Reg 28.7이 **CII 적용 대상 선박**에게 지우는 의무다.
+    총톤수 5,000 미만 선박은 등급이 E여도 그 의무가 없으므로 ``risk_reasons``를 비운다.
+    **등급과 누적값은 그대로 싣는다** — 가리는 것은 규제 트리거뿐이다.
+
+    ``applicability``는 ``services.applicability.applicability_state``의 3상태다.
+    **GT를 알고 5,000 미만인 ``NOT_APPLICABLE``만 뺀다.** GT가 없어 판정할 수 없는
+    ``UNKNOWN``은 「적용 대상이 아니다」라고 단정할 근거가 없으므로(``applicability`` 모듈
+    docstring) 종전대로 판정한다 — 확인하지 못한 채 위험 선박에서 빼면 의무가 있는 배를
+    조용히 가린다. ``is_cii_applicable_hint``는 GT가 NULL이어도 거짓이라 이 둘을 가르지
+    못하므로 쓰지 않는다.
 
     **연말 예상 등급이 아니라 YTD 등급이 기준인 것이 핵심이다** — 올해 지금까지 쌓인
     실측 위에서 판정한다. 연말 예상 위에서의 「위험 선박 0척」은 함대 감축 계획
     (``services/fleet_reduction.py`` · 결정론 연말 예상)이 맡는다. 두 기준은 합치지 않는다
     (`PRD §3.3.7` · `#1531`).
     """
-    if ytd_rating is None:
+    if ytd_rating is None or applicability == STATE_NOT_APPLICABLE:
         return []
 
     reasons: list[str] = []
@@ -855,7 +871,11 @@ async def compute_fleet_rows(
         derived = await _derive_vessel(session, vessel, year=year, resolved=resolved)
         ytd = derived.ytd
         unavailable_reason = derived.unavailable_reason
-        reasons = evaluate_risk_reasons(ytd_rating=ytd.rating, prior_ratings=derived.prior)
+        reasons = evaluate_risk_reasons(
+            ytd_rating=ytd.rating,
+            prior_ratings=derived.prior,
+            applicability=applicability_state(vessel.gross_tonnage),
+        )
         days = compute_days_to_target(
             ytd,
             past=derived.past,

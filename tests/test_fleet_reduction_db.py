@@ -201,6 +201,73 @@ async def test_costs_use_the_prices_given_and_leave_missing_ones_empty(session, 
     assert priced["costs"]["net"] == "577.78"
 
 
+async def _make_e_rated(session, vessel_id: UUID, *, gross_tonnage: int) -> None:
+    """연료를 크게 늘려 연말 예상을 E로 만들고 GT를 정한다 (#2132)."""
+    await session.execute(
+        text(
+            "UPDATE voyage_fuel_use SET planned_fuel_ton = 3000, "
+            "actual_fuel_ton = CASE WHEN actual_fuel_ton IS NULL THEN NULL ELSE 3000 END "
+            "WHERE voyage_id IN (SELECT id FROM voyage WHERE vessel_id = :vid)"
+        ),
+        {"vid": vessel_id},
+    )
+    await session.execute(
+        text("UPDATE vessel SET gross_tonnage = :gt WHERE id = :vid"),
+        {"gt": gross_tonnage, "vid": vessel_id},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gross_tonnage", "expected_met"),
+    [(4999, True), (5000, False)],
+    ids=["GT4999_not_applicable", "GT5000_applicable"],
+)
+async def test_no_at_risk_target_skips_a_non_applicable_e_vessel(
+    session, vessel_id, gross_tonnage, expected_met
+):
+    """⚠️ GT 4,999 선박은 E등급이어도 「위험 선박 0척」 목표의 걸림돌이 아니다 (#2132).
+
+    같은 입력에서 GT만 5,000으로 올리면 목표 D를 못 넘어 미달이다 — **GT 하나만 다르다.**
+    등급(`after.rating`)과 목표 등급(`target_rating`)은 두 경우 모두 그대로 실린다 — 바뀌는 것은
+    판정(`meets_target`)과 선대 전체 `target_met`이다.
+    """
+    await _make_e_rated(session, vessel_id, gross_tonnage=gross_tonnage)
+
+    result = await evaluate_reduction_plan(
+        session,
+        regulation_year=YEAR,
+        target="NO_AT_RISK",
+        adjustments=[],
+        prices={},
+    )
+    mine = _mine(result, vessel_id)
+
+    assert mine["unavailable_reason"] is None, mine
+    assert mine["after"]["rating"] == "E"
+    assert mine["target_rating"] == "D"
+    assert mine["meets_target"] is expected_met
+    # 이 선박은 계산 가능한 유일한 선박이 아니다(데모 선박이 섞인다) — 선대 판정은 그 선박이 뺀다.
+    if not expected_met:
+        assert result["target_met"] is False
+
+
+@pytest.mark.asyncio
+async def test_all_c_target_still_counts_a_non_applicable_e_vessel(session, vessel_id):
+    """`ALL_C_OR_BETTER`는 등급 목표라 GT 4,999여도 E는 미달이다 (#2132)."""
+    await _make_e_rated(session, vessel_id, gross_tonnage=4999)
+
+    result = await evaluate_reduction_plan(
+        session,
+        regulation_year=YEAR,
+        target="ALL_C_OR_BETTER",
+        adjustments=[],
+        prices={},
+    )
+
+    assert _mine(result, vessel_id)["meets_target"] is False
+
+
 @pytest.mark.asyncio
 async def test_an_unknown_vessel_is_rejected(session, vessel_id):
     with pytest.raises(ValidationError):

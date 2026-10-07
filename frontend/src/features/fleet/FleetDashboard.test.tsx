@@ -846,6 +846,25 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
     expect(within(row).queryByText('D등급 이하')).toBeNull()
     expect(within(row).getByText('E등급 1년차')).toBeTruthy()
   })
+
+  it('⚠️ CII 적용 대상이 아닌 E등급 선박은 「규제 대상 아님」만 보이고 위험 선박이 아니다 (#2132)', async () => {
+    // 서버가 `risk_reasons`를 비우고 `at_risk`에서 뺀다 — 화면은 그 값을 그대로 쓴다.
+    // GT를 알고 5,000 미만이면 E여도 시정조치계획 대상이 아니다(`PRD §3.3.7`).
+    const small = {
+      ...vessel('v1', '소형선'),
+      ytd_rating: 'E',
+      is_cii_applicable_hint: false,
+      gross_tonnage: 4559,
+      risk_reasons: [] as string[],
+      days_to_d: null,
+      days_to_d_reason: 'ALREADY_AT_OR_BELOW',
+    }
+    renderWith({ at_risk: 0 }, [small])
+    const card = (await screen.findByText('소형선')).closest('li') as HTMLElement
+    expect(within(card).getByText('규제 대상 아님')).toBeTruthy()
+    expect(within(card).queryByText('E 1년차')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
 })
 
 /**

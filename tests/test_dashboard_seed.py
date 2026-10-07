@@ -590,15 +590,24 @@ async def test_risk_narrative_survives_the_watch_vessel(conn):
     """관찰 대상 선박을 더해도 **위험 선박 서사가 그대로다** (#889).
 
     데모 데이터는 심사 서사 그 자체다. 한 척을 더하는 것이 기존 이야기를 흐리면
-    안 된다 — E 2척과 ``at_risk`` 2가 유지되고, 등급 분포에 C가 생겨 스택 바가
-    오히려 다양해진다.
+    안 된다 — E 2척과 ``at_risk`` 1이 유지되고, 등급 분포에 C가 생겨 스택 바가
+    오히려 다양해진다. E 2척 중 DONGJIN ENDURANCE(GT 4,559)는 CII 적용 대상이 아니라
+    위험 선박에서 빠진다(#2132) — 등급은 E 그대로다.
     """
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
         result = await get_fleet_summary(session, regulation_year=2026, as_of=DEMO_AS_OF)
     summary = result["summary"]
 
-    assert summary["rating_distribution"]["E"] == 2, "위험 선박 2척이 유지되어야 한다"
-    assert summary["at_risk"] == 2
+    assert summary["rating_distribution"]["E"] == 2, "E등급 2척이 유지되어야 한다"
+    # `#2132` — E 2척 중 GT 4,559(CII 적용 대상 아님)는 위험 선박이 아니다.
+    assert summary["at_risk"] == 1
+    small = next(row for row in result["vessels"] if row["name"] == "DONGJIN ENDURANCE")
+    assert small["ytd_rating"] == "E"
+    assert small["risk_reasons"] == []
+    assert small["is_cii_applicable_hint"] is False
+    assert [a["vessel_name"] for a in result["actions"]] == [
+        row["name"] for row in result["vessels"] if row["risk_reasons"]
+    ]
     # 종전에는 0이었다 — C가 생겨야 「D 진입 전」 구간이 화면에 나타난다.
     assert summary["rating_distribution"]["C"] >= 1
     assert summary["rating_distribution"]["D"] >= 1, "로로 여객선의 D 표시가 사라지면 안 된다"
@@ -643,7 +652,7 @@ async def test_watch_vessel_third_voyage_leaves_the_dashboard_unchanged(conn):
     # `#1807` — STAR SKIPPER의 DWT를 9,520(GT가 잘못 들어간 값) → 12,979로 정정하자 CII 분모가
     # 커져 이 배의 2026 등급이 B → A가 됐다. 시연 등급 구성이 바뀌는 것을 받아들인 결정이다.
     assert result["summary"]["rating_distribution"] == {"A": 1, "B": 0, "C": 1, "D": 1, "E": 2}
-    assert result["summary"]["at_risk"] == 2
+    assert result["summary"]["at_risk"] == 1  # E 2척 중 GT 4,559는 적용 대상 아님 (`#2132`)
     watch = next(row for row in result["vessels"] if row["vessel_id"] == VESSEL_IDS["watch"])
     assert watch["ytd_rating"] == "C"
     # 4자리 **절사**(`#1349`) — 원값 7.14615…의 표시 3자리는 7.146이다.
