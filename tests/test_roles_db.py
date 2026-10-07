@@ -24,8 +24,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import API_V1_PREFIX, app
-from cii_platform.api.routes.auth import LAST_ADMIN_MESSAGE
-from cii_platform.auth import role_bootstrap
+from cii_platform.api.routes.auth import LAST_ADMIN_MESSAGE, TOUR_ROLE_FIXED_MESSAGE
+from cii_platform.auth import role_bootstrap, tour_gate
 from cii_platform.auth.dependencies import (
     ADMIN_ONLY_MESSAGE,
     OFFICE_ONLY_MESSAGE,
@@ -530,6 +530,53 @@ async def test_user_list_and_role_update_share_the_user_contract(client, monkeyp
         assert missing.json()["error"]["code"] == "NOT_FOUND"
     finally:
         await _cleanup([office, other])
+
+
+async def test_tour_account_role_cannot_be_changed(client, monkeypatch):
+    """둘러보기 계정은 역할 변경의 대상이 아니다 — 거절하고 DB는 그대로다 (#2291).
+
+    다음 둘러보기 로그인이 관리자로 되돌리므로 바꿔도 잠깐만 남는다. 같은 값(`ADMIN`)도
+    거절한다. 다른 계정의 변경은 종전대로 된다.
+    """
+    admin = "role-tour-actor@example.com"
+    other = "role-tour-other@example.com"
+    tour_email = "tour@bluelog.local"
+    try:
+        monkeypatch.setenv("INITIAL_ADMIN_EMAILS", admin)
+        _signup(client, admin)
+        monkeypatch.delenv("INITIAL_ADMIN_EMAILS")
+        with TestClient(app, base_url=_BASE) as second:
+            other_me = _signup(second, other)
+        # 스텁 행은 둘러보기 로그인이 만든다 — 시연 DB와 같은 경로로 준비한다.
+        monkeypatch.setenv(tour_gate.ENV_NAME, "role-tour-code")
+        with TestClient(app, base_url=_BASE) as tour:
+            opened = tour.post(f"{API_V1_PREFIX}/auth/tour-login", json={"code": "role-tour-code"})
+            assert opened.status_code == 200, opened.text
+            tour_id = opened.json()["data"]["id"]
+        assert await _role_in_db(tour_email) == "ADMIN"
+
+        for role in ("OFFICE", "FIELD", "ADMIN"):
+            resp = client.patch(
+                f"{API_V1_PREFIX}/auth/users/{tour_id}/role",
+                json={"role": role},
+                headers=_csrf(client),
+            )
+            assert resp.status_code == 409, f"{role}: {resp.text}"
+            assert resp.json()["error"]["code"] == "CONFLICT"
+            assert resp.json()["error"]["message"] == TOUR_ROLE_FIXED_MESSAGE
+            assert await _role_in_db(tour_email) == "ADMIN"
+        assert await _role_changes_for(tour_id) == [], "거절은 감사 기록을 남기지 않는다"
+
+        # 다른 계정의 변경은 종전대로 된다
+        ok = client.patch(
+            f"{API_V1_PREFIX}/auth/users/{other_me['id']}/role",
+            json={"role": "OFFICE"},
+            headers=_csrf(client),
+        )
+        assert ok.status_code == 200, ok.text
+        assert await _role_in_db(other) == "OFFICE"
+    finally:
+        await _cleanup([admin, other, tour_email])
 
 
 # --- 4·5. 마지막 사무직 ------------------------------------------------------------------
