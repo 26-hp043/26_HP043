@@ -176,7 +176,7 @@ class Voyage(Base):
             "arrival_lon IS NULL OR arrival_lon BETWEEN -180 AND 180",
             name="chk_arr_lon_range",
         ),
-        # §2.2 인덱스 (모두 partial: WHERE is_deleted = false). soft delete 호환.
+        # §2.2 인덱스 (셋 다 일반 인덱스 — 마이그레이션이 WHERE 조건 없이 만든다).
         sa.Index(
             "idx_voyage_vessel",
             vessel_id,
