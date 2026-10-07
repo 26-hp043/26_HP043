@@ -36,7 +36,12 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
-from cii_platform.services.voyage import reset_stale_sources
+from cii_platform.services.voyage import (
+    attribution_message,
+    reset_stale_sources,
+    spanned_utc_years,
+    utc_year,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -159,22 +164,6 @@ async def _require_period(session: AsyncSession, period_id: UUID):
     return period
 
 
-def _utc_year(moment: datetime) -> int:
-    """UTC 기준 연도 (`#1333`).
-
-    ``datetime.year``는 **오프셋이 붙은 값의 현지 연도**다. `API_SPEC §2.10`·`§8.2`가
-    시간대 있는 시각을 받으므로 ``+09:00``으로 온 1/1 새벽은 UTC로 전년도인데
-    ``.year``는 새해를 답한다. 귀속 연도는 **CII 분자·분모가 어느 해에 들어가는가**라
-    한 기준으로만 정해야 한다.
-
-    시간대 없는 값은 여기 오지 않는다 — 스키마가 ``AwareDatetime``으로 막고, CSV
-    파서는 행 오류를 낸다. 그래도 방어적으로 ``tzinfo`` 없으면 그대로 연도를 쓴다.
-    """
-    if moment.tzinfo is None:
-        return moment.year
-    return moment.astimezone(UTC).year
-
-
 def _resolve_regulation_year(
     started_at: datetime, ended_at: datetime | None, requested: int | None
 ) -> int:
@@ -194,17 +183,15 @@ def _resolve_regulation_year(
     합니다」*로 거부됐다. 항차 CSV는 처음부터 ``astimezone(UTC)``로 정규화한다
     (``voyage_import``) — **같은 저장소 안에서 두 경로가 갈려 있었다.**
     """
-    start_year = _utc_year(started_at)
-    allowed = {start_year}
-    if ended_at is not None:
-        allowed.add(_utc_year(ended_at))
+    # 허용 집합은 항차와 같은 함수가 만든다
+    # (`#2133` — ``services/voyage._require_regulation_year``).
+    allowed = spanned_utc_years(started_at, ended_at)
 
     if requested is None:
-        return start_year
+        return utc_year(started_at)
     if requested not in allowed:
         raise ValidationError(
-            f"규제연도는 구간이 걸친 연도({' 또는 '.join(str(y) for y in sorted(allowed))})"
-            "여야 합니다.",
+            attribution_message(allowed, subject="구간이"),
             field="regulation_year",
             field_label="규제연도",
         )
@@ -504,10 +491,10 @@ async def update_period(
         fields["regulation_year"] = _resolve_regulation_year(
             started_at, ended_at, fields["regulation_year"]
         )
-    elif "started_at" in fields or "ended_at" in fields:
-        valid_years = {_utc_year(started_at)} | ({_utc_year(ended_at)} if ended_at else set())
-        if period.regulation_year not in valid_years:
-            fields["regulation_year"] = _utc_year(started_at)
+    elif ("started_at" in fields or "ended_at" in fields) and (
+        period.regulation_year not in spanned_utc_years(started_at, ended_at)
+    ):
+        fields["regulation_year"] = utc_year(started_at)
 
     for key, value in fields.items():
         setattr(period, key, value)

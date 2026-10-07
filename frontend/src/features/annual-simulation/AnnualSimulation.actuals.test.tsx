@@ -69,6 +69,7 @@ function detail(years: CiiYear[], name = '샘플 벌크선'): VesselDetail {
     },
     capacityBasis: 'DWT',
     years,
+    excludedConfirmedVoyageCount: 0,
     asOf: AS_OF,
   }
 }

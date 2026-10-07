@@ -288,6 +288,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.from",
             "data.to",
             "data.transport_capacity_basis",
+            # `#2133` — 연간 반영 안 함으로 남은 확정 항차 수(개요 문구가 「없음」과 가른다)
+            "data.excluded_confirmed_voyage_count",
             "data.vessel_id",
             "data.years",
             "data.years[].attained_cii",

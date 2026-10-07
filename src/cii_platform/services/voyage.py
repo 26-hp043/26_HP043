@@ -126,8 +126,66 @@ async def require_vessel(session: AsyncSession, vessel_id: UUID):
     return vessel
 
 
-async def _require_regulation_year(session: AsyncSession, year: int | None) -> None:
-    """``regulation_year``가 규정 파라미터에 **실재하는지** 확인한다 — VAL-005 (`#1332`).
+def utc_year(moment: datetime) -> int:
+    """UTC 기준 연도 (`#1333`).
+
+    ``datetime.year``는 **오프셋이 붙은 값의 현지 연도**다. `API_SPEC §2.10`·`§8.2`가
+    시간대 있는 시각을 받으므로 ``+09:00``으로 온 1/1 새벽은 UTC로 전년도인데
+    ``.year``는 새해를 답한다. 귀속 연도는 **CII 분자·분모가 어느 해에 들어가는가**라
+    한 기준으로만 정해야 한다.
+
+    시간대 없는 값은 여기 오지 않는다 — 스키마가 ``AwareDatetime``으로 막고, CSV
+    파서는 행 오류를 낸다. 그래도 방어적으로 ``tzinfo`` 없으면 그대로 연도를 쓴다.
+
+    정박 구간(``services/not_underway``)과 항차가 **이 함수 하나**를 쓴다(`#2133`).
+    종전에는 정박 구간 모듈 안에만 있었다 — 그 모듈이 이 모듈을 가져오므로 반대 방향
+    import는 순환이 되어, 둘이 함께 쓰는 자리를 여기로 옮겼다.
+    """
+    if moment.tzinfo is None:
+        return moment.year
+    return moment.astimezone(UTC).year
+
+
+def spanned_utc_years(start: datetime, end: datetime | None) -> list[int]:
+    """시작·끝 시각이 걸친 UTC 해 — 귀속 연도로 고를 수 있는 값 (`#1333` · `#2133`).
+
+    **시작 해와 끝 해 둘뿐이다.** 그 사이 해는 넣지 않는다 — 한 항차·한 구간이 해를 둘 넘게
+    걸치는 일은 없고, 있더라도 그 가운데 해는 출항도 도착도 아닌 해다. 끝이 없으면 시작 해
+    하나다. 오름차순으로 돌려준다(오류 문구가 이 순서로 적는다).
+    """
+    years = {utc_year(start)}
+    if end is not None:
+        years.add(utc_year(end))
+    return sorted(years)
+
+
+def attribution_message(allowed: list[int], *, subject: str) -> str:
+    """귀속 연도 오류 문구 — 「규제연도는 {subject} 걸친 연도(2026 또는 2027)여야 합니다.」
+
+    정박 구간(``subject="구간이"``)과 항차(``subject="항차가"``)가 같은 모양을 쓴다(`#2133`).
+    ``subject``는 **조사까지** 받는다 — 받침 유무로 「이/가」가 갈리는데, 조사를 여기서
+    붙이면 「항차이」가 된다(괄호 병기도 쓰지 않는다 · `#2123`).
+    """
+    years = " 또는 ".join(str(year) for year in allowed)
+    return f"규제연도는 {subject} 걸친 연도({years})여야 합니다."
+
+
+async def _require_regulation_params(session: AsyncSession, year: int) -> None:
+    """그 해의 규정 파라미터가 있는지만 본다 — :func:`_require_regulation_year`의 ⑴."""
+    if await param_repo.get_regulation_year(session, year) is None:
+        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다: {year}")
+
+
+async def _require_regulation_year(
+    session: AsyncSession,
+    year: int | None,
+    *,
+    departure_at: datetime | None,
+    arrival_at: datetime | None,
+) -> None:
+    """``regulation_year``가 **실재하고 항차 시각과 맞는지** 확인한다 (`#1332` · `#2133`).
+
+    ## ⑴ 실재 — VAL-005 (`#1332`)
 
     `API_SPEC §3.3`·`§3.4`가 *「주어지면 VAL-005로 검증한다」*고 적고
     ``schemas/voyage.py``도 *「실재 여부(VAL-005)는 서비스가 본다」*고 적는데 **보는
@@ -137,11 +195,33 @@ async def _require_regulation_year(session: AsyncSession, year: int | None) -> N
 
     상태 코드는 `API_SPEC §1.4`의 VAL-005 행 그대로 **409 `PARAMETER_ERROR`**다 —
     사용자가 고칠 수 있는 입력이 아니라 **규정 파라미터가 없는 것**이기 때문이다.
+
+    ## ⑵ 시각과 대조 — 출항 또는 도착의 UTC 해 (`#2133` · `PRD §8.3`)
+
+    종전에는 ⑴만 봐서 **2026년 3월 항차를 2025년으로 저장할 수 있었다.** 다른 해로
+    들어간 항차는 두 해의 누적과 등급을 모두 조용히 바꾼다. 정박 구간은 처음부터
+    대조했다(``not_underway._resolve_regulation_year``) — 같은 화면의 두 입력이 한
+    규칙이 되도록 같은 함수(:func:`spanned_utc_years`)로 허용 집합을 만든다.
+
+    * **연말을 걸친 항차는 두 해 중 하나를 고른다.** 12/28 출항·1/3 도착이면 2026과
+      2027 모두 통과한다 — 항차 전체가 고른 해에 통째로 들어간다(날짜로 나누지 않는다).
+    * **출항 시각이 비어 있으면 대조하지 않는다.** 계획 단계에서 시각을 모르는 항차는
+      대조할 값이 없다 — 모르는 것을 틀렸다고 하지 않는다(:func:`time_order_violation`과
+      같은 쪽). 도착 시각만 있는 경우도 건너뛴다 — 결정이 출항 시각을 기준으로 정했다.
+    * 상태 코드는 **422 `VALIDATION_ERROR`**다. ⑴과 달리 사용자가 고칠 수 있는 입력이다.
     """
     if year is None:
         return
-    if await param_repo.get_regulation_year(session, year) is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다: {year}")
+    await _require_regulation_params(session, year)
+    if departure_at is None:
+        return
+    allowed = spanned_utc_years(departure_at, arrival_at)
+    if year not in allowed:
+        raise ValidationError(
+            attribution_message(allowed, subject="항차가"),
+            field="regulation_year",
+            field_label="기준연도",
+        )
 
 
 #: 시각 쌍의 순서 검사가 가리키는 칸·문구 (#2090). 계획 쌍과 실적 쌍이 각각 하나씩이다.
@@ -234,8 +314,13 @@ async def create_voyage(
         여기서 커밋해 버리면 **뒤 단계가 실패했을 때 채택 기록 없는 DRAFT 항차가 남는다.**
     """
     await require_vessel(session, vessel_id)
-    await _require_regulation_year(session, regulation_year)
     require_time_order("planned", planned_departure_at, planned_arrival_at)
+    await _require_regulation_year(
+        session,
+        regulation_year,
+        departure_at=planned_departure_at,
+        arrival_at=planned_arrival_at,
+    )
 
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -481,9 +566,10 @@ async def update_voyage(
         )
 
     # VAL-005 — 새로 넣는 연도는 규정 파라미터에 실재해야 한다 (`#1332`). `null`로
-    # 지우는 요청은 위에서 이미 갈렸으므로 여기서는 값이 있는 경우만 본다.
+    # 지우는 요청은 위에서 이미 갈렸으므로 여기서는 값이 있는 경우만 본다. 시각과의
+    # 대조(`#2133`)는 아래 상태 가드·순서 검사 뒤에 **합친 결과**로 본다.
     if fields.get("regulation_year") is not None:
-        await _require_regulation_year(session, fields["regulation_year"])
+        await _require_regulation_params(session, fields["regulation_year"])
 
     # #865 — 확정·진행 등 계획 단계를 벗어난 항차의 계획값·귀속 연도 변경을 거부한다.
     # `scenario_adopt`가 같은 필드를 `PLANNING_STATUSES`로 막는 것과 같은 기준이며,
@@ -515,6 +601,20 @@ async def update_voyage(
             "planned",
             fields.get("planned_departure_at", voyage.planned_departure_at),
             fields.get("planned_arrival_at", voyage.planned_arrival_at),
+        )
+
+    # #2133 — 귀속 연도도 **합친 결과**로 본다. 시각만 옮겨 저장된 연도와 어긋나게 하는
+    # 요청(3월 → 이듬해 1월)도 잡으려는 것이다. 정박 구간 수정과 달리 연도를 **따라
+    # 옮기지 않는다** — 항차의 연도는 비워 둘 수 있는 사용자 입력이라, 서버가 대신 고르면
+    # 사용자가 넣은 값이 말없이 바뀐다. 연도와 시각을 한 요청에 함께 보내면 된다.
+    # 둘 다 건드리지 않는 요청은 보지 않는다 — 이미 어긋나 저장된 행의 메모 수정까지
+    # 막지 않는다(#2090과 같은 쪽).
+    if {"regulation_year", "planned_departure_at", "planned_arrival_at"} & set(fields):
+        await _require_regulation_year(
+            session,
+            fields.get("regulation_year", voyage.regulation_year),
+            departure_at=fields.get("planned_departure_at", voyage.planned_departure_at),
+            arrival_at=fields.get("planned_arrival_at", voyage.planned_arrival_at),
         )
 
     for key, value in fields.items():

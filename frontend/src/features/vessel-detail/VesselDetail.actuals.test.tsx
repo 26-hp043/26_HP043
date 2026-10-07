@@ -41,6 +41,7 @@ const DETAIL: Detail = {
   },
   capacityBasis: 'DWT',
   years: [],
+  excludedConfirmedVoyageCount: 0,
   asOf: '2026-08-23T00:00:00Z',
 }
 

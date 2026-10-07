@@ -696,7 +696,9 @@ export function VesselDetail({
       {current?.dataAvailable ? null : (
         <section className="card" aria-label="올해 누적 CII">
           <h2 className="card__title">올해 누적 (YTD)</h2>
-          <p className="vd__nodata">{noDataText(current)}</p>
+          <p className="vd__nodata">
+            {noDataText(current, detail.excludedConfirmedVoyageCount)}
+          </p>
         </section>
       )}
 
@@ -800,11 +802,24 @@ function Spec({
   )
 }
 
-/** 데이터가 없는 이유를 사유별로 구분해 말한다. */
-function noDataText(year: CiiYear | null): string {
+/**
+ * 데이터가 없는 이유를 사유별로 구분해 말한다.
+ *
+ * 확정 항차가 「연간 반영 안 함」으로 남아 있으면 **그 사실과 다음 행동**을 말한다 (#2133).
+ * 종전에는 그때도 「올해 등록된 항차 실적이 없습니다」였다 — 항차를 등록하고 확정까지 한
+ * 사용자는 입력이 사라진 것으로 읽는다. 파라미터가 없는 해는 그 사유가 먼저다(어느 항차를
+ * 반영해도 산출할 수 없다).
+ */
+function noDataText(year: CiiYear | null, excludedConfirmed: number): string {
   if (year === null) return '표시할 연도가 없습니다.'
   if (year.reason === 'NO_REGULATION_PARAMS') {
     return `${year.regulationYear}년 규정 파라미터가 등록되지 않아 산출할 수 없습니다.`
+  }
+  if (excludedConfirmed > 0) {
+    return (
+      `확정 항차 ${excludedConfirmed}건이 연간 반영 안 함으로 되어 있어 누적에서 빠져 있습니다. ` +
+      '항차 관리에서 기준연도를 넣고 반영으로 바꿔 주세요.'
+    )
   }
   return '올해 등록된 항차 실적이 없습니다. 항차를 등록하면 누적값이 계산됩니다.'
 }

@@ -446,6 +446,22 @@ async def insert_fuel_use(session: AsyncSession, **fields: object) -> VoyageFuel
     return fuel_use
 
 
+async def count_excluded_confirmed(session: AsyncSession, vessel_id: UUID) -> int:
+    """연간 반영 안 함(``EXCLUDE``)으로 남은 **실적 확정** 항차 수 (`#2133`).
+
+    선박 개요가 「실적이 없다」와 「확정 항차가 연간에서 빠져 있다」를 가르는 데 쓴다.
+    연도로 거르지 않는다 — 규제연도 없이 확정된 항차는 어느 해에도 속하지 않으므로,
+    연도로 거르면 정작 세어야 할 행이 빠진다(``chk_year_policy`` · `DB_SCHEMA §2.2`).
+    """
+    stmt = select(func.count(Voyage.id)).where(
+        Voyage.vessel_id == vessel_id,
+        Voyage.status == "CONFIRMED",
+        Voyage.annual_inclusion_policy == "EXCLUDE",
+        Voyage.is_deleted == 0,
+    )
+    return int((await session.scalar(stmt)) or 0)
+
+
 async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | None:
     """선박의 **진행 중 항차 한 건**을 돌려준다 (#354).
 

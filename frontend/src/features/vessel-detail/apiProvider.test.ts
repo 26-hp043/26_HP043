@@ -114,6 +114,20 @@ describe('정상 응답', () => {
     expect(snapshot.years[1].inProgressVoyageCount).toBe(1)
   })
 
+  it('연간 반영 안 함 확정 항차 수를 받는다 — 없는 응답(구버전)은 0으로 읽는다 (#2133)', async () => {
+    const without = await createApiVesselDetailProvider(routed() as never).load('v1')
+    expect(without.excludedConfirmedVoyageCount).toBe(0)
+
+    const body = structuredClone(HISTORY_BODY) as typeof HISTORY_BODY & {
+      data: { excluded_confirmed_voyage_count?: number }
+    }
+    body.data.excluded_confirmed_voyage_count = 2
+    const withCount = await createApiVesselDetailProvider(routed(VESSEL_BODY, body) as never).load(
+      'v1',
+    )
+    expect(withCount.excludedConfirmedVoyageCount).toBe(2)
+  })
+
   it('CII 값을 문자열 그대로 둔다 — 되돌리면 정밀도가 사라진다', async () => {
     const snapshot = await createApiVesselDetailProvider(routed() as never).load('v1')
 
