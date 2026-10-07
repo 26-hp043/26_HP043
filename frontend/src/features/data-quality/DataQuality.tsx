@@ -499,7 +499,7 @@ function canFill(issue: DataQualityIssue, mismatch: PublicRecordMismatch): boole
  *
  * 모달을 두지 않는다 — `VoyagePanel`의 확인 줄(#1598)과 같은 이유다: 저장소에 아직 모달이 없고,
  * 확인할 대상(어긋남 한 줄)이 바로 위에 보여야 판단할 수 있다. 버튼 모양·줄 표현은
- * `DESIGN_SYSTEM §2.3.1`의 **개발 임시안**이다.
+ * `DESIGN_SYSTEM §2.3.1` 〔**확정** 2026-10-07 · `#2154`〕다.
  */
 function FillControl({
   issue,

@@ -79,3 +79,59 @@ describe('머리글자', () => {
     expect(initialOf('   ')).toBe('?')
   })
 })
+
+/**
+ * 치수가 **토큰에서 온다** (`#2152` · `DESIGN_SYSTEM §8` 〔확정 2026-10-06〕).
+ *
+ * 종전에는 설정 패널이 `size={72}`를 넘겼다 — 호출부가 치수를 들고 있으면 `§8`이
+ * 그 값을 말할 수 없고, 자리가 늘 때마다 새 숫자가 생긴다(`#2150`이 컨트롤 높이에서
+ * 걷어낸 것과 같은 꼴이다). 지금은 **자리 이름**을 받고 크기는 CSS가 정한다.
+ */
+describe('아바타 치수가 토큰에서 온다 (#2152)', () => {
+  const root = process.cwd()
+  const read = (p: string): string => readFileSync(join(root, p), 'utf-8')
+  const strip = (s: string): string => s.replace(/\/\*[\s\S]*?\*\//g, '')
+
+  it('컴포넌트도 호출부도 px 숫자를 넘기지 않는다', () => {
+    const component = strip(read('src/components/Avatar.tsx'))
+    expect(component).not.toMatch(/inlineSize:\s*\d/)
+    expect(component).not.toMatch(/blockSize:\s*\d/)
+
+    const callers = ['src/features/account/AccountPanel.tsx', 'src/layout/AccountMenu.tsx']
+    for (const file of callers) {
+      const offending = [...strip(read(file)).matchAll(/<Avatar[^>]*/g)].filter((m) =>
+        /size=\{\d/.test(m[0]),
+      )
+      expect(offending.map((m) => `${file}: ${m[0].slice(0, 60)}`)).toEqual([])
+    }
+  })
+
+  it('변종이 토큰을 쓰고 기본 규칙 뒤에 온다', () => {
+    const sheet = strip(css)
+    expect(sheet).toMatch(/\.avatar--profile\s*\{[^}]*var\(--avatar-size\)/)
+    // 특이도가 같아 순서가 이긴다 — 앞에 두면 기본값이 변종을 덮는다 (`#2148`).
+    expect(sheet.indexOf('.avatar--profile')).toBeGreaterThan(sheet.indexOf('.avatar {'))
+  })
+
+  it('--avatar-size가 별칭 층에 선언돼 있다', () => {
+    expect(strip(read('src/styles/tokens.css'))).toMatch(/--avatar-size:\s*\d+px;/)
+  })
+
+  /*
+   * ⚠️ 이 검사는 **낡으면 붉어진다.** Figma가 `target/avatar`를 내보내기 시작하면
+   * 별칭 층의 `--avatar-size`는 두 벌이 되므로, 그때 별칭을 걷고 이 검사를 생성
+   * 토큰 쪽으로 옮긴다 — `#1169`가 `border/control`에서 한 일이다.
+   */
+  it('생성 토큰에는 아직 없다 — 생기면 별칭을 걷는다', () => {
+    expect(strip(read('src/styles/tokens.generated.css'))).not.toMatch(/--target-avatar\s*:/)
+  })
+
+  it('§8이 두 자리의 토큰 이름을 적는다', () => {
+    const section = read('../DESIGN_SYSTEM.md')
+    const entry = section.slice(section.indexOf('**프로필 이미지 (`Avatar`)**'))
+    const item = entry.slice(0, entry.indexOf('\n- **', 1))
+    // 「어딘가에 그 글자가 있다」로 보지 않는다 — **자리와 토큰을 묶은 문장**을 본다.
+    expect(item).toMatch(/계정 메뉴와 사이드바[\s\S]{0,60}?`--target-icon-button`/)
+    expect(item).toMatch(/설정의 프로필 절은 `--avatar-size`/)
+  })
+})

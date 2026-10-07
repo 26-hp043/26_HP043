@@ -272,7 +272,7 @@ function AvatarForm({ user }: { user: CurrentUser }) {
           그려서** 저장하므로(자르기·크기·형식) 고른 원본을 미리 보여 주면 올린 뒤의
           결과와 다르다.
         */}
-        <Avatar hasAvatar={user.hasAvatar} name={user.displayName ?? user.email} size={72} />
+        <Avatar hasAvatar={user.hasAvatar} name={user.displayName ?? user.email} place="profile" />
         <div className="acc__avatar-controls">
           <FilePicker
             id="acc-avatar"
