@@ -25,6 +25,9 @@
    다음 방문자가 남의 세션을 물려받는다
 7. 🔴 **같은 요청이 일반 관리자에게는 통과한다** — 정책이 「둘러보기에만」 걸리는지.
    이 대조군이 없으면 서비스 전체를 읽기 전용으로 만들어도 위 검사들이 통과한다
+8. AI 어시스턴트(`POST /chat` · `DELETE /chat/sessions/…`)는 **403이되 전용 문구**다 (#2110).
+   질문은 자료를 바꾸는 일이 아니라 범용 「자료를 바꿀 수 없습니다」가 뜨면 오류로 읽힌다.
+   `GET /chat/status`는 조회라 종전대로 통과한다
 
 케이스: (`TEST_PLAN §14.5` 정의 없음 — #1486 후속으로 신설)
 """
@@ -39,7 +42,11 @@ from sqlalchemy import text
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.auth import tour_gate
 from cii_platform.auth.session import CSRF_COOKIE_NAME
-from cii_platform.auth.tour_policy import DENIED_MESSAGE, READ_ONLY_MESSAGE
+from cii_platform.auth.tour_policy import (
+    CHAT_BLOCKED_MESSAGE,
+    DENIED_MESSAGE,
+    READ_ONLY_MESSAGE,
+)
 
 _BASE = "https://testserver"
 _CODE = "harbour-tour-readonly-9x"
@@ -166,6 +173,57 @@ async def test_tour_can_log_out(client, monkeypatch):
         await _cleanup()
 
 
+# --- AI 어시스턴트 — 막되 문구는 전용 (#2110) ------------------------------------------------
+
+
+async def test_tour_cannot_ask_the_assistant(client, monkeypatch):
+    """질문은 403이고 **문구가 어시스턴트 전용**이다 — 범용 쓰기 거절 문구가 아니다.
+
+    키를 지워 둔다 — 정책이 빠지면 이 요청은 외부 모델 대신 503(`CHAT_UNAVAILABLE`)으로
+    떨어져야 한다. 키가 있는 환경에서 정책이 빠지면 실제로 외부를 부르게 된다.
+    """
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    _enter_tour(client, monkeypatch)
+    try:
+        resp = client.post(
+            f"{API_V1_PREFIX}/chat",
+            json={"message": "올해 연말 예상 등급은 어떻게 되나요?"},
+            headers=_csrf(client),
+        )
+        assert resp.status_code == 403, resp.text
+        body = resp.json()["error"]
+        assert body["code"] == "FORBIDDEN_ROLE"
+        assert body["message"] == CHAT_BLOCKED_MESSAGE
+        assert body["message"] != READ_ONLY_MESSAGE
+    finally:
+        await _cleanup()
+
+
+async def test_tour_cannot_delete_a_chat_session(client, monkeypatch):
+    """대화 삭제도 어시스턴트 경로라 같은 전용 문구다 — 공유 계정의 대화를 지우지 못한다."""
+    _enter_tour(client, monkeypatch)
+    try:
+        resp = client.request(
+            "DELETE",
+            f"{API_V1_PREFIX}/chat/sessions/00000000-0000-0000-0000-000000000000",
+            headers=_csrf(client),
+        )
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["error"]["message"] == CHAT_BLOCKED_MESSAGE
+    finally:
+        await _cleanup()
+
+
+async def test_tour_can_read_chat_status(client, monkeypatch):
+    """`GET /chat/status`는 조회라 통과한다 — 막는 것은 질문과 삭제뿐이다."""
+    _enter_tour(client, monkeypatch)
+    try:
+        resp = client.get(f"{API_V1_PREFIX}/chat/status")
+        assert resp.status_code == 200, resp.text
+    finally:
+        await _cleanup()
+
+
 _ADMIN_EMAIL = "tour-policy-control@bluelog.kr"
 _ADMIN_PASSWORD = "Control-Account-2026!x"
 
@@ -222,6 +280,11 @@ async def test_policy_applies_only_to_the_tour_principal(client, monkeypatch):
             f"{API_V1_PREFIX}/vessels", json=_VESSEL_PAYLOAD, headers=_csrf(client)
         )
         assert created.status_code != 403, created.text
+
+        # 어시스턴트도 일반 관리자에게는 정책이 걸리지 않는다 (#2110). 빈 질문이라 외부
+        # 모델에 닿지 않고 스키마 검증(422)에서 끝난다 — 403만 아니면 된다.
+        asked = client.post(f"{API_V1_PREFIX}/chat", json={"message": ""}, headers=_csrf(client))
+        assert asked.status_code != 403, asked.text
     finally:
         await _cleanup_admin()
         await _cleanup()

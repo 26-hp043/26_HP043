@@ -653,6 +653,54 @@ describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` ·
   })
 })
 
+describe('둘러보기 세션에서는 막는다 (#2110 · `UIFLOW 2-7`)', () => {
+  /*
+   * 문구는 표시 문구라(`AGENTS §4.6`) 리터럴로 단언하지 않는다. 지키려는 성질은 셋이다 —
+   * 질문하기 전에 안내가 뜬다 · 입력과 예시가 닫힌다 · 그 안내가 「설정이 없어 쓸 수 없음」과
+   * **다른 말**이다(둘러보기에 「관리자에게 문의」는 할 수 있는 일이 아니다).
+   */
+  it('열자마자 안내를 내고 입력 · 예시를 닫는다 — 상태를 묻지도, 질문을 보내지도 않는다', async () => {
+    const status = vi.fn(async () => ({ available: true }))
+    const { ask } = setup({
+      provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status },
+      tour: true,
+    })
+    open()
+    expect(screen.getByRole('status').textContent).not.toBe('')
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
+    const examples = screen.getAllByRole('button').filter((b) => b.className === 'assistant__example')
+    expect(examples.length).toBeGreaterThan(0)
+    for (const example of examples) expect((example as HTMLButtonElement).disabled).toBe(true)
+    expect(status).not.toHaveBeenCalled()
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('둘러보기 안내는 「쓸 수 없음」(#1535) 안내와 다른 말이다', async () => {
+    const tourView = render(
+      <AssistantOverlay provider={{ ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER) }} tour />,
+    )
+    open()
+    const tourText = screen.getByRole('status').textContent
+    tourView.unmount()
+
+    const status = vi.fn(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(screen.getByRole('status').textContent).not.toBe(''))
+    expect(screen.getByRole('status').textContent).not.toBe(tourText)
+  })
+
+  it('세션 확인이 늦어 첫 렌더 뒤에 둘러보기가 되어도 입력을 닫는다', () => {
+    const provider = { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER) }
+    const view = render(<AssistantOverlay provider={provider} />)
+    open()
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(false)
+    view.rerender(<AssistantOverlay provider={provider} tour />)
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).not.toBe('')
+  })
+})
+
 describe('화면의 결과를 함께 보낸다 (`#1533`)', () => {
   it('지금 화면이 낸 결과의 실행 id를 질문에 싣는다', async () => {
     publishScreenResult('run-7')
