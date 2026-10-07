@@ -1223,11 +1223,15 @@ describe('숫자가 센 것과 표시가 같다 (#2121)', () => {
       const relative = () => (document.querySelector('.fleet__asof-rel') as HTMLElement).textContent
       const opened = relative()
 
-      await act(async () => {
-        vi.advanceTimersByTime(5 * 60_000)
-      })
+      // 1분 간격 시계가 다섯 번 돌게 1분씩 민다 — 한 번에 5분을 밀면 CI에서 한 박자 늦게
+      // 그려진 시계가 그 사이를 놓쳤다(#2330 CI). 그린 뒤의 글자를 기다려 본다.
+      for (let minute = 0; minute < 5; minute += 1) {
+        await act(async () => {
+          vi.advanceTimersByTime(60_000)
+        })
+      }
       // 문구가 아니라 **바뀌었다**를 본다 — 5분이 지났는데 같은 글자면 멈춘 것이다.
-      expect(relative()).not.toBe(opened)
+      await waitFor(() => expect(relative()).not.toBe(opened))
     } finally {
       vi.useRealTimers()
     }
