@@ -184,13 +184,13 @@ def test_chat_audit_prints_no_content_or_identity() -> None:
 
 
 def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
-    """점검이 챗봇 폐기 줄만 고른다 (`#1985`).
+    """점검이 챗봇 폐기 줄과 공급자 실패 줄만 고른다 (`#1985` · `#2289`).
 
     컨테이너 로그를 통째로 내보내면 **질문·답이 공개 저장소의 Actions 로그로 나간다**
     (`PRD §16.3.1`). 고정 접두어로 그 줄만 고르고, 창을 최근 구간으로 좁히고, 줄 수도
     묶는다. 접두어가 코드와 같은지는 ``tests/test_chat_discard_log.py``가 본다.
     """
-    step = _step("챗봇 폐기 경로 (app-01)")
+    step = _step("챗봇 폐기·공급자 실패 (app-01)")
     assert step["if"] == "inputs.task == 'inspect'"
     run = step["run"]
     # 통째로 내보내지 않는다 — grep으로 좁힌다.
@@ -198,7 +198,7 @@ def test_inspect_picks_only_discard_lines_from_app_logs() -> None:
     assert "--since" in run and "--no-color" in run
     assert "tail -" in run
     # 0건과 「못 찾았다」를 가른다.
-    assert "폐기 기록 없음" in run
+    assert "폐기·공급자 실패 기록 없음" in run
 
 
 def test_no_destructive_commands() -> None:
