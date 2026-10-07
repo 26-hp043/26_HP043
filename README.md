@@ -210,7 +210,7 @@ docker compose -f docker-compose.prod.yml up -d
 >
 > 종전에는 마이그레이션 018·027이 이 데이터를 넣었는데, **데모 선박으로 계산을 한 번 돌리면 롤백이 FK에 막혔다.** 계산 이력은 `§7.3` immutable 가드가 걸린 보존 대상이라 지울 수 없으므로, 마이그레이션이 지울 것 자체를 없앴다(`DB_SCHEMA §8.1.1`).
 
-> **이 로컬 절차에는 별도 seed 단계가 필요 없다.** 규제 파라미터(Z-factor 8행 · reference line 20행 · d-vector 14행)와 연료 CF 8행은 전부 data migration에 들어 있어 `alembic upgrade head`가 함께 적재한다(`DB_SCHEMA §8.1.1` · #127). 운영 배포 워크플로는 이와 별개로 매 배포 `python -m cii_platform.db.seed`를 실행한다. 이 로컬 절차에서 규제가 개정되어 **재적재**가 필요할 때만 `docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed`를 쓴다 — 이쪽은 upsert라 값을 덮어쓴다.
+> **이 로컬 절차에는 별도 seed 단계가 필요 없다.** 규제 파라미터(Z-factor 8행 · reference line 20행 · d-vector 14행)와 연료 CF 8행은 전부 data migration에 들어 있어 `alembic upgrade head`가 함께 적재한다(`DB_SCHEMA §8.1.1` · #127). 운영 배포 워크플로는 이와 별개로 매 배포 `python -m cii_platform.db.seed`를 실행한다. 이 로컬 절차에서 규제가 개정되어 **재적재**가 필요할 때만 `docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed`를 쓴다 — 이쪽은 upsert지만 **시드 판본(`1.0`) 행만 갱신한다.** 화면의 개정 적재(`import.<UTC>` 판본)가 들어간 선종·연도·연료는 건너뛰고 그 건수를 로그에 남긴다(`DB_SCHEMA §7.2` · #2086).
 
 > ⚠️ **2단계(`build`)를 생략하면 안 된다.** `docker compose run`은 해당 이름의 이미지가 **이미 있으면 그것을 그대로 쓰고 다시 굽지 않는다.** 소스를 고친 뒤 `build` 없이 4단계로 가면 낡은 이미지로 마이그레이션이 돌고, 그 사실이 로그에 드러나지 않는다. (실제로 이 절차를 검증할 때 5주 전 이미지가 조용히 재사용되어 `No 'script_location' key found`로 실패했다.)
 
