@@ -105,8 +105,14 @@ def test_counts_match_the_two_sources(migrated_db, app_fresh_engine):
             (a["vessel_id"], a["reason"]) for a in summary["actions"]
         )
 
-        # D등급 진입 임박 — `days_to_d`가 있는 선박(올해 안에 진입)
-        soon = [v for v in summary["vessels"] if v["days_to_d"] is not None]
+        # D등급 진입 임박 — `days_to_d`가 있는 선박(올해 안에 진입). 단 CII 적용 대상이
+        # 아닌 선박(GT를 알고 5,000 미만)은 뺀다 — 위험 선박 정의와 같다(`#2132`)
+        soon = [
+            v
+            for v in summary["vessels"]
+            if v["days_to_d"] is not None
+            and not (v["gross_tonnage"] is not None and v["gross_tonnage"] < 5000)
+        ]
         assert sorted((i["vessel_id"], i["days"]) for i in kind("D_ENTRY_SOON")) == sorted(
             (v["vessel_id"], v["days_to_d"]) for v in soon
         )

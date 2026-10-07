@@ -33,6 +33,11 @@ from cii_platform.calc.rating_engine import DVector, determine_rating
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services import fleet_summary
+from cii_platform.services.applicability import (
+    STATE_APPLICABLE,
+    STATE_NOT_APPLICABLE,
+    STATE_UNKNOWN,
+)
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.fleet_summary import (
     REASON_ALREADY_AT_OR_BELOW,
@@ -50,6 +55,7 @@ from cii_platform.services.fleet_summary import (
     get_fleet_summary,
     sort_fleet_rows,
 )
+from cii_platform.services.notifications import get_notifications
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
 
 YEAR = 2026
@@ -62,34 +68,90 @@ HFO_CF = Decimal("3.114")
 
 
 def test_e_this_year_is_a_trigger():
-    assert evaluate_risk_reasons(ytd_rating="E", prior_ratings=[]) == ["E_THIS_YEAR"]
+    assert evaluate_risk_reasons(
+        ytd_rating="E", prior_ratings=[], applicability=STATE_APPLICABLE
+    ) == ["E_THIS_YEAR"]
 
 
 def test_d_three_years_running_is_a_trigger():
-    assert evaluate_risk_reasons(ytd_rating="D", prior_ratings=["D", "D"]) == ["D_THIRD_YEAR"]
+    assert evaluate_risk_reasons(
+        ytd_rating="D", prior_ratings=["D", "D"], applicability=STATE_APPLICABLE
+    ) == ["D_THIRD_YEAR"]
 
 
 def test_d_alone_is_not_a_trigger():
     """등급만으로 판정하지 않는다 — Reg 28.7의 트리거는 연속 연수를 포함한다."""
-    assert evaluate_risk_reasons(ytd_rating="D", prior_ratings=["C", "D"]) == []
+    assert (
+        evaluate_risk_reasons(
+            ytd_rating="D", prior_ratings=["C", "D"], applicability=STATE_APPLICABLE
+        )
+        == []
+    )
 
 
 def test_d_with_missing_history_is_not_a_trigger():
     """확정 등급이 없는 해는 D로 치지 않는다. 모르는 것을 나쁜 쪽으로 단정하지 않는다."""
-    assert evaluate_risk_reasons(ytd_rating="D", prior_ratings=["D", None]) == []
+    assert (
+        evaluate_risk_reasons(
+            ytd_rating="D", prior_ratings=["D", None], applicability=STATE_APPLICABLE
+        )
+        == []
+    )
 
 
 def test_d_with_only_one_prior_year_is_not_a_trigger():
     """직전 2개 연도가 다 있어야 3년 연속이 성립한다."""
-    assert evaluate_risk_reasons(ytd_rating="D", prior_ratings=["D"]) == []
+    assert (
+        evaluate_risk_reasons(ytd_rating="D", prior_ratings=["D"], applicability=STATE_APPLICABLE)
+        == []
+    )
 
 
 def test_no_rating_yields_no_reason():
-    assert evaluate_risk_reasons(ytd_rating=None, prior_ratings=["D", "D"]) == []
+    assert (
+        evaluate_risk_reasons(
+            ytd_rating=None, prior_ratings=["D", "D"], applicability=STATE_APPLICABLE
+        )
+        == []
+    )
 
 
 def test_c_never_triggers():
-    assert evaluate_risk_reasons(ytd_rating="C", prior_ratings=["D", "D"]) == []
+    assert (
+        evaluate_risk_reasons(
+            ytd_rating="C", prior_ratings=["D", "D"], applicability=STATE_APPLICABLE
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("ytd_rating", "prior_ratings"),
+    [("E", []), ("D", ["D", "D"])],
+    ids=["E_THIS_YEAR", "D_THIRD_YEAR"],
+)
+def test_non_applicable_vessel_is_never_a_trigger(ytd_rating, prior_ratings):
+    """⚠️ **CII 적용 대상이 아닌 선박(GT 5,000 미만)은 위험 선박이 아니다** (#2132).
+
+    시정조치계획은 CII 적용 대상 선박의 의무다(`PRD §3.3.7`). 두 트리거 모두 같다.
+    """
+    assert (
+        evaluate_risk_reasons(
+            ytd_rating=ytd_rating, prior_ratings=prior_ratings, applicability=STATE_NOT_APPLICABLE
+        )
+        == []
+    )
+
+
+def test_unknown_applicability_is_still_judged():
+    """GT를 몰라 판정할 수 없는 선박은 「적용 대상이 아니다」로 단정하지 않는다 (#2132).
+
+    `is_cii_applicable_hint`는 GT가 NULL이어도 거짓이라 이 둘을 가르지 못한다 — 그래서
+    힌트가 아니라 GT 원본의 3상태(`applicability_state`)를 본다.
+    """
+    assert evaluate_risk_reasons(ytd_rating="E", prior_ratings=[], applicability=STATE_UNKNOWN) == [
+        "E_THIS_YEAR"
+    ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -619,6 +681,140 @@ async def test_actions_are_derived_from_risk_reasons(session):
     result = await get_fleet_summary(session, regulation_year=YEAR)
 
     assert len(result["actions"]) == result["summary"]["at_risk"]
+
+
+@pytest.mark.asyncio
+async def test_non_applicable_e_vessel_is_not_at_risk_but_keeps_its_rating(session):
+    """⚠️ **GT 4,999 선박이 E등급이어도 위험 선박·조치 목록·알림 「위험」에 오르지 않는다** (#2132).
+
+    같은 입력에서 GT만 5,000으로 올린 선박과 한 선대에 두어 **GT 하나만 다르게** 견준다.
+    등급(E)과 누적값은 둘 다 그대로 실린다 — 가리는 것은 규제 트리거뿐이다. GT를 모르는
+    선박(NULL)은 판정할 수 없으므로 종전대로 오른다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    ids = {}
+    for imo, name, gt in [
+        ("9200101", "SMALL E", 4999),
+        ("9200102", "LIMIT E", 5000),
+        ("9200103", "NOGT E", None),
+    ]:
+        ids[name] = await _insert_vessel(session, imo=imo, name=name, gross_tonnage=gt)
+        await _insert_voyage(
+            session, ids[name], arrived=datetime(YEAR, 3, 1, tzinfo=UTC), distance=1000, fuel=2000
+        )
+
+    as_of = datetime(YEAR, 6, 25, tzinfo=UTC)
+    result = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    rows = {r["name"]: r for r in result["vessels"]}
+
+    # 세 척 다 E — 등급과 누적값은 가려지지 않는다.
+    for name in ids:
+        assert rows[name]["ytd_rating"] == "E", rows[name]
+        assert rows[name]["ytd_attained_cii"] is not None
+
+    assert rows["SMALL E"]["risk_reasons"] == []
+    assert rows["LIMIT E"]["risk_reasons"] == ["E_THIS_YEAR"]
+    assert rows["NOGT E"]["risk_reasons"] == ["E_THIS_YEAR"]
+
+    # 집계 · 조치 목록 · 알림이 같은 선박을 센다.
+    assert result["summary"]["at_risk"] == 2
+    assert {a["vessel_name"] for a in result["actions"]} == {"LIMIT E", "NOGT E"}
+    notes = await get_notifications(session, regulation_year=YEAR, as_of=as_of)
+    corrective = [i for i in notes["items"] if i["kind"] == "CORRECTIVE_ACTION"]
+    assert {i["vessel_name"] for i in corrective} == {"LIMIT E", "NOGT E"}
+    assert all(i["level"] == "RISK" for i in corrective)
+
+
+@pytest.mark.asyncio
+async def test_non_applicable_vessel_is_left_out_of_the_d_entry_alert(session):
+    """「D등급 진입 임박」 알림도 GT 4,999는 뺀다 — `RISK` 단계는 규제 의무가 걸린 것이다 (#2132).
+
+    **`days_to_d` 자체는 그대로다** — 선대 요약 행은 값을 싣고, 알림만 거른다.
+    GT를 모르는 선박(``NULL`` · 힌트는 GT 4,999와 같이 거짓)은 **남는다** — 판정 불가는 뺄
+    근거가 없다(`PRD §3.3.7` 결정 1). 힌트로 거르면 이 배까지 빠진다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    ids = {}
+    for imo, name, gt in [
+        ("9200111", "SMALL SOON", 4999),
+        ("9200112", "BIG SOON", 30000),
+        ("9200113", "NOGT SOON", None),
+    ]:
+        ids[name] = await _insert_vessel(
+            session,
+            imo=imo,
+            name=name,
+            gross_tonnage=gt,
+            underway_state="UNDER_WAY",
+            detail_status="SAILING",
+        )
+        await _insert_voyage(
+            session, ids[name], arrived=datetime(YEAR, 1, 20, tzinfo=UTC), distance=5000, fuel=200
+        )
+        await _insert_voyage(
+            session, ids[name], arrived=datetime(YEAR, 6, 20, tzinfo=UTC), distance=1000, fuel=300
+        )
+
+    as_of = datetime(YEAR, 6, 25, tzinfo=UTC)
+    result = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    rows = {r["name"]: r for r in result["vessels"]}
+    assert isinstance(rows["SMALL SOON"]["days_to_d"], int)
+    assert isinstance(rows["BIG SOON"]["days_to_d"], int)
+    assert isinstance(rows["NOGT SOON"]["days_to_d"], int)
+    # 전제 — GT 미입력 선박의 힌트도 거짓이다. 힌트만으로는 GT 4,999와 갈리지 않는다.
+    assert rows["NOGT SOON"]["is_cii_applicable_hint"] is False
+    assert rows["SMALL SOON"]["is_cii_applicable_hint"] is False
+
+    notes = await get_notifications(session, regulation_year=YEAR, as_of=as_of)
+    soon = {i["vessel_name"] for i in notes["items"] if i["kind"] == "D_ENTRY_SOON"}
+    assert soon == {"BIG SOON", "NOGT SOON"}
+
+
+@pytest.mark.asyncio
+async def test_soonest_d_entry_and_the_alert_point_at_the_same_applicable_vessel(session):
+    """⚠️ 「D등급 진입 임박」 칸도 GT 4,999는 뺀다 — 종 버튼 첫 항목과 같은 배 (#2132 결정 2).
+
+    두 선박의 항차를 똑같이 두어 ``days_to_d``가 같게 하고, 적용 대상이 아닌 쪽 이름이 앞서게
+    했다(동점 2차 키가 이름이다). 그래서 거르지 않으면 칸은 적용 대상이 아닌 배를 고른다.
+    **선박 행의 ``days_to_d``는 두 척 다 그대로다** — 카드의 일수는 내부 관리용으로 남는다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    for imo, name, gt in [("9200121", "A SMALL SOON", 4999), ("9200122", "B BIG SOON", 30000)]:
+        vid = await _insert_vessel(
+            session,
+            imo=imo,
+            name=name,
+            gross_tonnage=gt,
+            underway_state="UNDER_WAY",
+            detail_status="SAILING",
+        )
+        await _insert_voyage(
+            session, vid, arrived=datetime(YEAR, 1, 20, tzinfo=UTC), distance=5000, fuel=200
+        )
+        await _insert_voyage(
+            session, vid, arrived=datetime(YEAR, 6, 20, tzinfo=UTC), distance=1000, fuel=300
+        )
+
+    as_of = datetime(YEAR, 6, 25, tzinfo=UTC)
+    result = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    rows = {r["name"]: r for r in result["vessels"]}
+    days = rows["B BIG SOON"]["days_to_d"]
+    assert isinstance(days, int)
+    assert rows["A SMALL SOON"]["days_to_d"] == days
+
+    soonest = result["summary"]["soonest_d_entry"]
+    assert soonest == {
+        "vessel_id": rows["B BIG SOON"]["vessel_id"],
+        "name": "B BIG SOON",
+        "days": days,
+    }
+
+    notes = await get_notifications(session, regulation_year=YEAR, as_of=as_of)
+    first = next(i for i in notes["items"] if i["kind"] == "D_ENTRY_SOON")
+    assert first["vessel_id"] == str(soonest["vessel_id"])
 
 
 @pytest.mark.asyncio
@@ -1421,15 +1617,38 @@ def test_soonest_d_entry_breaks_ties_by_name_then_id():
     요청을 다시 해도 같은 배를 가리켜야 배너가 안정적으로 읽힌다.
     """
     rows = [
-        {"vessel_id": "b", "name": "SAME", "days_to_d": 7},
-        {"vessel_id": "a", "name": "SAME", "days_to_d": 7},
-        {"vessel_id": "z", "name": "AAA", "days_to_d": 7},
+        {"vessel_id": "b", "name": "SAME", "days_to_d": 7, "gross_tonnage": 30000.0},
+        {"vessel_id": "a", "name": "SAME", "days_to_d": 7, "gross_tonnage": 30000.0},
+        {"vessel_id": "z", "name": "AAA", "days_to_d": 7, "gross_tonnage": 30000.0},
     ]
     assert fleet_summary._soonest_d_entry(rows) == {"vessel_id": "z", "name": "AAA", "days": 7}
     assert fleet_summary._soonest_d_entry([]) is None
-    assert (
-        fleet_summary._soonest_d_entry([{"vessel_id": "x", "name": "X", "days_to_d": None}]) is None
-    )
+    none_row = {"vessel_id": "x", "name": "X", "days_to_d": None, "gross_tonnage": 30000.0}
+    assert fleet_summary._soonest_d_entry([none_row]) is None
+
+
+def test_soonest_d_entry_skips_a_non_applicable_vessel():
+    """⚠️ CII 적용 대상이 아닌 선박이 가장 임박해도 칸은 **적용 대상 선박**을 고른다 (#2132 결정 2).
+
+    칸은 한 척만 보인다(``min``) — 의무가 없는 배(GT 4,999)가 1일로 가장 임박하면 의무가
+    걸린 배(GT 5,000 · 9일)의 임박이 가려졌다. GT를 모르는 선박(NULL)은 「적용 대상이
+    아니다」로 단정할 수 없어 후보로 남는다. 후보가 적용 대상 아님 선박뿐이면 ``null``이다.
+    """
+    small = {"vessel_id": "s", "name": "SMALL", "days_to_d": 1, "gross_tonnage": 4999.0}
+    limit = {"vessel_id": "l", "name": "LIMIT", "days_to_d": 9, "gross_tonnage": 5000.0}
+    no_gt = {"vessel_id": "n", "name": "NOGT", "days_to_d": 5, "gross_tonnage": None}
+
+    assert fleet_summary._soonest_d_entry([small, limit]) == {
+        "vessel_id": "l",
+        "name": "LIMIT",
+        "days": 9,
+    }
+    assert fleet_summary._soonest_d_entry([small, limit, no_gt]) == {
+        "vessel_id": "n",
+        "name": "NOGT",
+        "days": 5,
+    }
+    assert fleet_summary._soonest_d_entry([small]) is None
 
 
 def test_publish_cii_truncates_and_publish_rounds():

@@ -25,6 +25,8 @@ const RESULT = {
         vessel_id: 'v1',
         vessel_name: 'MV One',
         speed_reduction_percent: '10.0',
+        is_cii_applicable_hint: false,
+        gross_tonnage: 4999.0,
         unavailable_reason: null,
         before: { attained_cii: '8.9711', rating: 'E' },
         after: { attained_cii: '8.0909', rating: 'E' },
@@ -95,6 +97,20 @@ describe('createApiFleetReductionProvider', () => {
     expect(result.vessels[1]).toMatchObject({ unavailableReason: 'NO_DATA', before: null, after: null })
     expect(result.costs.charterLoss).toBeNull()
     expect(result.costs.missingCharterRates).toEqual(['v1'])
+  })
+
+  it('선박 행의 CII 적용 대상 두 필드를 옮기고, 판정이 없는 응답이면 배지를 그리지 않는 값으로 둔다 (#2132)', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse(RESULT))
+    const result = await createApiFleetReductionProvider(fetchImpl as typeof fetch, '/api/v1').evaluate({
+      regulationYear: 2026,
+      target: 'NO_AT_RISK',
+      adjustments: [],
+      prices: { charterUsdPerDay: {}, fuelUsdPerTon: {} },
+    })
+
+    expect(result.vessels[0]).toMatchObject({ isCiiApplicableHint: false, grossTonnage: 4999 })
+    // 필드가 없는 행 — 대시보드 매핑과 같이 「대상 아님」을 단정하지 않는다.
+    expect(result.vessels[1]).toMatchObject({ isCiiApplicableHint: true, grossTonnage: null })
   })
 
   it('저장은 plan_name을 싣고, 목록은 단가를 문자열로 돌려준다', async () => {

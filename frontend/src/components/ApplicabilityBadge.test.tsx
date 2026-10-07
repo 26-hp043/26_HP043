@@ -53,11 +53,13 @@ describe('ApplicabilityBadge', () => {
 
   it('GT가 작으면 「규제 대상 아님」', () => {
     render(<ApplicabilityBadge isCiiApplicableHint={false} grossTonnage={4999} />)
+    // 정본 문구 (DESIGN_SYSTEM §8.2) — 바꾸려면 정본 개정이 먼저다.
     expect(screen.getByText('규제 대상 아님')).toBeDefined()
   })
 
   it('GT가 없으면 「GT 미입력」 — 두 상태가 같은 말을 하지 않는다', () => {
     render(<ApplicabilityBadge isCiiApplicableHint={false} grossTonnage={null} />)
+    // 정본 문구 (DESIGN_SYSTEM §8.2) — 바꾸려면 정본 개정이 먼저다.
     expect(screen.getByText('GT 미입력')).toBeDefined()
     expect(screen.queryByText('규제 대상 아님')).toBeNull()
   })

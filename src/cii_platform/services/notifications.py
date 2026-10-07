@@ -12,9 +12,13 @@
 버튼의 수가 갈릴 자리가 생긴다.
 
 - ``CORRECTIVE_ACTION`` 시정조치계획 대상 · ``RISK`` — 선대 요약 ``actions[]``
-  (`§2.8` · `PRD §3.3.7`)
+  (`§2.8` · `PRD §3.3.7`). CII 적용 대상이 아닌 선박은 ``actions[]``에 없으므로 여기에도
+  없다(#2132)
 - ``D_ENTRY_SOON`` D등급 진입 임박 · ``RISK`` — 선대 요약 ``days_to_d``. 값이 있으면 **올해
-  안에** 진입한다는 뜻이다(연말을 넘으면 ``NOT_THIS_YEAR``로 ``null``). 새 기준 일수를 두지 않는다
+  안에** 진입한다는 뜻이다(연말을 넘으면 ``NOT_THIS_YEAR``로 ``null``). 새 기준 일수를 두지 않는다.
+  **CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 뺀다** — 대시보드 「D등급 진입 임박」 칸
+  (``summary.soonest_d_entry``)과 같은 조건이고 판정 함수도 같다
+  (``fleet_summary.row_is_cii_non_applicable``). GT를 모르는 선박은 뺄 근거가 없어 둔다(#2132)
 - ``UNCONFIRMED_VOYAGE`` 실적 확정 전 항차 · ``CHECK`` — 데이터 점검 ``issues[]``의
   ``UNCONFIRMED`` (`§2.16`)
 - ``ESTIMATED_VALUES`` 실측이 아닌 값이 든 선박 · ``CHECK`` — 데이터 점검 ``issues[]``의
@@ -36,7 +40,7 @@ from cii_platform.services.data_quality import (
     SEVERITY_UNCONFIRMED,
     get_fleet_data_quality,
 )
-from cii_platform.services.fleet_summary import compute_fleet_rows
+from cii_platform.services.fleet_summary import compute_fleet_rows, row_is_cii_non_applicable
 from cii_platform.services.simulation_clock import resolve_as_of
 
 if TYPE_CHECKING:
@@ -111,7 +115,12 @@ async def get_notifications(
         )
 
     # 남은 일수가 짧은 순 — 대시보드 「D등급 진입 임박」 칸(`soonest_d_entry`)과 같은 기준이다.
-    soon = [row for row in rows if row["days_to_d"] is not None]
+    # **CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 두 자리 모두에서 빠진다** (#2132) —
+    # 이 항목은 `RISK` 단계(규제 의무가 걸린 것)이고, 위험 선박 정의가 CII 적용 대상에 한한다
+    # (`PRD §3.3.7`). 판정 함수도 칸과 같은 것을 쓴다. GT를 모르는 선박은 뺄 근거가 없어 둔다.
+    soon = [
+        row for row in rows if row["days_to_d"] is not None and not row_is_cii_non_applicable(row)
+    ]
     soon.sort(key=lambda r: (r["days_to_d"], str(r["name"]), str(r["vessel_id"])))  # type: ignore[arg-type, return-value]
     for row in soon:
         items.append(

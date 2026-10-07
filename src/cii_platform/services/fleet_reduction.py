@@ -28,6 +28,7 @@ from sqlalchemy import select
 from cii_platform.api.field_labels import field_label
 from cii_platform.calc.annual_simulation import backsolve_required_cut, project_deterministic
 from cii_platform.calc.fleet_reduction import (
+    TARGET_NO_AT_RISK,
     PlannedLeg,
     apply_slowdown,
     meets_target,
@@ -44,10 +45,12 @@ from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.annual_simulation import collect_annual_inputs, load_projection_context
+from cii_platform.services.applicability import STATE_NOT_APPLICABLE, applicability_state
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
     UNAVAILABLE_NO_DATA,
     UNAVAILABLE_NO_PARAMETERS,
+    _spec_number,
     prior_confirmed_ratings,
     spec_gap,
 )
@@ -252,6 +255,12 @@ async def evaluate_reduction_plan(
             "vessel_id": vessel_id,
             "vessel_name": vessel.name,
             "speed_reduction_percent": _publish(reduction, 1),
+            # 「규제 대상 아님」 배지의 근거 (#2132 결정 3). `API_SPEC §2.8` 선대 요약 행과 **같은
+            # 이름·타입·뜻**이다 — 서버 판정(힌트)을 그대로 싣고, 「미해당」과 「GT가 없어 판정
+            # 불가」를 가를 수 있게 총톤수를 JSON number로 함께 낸다. 계산하지 못한 선박에도
+            # 싣는다(배지는 계산 여부와 무관하게 선박을 식별하는 자리에 붙는다).
+            "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
+            "gross_tonnage": _spec_number(vessel.gross_tonnage),
         }
         try:
             prior = await prior_confirmed_ratings(
@@ -289,7 +298,15 @@ async def evaluate_reduction_plan(
             continue
 
         evaluated += 1
-        met = meets_target(after.rating, target_rating)
+        # 「위험 선박 0척」은 **CII 적용 대상 선박에 한한** 위험 선박의 수다(`PRD §3.3.7` · #2132).
+        # GT를 알고 5,000 미만이면 E여도 위험 선박이 아니므로 달성이다. **등급 계산은 그대로** —
+        # `target_rating`·`required_cut_fuel_ton`·`achievable`은 종전 값이고 판정만 바뀐다.
+        # `ALL_C_OR_BETTER`는 위험 선박이 아니라 등급 자체의 목표라 영향이 없다.
+        exempt = (
+            target == TARGET_NO_AT_RISK
+            and applicability_state(vessel.gross_tonnage) == STATE_NOT_APPLICABLE
+        )
+        met = True if exempt else meets_target(after.rating, target_rating)
         all_met = all_met and met
         before_dist[before.rating] += 1
         after_dist[after.rating] += 1

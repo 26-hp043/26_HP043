@@ -201,6 +201,126 @@ async def test_costs_use_the_prices_given_and_leave_missing_ones_empty(session, 
     assert priced["costs"]["net"] == "577.78"
 
 
+async def _make_e_rated(session, vessel_id: UUID, *, gross_tonnage: int | None) -> None:
+    """연료를 크게 늘려 연말 예상을 E로 만들고 GT를 정한다 (#2132).
+
+    ``is_cii_applicable_hint``도 GT에 맞춰 둔다 — 등록 시 서버가 내리는 값과 같게
+    (GT ``NULL``이면 ``False``). 서버 판정은 힌트가 아니라 GT 원본을 보지만
+    (`services/applicability.py`), 힌트를 시드 값(``True``)으로 남겨 두면 GT ``NULL`` 경우가
+    실제 저장 상태와 달라진다.
+    """
+    await session.execute(
+        text(
+            "UPDATE voyage_fuel_use SET planned_fuel_ton = 3000, "
+            "actual_fuel_ton = CASE WHEN actual_fuel_ton IS NULL THEN NULL ELSE 3000 END "
+            "WHERE voyage_id IN (SELECT id FROM voyage WHERE vessel_id = :vid)"
+        ),
+        {"vid": vessel_id},
+    )
+    await session.execute(
+        text(
+            "UPDATE vessel SET gross_tonnage = :gt, is_cii_applicable_hint = :hint WHERE id = :vid"
+        ),
+        {
+            "gt": gross_tonnage,
+            "hint": gross_tonnage is not None and gross_tonnage >= 5000,
+            "vid": vessel_id,
+        },
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gross_tonnage", "expected_met"),
+    [(4999, True), (5000, False), (None, False)],
+    ids=["GT4999_not_applicable", "GT5000_applicable", "GT_NULL_unknown"],
+)
+async def test_no_at_risk_target_skips_a_non_applicable_e_vessel(
+    session, vessel_id, gross_tonnage, expected_met
+):
+    """⚠️ GT 4,999 선박은 E등급이어도 「위험 선박 0척」 목표의 걸림돌이 아니다 (#2132).
+
+    같은 입력에서 GT만 5,000으로 올리면 목표 D를 못 넘어 미달이다 — **GT 하나만 다르다.**
+    GT가 ``NULL``이면 **면제하지 않는다**(`PRD §3.3.7` 결정 1 — 판정 불가는 위험 판정에 남는다).
+    힌트는 GT 4,999와 같이 거짓이라, 면제를 힌트로 가르면 이 경우가 「달성」으로 바뀐다.
+    등급(`after.rating`)과 목표 등급(`target_rating`)은 두 경우 모두 그대로 실린다 — 바뀌는 것은
+    판정(`meets_target`)과 선대 전체 `target_met`이다.
+    """
+    await _make_e_rated(session, vessel_id, gross_tonnage=gross_tonnage)
+
+    result = await evaluate_reduction_plan(
+        session,
+        regulation_year=YEAR,
+        target="NO_AT_RISK",
+        adjustments=[],
+        prices={},
+    )
+    mine = _mine(result, vessel_id)
+
+    assert mine["unavailable_reason"] is None, mine
+    assert mine["after"]["rating"] == "E"
+    assert mine["target_rating"] == "D"
+    assert mine["meets_target"] is expected_met
+    # 이 선박은 계산 가능한 유일한 선박이 아니다(데모 선박이 섞인다) — 선대 판정은 그 선박이 뺀다.
+    if not expected_met:
+        assert result["target_met"] is False
+
+
+@pytest.mark.asyncio
+async def test_all_c_target_still_counts_a_non_applicable_e_vessel(session, vessel_id):
+    """`ALL_C_OR_BETTER`는 등급 목표라 GT 4,999여도 E는 미달이다 (#2132)."""
+    await _make_e_rated(session, vessel_id, gross_tonnage=4999)
+
+    result = await evaluate_reduction_plan(
+        session,
+        regulation_year=YEAR,
+        target="ALL_C_OR_BETTER",
+        adjustments=[],
+        prices={},
+    )
+
+    assert _mine(result, vessel_id)["meets_target"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gross_tonnage", "hint"),
+    [(4999, False), (5000, True), (None, False)],
+    ids=["GT4999_not_applicable", "GT5000_applicable", "GT_NULL_unknown"],
+)
+async def test_each_vessel_row_carries_the_applicability_fields(
+    session, vessel_id, gross_tonnage, hint
+):
+    """⚠️ 선박 행에 ``is_cii_applicable_hint`` · ``gross_tonnage``가 실린다 (#2132 결정 3).
+
+    `API_SPEC §2.8` 선대 행과 **같은 이름·타입·뜻**이다 — 힌트는 저장된 서버 판정 그대로,
+    총톤수는 JSON number(NULL이면 ``None``). 화면이 「규제 대상 아님」과 「GT 미입력」을 이 둘로
+    가른다. GT 4,999와 NULL은 힌트가 둘 다 거짓이라 **총톤수가 없으면 두 상태를 가를 수 없다.**
+    ``meets_target``의 값 체계는 그대로다(``True``/``False``).
+    """
+    await session.execute(
+        text(
+            "UPDATE vessel SET gross_tonnage = :gt, is_cii_applicable_hint = :hint WHERE id = :vid"
+        ),
+        {"gt": gross_tonnage, "hint": hint, "vid": vessel_id},
+    )
+
+    result = await evaluate_reduction_plan(
+        session, regulation_year=YEAR, target="NO_AT_RISK", adjustments=[], prices={}
+    )
+    mine = _mine(result, vessel_id)
+
+    assert mine["is_cii_applicable_hint"] is hint
+    expected_gt = None if gross_tonnage is None else float(gross_tonnage)
+    assert mine["gross_tonnage"] == expected_gt
+    assert mine["gross_tonnage"] is None or isinstance(mine["gross_tonnage"], float)
+    assert mine["meets_target"] in (True, False)
+    # 계산하지 못한 선박 행에도 싣는다 — 배지는 계산 여부와 무관하게 선박을 식별하는 자리에 붙는다.
+    for row in result["vessels"]:
+        assert "is_cii_applicable_hint" in row, row
+        assert "gross_tonnage" in row, row
+
+
 @pytest.mark.asyncio
 async def test_an_unknown_vessel_is_rejected(session, vessel_id):
     with pytest.raises(ValidationError):
@@ -272,6 +392,13 @@ def test_the_routes_answer_over_http(migrated_db, app_fresh_engine):
             "costs",
             "warnings",
         }
+        # 선박 행에 「규제 대상 아님」 배지의 근거 두 필드가 실린다 (#2132 결정 3 · `§2.8`과 같은
+        # 이름·타입). 데모 시드의 실존 2척으로 두 상태를 HTTP 응답에서 본다.
+        by_name = {row["vessel_name"]: row for row in evaluated.json()["data"]["vessels"]}
+        assert by_name["DONGJIN ENDURANCE"]["is_cii_applicable_hint"] is False
+        assert by_name["DONGJIN ENDURANCE"]["gross_tonnage"] == 4559.0
+        assert by_name["STAR SKIPPER"]["is_cii_applicable_hint"] is True
+        assert by_name["STAR SKIPPER"]["gross_tonnage"] == 9520.0
 
         too_much = {
             **body,

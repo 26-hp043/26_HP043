@@ -39,6 +39,16 @@ interface Projection {
 export interface VesselResult {
   vesselId: string
   vesselName: string
+  /**
+   * 서버가 내린 CII 적용 대상 판정 (`API_SPEC §2.17` · `§2.8`과 같은 필드 · `#2132`).
+   * **화면이 GT로 다시 판정하지 않는다** — 선박명 옆 `ApplicabilityBadge`의 입력이다.
+   */
+  isCiiApplicableHint: boolean
+  /**
+   * 총톤수. 판정이 아니라 **「미해당」의 원인**을 가르는 데만 쓴다 — GT가 `null`이면
+   * 「대상 아님」이 아니라 「판정 불가」다.
+   */
+  grossTonnage: number | string | null
   /** 계산하지 못한 선박이면 사유 — 그때 아래 필드는 `null` */
   unavailableReason: string | null
   before: Projection | null

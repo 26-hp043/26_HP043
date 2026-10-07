@@ -1130,7 +1130,7 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
 > | 필드 | 뜻 | 고르는 규칙 |
 > |---|---|---|
 > | `missing_gross_tonnage` | GT 미기록 척수 | `gross_tonnage`가 **NULL인 행만** 센다. 0은 「0으로 적혀 있다」지 「없다」가 아니다(DB 트리거상 존재하지 않는 값이지만 집계 규칙은 명시적으로 둔다) |
-> | `soonest_d_entry` | 「D등급 진입이 가장 임박한 선박」 하나 | `vessels[].days_to_d`가 있는 선박 중 **남은 일수가 가장 짧은 것**. 동점이면 (이름, `vessel_id`) — `sort`와 같은 2차 키라 요청을 다시 해도 같은 배를 가리킨다. 후보가 없으면 `null` |
+> | `soonest_d_entry` | 「D등급 진입이 가장 임박한 선박」 하나 | `vessels[].days_to_d`가 있는 선박 중 **남은 일수가 가장 짧은 것**. 동점이면 (이름, `vessel_id`) — `sort`와 같은 2차 키라 요청을 다시 해도 같은 배를 가리킨다. 후보가 없으면 `null`. **CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 후보가 아니다** — `risk_reasons`와 같은 판정이며 GT가 NULL인 선박은 후보로 남는다. 그 선박 행의 `days_to_d`는 그대로 싣는다(`#2132`) |
 >
 > `vessel_id`를 함께 싣는 것은 이름만으로 동명 선박을 가리지 못하기 때문이다. `days`는 `vessels[].days_to_d`와 같은 값·같은 어휘다 — 창 강도·사유 규칙이 별도로 생기지 않는다.
 
@@ -1258,6 +1258,8 @@ C등급이어도 여유가 없으면 `risk_level`은 `HIGH`지만 규제 의무�
 |---|---|
 | `E_THIS_YEAR` | 올해 YTD 등급이 **E** |
 | `D_THIRD_YEAR` | 직전 2개 규제연도의 확정 등급이 연속 **D**이고 올해 YTD도 **D** |
+
+> **[#2132] CII 적용 대상 선박에 한한다.** GT를 알고 5,000 미만인 선박은 등급이 E여도 `risk_reasons`가 **빈 배열**이다 — 그래서 `summary.at_risk` · `actions[]` · `§2.19` 알림의 `CORRECTIVE_ACTION`에도 오르지 않는다. 같은 판정으로 `summary.soonest_d_entry` 후보와 `§2.19` `D_ENTRY_SOON`에서도 빠진다(선박 행의 `days_to_d`는 그대로). **`ytd_rating` · `ytd_attained_cii` 등 등급과 누적값은 그대로 싣는다**(가리는 것은 규제 트리거뿐 — 화면은 `is_cii_applicable_hint`로 「규제 대상 아님」 배지를 그린다). **GT가 NULL인 선박은 판정할 수 없으므로 종전대로 판정한다** — `is_cii_applicable_hint`는 GT가 NULL이어도 `false`라 「미해당」과 가르지 못해, 서버는 힌트가 아니라 `gross_tonnage` 원본으로 가른다(`CII_APPLICABILITY_UNKNOWN`).
 
 > 기준이 **연말 예상 등급이 아니라 YTD 등급**이다 — 올해 지금까지 쌓인 실측 위에서 판정한다. **연말 예상 등급 위에서의 「위험 선박 0척」은 `§2.17` 함대 감축 계획의 `target`이 판정한다**(결정론 연말 예상 · `PRD §3.3.7` · `#1531`). 두 기준은 합치지 않는다.
 
@@ -1974,6 +1976,8 @@ POST /api/v1/fleet/reduction-plans/evaluate
         "vessel_id": "00000000-0000-4000-8000-000000000001",
         "vessel_name": "샘플 벌크선 (50,000 DWT)",
         "speed_reduction_percent": "10.0",
+        "is_cii_applicable_hint": true,
+        "gross_tonnage": 30000.0,
         "unavailable_reason": null,
         "before": { "attained_cii": "8.9711", "rating": "E" },
         "after": { "attained_cii": "8.0909", "rating": "E" },
@@ -2009,10 +2013,12 @@ POST /api/v1/fleet/reduction-plans/evaluate
 
 | 필드 | 설명 |
 |---|---|
-| `target_met` | 계산할 수 있는 모든 선박이 조정 후 목표 이상이면 `true`. **계산할 수 있는 선박이 0척이면 `null`** |
+| `target_met` | `meets_target`이 실린 모든 선박(계산한 선박 — `unavailable_reason`이 있는 선박은 `meets_target`이 없어 세지 않는다)의 `meets_target`이 `true`이면 `true`. 「조정 후 목표 이상」과 같지 않다 — `NO_AT_RISK`에서 CII 적용 대상이 아닌 선박은 목표 미만이어도 `meets_target`이 `true`다(`#2132`). **계산할 수 있는 선박이 0척이면 `null`** |
 | `vessels[].unavailable_reason` | 계산하지 못한 선박 — `§2.8`과 같은 어휘. 이때 `before` 이하 필드가 없다 |
+| `vessels[].is_cii_applicable_hint` · `gross_tonnage` | **`§2.8` 선대 행과 같은 이름·타입·뜻** — 서버 판정(boolean)과 「미해당」의 원인을 가르는 총톤수(JSON number · NULL이면 `null`). 화면이 선박명 옆 「규제 대상 아님」 · 「GT 미입력」 배지를 그리는 근거다(`#2132` 결정 3). **계산하지 못한 선박에도 싣는다.** `meets_target`의 값 체계는 바꾸지 않는다. `#2132` 이전에 저장한 계획안의 `result`(`§2.17.2` — 다시 계산해 채우지 않는다)에는 두 필드가 없다 |
 | `vessels[].before` | **`§6.1` 결정론 연말 예상과 같은 값**(같은 입력 조립) |
 | `vessels[].target_rating` | 그 선박이 넘지 말아야 할 등급 — `NO_AT_RISK`면 D, 직전 2개 연도 확정 D면 C. `vessels[].after`(연말 결정론 예상)와 비교한다 (`#1531`) |
+| `vessels[].meets_target` | `after`가 `target_rating` 이상인가. **단 `target = NO_AT_RISK`일 때 CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 항상 `true`다** — 위험 선박 정의가 적용 대상에 한하므로 E여도 위험 선박이 아니다(`PRD §3.3.7` · `#2132`). `target_rating` · `after` · `required_cut_fuel_ton` · `achievable`은 계산한 그대로이고 판정만 달라진다. `ALL_C_OR_BETTER`는 등급 목표라 영향이 없다 |
 | `vessels[].skipped_voyages` | 기준 속력·기준 일일 연료가 없어 **감속을 적용하지 못한** 잔여 항차 수 — 0보다 크면 `warnings`에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` |
 | `vessels[].remaining_voyage_count` | **스냅샷의 잔여 계획(PLAN) 항차 수** — `§6.1` `deterministic.remaining_voyage_count`와 **같은 기준**이다(`#1070` ⑷). 계산에서 뺀 항차가 있어도 이 수는 줄지 않는다. 무엇을 뺐는지는 `warnings`가 말한다 — 종전에는 제외 **후** 개수를 실어, 같은 선박·같은 연도인데 연간 등급 관리 화면과 항차 수가 달랐다 |
 | `vessels[].required_cut_fuel_ton` · `achievable` | 조정 **후**에도 남는 필요 감축량(`§6.1.1` · `PRD §12.3.1`). 잔여 계획이 없으면 `null` |
@@ -2197,8 +2203,8 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
 >
 > | `kind` | `level` | 출처 · 조건 |
 > |---|---|---|
-> | `CORRECTIVE_ACTION` 시정조치계획 대상 | `RISK` | `§2.8` `actions[]` 한 행마다 — `reason`은 `E_THIS_YEAR` · `D_THIRD_YEAR`(`PRD §3.3.7`) |
-> | `D_ENTRY_SOON` D등급 진입 임박 | `RISK` | `§2.8` `days_to_d`가 있는 선박 — 값이 있으면 **올해 안에** 진입한다(연말을 넘으면 `NOT_THIS_YEAR`로 `null`). 새 기준 일수를 두지 않는다. 남은 일수가 짧은 순 |
+> | `CORRECTIVE_ACTION` 시정조치계획 대상 | `RISK` | `§2.8` `actions[]` 한 행마다 — `reason`은 `E_THIS_YEAR` · `D_THIRD_YEAR`(`PRD §3.3.7`). CII 적용 대상이 아닌 선박은 `actions[]`에 없으므로 여기에도 없다(`#2132`) |
+> | `D_ENTRY_SOON` D등급 진입 임박 | `RISK` | `§2.8` `days_to_d`가 있는 선박 — 값이 있으면 **올해 안에** 진입한다(연말을 넘으면 `NOT_THIS_YEAR`로 `null`). 새 기준 일수를 두지 않는다. 남은 일수가 짧은 순. **CII 적용 대상이 아닌 선박(GT를 알고 5,000 미만)은 뺀다**(`#2132` — `RISK`는 규제 의무가 걸린 것이다). `§2.8` `summary.soonest_d_entry`와 **같은 조건·같은 판정**이라 종 버튼 첫 항목과 대시보드 칸이 같은 배를 가리킨다. 선박 행의 `days_to_d`는 값을 그대로 싣는다 |
 > | `UNCONFIRMED_VOYAGE` 실적 확정 전 항차 | `CHECK` | `§2.16` `issues[]`의 `UNCONFIRMED` — 항차마다 한 행 |
 > | `ESTIMATED_VALUES` 실측이 아닌 값이 든 선박 | `CHECK` | `§2.16` `issues[]`의 `SUBSTITUTED` · `UNAVAILABLE` · `ANOMALY` — **선박마다 한 행**, `count`는 그 행 수. `PUBLIC_RECORD`는 계산에 들어간 값이 아니라 대조 결과라 넣지 않는다 |
 >
@@ -5255,3 +5261,4 @@ POST /api/v1/chat
 | 2026-10-07 | `#2306` | **§1.2 `PATCH /auth/users/{user_id}/role` — 둘러보기 계정은 대상이 될 수 없다**(`§1.2.6` 각주 · 인증 엔드포인트 표 행). 종전에는 관리자가 둘러보기 스텁의 역할을 바꾸면 그대로 저장돼 다음 둘러보기 로그인까지만 남았다 — 화면에서 바꾼 것이 잠깐만 유지되는 모양이었다. 이제 대상이 `is_tour`이면 요청한 역할과 무관하게(같은 값 포함) `409 CONFLICT` · 문구 「둘러보기 계정의 역할은 바꿀 수 없습니다.」이며 DB·감사 로그는 그대로다. 코드는 마지막 관리자와 같은 409 `CONFLICT`다 — 호출자의 역할(403 `FORBIDDEN_ROLE`)도 본문 검증(422)도 아니고 대상 계정의 상태로 거절하기 때문이다. `AGENTS §4.3`상 항목 보강이라 버전은 올리지 않는다 (#2291) |
 | 2026-10-07 | `#2307` | **§7.5 기준선·등급 경계 적재를 선종 단위 대체로** (`#2172` 결정 1 가 · 결정 2 가). 종전 「키가 같은 활성 행만 끈다 — 그래서 경계값 자체를 바꾸는 파일은 거부된다」는 정책이 아니라 `#2171`이 현 동작을 적어 둔 것이었다. 파일에 든 선종은 활성 행을 전부 끄고 파일의 행으로 대체하며, 구간 판정은 파일의 행만으로 한다 — **파일에 든 선종은 그 선종의 모든 구간을 담아야 한다.** `replaced_count`를 「끈 활성 행 수」로 고정하고, 감사 로그 `details`에 `ship_types`를 더하고, 되돌리기는 옛 밴드 파일을 다시 올리는 것임을 적었다. 기존 절의 문단·표 행을 고친 것이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#2172 · #2086) |
 | 2026-10-07 | `#2331` | **§1.2 「최초 관리자」 행 · `POST /auth/verify-email/confirm` 행 — `INITIAL_ADMIN_EMAILS`의 주소는 이메일 인증을 마친 뒤에만 관리자가 된다** (`#2108`). 종전 「가입할 때와 로그인할 때 관리자로 맞춘다」는 그 주소로 **먼저 가입한 사람이 메일함 없이 곧바로 관리자**가 되게 했다. 가입 응답은 항상 현장직, 인증 확인 직후와 인증된 계정의 로그인에서 올리고 `ROLE_CHANGE`를 남긴다. 인증 전 로그인은 그대로 허용한다(`PRD §7.10`) — 그 계정은 현장직에 머문다. 「목록에 있는 동안은 항상 관리자」는 인증된 계정에 그대로다. `AGENTS §4.3`상 행·각주 보강이라 버전은 올리지 않는다 (#2108) |
+| 2026-10-07 | `#2332` | **§2.8 `risk_reasons`에 「CII 적용 대상 선박에 한한다」 각주 · §2.17 `meets_target` 행 신설 · §2.19 `CORRECTIVE_ACTION` · `D_ENTRY_SOON` 행에 같은 조건** (`#2132`). GT를 알고 5,000 미만인 선박은 E등급이어도 `risk_reasons`가 빈 배열이고 `at_risk` · `actions[]` · 알림 「위험」에 오르지 않는다 — 등급과 누적값은 그대로 싣는다. `NO_AT_RISK` 목표에서도 그 선박은 달성으로 센다(`meets_target`). **GT가 NULL인 선박은 뺄 근거가 없어 종전대로 판정**한다 — `is_cii_applicable_hint`는 GT가 NULL이어도 거짓이라 「미해당」과 가르지 못해 `gross_tonnage` 원본으로 가른다. **`summary.soonest_d_entry` 후보에서도 뺀다**(결정 2 — 알림 `D_ENTRY_SOON`과 같은 조건 · 같은 판정 함수). 선박 행의 `days_to_d`는 바뀌지 않는다. **§2.17 `vessels[]`에 `is_cii_applicable_hint` · `gross_tonnage` 추가**(결정 3 — `§2.8` 행과 같은 이름·타입·뜻, 화면 배지의 근거). **§2.17 `target_met` 설명 정정** — 「계산할 수 있는 모든 선박이 조정 후 목표 이상」이 아니라 「`meets_target`이 실린 모든 선박의 `meets_target`이 `true`」다(코드 `all_met = all_met and met`). ⚠️ `yun28639`의 2026-10-07 결정 · `AGENTS §7.3`. 판정 조건 각주 · 행 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 (#2132) |

@@ -21,8 +21,9 @@
   단정하면 사용자가 확인된 사실로 읽는다
 
 둘을 합치면 **총톤수를 넣지 않은 사용자가 「이 배는 규제 대상이 아니다」로 읽는다.**
-데모 시드의 실선 2척(``STAR SKIPPER`` · ``DONGJIN ENDURANCE``)이 정확히 후자이며,
-`#587`의 제원 조사 회신을 기다리는 중이다.
+데모 시드의 실선 2척(``STAR SKIPPER`` · ``DONGJIN ENDURANCE``)이 한때 정확히 후자(GT ``NULL``)
+였다. 제원 조사 회신(`#587`)과 원문 대조(`#1807`)로 총톤수가 채워져 지금은 ``STAR SKIPPER``가
+``APPLICABLE``(GT 9,520), ``DONGJIN ENDURANCE``가 ``NOT_APPLICABLE``(GT 4,559)이다.
 """
 
 from __future__ import annotations
