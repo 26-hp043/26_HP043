@@ -35,3 +35,13 @@
   background: none;
   object-fit: cover;
 }
+
+/*
+ * 설정의 프로필 절 — 사진을 **고르는** 자리라 고른 것이 보여야 한다
+ * (`DESIGN_SYSTEM §8`). 기본 규칙 **뒤에** 둔다: 특이도가 같아 순서가 이기고,
+ * 앞에 두면 기본값이 변종을 덮는다 (`#2148`).
+ */
+.avatar--profile {
+  inline-size: var(--avatar-size);
+  block-size: var(--avatar-size);
+}
