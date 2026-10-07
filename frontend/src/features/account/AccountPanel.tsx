@@ -244,7 +244,7 @@ function RoleSection({ me }: { me: CurrentUser }) {
 }
 
 /** 둘러보기 계정 행에 붙는 까닭 — 서버가 같은 이유로 거절한다(`API_SPEC §1.2.6`). */
-const TOUR_ROLE_FIXED_NOTICE = '역할을 바꿀 수 없는 계정입니다.'
+export const TOUR_ROLE_FIXED_NOTICE = '역할을 바꿀 수 없는 계정입니다.'
 
 /**
  * 프로필 이미지 (`#2080` · `API_SPEC §1.2.5a`).

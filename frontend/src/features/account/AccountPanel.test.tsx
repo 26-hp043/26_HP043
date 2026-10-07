@@ -4,7 +4,7 @@ import '../../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { AccountPanel } from './AccountPanel'
+import { AccountPanel, TOUR_ROLE_FIXED_NOTICE } from './AccountPanel'
 import { RegulationParametersSection } from '../parameters/RegulationParametersSection'
 import { visibleSections } from '../../pages/settingsSections'
 import { ROLE_LABEL, WITHDRAWAL_NOTICE } from '../auth/authRules'
@@ -273,7 +273,7 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
     // 까닭이 글자로 있고(낭독기가 읽는다), 역할 자리는 「관리자」가 아닌 값이다
     expect(row.textContent).toContain('tour@bluelog.local')
     expect(row.textContent).not.toContain(ROLE_LABEL.ADMIN)
-    expect(row.textContent!.length).toBeGreaterThan('tour@bluelog.local'.length)
+    expect(row.textContent).toContain(TOUR_ROLE_FIXED_NOTICE)
     expect(update).not.toHaveBeenCalled()
   })
 

@@ -1101,12 +1101,7 @@ async def update_user_role(
     if before == payload.role:
         return JSONResponse(content={"data": _user_payload(target), "meta": _meta(request)})
 
-    # 위 탈퇴와 같은 이유로 둘러보기 스텁은 대상이 아니다 (#1495).
-    if (
-        before == ROLE_ADMIN
-        and target.id != _TOUR_USER_ID
-        and await _lock_admin_users(session) <= 1
-    ):
+    if before == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
         return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     target.role = payload.role
