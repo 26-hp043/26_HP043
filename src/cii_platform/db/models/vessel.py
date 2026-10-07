@@ -78,7 +78,10 @@ class Vessel(Base):
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_vessel"),
-        # [S-1] / §7.1: default_fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
+        # [S-1] / §7.1: default_fuel_type → fuel_type(code). CUBRID에서는 FK가 아니라 트리거다 —
+        # 자식 쪽 trg_vessel_fuel_type_ref_ins/upd, 부모 쪽 개명은
+        # trg_fuel_type_code_no_rename(068)이 거부하고(ON UPDATE CASCADE 없음), 부모 쪽 삭제는
+        # 막지 않는다(DB_SCHEMA §7.4).
         # §2.1 검증 제약 (원문 그대로).
         #
         # `chk_imo_format`은 여기 없다 — PostgreSQL 전용 `~` 정규식이라 CUBRID가 받지

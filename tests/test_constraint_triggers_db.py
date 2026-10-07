@@ -11,9 +11,10 @@
    저장되면 그 실행은 **영영 재현 대조를 할 수 없다**(immutable이라 고칠 수도 없다).
 2. **불변성** — ``calculation_run``·``simulation_snapshot``의 UPDATE·DELETE 차단.
    단 ``calculation_run``은 ``needs_recalc`` 0 → 1 플립만 통과한다(`024` 계약).
-3. **연료 코드 참조** — 없는 코드가 들어가지 않고, 참조 중인 코드는 지워지지 않는다.
-   CUBRID의 FK는 **PK만** 가리킬 수 있어 ``fuel_type.code``(별도 UNIQUE)에는 걸 수
-   없다 — 그래서 FK가 아니라 트리거다.
+3. **연료 코드 참조** — 없는 코드가 들어가지 않고, 부모 쪽 코드는 개명되지 않는다
+   (``068`` · #2260 — 참조 행이 없어도 막는다). 참조 중인 코드의 **삭제**는 일부러 막지
+   않는다(아래). CUBRID의 FK는 **PK만** 가리킬 수 있어 ``fuel_type.code``(별도 UNIQUE)에는
+   걸 수 없다 — 그래서 FK가 아니라 트리거다.
 4. **열 목록이 스키마를 따라간다** — ``calculation_run``에 열이 늘면 불변성 조건에도
    더해야 한다. 빠뜨리면 **그 열만 조용히 수정 가능해진다.**
 
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
@@ -60,6 +61,11 @@ FUEL_TYPE_REFS = _MIGRATION.FUEL_TYPE_REFS
 HASH_TRIGGERS = _MIGRATION.HASH_TRIGGERS
 IMMUTABLE_DELETE_TRIGGERS = _MIGRATION.IMMUTABLE_DELETE_TRIGGERS
 
+#: `068`(#2260) — 부모 쪽 연료 코드 개명 거부. `a7d3e9b14f26`과 같은 계약(연료 코드 참조)이라
+#: 이 파일이 함께 본다.
+_RENAME_MIGRATION = _load_migration("068_*.py")
+FUEL_TYPE_RENAME_TRIGGER = _RENAME_MIGRATION.TRIGGER_NAME
+
 VALID_HASH = "sha256:" + "0" * 64
 
 #: 마이그레이션이 만드는 트리거 전체.
@@ -68,6 +74,7 @@ EXPECTED_TRIGGERS = (
     | {name for name, _t in IMMUTABLE_DELETE_TRIGGERS}
     | {f"{name}_{event}" for name, _t, _c in FUEL_TYPE_REFS for event in ("ins", "upd")}
     | {"trg_calcrun_immutable_update", "trg_snapshot_immutable_update"}
+    | {FUEL_TYPE_RENAME_TRIGGER}
 )
 
 
@@ -339,6 +346,73 @@ async def test_parent_side_delete_is_deliberately_not_guarded(conn: AsyncConnect
         text("SELECT count(*) FROM fuel_type WHERE code = :code"), {"code": str(code)}
     )
     assert remaining == 0, "부모 쪽이 막혔다 — 막게 되었다면 §7.4와 seed 재적재를 함께 볼 것"
+
+
+async def _referenced_fuel_code(conn: AsyncConnection) -> str:
+    """데모 시드가 넣은 연료 실적이 가리키는 코드 — 참조 행이 있는 코드다."""
+    code = await conn.scalar(text("SELECT fuel_type FROM voyage_fuel_use"))
+    assert code is not None, "voyage_fuel_use가 비었다 — 데모 시드가 연료 실적을 넣지 못했다"
+    return str(code)
+
+
+@pytest.mark.asyncio
+async def test_renaming_a_referenced_fuel_code_is_rejected(conn: AsyncConnection):
+    """참조 행이 있는 연료 코드의 개명은 막힌다 (`068` · #2260).
+
+    `067`까지는 막히지도 전파되지도 않아 자식 36행이 없는 코드를 가리켰다(실측). FK의
+    ``ON UPDATE CASCADE``는 CUBRID가 받지 않고(`a7d3e9b14f26`) 자식 쪽 트리거는 **넣는 쪽만**
+    보므로, 부모 쪽 ``BEFORE UPDATE``가 ``code``의 변경 자체를 거부한다.
+    """
+    code = await _referenced_fuel_code(conn)
+    # `cubrid_errors`가 -517 REJECT를 `IntegrityError`로 옮긴다 — 이름에 불변성 표식이 없다.
+    with pytest.raises(IntegrityError) as excinfo:
+        await conn.execute(
+            text("UPDATE fuel_type SET code = :renamed WHERE code = :code"),
+            {"renamed": f"{code}_RENAMED", "code": code},
+        )
+    assert FUEL_TYPE_RENAME_TRIGGER in str(excinfo.value), "다른 트리거가 거부했다"
+
+
+@pytest.mark.asyncio
+async def test_updating_other_fuel_type_columns_passes(conn: AsyncConnection):
+    """``code``가 그대로인 UPDATE는 통과한다 — `parameter_import._apply_fuel_types`의 경로다.
+
+    개명만 막아야지 CF 개정(제자리 갱신 · `DB_SCHEMA §7.2`)까지 막으면 규제값 적재가 죽는다.
+    """
+    code = await _referenced_fuel_code(conn)
+    before = await conn.scalar(text("SELECT cf FROM fuel_type WHERE code = :code"), {"code": code})
+    assert before is not None
+    await conn.execute(
+        text("UPDATE fuel_type SET cf = cf + 0.000001 WHERE code = :code"), {"code": code}
+    )
+    after = await conn.scalar(text("SELECT cf FROM fuel_type WHERE code = :code"), {"code": code})
+    assert after != before, "cf 갱신이 반영되지 않았다 — 트리거가 개명 아닌 UPDATE까지 막고 있다"
+
+
+@pytest.mark.asyncio
+async def test_renaming_an_unreferenced_fuel_code_is_also_rejected(conn: AsyncConnection):
+    """참조 행이 **없는** 코드의 개명도 막힌다 — 조건 없이 막기로 한 결정을 고정한다 (#2260).
+
+    ``code``는 앱 전체가 연료를 부르는 이름이라(적재·seed·CF 조회 · 계산 이력의
+    ``parameters_used``) 자식 세 표에 참조가 없어도 바꾸면 이력과 어긋난다. 연료를 바꾸는
+    운용은 새 코드 + 옛 코드 ``is_active = 0``이다. 조건부로 바꾸게 되면 이 검사를 함께 바꾼다.
+    """
+    fresh = f"T{uuid.uuid4().hex[:8].upper()}"
+    # `id`는 하이픈 없는 32자 hex다(`UuidText` · `_insert_run`과 같다) — 하이픈이 있는 36자는
+    # CHAR(32)에 coerce되지 않아 errno=-494로 선다(실측).
+    await conn.execute(
+        text(
+            "INSERT INTO fuel_type (id, code, display_name, cf, source_ref, version) "
+            "VALUES (:id, :code, 'rename probe', 3.114, 'test', 'test')"
+        ),
+        {"id": uuid.uuid4().hex, "code": fresh},
+    )
+    with pytest.raises(IntegrityError) as excinfo:
+        await conn.execute(
+            text("UPDATE fuel_type SET code = :renamed WHERE code = :code"),
+            {"renamed": f"{fresh}_X", "code": fresh},
+        )
+    assert FUEL_TYPE_RENAME_TRIGGER in str(excinfo.value), "다른 트리거가 거부했다"
 
 
 # ---------------------------------------------------------------------------

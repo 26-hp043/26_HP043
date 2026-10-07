@@ -31,6 +31,9 @@ from sqlalchemy.orm import DeclarativeBase
 #:
 #: ⚠️ 그래서 **전환 전의 ``onupdate="CASCADE"``는 되살릴 수 없다.** 연료 코드를 개명하면
 #: 전파되는 대신 막힌다(``a7d3e9b14f26``의 판단 그대로 — 여는 쪽이 아니라 닫는 쪽이다).
+#: 막는 장치는 FK가 아니라 **부모 쪽 트리거** ``trg_fuel_type_code_no_rename``(마이그레이션
+#: ``068`` · #2260)이다 — 연료 코드 참조는 FK로 걸 수 없어(``code``가 PK가 아니다) FK의
+#: ``RESTRICT``가 없고, ``067``까지는 개명이 막히지도 전파되지도 않았다.
 FK_ON_UPDATE = "RESTRICT"
 
 
