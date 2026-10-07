@@ -105,7 +105,7 @@ function vessel(id: string, name: string) {
     vessel_id: id,
     name,
     ship_type: 'BULK_CARRIER',
-    imo_number: '9100001',
+    imo_number: '9100011',
     underway_state: 'UNDER_WAY',
     detail_status: 'SAILING',
     /* 좌표는 실제로 nullable이다 — 좌표가 **있는** 배를 만드는 검사(#1831)가 덮어쓴다. */

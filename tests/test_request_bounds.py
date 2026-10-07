@@ -35,7 +35,7 @@ from cii_platform.api.schemas.voyage import (
     VoyageFuelUseCreateRequest,
     VoyageUpdateRequest,
 )
-from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
+from cii_platform.api.schemas.voyage_cii import FuelUseRequest, VoyageCiiRequest
 from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.models.voyage import Voyage
@@ -69,6 +69,9 @@ _PAIRS = [
     (ScenarioCompareRequest, "direct_distance_nm", VoyageScenario, "distance_nm", True),
     (ScenarioCompareRequest, "detour_distance_nm", VoyageScenario, "distance_nm", True),
     (NotUnderwayFuelUseCreateRequest, "fuel_ton", NotUnderwayFuelUse, "fuel_ton", True),
+    # CII 예측(기능①)은 저장하지 않지만 **항차 저장과 같은 범위**를 쓴다 (`#2134` · 결정 D-15)
+    (VoyageCiiRequest, "distance_nm", Voyage, "planned_distance_nm", True),
+    (FuelUseRequest, "fuel_ton", VoyageFuelUse, "planned_fuel_ton", True),
     # 정박 이동 거리는 0이 정상값(접안·묘박)이라 하한이 0이다
     (NotUnderwayPeriodCreateRequest, "distance_nm", NotUnderwayPeriod, "distance_nm", False),
     (NotUnderwayPeriodUpdateRequest, "distance_nm", NotUnderwayPeriod, "distance_nm", False),

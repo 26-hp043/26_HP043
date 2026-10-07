@@ -99,7 +99,7 @@ describe('샘플 → 등록 요청 (#997)', () => {
   it.each([BULK, RO_RO])('$label의 기준 연료·기준속도가 등록 요청까지 간다', (sample) => {
     const request = toRequest({
       ...applySample(initialFormState(), sample),
-      imoNumber: '9000001',
+      imoNumber: '9000015',
       name: '새 배',
     })
     expect(request.reference_daily_foc_ton).toBe(sample.reference_daily_foc_ton)

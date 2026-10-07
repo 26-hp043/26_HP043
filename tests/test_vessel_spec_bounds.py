@@ -77,7 +77,7 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(model, name):
     ],
 )
 def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
-    base = {"imo_number": "9123456", "name": "BOUNDS", "ship_type": "BULK_CARRIER"}
+    base = {"imo_number": "9123453", "name": "BOUNDS", "ship_type": "BULK_CARRIER"}
     with pytest.raises(ValidationError):
         VesselCreateRequest(**base, **{name: value})
 
@@ -100,5 +100,5 @@ def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
 def test_저장할_수_있는_값은_그대로_받는다(name, value):
     """⚠️ **소수 셋째 자리를 막지 않는다** — ``decimal_places``로 거부하면 멀쩡한 입력까지
     422가 된다. 종전처럼 받아서 DB가 반올림하게 둔다."""
-    base = {"imo_number": "9123456", "name": "BOUNDS", "ship_type": "BULK_CARRIER"}
+    base = {"imo_number": "9123453", "name": "BOUNDS", "ship_type": "BULK_CARRIER"}
     assert getattr(VesselCreateRequest(**base, **{name: value}), name) == Decimal(value)

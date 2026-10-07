@@ -33,7 +33,7 @@ import type { ReportsProvider, VesselOption, VoyageOption } from './types'
 
 const VESSELS: VesselOption[] = [
   { id: 'v-a', name: 'STAR SKIPPER', imoNumber: '9876543' },
-  { id: 'v-b', name: 'PAN HORIZON', imoNumber: '9876544' },
+  { id: 'v-b', name: 'PAN HORIZON', imoNumber: '9876555' },
 ]
 
 function voyage(id: string, no: string): VoyageOption {

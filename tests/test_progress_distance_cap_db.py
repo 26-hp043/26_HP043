@@ -40,6 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.precision import LAYER1_ROUNDING, LAYER1_WORKING_PRECISION
+from cii_platform.imo_number import imo_check_digit
 from cii_platform.services.cii_current import (
     WARNING_IN_PROGRESS_PAST_ETA,
     WARNING_IN_PROGRESS_PLANNED_DISTANCE_REACHED,
@@ -356,8 +357,12 @@ async def test_the_report_prints_the_capped_distance(session, vessel) -> None:
 
 
 def _imo() -> str:
-    """이 검사 전용 IMO — 시드(``0``·``9`` 시작)와 겹치지 않게 ``7``로 시작한다."""
-    return f"7{uuid4().int % 1_000_000:06d}"
+    """이 검사 전용 IMO — 시드(``0``·``9`` 시작)와 겹치지 않게 ``7``로 시작한다.
+
+    검사숫자를 맞춘다(`#2134`) — 등록 요청이 검사한다. 그래서 앞 여섯 자리만 무작위다.
+    """
+    head = f"7{uuid4().int % 100_000:05d}"
+    return head + str(imo_check_digit(head))
 
 
 async def _drop(vessel_id: str) -> None:

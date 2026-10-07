@@ -20,7 +20,7 @@ import type { FleetVessel } from './types'
 const vessel = {
   id: 'v1',
   name: '부산호',
-  imoNumber: '9000001',
+  imoNumber: '9000015',
   ytdRating: 'C',
   ytdAttainedCii: '12.3456',
   underwayState: 'UNDER_WAY',

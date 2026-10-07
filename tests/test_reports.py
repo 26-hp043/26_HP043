@@ -57,7 +57,7 @@ def _document(**over) -> ReportDocument:
     fields = {
         "title": "연간 실적 리포트 — STAR SKIPPER (2026)",
         "slug": "annual-report-x",
-        "meta": [("선박", "STAR SKIPPER"), ("IMO", "9123456")],
+        "meta": [("선박", "STAR SKIPPER"), ("IMO", "9123453")],
         "sections": [
             KeyValueSection(
                 title="2026년 누적 (YTD)",

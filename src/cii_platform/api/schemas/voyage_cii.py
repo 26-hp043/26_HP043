@@ -5,7 +5,8 @@ Layer 1 값이 문자열이고 일부 필드가 ``null``을 가질 수 있어(``
 응답 모델을 만들면 그 문자열을 다시 검증·재직렬화하게 되고, **그 과정에서 자릿수가
 바뀔 여지**가 생긴다. §1.7이 문자열로 내리는 이유가 정밀도 보존이므로 손대지 않는다.
 
-검증 규칙은 API_SPEC §11(VAL-002 · VAL-006 · VAL-009)에서 온다. 여기서는 **형식과
+검증 규칙은 API_SPEC §11(VAL-002 · VAL-006 · VAL-009)에서 온다. 거리·연료의 범위는 항차
+저장과 같은 ``bounds.py``의 값이다(`#2134`). 여기서는 **형식과
 범위**만 보고, DB를 봐야 아는 것(VAL-005 연도 존재 · VAL-006 active 여부)은 서비스가
 확인한다.
 """
@@ -18,7 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import SPEED
+from cii_platform.api.schemas.bounds import DISTANCE, SPEED, VOYAGE_FUEL
 
 #: API_SPEC §4.1 ``weather_model`` enum. 8/8 UI는 이 값을 보내지 않으며 기본값 NONE이다.
 WeatherModel = Literal["NONE", "SIMPLE_RULE", "TOWNSIN_KWON_ALPHA"]
@@ -30,8 +31,12 @@ class FuelUseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
-    # VAL-002: > 0. gt=0을 쓰면 0이 거부된다(ge=0이 아니다).
-    fuel_ton: Annotated[Decimal, Field(gt=0)]
+    # VAL-002 — 항차 저장의 연료(``voyage_fuel_use`` ``NUMERIC(12,4)``)와 같은 범위다
+    # (`#2134` · 결정 D-15): 0.0001 ~ 99,999,999.9999. 종전에는 ``gt=0``뿐이라 저장할 수 없는
+    # 값(1억 t · 1e-9 t)도 계산을 통과해 지울 수 없는 계산 이력에 남았고, 같은 값을 계획
+    # 저장으로 넘기면 그때서야 걸렸다. **막는 것은 저장 범위 밖뿐이다** — 99,999,999t 같은
+    # 범위 안 극단값은 비율 경고를 두지 않는 결정이라 여전히 계산된다.
+    fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
 
 
 class VoyageCiiRequest(BaseModel):
@@ -48,8 +53,9 @@ class VoyageCiiRequest(BaseModel):
     # 연도 존재 확인(VAL-005)은 DB를 봐야 하므로 서비스가 한다. 여기서는 상식적
     # 범위만 막는다 — 음수·4자리 아닌 값이 DB 조회까지 가지 않게 한다.
     regulation_year: Annotated[int, Field(ge=2000, le=2100)]
-    # VAL-002: > 0
-    distance_nm: Annotated[Decimal, Field(gt=0)]
+    # VAL-002 — 항차 저장의 거리(``NUMERIC(12,2)``)와 같은 범위다(`#2134` · 결정 D-15):
+    # 0.01 ~ 9,999,999,999.99. 이유는 ``fuel_ton``과 같다.
+    distance_nm: Annotated[Decimal, Field(**DISTANCE)]
     # VAL-009: 1.0 이상 60 이하. **> 0이 아니다** — PRD §9.1이 1.0 하한을 규정한다.
     # 상한은 항차·시나리오와 같은 공용 경계다(`#1269`) — 종전에는 이 칸만 상한이 없었다.
     speed_kn: Annotated[Decimal, Field(**SPEED)]

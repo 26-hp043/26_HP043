@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   FIELD,
+  IMO_CHECK_DIGIT_MESSAGE,
   NAME_MAX_LENGTH,
+  imoCheckDigitOk,
   initialFormState,
   specGapNotice,
   toFormErrors,
@@ -46,7 +48,7 @@ const validateForm = (state: VesselFormState) => validateFormWith(state, FUELS)
 function state(overrides: Partial<VesselFormState> = {}): VesselFormState {
   return {
     ...initialFormState(),
-    imoNumber: '9440001',
+    imoNumber: '9440019',
     name: 'PACIFIC STAR',
     shipType: 'BULK_CARRIER',
     ...overrides,
@@ -77,11 +79,39 @@ describe('validateForm — 필수 3항목', () => {
     expect(validateForm(state({ imoNumber: '944000' }))).toHaveProperty(FIELD.imoNumber)
     expect(validateForm(state({ imoNumber: '94400012' }))).toHaveProperty(FIELD.imoNumber)
     expect(validateForm(state({ imoNumber: '944000A' }))).toHaveProperty(FIELD.imoNumber)
-    expect(validateForm(state({ imoNumber: '9440001' }))).not.toHaveProperty(FIELD.imoNumber)
+    expect(validateForm(state({ imoNumber: '9440019' }))).not.toHaveProperty(FIELD.imoNumber)
+  })
+
+  /*
+   * 검사숫자 (VAL-003 · #2134). 서버 `tests/test_imo_number.py`와 **같은 표본**이다 —
+   * 두 쪽 식이 갈리면 어느 한쪽이 실패한다. 오타 표본은 실선 번호의 마지막 자리 오타 ·
+   * 이웃한 두 자리 뒤바뀜 · 검사숫자와 그 앞자리 뒤바뀜이다.
+   */
+  it.each(['9074729', '9448839', '9633862', '0000012', '1234567'])(
+    '검사숫자가 맞는 번호는 통과한다: %s',
+    (imo) => {
+      expect(imoCheckDigitOk(imo)).toBe(true)
+      expect(validateForm(state({ imoNumber: imo }))).not.toHaveProperty(FIELD.imoNumber)
+    },
+  )
+
+  it.each(['9074728', '9704729', '9074792', '1234568', '9448893'])(
+    '검사숫자가 맞지 않으면 서버와 같은 문구로 잡는다: %s',
+    (imo) => {
+      expect(imoCheckDigitOk(imo)).toBe(false)
+      expect(validateForm(state({ imoNumber: imo }))[FIELD.imoNumber]).toBe(IMO_CHECK_DIGIT_MESSAGE)
+    },
+  )
+
+  it('형식이 틀린 번호는 검사숫자 문구가 아니라 형식 문구를 받는다', () => {
+    expect(imoCheckDigitOk('944001')).toBe(false)
+    expect(validateForm(state({ imoNumber: '944001' }))[FIELD.imoNumber]).not.toBe(
+      IMO_CHECK_DIGIT_MESSAGE,
+    )
   })
 
   it('선행 0이 있는 IMO도 통과한다 — 문자열로 다루는 이유다', () => {
-    expect(validateForm(state({ imoNumber: '0123456' }))).not.toHaveProperty(FIELD.imoNumber)
+    expect(validateForm(state({ imoNumber: '0123462' }))).not.toHaveProperty(FIELD.imoNumber)
   })
 
   it('선명은 1~100자다 (VAL-001)', () => {
@@ -220,7 +250,7 @@ describe('toRequest', () => {
   it('빈 선택 입력은 키를 넣지 않는다', () => {
     const request = toRequest(state())
     expect(request).toEqual({
-      imo_number: '9440001',
+      imo_number: '9440019',
       name: 'PACIFIC STAR',
       ship_type: 'BULK_CARRIER',
     })
@@ -246,8 +276,8 @@ describe('toRequest', () => {
   })
 
   it('앞뒤 공백을 잘라 보낸다', () => {
-    const request = toRequest(state({ imoNumber: ' 9440001 ', name: '  PACIFIC STAR  ' }))
-    expect(request.imo_number).toBe('9440001')
+    const request = toRequest(state({ imoNumber: ' 9440019 ', name: '  PACIFIC STAR  ' }))
+    expect(request.imo_number).toBe('9440019')
     expect(request.name).toBe('PACIFIC STAR')
   })
 
@@ -275,9 +305,9 @@ describe('toFormErrors', () => {
 
   it('중복 IMO(409)는 IMO 입력창에 붙인다 — 서버는 field를 주지 않는다', () => {
     // 폼 상단 배너로 두면 「어디를 고쳐야 하는지」가 사라진다.
-    const error = new VesselRegistrationError('CONFLICT', '이미 등록된 IMO 번호입니다: 9440001')
+    const error = new VesselRegistrationError('CONFLICT', '이미 등록된 IMO 번호입니다: 9440019')
     expect(toFormErrors(error)).toEqual({
-      [FIELD.imoNumber]: '이미 등록된 IMO 번호입니다: 9440001',
+      [FIELD.imoNumber]: '이미 등록된 IMO 번호입니다: 9440019',
     })
   })
 

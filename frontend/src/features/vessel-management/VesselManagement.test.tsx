@@ -80,7 +80,7 @@ describe('역할 — 현장직은 제원 수정·삭제를 보지 않는다 (#67
           data: [
             {
               id: '00000000-0000-4000-8000-000000000001',
-              imo_number: '9000001',
+              imo_number: '9000015',
               name: '샘플 벌크선',
               ship_type: 'BULK_CARRIER',
               deadweight: 50000,
@@ -597,7 +597,7 @@ describe('제원 경고 — 데이터 칸 한 자리에 (#1277 · #2316)', () =>
           data: [
             {
               id: '00000000-0000-4000-8000-000000000009',
-              imo_number: '9000009',
+              imo_number: '9000091',
               name: '제원 없는 배',
               ship_type: 'BULK_CARRIER',
               deadweight: null,
@@ -937,7 +937,7 @@ describe('올해 누적 등급 열 (#2018)', () => {
       vessel_id: id,
       name,
       ship_type: 'BULK_CARRIER',
-      imo_number: '9000001',
+      imo_number: '9000015',
       underway_state: null,
       detail_status: null,
       current_lat: null,
