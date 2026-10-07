@@ -1104,3 +1104,158 @@ async def test_ytd_cii_at_a_transport_boundary_survives_the_in_progress_sum(monk
 
     (fuel_ton,) = aggregated.underway_fuel.values()
     assert _sent(aggregated.underway_distance_nm, fuel_ton) == _truncated_6(exact) == "8.109375"
+
+
+# ── `compute_ytd_cii`의 합 셋도 작업 정밀도에서 돈다 (`#2254`) ─────────────────────
+#
+# `_aggregate`가 모은 값을 응답 필드로 모으는 합 셋 — `fuel_ton_breakdown`(유종별 투입 톤) ·
+# `total_fuel_ton` · `total_distance_nm` — 은 코루틴 본문에서 `sum()`·`+`로 돌아 호출
+# 스레드의 기본 정밀도(28자리)였다(탐침 실측). 진행분(50자리)이 섞이면 응답의 2자리
+# 필드로 가는 합의 꼬리가 거기서 깎인다.
+
+#: 소수 39자리 꼬리 — 저장값(유효숫자 12자리)에 더하면 합이 44자리라 28자리에서 깎인다.
+_YTD_TAIL = Decimal("0.123456789012345678901234567890123456789")
+
+
+def _stub_ytd_output_reads(monkeypatch, aggregated):
+    """`compute_ytd_cii`의 조회를 고정값으로 바꾼다 — 합 셋만 실제 코드가 한다.
+
+    거리 또는 연료가 0이면 Layer 1 앞에서 돌아 나가고, 그 응답에도 합 셋이 실린다. 그 갈래를
+    지나면 규제 파라미터 조회 없이 **합 셋이 응답으로 나가는 경로**를 그대로 볼 수 있다.
+    """
+    from cii_platform.services import applicability, ytd_cii
+
+    async def _aggregate(_session, **_kwargs):
+        return aggregated
+
+    async def _load_vessel(_session, _vessel_id):
+        return SimpleNamespace(ship_type="BULK_CARRIER", dwt=Decimal(50000), gross_tonnage=None)
+
+    async def _cached(_session, _key, _load):
+        return []
+
+    monkeypatch.setattr(ytd_cii, "_aggregate", _aggregate)
+    monkeypatch.setattr(ytd_cii, "_load_vessel", _load_vessel)
+    monkeypatch.setattr(ytd_cii, "_resolve_transport_capacity", lambda _vessel: Decimal(50000))
+    monkeypatch.setattr(ytd_cii, "cached", _cached)
+    monkeypatch.setattr(applicability, "applicability_warnings", lambda _vessel: [])
+
+
+def _ytd_aggregated(**overrides):
+    from cii_platform.services import ytd_cii
+
+    values = {
+        "underway_fuel": {},
+        "not_underway_fuel": [],
+        "underway_distance_nm": Decimal(0),
+        "not_underway_distance_nm": Decimal(0),
+        "voyage_count": 0,
+        "warnings": [],
+        "substitutions": [],
+        "unfilled": [],
+    }
+    values.update(overrides)
+    return ytd_cii._Aggregated(**values)
+
+
+async def test_ytd_fuel_totals_are_summed_inside_the_layer1_context(monkeypatch):
+    """⚠️ #2254 — 응답의 유종별 투입 톤과 총 연료가 참값과 같다.
+
+    같은 유종이 CF snapshot 둘로 갈라진 묶음(완료 항차 `NUMERIC(12,4)` + 진행분 50자리)을
+    유종 하나로 합치는 덧셈과, 그 유종별 값을 다시 총량으로 모으는 덧셈을 지난다. 거리는
+    0으로 두어 Layer 1 앞에서 돌아 나가게 한다 — 그 응답에도 두 합이 그대로 실린다.
+    """
+    from cii_platform.services import ytd_cii
+
+    base = Decimal("987.6543")
+    exact_hfo = Fraction(base) + Fraction(_YTD_TAIL)
+    exact_total = exact_hfo + Fraction(_YTD_TAIL)
+    assert _significant_digits(exact_total) <= LAYER1_WORKING_PRECISION
+    _stub_ytd_output_reads(
+        monkeypatch,
+        _ytd_aggregated(
+            underway_fuel={
+                ("HFO", Decimal("3.114")): base,
+                ("HFO", Decimal("3.115")): _YTD_TAIL,
+                ("MGO", Decimal("3.206")): _YTD_TAIL,
+            }
+        ),
+    )
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        assert Fraction(base + _YTD_TAIL) != exact_hfo, "28자리로도 같으면 잠그지 않는다"
+        out = await ytd_cii.compute_ytd_cii(None, vessel_id="vessel", regulation_year=2026)
+
+    assert out.data_available is False
+    assert {code: Fraction(ton) for code, ton in out.fuel_ton_breakdown.items()} == {
+        "HFO": exact_hfo,
+        "MGO": Fraction(_YTD_TAIL),
+    }
+    assert Fraction(out.total_fuel_ton) == exact_total
+
+
+async def test_ytd_total_distance_is_summed_inside_the_layer1_context(monkeypatch):
+    """⚠️ #2254 — 응답의 총 거리(항해 중 + not under way)가 참값과 같다.
+
+    항해 중 거리에 진행분 꼬리가 섞인 50자리 값을, 저장된 not under way 거리(`NUMERIC(12,2)`)와
+    더하는 자리다. 연료를 비워 Layer 1 앞에서 돌아 나가게 한다 — 그 갈래가 이 합을 응답에
+    싣는 유일한 경로다(Layer 1을 지나면 엔진이 낸 거리가 실린다).
+    """
+    from cii_platform.services import ytd_cii
+
+    # 문자열로 만든다 — 덧셈으로 만들면 이 자리의 문맥(28자리)이 꼬리를 먼저 깎는다.
+    underway = Decimal("12345.793456789012345678901234567890123456789")
+    not_underway = Decimal("89.01")
+    assert Fraction(underway) == Fraction("12345.67") + Fraction(_YTD_TAIL)
+    exact = Fraction(underway) + Fraction(not_underway)
+    assert _significant_digits(exact) <= LAYER1_WORKING_PRECISION
+    _stub_ytd_output_reads(
+        monkeypatch,
+        _ytd_aggregated(underway_distance_nm=underway, not_underway_distance_nm=not_underway),
+    )
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        assert Fraction(underway + not_underway) != exact, "28자리로도 같으면 잠그지 않는다"
+        out = await ytd_cii.compute_ytd_cii(None, vessel_id="vessel", regulation_year=2026)
+
+    assert out.data_available is False
+    assert Fraction(out.total_distance_nm) == exact
+
+
+async def test_ytd_total_fuel_at_a_transport_boundary_is_sent_as_the_exact_value(monkeypatch):
+    """⚠️ #2254 — 실제 범위의 입력에서 응답의 ``total_fuel_ton`` 전송값이 참값의 절사다.
+
+    8 kn · 일일 25 t · 출항 3,456초 뒤 → 진행분 연료 참값 ``25 × 3456 / 86400 = 1`` t를
+    유종 셋이 1:1:1로 나눈 50자리 몫(``_split_fuel``이 내는 ``0.333…3`` · ``0.333…4``)에
+    정박 연료 MGO 3,652.04 t를 더하면 참값은 3653.04다. 28자리 덧셈은 같은 유종의 저장값에
+    비종결 몫을 얹을 때 잃는 꼬리가 유종 셋에서 같은 방향으로 쌓여
+    ``3653.039999999999999999999999``(28자리)가 되고, 30자리 공표 확정이 그 값을 그대로 두어
+    전송값이 ``3653.03``으로 나갔다. 직렬화는 응답이 지나는 ``cii_current._publish``를 그대로
+    부른다.
+    """
+    from cii_platform.services import cii_current, ytd_cii
+
+    third = Decimal("0.33333333333333333333333333333333333333333333333333")
+    last = Decimal("0.33333333333333333333333333333333333333333333333334")
+    exact = 2 * Fraction(third) + Fraction(last) + Fraction("3652.04")
+    assert exact == Fraction("3653.04"), "참값이 전송 자릿수 경계에 놓인 입력이어야 한다"
+    aggregated = _ytd_aggregated(
+        underway_fuel={
+            ("HFO", Decimal("3.114")): third,
+            ("MGO", Decimal("3.206")): third,
+            ("LNG", Decimal("2.750")): last,
+        },
+        not_underway_fuel=[
+            SimpleNamespace(fuel_type="MGO", fuel_ton=Decimal("3652.04"), cf_used=Decimal("3.206"))
+        ],
+    )
+    _stub_ytd_output_reads(monkeypatch, aggregated)
+
+    with localcontext(prec=_DEFAULT_PRECISION, rounding=ROUND_HALF_UP):
+        narrowed = sum((third, third + Decimal("3652.04"), last), Decimal(0))
+        assert cii_current._publish(narrowed, "fuel_ton") == "3653.03", (
+            "28자리 덧셈도 참값을 내면 이 입력은 아무것도 잠그지 않는다"
+        )
+        out = await ytd_cii.compute_ytd_cii(None, vessel_id="vessel", regulation_year=2026)
+
+    assert cii_current._publish(out.total_fuel_ton, "fuel_ton") == "3653.04"
