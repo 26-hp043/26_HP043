@@ -336,10 +336,15 @@ async def test_reference_line_computes_a_decimal_from_a_raw(client, conn):
     """``a_decimal``은 서버가 ``parse_imo_scientific``으로 계산한다 (TECH_SPEC §9.2~9.3)."""
     data = _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,DWT >= 65000,DWT,14405E7,0.4550,TEST"),
+        _csv(
+            _REF_HEADER,
+            "GAS_CARRIER,DWT >= 65000,DWT,14405E7,0.4550,TEST",
+            # 선종 단위 대체(#2172) — 파일에 든 선종은 모든 구간을 담는다.
+            "GAS_CARRIER,DWT < 65000,DWT,8104,0.639,TEST",
+        ),
         "reference_lines",
     )
-    assert data["imported_count"] == 1
+    assert data["imported_count"] == 2
     row = (
         await conn.execute(
             text(
@@ -355,17 +360,19 @@ async def test_reference_line_computes_a_decimal_from_a_raw(client, conn):
 
 
 async def test_reference_line_revision_keeps_history_and_active_is_unique(client, conn):
+    upper = "GAS_CARRIER,DWT >= 65000,DWT,14405E7,2.071,TEST"
     _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4745E3,0.622,TEST"),
+        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4745E3,0.622,TEST", upper),
         "reference_lines",
     )
     data = _post(
         client,
-        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4800E3,0.622,TEST"),
+        _csv(_REF_HEADER, "GAS_CARRIER,DWT < 65000,DWT,4800E3,0.622,TEST", upper),
         "reference_lines",
     )
-    assert data["replaced_count"] == 1
+    # replaced_count = 끈 활성 행 수(#2172) — 그 선종의 활성 행 두 밴드가 전부 꺼졌다.
+    assert data["replaced_count"] == 2
     rows = (
         await conn.execute(
             text(
@@ -423,8 +430,12 @@ async def test_bad_capacity_rule_is_a_row_error(client):
     [
         # 완료 기준 — 부등호 한 글자. 엔진이 못 읽는 식이다.
         ("BULK_CARRIER,DWT ≥ 279000,fixed 279000,4745,0.622,TEST", "조건식을 읽을 수 없습니다"),
-        # 문법은 맞지만 옛 행('DWT >= 279000')이 활성으로 남아 구간이 겹친다.
-        ("BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST", "겹칩니다"),
+        # 문법은 맞지만 그 선종의 구간을 다 담지 않았다 — 선종 단위 대체(#2172)라
+        # 파일의 행만으로 판정하므로 300000 미만이 빈다.
+        (
+            "BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST",
+            "300000 미만을 덮는 행이 없습니다",
+        ),
     ],
 )
 async def test_unreadable_or_overlapping_condition_changes_nothing(client, conn, row, needle):
@@ -459,16 +470,28 @@ async def test_unreadable_or_overlapping_condition_changes_nothing(client, conn,
     assert [row.condition_expr for row in active] == ["DWT < 279000", "DWT >= 279000"]
 
 
-async def test_a_clean_revision_still_leaves_one_matching_row_per_capacity(client, conn):
+@pytest.mark.parametrize(
+    "rows",
+    [
+        # 같은 밴드 그대로 값만 바꾼 개정
+        (
+            "BULK_CARRIER,DWT >= 279000,fixed 279000,4800,0.622,TEST",
+            "BULK_CARRIER,DWT < 279000,DWT,4745,0.622,TEST",
+        ),
+        # 밴드 경계를 옮긴 개정(#2172) — 옛 밴드 두 행이 선종 단위로 꺼진다
+        (
+            "BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST",
+            "BULK_CARRIER,DWT < 300000,DWT,4745,0.622,TEST",
+        ),
+    ],
+)
+async def test_a_clean_revision_still_leaves_one_matching_row_per_capacity(client, conn, rows):
     """적재가 성공한 뒤에도 그 선종의 활성 구간은 빈틈·겹침이 없다 — 계산이 409가 되지 않는다."""
     from cii_platform.services.parameter_import import partition_problem
 
-    data = _post(
-        client,
-        _csv(_REF_HEADER, "BULK_CARRIER,DWT >= 279000,fixed 279000,4800,0.622,TEST"),
-        "reference_lines",
-    )
+    data = _post(client, _csv(_REF_HEADER, *rows), "reference_lines")
     assert data["errors"] == []
+    assert data["replaced_count"] == 2
     active = (
         await conn.execute(
             text(
@@ -477,7 +500,119 @@ async def test_a_clean_revision_still_leaves_one_matching_row_per_capacity(clien
             )
         )
     ).all()
+    assert len(active) == 2
     assert partition_problem([row.condition_expr for row in active]) is None
+
+
+# ── ⑶-c 선종 단위 대체 — 경계값 개정 (#2172) ──────────────────────────────────
+
+
+async def _active(conn, table: str, ship_type: str) -> list[tuple[str, str]]:
+    rows = (
+        await conn.execute(
+            text(
+                f"SELECT condition_expr, version FROM {table} "  # noqa: S608 - 검사 고정값
+                "WHERE ship_type = :st AND is_active = 1 ORDER BY condition_expr"
+            ),
+            {"st": ship_type},
+        )
+    ).all()
+    return [(row.condition_expr, row.version) for row in rows]
+
+
+async def test_splitting_all_into_two_bands_replaces_the_ship_type(client, conn):
+    """⑴ 'all' 한 행을 두 밴드로 — 넣은 행 2, 끈 행 1."""
+    data = _post(
+        client,
+        _csv(
+            _REF_HEADER,
+            "TANKER,DWT >= 100000,DWT,5247,0.610,TEST",
+            "TANKER,DWT < 100000,DWT,5247,0.610,TEST",
+        ),
+        "reference_lines",
+    )
+    assert (data["imported_count"], data["replaced_count"]) == (2, 1)
+    active = await _active(conn, "cii_reference_line", "TANKER")
+    assert [condition for condition, _ in active] == ["DWT < 100000", "DWT >= 100000"]
+    assert all(version.startswith("import.") for _, version in active)
+
+
+async def test_merging_two_bands_into_all_replaces_the_ship_type(client, conn):
+    """⑵ 두 밴드를 'all'로 — 넣은 행 1, 끈 행 2."""
+    data = _post(
+        client, _csv(_REF_HEADER, "BULK_CARRIER,all,DWT,4745,0.622,TEST"), "reference_lines"
+    )
+    assert (data["imported_count"], data["replaced_count"]) == (1, 2)
+    active = await _active(conn, "cii_reference_line", "BULK_CARRIER")
+    assert [condition for condition, _ in active] == ["all"]
+
+
+async def test_reuploading_the_old_bands_reverts_a_boundary_revision(client, conn):
+    """⑶ 되돌리기는 옛 밴드 파일을 같은 경로로 다시 올린다 — 별도 조작이 없다."""
+    moved = _post(
+        client,
+        _csv(
+            _REF_HEADER,
+            "BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST",
+            "BULK_CARRIER,DWT < 300000,DWT,4745,0.622,TEST",
+        ),
+        "reference_lines",
+    )
+    assert moved["errors"] == []
+    reverted = _post(
+        client,
+        _csv(
+            _REF_HEADER,
+            "BULK_CARRIER,DWT >= 279000,fixed 279000,4745,0.622,TEST",
+            "BULK_CARRIER,DWT < 279000,DWT,4745,0.622,TEST",
+        ),
+        "reference_lines",
+    )
+    assert reverted["errors"] == []
+    assert reverted["replaced_count"] == 2
+    active = await _active(conn, "cii_reference_line", "BULK_CARRIER")
+    assert [condition for condition, _ in active] == ["DWT < 279000", "DWT >= 279000"]
+    assert all(version.startswith("import.") for _, version in active)
+
+
+async def test_a_ship_type_absent_from_the_file_is_untouched(client, conn):
+    """⑷ 파일에 없는 선종은 그대로 — 시드 판본 행이 활성으로 남는다."""
+    before = await _active(conn, "cii_reference_line", "GAS_CARRIER")
+    data = _post(
+        client, _csv(_REF_HEADER, "BULK_CARRIER,all,DWT,4745,0.622,TEST"), "reference_lines"
+    )
+    assert data["errors"] == []
+    assert await _active(conn, "cii_reference_line", "GAS_CARRIER") == before
+    assert [version for _, version in before] == ["1.0", "1.0"]
+
+
+async def test_rating_boundary_bands_are_replaced_per_ship_type(client, conn):
+    """등급 경계도 같은 단위다 — GAS_CARRIER 두 밴드를 'all' 하나로."""
+    data = _post(
+        client,
+        _csv(
+            "ship_type,condition_expr,capacity_basis,d1,d2,d3,d4,source_ref",
+            "GAS_CARRIER,all,DWT,0.81,0.91,1.12,1.44,TEST",
+        ),
+        "rating_boundaries",
+    )
+    assert (data["imported_count"], data["replaced_count"]) == (1, 2)
+    active = await _active(conn, "cii_rating_boundary", "GAS_CARRIER")
+    assert [condition for condition, _ in active] == ["all"]
+    details = (
+        await conn.execute(
+            text(
+                "SELECT details_json FROM audit_log "
+                "WHERE \"action\" = 'PARAMETER_IMPORT' AND entity_type = 'rating_boundaries'"
+            )
+        )
+    ).scalar_one()
+    if isinstance(details, str):  # 생 SQL은 JSONText 없이 문자열로 온다 (#1058)
+        import json
+
+        details = json.loads(details)
+    assert details["ship_types"] == ["GAS_CARRIER"]
+    assert details["replaced_count"] == 2
 
 
 # ── ⑷ fuel_type — 제자리 갱신 + OTHER 생성 ──────────────────────────────────

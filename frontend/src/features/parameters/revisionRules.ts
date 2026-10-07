@@ -48,13 +48,14 @@ export const PARAMETER_KINDS: readonly ParameterKindSpec[] = [
     kind: 'reference_lines',
     label: '선종별 기준선',
     requiredColumns: ['ship_type', 'condition_expr', 'capacity_rule', 'a_raw', 'c', 'source_ref'],
-    note: 'a_decimal은 서버가 a_raw에서 계산합니다 — 올리지 않습니다.',
+    // 기준선·등급 경계는 선종 단위로 대체한다(API_SPEC §7.5 · #2172) — 파일에 든 선종의 활성 행이 전부 꺼진다.
+    note: 'a_decimal은 서버가 a_raw에서 계산합니다 — 올리지 않습니다. 파일에 든 선종은 그 선종의 모든 구간을 담아야 합니다.',
   },
   {
     kind: 'rating_boundaries',
     label: '등급 경계',
     requiredColumns: ['ship_type', 'condition_expr', 'capacity_basis', 'd1', 'd2', 'd3', 'd4', 'source_ref'],
-    note: 'd1 < d2 < d3 < d4 여야 합니다.',
+    note: 'd1 < d2 < d3 < d4 여야 합니다. 파일에 든 선종은 그 선종의 모든 구간을 담아야 합니다.',
   },
   {
     kind: 'fuel_types',
