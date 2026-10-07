@@ -174,6 +174,18 @@ const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 �
 const STATUS_UNAVAILABLE = '지금은 AI 어시스턴트를 사용할 수 없습니다. 관리자에게 문의해 주세요.'
 
 /**
+ * #2110 — 둘러보기 세션에서 입력 대신 보이는 안내. 둘러보기에서는 어시스턴트를 막는다
+ * (`UIFLOW 2-7` 진입 조건 · `docs/OPERATIONS.md §3.7`).
+ *
+ * 위 「쓸 수 없음」과 **다른 문구**다 — 그쪽은 운영 설정 탓이라 「관리자에게 문의」가 맞지만,
+ * 둘러보기는 설정이 아니라 세션의 성격 때문이고 사용자가 할 수 있는 일(계정 만들기)이 있다.
+ * 서버가 같은 뜻의 거절 문구를 따로 갖는다(`auth/tour_policy.py` `CHAT_BLOCKED_MESSAGE`) —
+ * 이 문구는 표시 문구라(`AGENTS §4.6`) 서버 문구에 묶지 않는다.
+ */
+const TOUR_UNAVAILABLE =
+  '둘러보기에서는 AI 어시스턴트를 쓸 수 없습니다. 계정을 만들면 선박 자료를 두고 질문할 수 있습니다.'
+
+/**
  * 빈 로그의 한 줄 (#1818).
  *
  * 종전에는 예시 질문과 입력칸 사이가 **아무 표시 없는 120px 공백**이었다. 무엇이
@@ -222,9 +234,20 @@ export interface AssistantOverlayProps {
    * 비워 패널이 본문을 덮지 않게 한다.
    */
   readonly onOpenChange?: (open: boolean) => void
+  /**
+   * 둘러보기 세션인가 (#2110). 판정은 서버의 `is_tour`(`API_SPEC §1.2.5a`) 하나다 — 셸이
+   * `CurrentUser.isTour`를 그대로 넘긴다. 참이면 입력을 닫고 전용 안내를 낸다.
+   */
+  readonly tour?: boolean
 }
 
-export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange }: AssistantOverlayProps) {
+export function AssistantOverlay({
+  provider,
+  vesselId,
+  vesselName,
+  onOpenChange,
+  tour = false,
+}: AssistantOverlayProps) {
   const [open, setOpen] = useState(false)
   /** 첫 방문 안내 (#2205) — 첫 렌더에 한 번 읽는다. */
   const [introHint, setIntroHint] = useState(shouldShowIntroHint)
@@ -232,7 +255,14 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
   const [disclaimer, setDisclaimer] = useState<string | null>(null)
-  const [stopped, setStopped] = useState(false)
+  /** 서버가 「쓸 수 없음」이라고 했다 — 상태 조회(#1535) 또는 질문 뒤 503. */
+  const [unavailableStopped, setStopped] = useState(false)
+  /*
+   * #2110 — 둘러보기면 처음부터 닫는다. 상태로 두지 않고 **매 렌더 계산한다** — 세션 확인이
+   * 늦어 `tour`가 첫 렌더 뒤에 참이 되어도 따라간다. 「쓸 수 없음」과 같은 값으로 묶으므로
+   * 입력 · 예시 · 보내기가 함께 닫히고, 초점은 패널이 받는다(#2128).
+   */
+  const stopped = unavailableStopped || tour
   /** #1535 — 패널을 열 때 받은 상태가 「쓸 수 없음」이었다. 질문 뒤 503과 구분해 안내를 그린다. */
   const [statusOff, setStatusOff] = useState(false)
   /*
@@ -262,6 +292,9 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
      * 않는다. 그때는 질문 뒤 503으로 아는 종전 경로가 남는다(`API_SPEC §15.7`).
      */
     if (!open || !client.status) return
+    // #2110 — 둘러보기는 설정과 무관하게 닫혀 있다. 물어볼 필요가 없고, 「쓸 수 없음」
+    // 안내가 둘러보기 안내와 겹쳐 뜨지 않게 한다.
+    if (tour) return
     let cancelled = false
     client.status().then(
       ({ available }) => {
@@ -274,7 +307,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
     return () => {
       cancelled = true
     }
-  }, [open, client])
+  }, [open, client, tour])
 
   useEffect(() => {
     onOpenChange?.(open)
@@ -536,7 +569,11 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         </div>
       ) : null}
 
-      {statusOff ? (
+      {tour ? (
+        <p className="assistant__notice" role="status">
+          {TOUR_UNAVAILABLE}
+        </p>
+      ) : statusOff ? (
         <p className="assistant__notice" role="status">
           {STATUS_UNAVAILABLE}
         </p>

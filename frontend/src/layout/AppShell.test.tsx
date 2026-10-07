@@ -548,6 +548,55 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
 })
 
 /**
+ * 셸이 둘러보기 표식을 어시스턴트에 넘긴다 (#2110).
+ *
+ * 패널 쪽 분기는 `AssistantOverlay.test.tsx`가 잠근다. 여기서 보는 것은 **배선**이다 —
+ * 셸이 `isTour`를 넘기지 않으면 패널 검사는 통과하는데 둘러보기에서 입력이 열린다.
+ * 대조군(같은 ADMIN이지만 둘러보기가 아님)이 없으면 「언제나 닫는다」도 통과한다.
+ */
+describe('둘러보기에서는 어시스턴트 입력이 닫힌다 (#2110)', () => {
+  function stubUser(isTour: boolean) {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u-tour',
+      email: 'tour@bluelog.local',
+      displayName: '둘러보기',
+      role: 'ADMIN',
+      emailVerifiedAt: null,
+      hasAvatar: false,
+      isTour,
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/chat/status')) return jsonResponse({ data: { available: true } })
+        if (url.includes('/vessels') && url.includes('/voyages')) return jsonResponse({ data: [] })
+        if (url.includes('/vessels')) return jsonResponse(VESSELS)
+        return jsonResponse({ data: [] })
+      }),
+    )
+  }
+
+  async function openAssistant() {
+    renderShell()
+    fireEvent.click(await screen.findByRole('button', { name: /AI 어시스턴트 열기/ }))
+    return screen.getByRole('textbox', { name: '질문' }) as HTMLTextAreaElement
+  }
+
+  it('둘러보기 세션이면 패널을 열자마자 입력이 닫혀 있다', async () => {
+    stubUser(true)
+    const input = await openAssistant()
+    expect(input.disabled).toBe(true)
+  })
+
+  it('대조군 — 둘러보기가 아닌 관리자는 입력이 열려 있다', async () => {
+    stubUser(false)
+    const input = await openAssistant()
+    await waitFor(() => expect(input.disabled).toBe(false))
+  })
+})
+
+/**
  * 상단바 선박 셀렉트의 **네 상태** (`#1093` ⑴).
  *
  * `vesselsState`는 `#484`가 이 셀렉트를 위해 만든 값인데 정작 표시에 쓰지 않아,

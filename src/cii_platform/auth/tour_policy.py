@@ -28,6 +28,7 @@
 | 그 밖의 메서드 | **403** — 생성·수정·삭제·계산 실행이 모두 여기 든다 |
 | 민감 조회(:data:`DENY_PREFIXES`) | **403** — 메서드와 무관하다. ``GET``이라고 안전한 것이 아니다 |
 | ``POST /auth/logout`` | 통과 — 자기 세션 한 줄만 닫는다 |
+| AI 어시스턴트(:data:`CHAT_PREFIX`)의 쓰기 | **403** — 막는 것은 같고 **문구만 전용**이다 (#2110) |
 
 계산 실행(``POST /calculations/…``)까지 막히는 것은 **의도**다. 열람 범위를 넓혀야 하면
 그때 경로를 하나씩 명시 허용하고 비용 한도를 함께 정한다 — 메서드를 통째로 여는 반대
@@ -60,9 +61,28 @@ DENY_PREFIXES = ("/api/v1/auth/users", "/api/v1/audit-logs")
 #: 공유 계정이라 다음 방문자가 남의 세션을 그대로 물려받는다.
 ALLOW_UNSAFE_PATHS = ("/api/v1/auth/logout",)
 
+#: AI 어시스턴트 경로 (#2110). 질문(``POST /chat``)과 대화 삭제(``DELETE /chat/sessions/…``)가
+#: 여기 든다. ``GET /chat/status``는 안전 메서드라 종전대로 통과한다.
+#:
+#: **막는 이유는 쓰기와 다르다.** 둘러보기는 스텁 계정 하나를 여러 방문자가 함께 쓰고 대화는
+#: 계정에 귀속되므로, 열면 한 방문자의 질문이 다음 방문자의 대화에 섞인다. 외부 모델 비용도
+#: 공용 키로 나가며, 질문 한도는 IP별이라 방문자 수만큼 늘어난다.
+CHAT_PREFIX = "/api/v1/chat"
+
 #: 쓰기를 시도했을 때의 문구. **무엇을 해야 하는지**까지 말한다 (`PRD §6.4` 상태 문구).
 READ_ONLY_MESSAGE = (
     "둘러보기에서는 자료를 바꿀 수 없습니다. 직접 입력해 보시려면 계정을 만들어 주세요."
+)
+
+#: 어시스턴트를 쓰려 했을 때의 문구 (#2110). **정본 문구다**(`API_SPEC §15.4`) — 바꾸려면
+#: 정본 개정이 먼저다.
+#:
+#: 범용 :data:`READ_ONLY_MESSAGE`를 쓰지 않는다 — 질문은 자료를 바꾸는 일이 아닌데 「자료를
+#: 바꿀 수 없습니다」가 뜨면 사용자는 오류로 읽는다. 화면은 둘러보기 세션에서 입력을 먼저
+#: 닫으므로(`AssistantOverlay.tsx`) 이 문구는 화면을 거치지 않은 요청이 받는다.
+CHAT_BLOCKED_MESSAGE = (
+    "둘러보기에서는 AI 어시스턴트를 쓸 수 없습니다. "
+    "계정을 만들면 선박 자료를 두고 질문할 수 있습니다."
 )
 
 #: 민감 조회를 시도했을 때의 문구.
@@ -90,4 +110,6 @@ def tour_denial_reason(method: str, path: str) -> str | None:
         return None
     if method.upper() in SAFE_METHODS:
         return None
+    if path == CHAT_PREFIX or path.startswith(f"{CHAT_PREFIX}/"):
+        return CHAT_BLOCKED_MESSAGE
     return READ_ONLY_MESSAGE

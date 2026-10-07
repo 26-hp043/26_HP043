@@ -606,6 +606,8 @@ export function AppShell() {
           vesselId={context.vesselId ?? undefined}
           vesselName={vessels.find((vessel) => vessel.id === context.vesselId)?.displayName}
           onOpenChange={setAssistantOpen}
+          // #2110 — 둘러보기에서는 어시스턴트를 막는다. 표식은 서버 `is_tour` 하나다.
+          tour={user?.isTour === true}
         />
       </div>
     </div>
