@@ -12,8 +12,6 @@ DB에 닿는 쪽(실제 적재가 아무것도 바꾸지 않는다)은 ``test_pa
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from cii_platform.calc.capacity import ConditionInterval, parse_condition
@@ -144,50 +142,88 @@ def test_partition_ignores_the_order_rows_arrive_in():
 # ── ⑵-b 적재 경로에서 — dry_run이 실제 적재와 같은 판정을 낸다 ─────────────────
 
 
-def _existing(*conditions: str):
-    async def listed(_session, _ship_type):
-        return [SimpleNamespace(condition_expr=condition) for condition in conditions]
-
-    return listed
-
-
 def _csv(*rows: str) -> bytes:
     return ("\r\n".join([_REF_HEADER, *rows]) + "\r\n").encode("utf-8")
 
 
-async def _dry_run(monkeypatch, existing, *rows: str) -> dict[str, object]:
-    monkeypatch.setitem(parameter_import._PARTITIONED, "reference_lines", _existing(*existing))
-    # 세션은 쓰이지 않는다 — dry_run은 조회 함수(위 대역)만 부르고 아무것도 쓰지 않는다.
+async def _never_listed(_session, _ship_type):
+    raise AssertionError("구간 판정이 기존 활성 행을 읽었다 — 파일에 든 선종은 파일만 본다")
+
+
+async def _dry_run(monkeypatch, *rows: str) -> dict[str, object]:
+    """선종 단위 대체(#2172) — 판정은 **파일의 행만** 본다. 기존 활성 행을 읽으면 실패한다."""
+    monkeypatch.setitem(parameter_import._PARTITIONED, "reference_lines", _never_listed)
+    # 세션은 쓰이지 않는다 — dry_run은 DB를 읽지도 쓰지도 않는다.
     return await import_parameters(None, kind="reference_lines", content=_csv(*rows), dry_run=True)
 
 
-async def test_replacing_a_row_with_the_same_key_keeps_the_partition(monkeypatch):
+async def test_replacing_both_bands_with_the_same_keys_keeps_the_partition(monkeypatch):
     data = await _dry_run(
         monkeypatch,
-        ["DWT >= 279000", "DWT < 279000"],
         "BULK_CARRIER,DWT >= 279000,fixed 279000,4800,0.622,TEST",
+        "BULK_CARRIER,DWT < 279000,DWT,4745,0.622,TEST",
     )
+    assert data["errors"] == []
+    assert data["imported_count"] == 2
+
+
+async def test_moving_a_boundary_is_accepted_when_the_file_covers_every_band(monkeypatch):
+    """경계값 개정(#2172) — 옛 밴드는 선종 단위로 꺼지므로 겹치지 않는다.
+
+    종전(#2087)에는 키가 다른 옛 행이 활성으로 남는다고 보아 같은 파일을 거부했다.
+    """
+    data = await _dry_run(
+        monkeypatch,
+        "BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST",
+        "BULK_CARRIER,DWT < 300000,DWT,4745,0.622,TEST",
+    )
+    assert data["errors"] == []
+    assert data["imported_count"] == 2
+
+
+async def test_splitting_all_into_two_bands_is_accepted(monkeypatch):
+    """⑴ 'all' 한 행 → 두 밴드. 종전에는 기존 'all'과 합쳐져 거부됐다."""
+    data = await _dry_run(
+        monkeypatch,
+        "TANKER,DWT >= 100000,DWT,5247,0.610,TEST",
+        "TANKER,DWT < 100000,DWT,5247,0.610,TEST",
+    )
+    assert data["errors"] == []
+    assert data["imported_count"] == 2
+
+
+async def test_merging_two_bands_into_all_is_accepted(monkeypatch):
+    """⑵ 두 밴드 → 'all' 한 행. 종전에는 기존 두 밴드와 겹쳐 거부됐다."""
+    data = await _dry_run(monkeypatch, "BULK_CARRIER,all,DWT,4745,0.622,TEST")
     assert data["errors"] == []
     assert data["imported_count"] == 1
 
 
-async def test_moving_a_boundary_leaves_the_old_row_active_and_is_rejected(monkeypatch):
-    """키가 다른 옛 행은 꺼지지 않는다 — 그대로 넣으면 구간이 겹쳐 계산이 409가 된다."""
+async def test_a_file_with_only_one_band_of_a_ship_type_is_rejected(monkeypatch):
+    """파일에 든 선종은 그 선종의 **모든 구간**을 담아야 한다 — 한 밴드만 올리면 빈틈이다."""
     data = await _dry_run(
         monkeypatch,
-        ["DWT >= 279000", "DWT < 279000"],
-        "BULK_CARRIER,DWT >= 300000,fixed 300000,4745,0.622,TEST",
+        "BULK_CARRIER,DWT >= 279000,fixed 279000,4800,0.622,TEST",
     )
     assert data["imported_count"] == 0
     assert [(error["row"], error["field"]) for error in data["errors"]] == [(2, "condition_expr")]
     assert "BULK_CARRIER" in data["errors"][0]["message"]
+    assert "279000 미만을 덮는 행이 없습니다" in data["errors"][0]["message"]
+
+
+async def test_overlapping_bands_inside_the_file_are_rejected(monkeypatch):
+    data = await _dry_run(
+        monkeypatch,
+        "BULK_CARRIER,all,DWT,4745,0.622,TEST",
+        "BULK_CARRIER,DWT >= 279000,fixed 279000,4745,0.622,TEST",
+    )
+    assert data["imported_count"] == 0
     assert "겹칩니다" in data["errors"][0]["message"]
 
 
 async def test_a_file_that_leaves_a_gap_is_rejected_on_its_first_row(monkeypatch):
     data = await _dry_run(
         monkeypatch,
-        [],
         "GAS_CARRIER,DWT < 65000,DWT,8104,0.639,TEST",
         "GAS_CARRIER,DWT >= 100000,DWT,14405E7,2.071,TEST",
     )
@@ -199,7 +235,6 @@ async def test_a_row_error_is_reported_without_a_partition_error_on_top(monkeypa
     """행이 빠진 채로 구간을 보면, 고치면 사라질 「빈틈」을 함께 보고하게 된다."""
     data = await _dry_run(
         monkeypatch,
-        [],
         "GAS_CARRIER,DWT < 65000,DWT,8104,0.639,TEST",
         "GAS_CARRIER,DWT ≥ 65000,DWT,14405E7,2.071,TEST",
     )

@@ -224,7 +224,8 @@ GitHub Actions (deploy.yml)
   │   │    DATABASE_URL의 CUBRID_PASSWORD URL 인코딩도 러너에서 한다)
   │   ├─ GHCR 로그인 + 이미지 풀
   │   ├─ Alembic 마이그레이션 (one-shot)
-  │   ├─ 규제 파라미터 seed (`python -m cii_platform.db.seed` — 매 배포 실행 · upsert라 값이 같으면 행 수·값 열 불변 · #2264)
+  │   ├─ 규제 파라미터 seed (`python -m cii_platform.db.seed` — 매 배포 실행 · upsert라 값이 같으면 행 수·값 열 불변 · #2264.
+  │   │    시드 판본(1.0) 행만 갱신 — 화면의 개정 적재가 들어간 묶음은 건너뛴다 · #2086)
   │   └─ docker compose up -d backend
   │
   └─ health check
@@ -371,7 +372,8 @@ docker compose -f docker-compose.prod.app.yml pull backend
 docker build --target prod -t bluelog-backend:local .
 # .env에 BACKEND_IMAGE=bluelog-backend:local 설정
 
-# 마이그레이션 + seed
+# 마이그레이션 + seed — seed는 시드 판본(1.0) 행만 갱신한다. 화면의 개정 적재(import.<UTC>)는
+# 되돌리지 않고 건너뛴 건수를 로그에 남긴다 (#2086 · DB_SCHEMA §7.2)
 docker compose -f docker-compose.prod.app.yml --profile migrate run --rm migrate
 docker compose -f docker-compose.prod.app.yml --profile migrate \
   run --rm migrate python -m cii_platform.db.seed

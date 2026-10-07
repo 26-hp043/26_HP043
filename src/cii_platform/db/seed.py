@@ -24,8 +24,13 @@
 63행(연료 CF 8 · 규제 42 · 기상 계수 10 · 시뮬레이션 3)을 넣으며 ``alembic upgrade head``
 하나로 적재가 끝난다. :func:`seed_all`의 upsert는 **규제 개정 시 재적재** 경로이며,
 배포 워크플로(``deploy.yml``)가 ``alembic upgrade head`` 뒤에 매 배포 실행한다. 있는 행을
-upsert하므로 값이 같으면 행 수와 값 열이 그대로다. ``REPLACE``로 넣는 세 표(``fuel_type`` ·
-``simulation_parameter`` · ``weather_model_parameter``)는 실행마다 ``id``가 새로 부여된다.
+upsert하므로 값이 같으면 행 수와 값 열이 그대로다. ``REPLACE``로 넣는 두 표
+(``simulation_parameter`` · ``weather_model_parameter``)는 실행마다 ``id``가 새로 부여된다.
+
+**시드는 시드 판본(``1.0``) 행만 갱신한다** (#2086). 규제 파라미터 네 표에서 화면의 개정
+적재(``import.<UTC>`` 판본)가 들어간 묶음 — 기준선·등급 경계는 선종, 규정연도는 연도,
+연료는 코드 — 은 갱신도 삽입도 하지 않고 건너뛴 건수를 로그에 남긴다. 그 묶음은 개정
+적재가 정본이다(:func:`_upsert_active`).
 
 리비전 번호는 CUBRID 전환(`#1058`)에서 바뀌었다. 종전 017(연료 CF) · 032(규제 42행)
 등이 스키마 통합 때 사라졌고 ``6c7496c4d122``가 한 리비전으로 되살렸다. ``fuel_type``의
@@ -51,6 +56,7 @@ data migration (6c7496c4d122 · 045)   그날 넣은 값 · **불변** · 신규
 """
 
 import dataclasses
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -58,9 +64,12 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
+from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.calc.imo_parser import parse_imo_scientific
 from cii_platform.db.models import CiiRatingBoundary, CiiReferenceLine, RegulationYear
 from cii_platform.db.models.fuel_type import FuelType
+
+_log = logging.getLogger(__name__)
 
 # 출처(source_ref). 권위 소스는 AGENTS.md §2.2 표를 따른다.
 SOURCE_Z_FACTOR = "MEPC.400(83)"
@@ -391,22 +400,61 @@ async def _upsert_active(
     table: sa.Table,
     key_columns: tuple[str, ...],
     row: dict[str, object],
-) -> None:
-    """활성 행을 갱신하고, 없으면 삽입한다 — 전역 유니크가 없어진 키의 upsert.
+    *,
+    group_columns: tuple[str, ...],
+) -> bool:
+    """**시드 판본** 활성 행을 갱신하고, 없으면 삽입한다. 건너뛰면 ``False`` (#2086).
 
     🔴 종전 충돌 판정은 전역 유니크 인덱스(``uq_regulation_year_year``·
     ``idx_refline_unique``·``idx_boundary_unique``)가 했는데 ``054``(#673)가 셋 다
     뺐다 — 개정 이행 행이 같은 키로 쌓여야 하므로. ``REPLACE``는 유니크 인덱스로
     충돌을 찾으므로 인덱스가 없으면 **항상 INSERT**가 되어 활성-유니크 트리거에
-    걸린다. 대상을 **활성 행**으로 못 박아 같은 의미(README의 「upsert라 값을
-    덮어쓴다」)를 유지한다 — 개정 이행 행은 건드리지 않는다(``DB_SCHEMA §7.2``).
+    걸린다. 대상을 **활성 행**으로 못 박는다 — 개정 이행 행은 건드리지 않는다.
+
+    🔴 **시드가 덮는 것은 시드 판본(:data:`PARAMETER_SET_VERSION`) 행뿐이다** (#2086 결정).
+    배포마다 이 함수가 돈다(``deploy.yml``). 종전에는 판본을 보지 않아 화면의 개정
+    적재(``import.<UTC>`` 판본)가 다음 배포에서 시드 값으로 조용히 되돌아갔다 —
+    ``DB_SCHEMA §7.2``의 「UPDATE로 덮어쓰면 개정 이력이 사라진다」와 정면으로 어긋난다.
+
+    ``group_columns``는 **개정이 대체하는 단위**다 — 기준선·등급 경계는 선종(적재가
+    선종 단위로 대체한다 · #2172), 규정연도는 연도(적재가 키 단위로 대체한다). 그
+    묶음에 시드 판본이 아닌 활성 행이 하나라도 있으면 그 묶음은 개정 적재가 정본이므로
+    **갱신도 삽입도 하지 않는다.** 삽입까지 막아야 하는 이유: 경계값 개정이 옛 조건식
+    행을 끄면 시드는 그 키의 활성 행을 못 찾는데, 거기서 삽입하면 옛 밴드가 다시 활성이
+    되어 새 밴드와 겹치고 그 선종의 계산이 ``409 PARAMETER_ERROR``가 된다.
     """
-    conditions = [table.c.is_active == 1] + [
-        table.c[column] == row[column] for column in key_columns
+    revised = await conn.scalar(
+        sa.select(sa.func.count())
+        .select_from(table)
+        .where(
+            table.c.is_active == 1,
+            table.c.version != PARAMETER_SET_VERSION,
+            *(table.c[column] == row[column] for column in group_columns),
+        )
+    )
+    if revised:
+        return False
+    conditions = [
+        table.c.is_active == 1,
+        table.c.version == PARAMETER_SET_VERSION,
+        *(table.c[column] == row[column] for column in key_columns),
     ]
     result = await conn.execute(sa.update(table).where(*conditions).values(**row))
     if result.rowcount == 0:
         await conn.execute(sa.insert(table).values(row))
+    return True
+
+
+def _report_skipped(table: str, skipped: int) -> None:
+    """개정 적재가 정본이라 건너뛴 행 수를 실행 로그에 남긴다 (#2086)."""
+    if skipped:
+        _log.warning(
+            "%s: 시드 판본(%s) 활성 행으로 갱신하지 않은 %d행은 건너뛰었다 — "
+            "개정 판본 활성 행이 있거나(개정 적재가 정본) 시드 판본 행이 꺼져 있다",
+            table,
+            PARAMETER_SET_VERSION,
+            skipped,
+        )
 
 
 async def _upsert_z_factors(conn: AsyncConnection) -> int:
@@ -422,9 +470,14 @@ async def _upsert_z_factors(conn: AsyncConnection) -> int:
         }
         for row in SEED_Z_FACTORS
     ]
+    skipped = 0
     for row in values:
-        await _upsert_active(conn, RegulationYear.__table__, ("year",), row)
-    return len(values)
+        applied = await _upsert_active(
+            conn, RegulationYear.__table__, ("year",), row, group_columns=("year",)
+        )
+        skipped += not applied
+    _report_skipped("regulation_year", skipped)
+    return len(values) - skipped
 
 
 async def _upsert_reference_lines(conn: AsyncConnection) -> int:
@@ -438,12 +491,22 @@ async def _upsert_reference_lines(conn: AsyncConnection) -> int:
             "a_decimal": row.a_decimal,
             "c": row.c,
             "source_ref": SOURCE_REFERENCE_LINE,
+            "version": PARAMETER_SET_VERSION,
         }
         for row in SEED_REFERENCE_LINES
     ]
+    skipped = 0
     for row in values:
-        await _upsert_active(conn, CiiReferenceLine.__table__, ("ship_type", "condition_expr"), row)
-    return len(values)
+        applied = await _upsert_active(
+            conn,
+            CiiReferenceLine.__table__,
+            ("ship_type", "condition_expr"),
+            row,
+            group_columns=("ship_type",),
+        )
+        skipped += not applied
+    _report_skipped("cii_reference_line", skipped)
+    return len(values) - skipped
 
 
 async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
@@ -458,14 +521,22 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
             "d3": row.d3,
             "d4": row.d4,
             "source_ref": SOURCE_RATING_BOUNDARY,
+            "version": PARAMETER_SET_VERSION,
         }
         for row in SEED_RATING_BOUNDARIES
     ]
+    skipped = 0
     for row in values:
-        await _upsert_active(
-            conn, CiiRatingBoundary.__table__, ("ship_type", "condition_expr"), row
+        applied = await _upsert_active(
+            conn,
+            CiiRatingBoundary.__table__,
+            ("ship_type", "condition_expr"),
+            row,
+            group_columns=("ship_type",),
         )
-    return len(values)
+        skipped += not applied
+    _report_skipped("cii_rating_boundary", skipped)
+    return len(values) - skipped
 
 
 # MEPC.364(79) §2.2.1 — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
@@ -482,21 +553,49 @@ _CF_ROWS = (
 
 
 async def _upsert_fuel_types(conn: AsyncConnection) -> int:
-    """fuel_type 8행을 upsert한다."""
+    """fuel_type 8행의 **시드 판본** 활성 행을 갱신하고, 코드가 없으면 삽입한다 (#2086).
+
+    종전에는 ``REPLACE``(삭제 후 삽입)였다. 그래서 ⑴ ``045``가 채운 ``content_hash``가
+    시드 한 번에 ``NULL``로 돌아갔고 ⑵ 화면의 개정 적재가 제자리에서 고친 CF
+    (``version = import.<UTC>``)가 다음 배포에서 시드 값으로 되돌아갔다.
+
+    - 해시는 적재와 같은 함수·같은 입력으로 계산한다(``compute_parameter_hash`` ·
+      ``DB_SCHEMA §8.3.1`` — ``parameter_import._apply_fuel_types``와 같다)
+    - 갱신 대상은 판본이 시드 판본인 활성 행뿐이다. 연료는 ``UNIQUE(code)``라 코드당
+      한 행이므로 「묶음」은 코드 자신이다 — 그 코드의 행이 있는데 갱신되지 않았으면
+      개정 적재(또는 비활성 행)이므로 건드리지 않는다
+    """
     import uuid as _uuid
 
-    count = 0
+    table = FuelType.__table__
+    count = skipped = 0
     for code, display_name, cf in _CF_ROWS:
-        row = {
-            "id": _uuid.uuid4(),
-            "code": code,
+        values = {
             "display_name": display_name,
             "cf": Decimal(cf),
             "source_ref": SOURCE_FUEL_TYPE,
             "version": PARAMETER_SET_VERSION,
+            "content_hash": compute_parameter_hash({"code": code, "cf": Decimal(cf)}),
         }
-        await conn.execute(cubrid_replace(FuelType.__table__).values(row))
+        result = await conn.execute(
+            sa.update(table)
+            .where(
+                table.c.code == code,
+                table.c.is_active == 1,
+                table.c.version == PARAMETER_SET_VERSION,
+            )
+            .values(**values)
+        )
+        if result.rowcount == 0:
+            present = await conn.scalar(
+                sa.select(sa.func.count()).select_from(table).where(table.c.code == code)
+            )
+            if present:
+                skipped += 1
+                continue
+            await conn.execute(sa.insert(table).values(id=_uuid.uuid4(), code=code, **values))
         count += 1
+    _report_skipped("fuel_type", skipped)
     return count
 
 
@@ -607,6 +706,8 @@ async def main() -> None:  # pragma: no cover - 프로세스 진입점
 
     # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
     # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
+    # 건너뛴 건수(#2086)는 logging으로 남는다 — 배포 로그에 보이도록 여기서만 설정한다.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:

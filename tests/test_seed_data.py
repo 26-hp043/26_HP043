@@ -11,20 +11,26 @@
 """
 
 import importlib.util
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import text
 
+from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.calc.imo_parser import parse_imo_scientific
+from cii_platform.db.models import CiiReferenceLine, RegulationYear
 from cii_platform.db.seed import (
+    _CF_ROWS,
     SEED_RATING_BOUNDARIES,
     SEED_REFERENCE_LINES,
     SEED_Z_FACTORS,
     seed_all,
     validate_reference_lines,
 )
+from cii_platform.services.parameter_import import partition_problem
 
 # --- 1. 값 검증 (DB 불필요) -----------------------------------------------------
 
@@ -275,6 +281,146 @@ async def test_seed_restores_fuel_type_source_ref(seeded):
 
     refs = (await seeded.execute(text("SELECT DISTINCT source_ref FROM fuel_type"))).scalars().all()
     assert refs == ["MEPC.364(79)"]
+
+
+# --- 2-b. 시드는 시드 판본 행만 갱신한다 (#2086) ---------------------------------
+#
+# 배포마다 시드가 돈다(deploy.yml). 화면의 개정 적재(`import.<UTC>` 판본)가 그 한 번에
+# 시드 값으로 되돌아가거나, 경계값 개정 뒤 옛 밴드 행이 다시 들어오면 안 된다.
+
+_REVISION = "import.20261007T000000Z"
+
+
+async def _revise_reference_lines(conn, ship_type: str, rows: list[tuple[str, str, str]]):
+    """적재(`_apply_versioned`)와 같은 순서 — 그 선종의 활성 행을 전부 끄고 새 행을 넣는다."""
+    await conn.execute(
+        text("UPDATE cii_reference_line SET is_active = 0 WHERE ship_type = :st AND is_active = 1"),
+        {"st": ship_type},
+    )
+    for condition_expr, capacity_rule, a_raw in rows:
+        await conn.execute(
+            sa.insert(CiiReferenceLine.__table__).values(
+                ship_type=ship_type,
+                condition_expr=condition_expr,
+                capacity_rule=capacity_rule,
+                a_raw=a_raw,
+                a_decimal=parse_imo_scientific(a_raw),
+                c=Decimal("0.622000"),
+                source_ref="TEST revision",
+                version=_REVISION,
+                is_active=True,
+            )
+        )
+
+
+async def _active_reference_lines(conn, ship_type: str):
+    return (
+        await conn.execute(
+            text(
+                "SELECT condition_expr, a_raw, version FROM cii_reference_line "
+                "WHERE ship_type = :st AND is_active = 1 ORDER BY condition_expr"
+            ),
+            {"st": ship_type},
+        )
+    ).all()
+
+
+async def test_seed_keeps_a_revised_value_and_its_version(seeded):
+    """개정 적재 → 시드 → 값·판본 유지. 시드 판본 이행 행도 다시 켜지지 않는다."""
+    await _revise_reference_lines(
+        seeded,
+        "BULK_CARRIER",
+        [("DWT >= 279000", "fixed 279000", "4800"), ("DWT < 279000", "DWT", "4800")],
+    )
+
+    await seed_all(seeded)
+
+    active = await _active_reference_lines(seeded, "BULK_CARRIER")
+    assert [(row.condition_expr, row.a_raw, row.version) for row in active] == [
+        ("DWT < 279000", "4800", _REVISION),
+        ("DWT >= 279000", "4800", _REVISION),
+    ]
+    # 다른 선종은 종전대로 시드가 덮는다 — 범위를 좁혔을 뿐 시드 정정 경로는 남는다.
+    assert {row.version for row in await _active_reference_lines(seeded, "GAS_CARRIER")} == {"1.0"}
+
+
+async def test_seed_does_not_reinsert_old_bands_after_a_boundary_revision(seeded):
+    """경계값 개정(옛 키 비활성) → 시드 → 옛 밴드 행이 다시 들어가지 않는다.
+
+    종전 시드는 옛 키의 활성 행을 못 찾아 INSERT했고, 새 밴드와 겹쳐 계산이 409가 됐다.
+    """
+    await _revise_reference_lines(
+        seeded,
+        "BULK_CARRIER",
+        [("DWT >= 300000", "fixed 300000", "4745"), ("DWT < 300000", "DWT", "4745")],
+    )
+
+    await seed_all(seeded)
+
+    active = await _active_reference_lines(seeded, "BULK_CARRIER")
+    assert [row.condition_expr for row in active] == ["DWT < 300000", "DWT >= 300000"]
+    assert partition_problem([row.condition_expr for row in active]) is None
+
+
+async def test_seed_keeps_a_revised_regulation_year(seeded):
+    """규정연도는 연도가 개정 단위다 — 개정 판본 활성 행이 있는 연도는 건너뛴다."""
+    await seeded.execute(
+        text('UPDATE regulation_year SET is_active = 0 WHERE "year" = 2027 AND is_active = 1')
+    )
+    await seeded.execute(
+        sa.insert(RegulationYear.__table__).values(
+            year=2027,
+            z_factor_percent=Decimal("13.7000"),
+            effective_from=date(2027, 1, 1),
+            source_ref="TEST revision",
+            version=_REVISION,
+            is_active=True,
+        )
+    )
+
+    await seed_all(seeded)
+
+    rows = (
+        await seeded.execute(
+            text(
+                "SELECT z_factor_percent, version FROM regulation_year "
+                'WHERE "year" = 2027 AND is_active = 1'
+            )
+        )
+    ).all()
+    assert [(row.z_factor_percent, row.version) for row in rows] == [
+        (Decimal("13.7000"), _REVISION)
+    ]
+
+
+async def test_seed_fills_fuel_type_content_hash(seeded):
+    """시드 실행 → ``fuel_type.content_hash`` 8행 NULL 없음.
+
+    종전 시드는 ``REPLACE``(삭제 후 삽입)라 ``045``가 채운 해시를 실행마다 NULL로 돌렸다.
+    """
+    rows = (await seeded.execute(text("SELECT code, cf, content_hash FROM fuel_type"))).all()
+    by_code = {row.code: row for row in rows}
+    for code, _, cf in _CF_ROWS:
+        expected = compute_parameter_hash({"code": code, "cf": Decimal(cf)})
+        assert by_code[code].content_hash == expected, code
+
+
+async def test_seed_keeps_a_revised_fuel_cf(seeded):
+    """연료 개정 적재(제자리 갱신 · ``import.`` 판본) → 시드 → CF·판본 유지."""
+    revised_hash = compute_parameter_hash({"code": "HFO", "cf": Decimal("3.120000")})
+    await seeded.execute(
+        text("UPDATE fuel_type SET cf = 3.12, version = :v, content_hash = :h WHERE code = 'HFO'"),
+        {"v": _REVISION, "h": revised_hash},
+    )
+
+    await seed_all(seeded)
+
+    row = (
+        await seeded.execute(
+            text("SELECT cf, version, content_hash FROM fuel_type WHERE code = 'HFO'")
+        )
+    ).one()
+    assert (row.cf, row.version, row.content_hash) == (Decimal("3.120000"), _REVISION, revised_hash)
 
 
 # --- 3. CLI 진입점 (DB 불필요) --------------------------------------------------

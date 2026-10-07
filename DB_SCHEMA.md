@@ -1732,12 +1732,14 @@ CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH R
 | 구분 | `updated_at` | 근거 |
 |---|---|---|
 | 운영 데이터 — `vessel` · `voyage` · `voyage_fuel_use` · `voyage_scenario` · `not_underway_period` · `app_user` | **둔다** | 사용자가 행을 제자리에서 수시로 고친다. 마지막 수정 시각이 곧 감사 정보다 |
-| 파라미터 테이블 — `regulation_year` · `cii_reference_line` · `cii_rating_boundary` · `weather_model_parameter` | **두지 않는다** | 규제값이 개정되면 **행을 고치지 않고 새 `version` 행을 넣고 `is_active`를 전환**한다. 시점은 `created_at`·`effective_from`이 담는다 |
+| 파라미터 테이블 — `regulation_year` · `cii_reference_line` · `cii_rating_boundary` · `weather_model_parameter` | **두지 않는다** | 규제값이 개정되면 **행을 고치지 않고 새 `version` 행을 넣고 `is_active`를 전환**한다. 전환 단위는 `regulation_year`가 연도, `cii_reference_line`·`cii_rating_boundary`가 **선종**이다 — 적재 파일에 든 선종은 활성 행이 전부 꺼지고 파일의 행으로 대체되므로, 파일에 든 선종은 그 선종의 모든 구간을 담아야 한다(`API_SPEC §7.5` · #2172). 시점은 `created_at`·`effective_from`이 담는다 |
 | 파라미터 테이블 중 `fuel_type` | **예외로 둔다** | `TECH_SPEC §5.2`의 `parameter_hash` 계약이 CF 값의 **제자리 갱신 추적**을 요구한다. 그래서 `content_hash`(§2.9 `[X-3]`)와 함께 `updated_at`을 둔다. **`content_hash`를 가진 파라미터 테이블은 이것뿐이다** |
 
 > **파라미터 테이블에 `updated_at`이 없는 것은 누락이 아니라 정책이다.** 5종 중 `fuel_type`만 가지고 있어 「`regulation_year`에 빠졌다」로 읽히기 쉬우나, 실제 구조는 그 반대다 — **`fuel_type`이 유일한 예외**다.
 >
 > 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`cii_reference_line`·`cii_rating_boundary`가 `version`·`is_active`를 가진 이유가 이것이다(뒤의 둘은 `054`부터 — 아래).
+>
+> **[#2086] 시드는 시드 판본(`1.0`) 행만 갱신한다.** 배포마다 도는 `python -m cii_platform.db.seed`는 종전에 판본을 보지 않고 활성 행을 UPDATE해, 화면의 개정 적재(`import.<UTC>` 판본)가 다음 배포에서 시드 값으로 조용히 되돌아갔다 — 위 문장과 정면으로 어긋났다. 이제 `_upsert_active`는 개정 단위(기준선·경계는 선종, 연도 표는 연도)에 시드 판본이 아닌 활성 행이 하나라도 있으면 **갱신도 삽입도 하지 않고** 건너뛴 건수를 실행 로그에 남긴다. 삽입까지 막는 것은 경계값 개정(#2172)이 옛 조건식 행을 끈 뒤 시드가 그 키를 못 찾아 옛 밴드를 다시 넣으면 구간이 겹쳐 그 선종의 계산이 `409 PARAMETER_ERROR`가 되기 때문이다. `fuel_type`도 같다 — 시드는 판본이 `1.0`인 활성 행만 제자리에서 갱신하고 `content_hash`를 함께 계산해 싣는다(`§8.3.1` · 종전 `REPLACE`는 `045`가 채운 해시를 실행마다 `NULL`로 돌렸다). 개정한 묶음에는 시드 상수의 정정이 닿지 않는데, 이것은 의도한 동작이다 — 그 묶음은 개정 적재가 정본이다.
 >
 > **[#2140] `fuel_type`의 `version`·`is_active`는 이 운용을 위한 것이 아니다.** 종전에는 이 자리가 `fuel_type`도 「새 `version` 행 + `is_active` 전환」으로 운용한다고 적어 위 표의 예외 행과 어긋났다. `fuel_type.code`는 `UNIQUE`(`uq_fuel_type_code` · `§2.9`)라 **같은 코드의 행이 둘일 수 없고**, 적재 경로(`services/parameter_import.py`의 `_apply_fuel_types`)도 있는 코드는 `cf`·`version`·`content_hash`를 **제자리에서** 고친다. `version`은 그때 함께 갈아 쓰는 세트 라벨이고(`§8.3.1`), `is_active`는 읽는 쪽에서 그 연료를 입력에 쓸 수 있는가를 가른다(비활성 연료는 조회에서 빠진다 — `db/repositories/parameters.py`). 다만 그 값을 끄는 경로는 지금 없다 — 적재도 시드도 `is_active`를 쓰지 않아 모든 행이 기본값 그대로다.
 >
@@ -1866,7 +1868,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 | `050` | `chk_capacity_rule`을 정본 `[M-7]`에 맞게 좁혔다(`LIKE 'fixed %'` → `REGEXP BINARY`) |
 | `066` | 해시 형식 4(`trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`)를 `REGEXP` → `REGEXP BINARY`로 교체 — 대문자 hex·`SHA256:` 접두 거부(#2103). 이름·시점·개수는 그대로 |
 | `067` | `054`의 활성-유니크 6(`trg_regulation_year_active_unique_*`·`trg_cii_reference_line_active_unique_*`·`trg_cii_rating_boundary_active_unique_*`)의 조건을 `IF EXISTS (…)` → `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체 — 활성 행이 있는 키의 **이행 행** INSERT·UPDATE 통과, 활성 둘은 여전히 거부(#2104 · `047`과 같은 모양). 이름·시점·개수는 그대로 |
-| `068` | 부모 쪽 연료 코드 개명 거부 1(`trg_fuel_type_code_no_rename` · `BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`) — `code`가 바뀌는 UPDATE만 거부, 다른 열 갱신·seed `REPLACE`는 통과(#2260 · 2항). 합계 176 → **177** |
+| `068` | 부모 쪽 연료 코드 개명 거부 1(`trg_fuel_type_code_no_rename` · `BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`) — `code`가 바뀌는 UPDATE만 거부, 다른 열 갱신·seed 재적재는 통과(#2260 · 2항). 합계 176 → **177** |
 
 조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
 (불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
@@ -1884,7 +1886,8 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
   DELETE + INSERT로 구현되어** `BEFORE DELETE` 트리거를 깨운다. 같은 `code`가 곧바로
   다시 들어가 고아가 생기지 않는데도 재적재 전체가 막혔다(`tests/test_seed_data.py` 7건이
   fixture 단계에서 죽었다). 트리거는 REPLACE가 부른 DELETE와 사람이 친 DELETE를
-  구분하지 못한다.
+  구분하지 못한다. ⚠️ #2086부터 `fuel_type` 재적재는 `REPLACE`가 아니라 활성 행 UPDATE다 —
+  **이 제외 사유는 `fuel_type`에서는 사라졌다.** 삭제 금지 트리거를 되살릴지는 따로 정한다.
 
   **남는 구멍** — `DELETE FROM fuel_type`을 직접 쳐서 참조 중인 코드를 지우면 자식이
   고아가 된다. 자식 쪽 트리거는 **넣는 쪽만** 보므로 이미 들어간 행을 지켜 주지 않는다.
@@ -1917,7 +1920,8 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    없었다. `068`이 부모 쪽 `BEFORE UPDATE` 트리거 `trg_fuel_type_code_no_rename`
    (`IF new.code <> obj.code EXECUTE REJECT`)로 **`code`가 바뀌는 UPDATE만** 거부한다 — `cf`·
    `display_name`·`is_active` 갱신(`§7.2` 제자리 갱신 · `parameter_import._apply_fuel_types`)은
-   통과하고, seed 재적재(`REPLACE INTO` = DELETE + INSERT)는 UPDATE가 아니라 걸리지 않는다.
+   통과하고, seed 재적재도 `code`를 바꾸지 않는 UPDATE라 걸리지 않는다(#2086 — 종전에는
+   `REPLACE INTO` = DELETE + INSERT였다).
    **참조 행이 없어도 막는다** — `code`는 앱 전체가 연료를 부르는 이름이고(적재·seed·CF 조회 ·
    계산 이력 `parameters_used`), 연료를 바꾸는 운용은 새 코드 + 옛 코드 `is_active = 0`이다.
    개명하는 앱 경로는 없다. `tests/test_constraint_triggers_db.py`가 거부·통과·무조건 셋을 고정한다.
@@ -2089,7 +2093,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 
 
 #### 8.1.1 seed의 위치와 적재 경로 [#127]
 
-**계산에 필요한 seed는 `alembic upgrade head` 경로에 들어 있다.** 신규 환경은 이 경로만으로 부트스트랩이 끝난다. 이와 별개로 배포 워크플로(`.github/workflows/deploy.yml`)는 `alembic upgrade head` 바로 뒤에 매 배포마다 `python -m cii_platform.db.seed`(`seed_all`의 upsert)를 실행한다. 이 실행은 있는 행을 upsert하므로 값이 같으면 행 수와 값 열이 그대로다. 다만 `fuel_type` · `simulation_parameter` · `weather_model_parameter` 세 표는 `REPLACE`로 넣어 실행할 때마다 행의 `id`가 새로 부여된다(이 `id`를 참조하는 열은 없다). `regulation_year` · `cii_reference_line` · `cii_rating_boundary`는 활성 행을 제자리에서 갱신해 `id`가 유지된다. 같은 키의 값만 바뀐 `seed.py`는 다음 배포가 DB에 반영한다. 데모 데이터(`demo_seed`)는 이 매 배포 실행에 들어 있지 않고 수동 트리거(`seed_demo`)로만 적재된다.
+**계산에 필요한 seed는 `alembic upgrade head` 경로에 들어 있다.** 신규 환경은 이 경로만으로 부트스트랩이 끝난다. 이와 별개로 배포 워크플로(`.github/workflows/deploy.yml`)는 `alembic upgrade head` 바로 뒤에 매 배포마다 `python -m cii_platform.db.seed`(`seed_all`의 upsert)를 실행한다. 이 실행은 있는 행을 upsert하므로 값이 같으면 행 수와 값 열이 그대로다. 다만 `simulation_parameter` · `weather_model_parameter` 두 표는 `REPLACE`로 넣어 실행할 때마다 행의 `id`가 새로 부여된다(이 `id`를 참조하는 열은 없다). 규제 파라미터 네 표(`regulation_year` · `cii_reference_line` · `cii_rating_boundary` · `fuel_type`)는 **시드 판본(`1.0`) 활성 행만** 제자리에서 갱신해 `id`가 유지되며, 개정 적재(`import.<UTC>` 판본)가 들어간 묶음은 건너뛴다(`§7.2` `[#2086]`). 같은 키의 값만 바뀐 `seed.py`는 다음 배포가 시드 판본 행에 반영한다. 데모 데이터(`demo_seed`)는 이 매 배포 실행에 들어 있지 않고 수동 트리거(`seed_demo`)로만 적재된다.
 
 | 대상 | 적재 경로 | 성격 |
 |---|---|---|
@@ -2410,3 +2414,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-07 | `#2280` | §2.15 `email` 행과 각주에 **이메일 형식은 DB가 검사하지 않고 API 입력 스키마의 정규식 한 곳에서만 본다**는 것을 적었다 (#2263). `chk_app_user_email_format`은 CUBRID 전환(`#1058`)에서 사라진 뒤 트리거로 되살아나지 않았는데 문서는 유일성만 적고 있어 형식을 어디서 지키는지가 드러나지 않았다. 트리거로 되살리지 않는다는 2026-10-07 결정을 함께 적었다. 스키마는 바뀌지 않는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-07 | `#2284` | §7.1 연료 코드 세 행 · §7.4 2항 · §2.1 · §2.3 · §2.18 연료 열 — **부모 쪽 `fuel_type.code` 개명을 트리거로 막는다** (마이그레이션 068 · #2260). `067`까지 개명은 막히지도 전파되지도 않았다(2026-10-07 `cii_test` 실측 — `UPDATE fuel_type SET code = 'HFO_RENAMED'`가 통과하고 자식 36행이 없는 코드를 가리켰다). 문서는 「`ON UPDATE CASCADE` 전파」(§7.1 · §2.1 · §2.3 · §2.18 `[S-1]`)와 「전파 대신 막는다」(§7.4 2항) 두 가지로 적었는데 실제는 둘 다 아니었다. 사용자 결정(2026-10-07)대로 **막는 쪽**으로 맞춘다 — `trg_fuel_type_code_no_rename`(`BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`)이 `code`가 바뀌는 UPDATE만 거부하고 `cf`·`display_name`·`is_active` 갱신(`parameter_import._apply_fuel_types`)과 seed 재적재(`REPLACE INTO` = DELETE + INSERT)는 통과한다. **참조 행이 없어도 막는다** — `code`는 적재·seed·CF 조회·계산 이력 `parameters_used`가 쓰는 이름이고 연료를 바꾸는 운용은 새 코드 + 옛 코드 `is_active = 0`이며, 개명하는 앱 경로는 없다. 부모 쪽 **삭제**는 그대로 막지 않는다(REPLACE 때문 · `a7d3e9b14f26`). §7.4 리비전 표 068 행 · 트리거 표 head `068` · 그 밖 30 → 31 · 합계 176 → **177** · §8.1.0 그래프 끝 `068`. downgrade는 트리거만 지워 `migration_guard` 분류 대상이 아니다. `AGENTS §4.3`상 행 추가·서술 정정이라 버전은 올리지 않는다 (#2260) |
 | 2026-10-07 | `#2301` | **`SPEED` 행 각주의 `CII = M / (W · Dt)` 표기를 `M / (transport_capacity × Dt)`로** (`#2139`) — `PRD §3`에서 `W`가 이미 `transport_capacity × Distance_nm`이라 `W · Dt`는 거리가 두 번 들어간 것으로 읽혔다. 식의 뜻은 바꾸지 않았다. 같은 파일 `§2.14` `[#277]` 각주의 자격 증명 예 `id_token`·`code`·state(OIDC)도 자체 인증의 비밀번호·세션 토큰·메일 인증·재설정 토큰으로 고쳤다 (#2139) |
+| 2026-10-07 | `#2307` | **§7.2 파라미터 개정의 전환 단위와 시드의 범위** (`#2172` 결정 1 가 · `#2086` 결정). 표의 파라미터 행에 전환 단위(연도 표는 연도, 기준선·경계는 **선종** — 파일에 든 선종은 모든 구간을 담아야 한다)를 적고, 각주 `[#2086]`을 신설했다 — 시드는 시드 판본(`1.0`) 행만 갱신하고 개정 판본 활성 행이 있는 묶음은 갱신도 삽입도 하지 않는다. 종전 시드는 판본을 보지 않고 활성 행을 UPDATE해 「UPDATE로 덮어쓰면 개정 이력이 사라진다」는 바로 위 문장과 어긋났다. `fuel_type` 시드가 `REPLACE`에서 활성 행 UPDATE + `content_hash` 계산으로 바뀐 것을 `§7.4`(068 행 · 2항 · 부모 쪽 삭제 금지의 제외 사유)와 `§8.1.1`에 반영했다. `AGENTS §4.3`상 각주 보강·서술 정정이라 버전은 올리지 않는다 (#2172 · #2086) |

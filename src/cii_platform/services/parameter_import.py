@@ -17,6 +17,8 @@
 
 세 테이블(``regulation_year`` · ``cii_reference_line`` · ``cii_rating_boundary``)은
 기존 활성 행을 끄고(``is_active = 0``) 새 행을 넣는다(``DB_SCHEMA §7.2`` · ``#98``).
+끄는 단위는 규정연도가 키(연도), 기준선·등급 경계가 **선종**이다(#2172) — 파일에 든
+선종은 그 선종의 활성 행이 전부 꺼지고 파일의 행으로 대체된다.
 ``fuel_type``은 같은 절의 **명시적 예외** — CF를 제자리에서 고치고 ``content_hash``를
 다시 계산한다(``TECH_SPEC §5.2`` ``parameter_hash`` 계약이 제자리 갱신 추적을 요구).
 ``OTHER`` 연료 생성(``PRD §3.4.2`` SHOULD)은 이 경로가 유일한 쓰기 경로다.
@@ -95,7 +97,7 @@ _CONDITION_MESSAGE = (
     "'65000 <= DWT < 100000' 형태여야 합니다."
 )
 
-#: 구간 판정을 하는 종류와 그 활성 행 조회 함수.
+#: 구간 판정을 하고 **선종 단위로 대체하는** 종류와 그 선종의 활성 행 조회 함수 (#2172).
 _PARTITIONED = {
     "reference_lines": param_repo.list_reference_lines,
     "rating_boundaries": param_repo.list_rating_boundaries,
@@ -269,7 +271,8 @@ def partition_problem(conditions: Sequence[str]) -> str | None:
     한 행이 맞아야 계산한다(``select_reference_line`` · ``select_rating_boundary``) —
     0행이면 「해당 없음」, 2행이면 「모호함」으로 둘 다 409다.
 
-    DB를 보지 않는 순수 함수다. 무엇을 넘길지(기존 활성 행 + 파일의 행)는 호출자가 정한다.
+    DB를 보지 않는 순수 함수다. 무엇을 넘길지는 호출자가 정한다 — 적재는 파일에 든 선종의
+    행만 넘긴다(#2172 · 선종 단위 대체).
     """
     intervals: list[tuple[ConditionInterval, str]] = []
     for condition in conditions:
@@ -468,23 +471,39 @@ async def _apply_versioned(
     parsed: Sequence[tuple[int, dict[str, object]]],
     version: str,
 ) -> tuple[int, int]:
-    """``(새 행, 대체한 활성 행)`` 수를 돌려준다."""
+    """``(새 행, 끈 활성 행)`` 수를 돌려준다.
+
+    기준선·등급 경계는 **선종 단위로 대체한다** (#2172 · 결정 1 가 · 결정 2 가) — 파일에
+    든 선종의 활성 행을 **전부** 끄고 파일의 행을 넣는다. 조건식이 달라진 옛 밴드도
+    꺼지므로 경계값 개정(밴드 이동 · 쪼개기 · 합치기)과 옛 밴드로의 되돌리기가 같은
+    경로로 들어온다. 파일에 없는 선종은 건드리지 않는다.
+
+    규정연도는 키가 연도라 종전대로 **키가 같은 활성 행**만 끈다.
+
+    🔴 끄기를 먼저 flush해야 한다 — ``054``의 활성-유니크 트리거는 같은 키의 활성 행이
+    남아 있으면 INSERT를 거부한다. 그래서 「끄기 → flush → 넣기」 순서를 지킨다.
+    """
     model = {
         "regulation_years": RegulationYear,
         "reference_lines": CiiReferenceLine,
         "rating_boundaries": CiiRatingBoundary,
     }[kind]
-    getter = {
-        "regulation_years": param_repo.get_regulation_year,
-        "reference_lines": param_repo.get_active_reference_line,
-        "rating_boundaries": param_repo.get_active_rating_boundary,
-    }[kind]
     inserted = replaced = 0
+    if kind in _PARTITIONED:
+        first_row: dict[str, int] = {}
+        for row_number, item in parsed:
+            first_row.setdefault(str(item["ship_type"]), row_number)
+        for ship_type, row_number in first_row.items():
+            for existing in await _PARTITIONED[kind](session, ship_type):
+                existing.is_active = False  # 이행 행으로 남는다 — 값은 그대로 둔다
+                replaced += 1
+            await _flush_row(session, row_number)
     for row_number, item in parsed:
-        existing = await getter(session, *item["key"])
-        if existing is not None:
-            existing.is_active = False  # 이행 행으로 남는다 — 값은 그대로 둔다
-            replaced += 1
+        if kind not in _PARTITIONED:
+            existing = await param_repo.get_regulation_year(session, *item["key"])
+            if existing is not None:
+                existing.is_active = False  # 이행 행으로 남는다 — 값은 그대로 둔다
+                replaced += 1
         session.add(
             model(
                 id=uuid.uuid4(),
@@ -498,14 +517,14 @@ async def _apply_versioned(
     return inserted, replaced
 
 
-async def _partition_errors(
-    session: AsyncSession, kind: str, parsed: Sequence[tuple[int, dict[str, object]]]
-) -> list[dict[str, object]]:
-    """적재 **뒤의** 선종별 활성 행이 전 구간을 덮는지 본다 (#2087).
+def _partition_errors(parsed: Sequence[tuple[int, dict[str, object]]]) -> list[dict[str, object]]:
+    """적재 **뒤의** 선종별 활성 행이 전 구간을 덮는지 본다 (#2087 · #2172).
 
-    적재 뒤의 활성 행 = 파일의 행 + 파일에 같은 키가 없는 기존 활성 행이다
-    (``_apply_versioned``가 끄는 것은 키가 같은 행뿐이다). ``dry_run``도 여기를 지난다 —
-    실제 적재와 같은 판정이어야 한다(#1190).
+    적재는 파일에 든 선종의 활성 행을 전부 끄고 파일의 행으로 대체한다(``_apply_versioned``).
+    그러므로 적재 뒤의 활성 행 = **파일의 행**이고, 기존 활성 행은 판정에 들지 않는다 —
+    파일에 든 선종은 그 선종의 모든 구간을 파일 안에 담아야 한다. 파일에 없는 선종은
+    바뀌지 않으므로 보지 않는다. DB를 보지 않으므로 ``dry_run``도 실제 적재와 같은 판정이다
+    (#1190).
 
     오류는 그 선종의 **파일 첫 행**에 붙인다. 구간은 여러 행이 함께 만드는 성질이라
     한 행을 지목할 수 없고, 사용자가 고칠 자리는 그 선종의 행들이다.
@@ -517,13 +536,7 @@ async def _partition_errors(
         )
     found: list[dict[str, object]] = []
     for ship_type, rows in by_ship_type.items():
-        in_file = {condition for _, condition in rows}
-        kept = [
-            existing.condition_expr
-            for existing in await _PARTITIONED[kind](session, ship_type)
-            if existing.condition_expr not in in_file
-        ]
-        problem = partition_problem([*kept, *(condition for _, condition in rows)])
+        problem = partition_problem([condition for _, condition in rows])
         if problem is not None:
             found.append(
                 {
@@ -615,7 +628,7 @@ async def import_parameters(
     # 행이 전부 읽혔을 때만 구간을 본다 — 행 오류가 있으면 그 행이 빠진 채로 판정하게
     # 되어, 고치면 사라질 「빈틈」을 함께 보고한다.
     if not errors and kind in _PARTITIONED:
-        errors.extend(await _partition_errors(session, kind, parsed))
+        errors.extend(_partition_errors(parsed))
 
     if dry_run or errors:
         return {
@@ -663,6 +676,13 @@ async def import_parameters(
             # 값의 **출처**를 함께 남긴다 (`#1515`) — 행 수·판본만으로는 「무엇을 근거로
             # 바뀌었나」에 답할 수 없다. 고유값을 정렬해 두어 같은 파일이면 같은 목록이다.
             "source_refs": sorted({str(item["source_ref"]) for _, item in parsed}),
+            # 기준선·등급 경계는 선종 단위로 대체한다(#2172) — 「어느 선종이 바뀌었나」에
+            # 답하도록 적재한 선종을 같은 방식(고유값 정렬)으로 남긴다.
+            **(
+                {"ship_types": sorted({str(item["ship_type"]) for _, item in parsed})}
+                if kind in _PARTITIONED
+                else {}
+            ),
         },
         ip_address=ip_address,
     )
