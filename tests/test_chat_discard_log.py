@@ -19,11 +19,14 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
+import subprocess
 from pathlib import Path
 from uuid import uuid4
 
 import httpx
 import pytest
+import yaml
 
 from cii_platform.llm import anthropic
 from cii_platform.llm.anthropic import AnthropicProvider
@@ -153,11 +156,22 @@ def test_ops_inspect_also_greps_the_provider_failure_prefix() -> None:
     폐기 줄에는 종류(`provider-error`)만 있고 원인(상태 코드 · 예외 이름)은 별도 경고 줄에만
     있다. 접두어가 어긋나면 그 줄이 조용히 빠져 원인을 볼 길이 다시 없어진다.
     """
-    # 주석에도 같은 문구가 적혀 있으므로 **grep 줄 안**을 본다 — 주석만 남아도 통과하면 안 된다.
-    grep_lines = [line for line in OPS.splitlines() if "grep -F" in line]
-    assert any(anthropic.FAILURE_LOG_PREFIX in line for line in grep_lines), (
-        "ops.yml이 공급자 실패 접두어로 고르지 않는다"
+    # 문자열이 들어 있는지만 보면 주석이나 깨진 패턴(`-F`에 `\\|`)으로도 통과한다. 점검 단계의
+    # **grep 명령을 그대로 꺼내 표본 로그에 돌려** 두 줄이 다 골라지고 다른 줄은 빠지는지 본다.
+    step = next(
+        s
+        for s in yaml.safe_load(OPS)["jobs"]["ops"]["steps"]
+        if s.get("name") == "챗봇 폐기·공급자 실패 (app-01)"
     )
+    grep_line = next(line for line in step["run"].splitlines() if "grep -F" in line)
+    argv = shlex.split(grep_line.strip().removeprefix("|").removesuffix("\\").strip())
+    discard = f"WARNING cii_platform.services.chat {chat.DISCARD_LOG_PREFIX}(provider-error)"
+    failure = f"WARNING cii_platform.llm.anthropic {anthropic.FAILURE_LOG_PREFIX} (HTTP 401)"
+    other = "INFO uvicorn.access 200 GET /api/v1/health"
+    picked = subprocess.run(
+        argv, input="\n".join([other, discard, failure]) + "\n", capture_output=True, text=True
+    ).stdout.splitlines()
+    assert picked == [discard, failure], picked
 
 
 def _failing_transport(error: Exception | int) -> httpx.MockTransport:
