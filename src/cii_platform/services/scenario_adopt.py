@@ -230,13 +230,40 @@ async def adopt_scenario(
 def _fuel_shares(total: Decimal, weights: list[Decimal]) -> dict[int, Decimal]:
     """시나리오 총량을 비중대로 나눈 **행 번호 → 몫**. 비중이 0인 행은 들어 있지 않다.
 
-    규칙은 :func:`_apply_scenario_fuel`의 「0을 넣지 않는다」·「총량을 정확히 보존한다」다.
+    규칙은 :func:`_apply_scenario_fuel`의 「0을 넣지 않는다」·「총량을 정확히 보존한다」다 —
+    돌려주는 몫은 **전부 최소 저장 단위(``0.0001`` t) 이상**이고 **합은 총량과 같다.**
+
+    ``total``은 ``voyage_scenario.fuel_ton``(``NUMERIC(12,4)`` · ``chk_scenario_fuel_positive``)
+    이라 **``0.0001`` 이상이고 4자리 격자 위에 있다.** 격자 밖 값은 이 함수가 받지 않는다 —
+    「합 = 총량」을 격자 위에서 만들 수 없기 때문이다(`#2275`).
+
+    ## 보통 갈래 — 4자리 반올림 + 잔차 흡수
+
+    몫을 4자리로 반올림하고, 잔차는 비중이 가장 큰 행이 흡수한다. 반올림으로 0이 된 몫은
+    ``0.0001``로 올린다. 총량이 넉넉하면 흡수한 행도 ``0.0001`` 이상이라 그대로 끝난다.
+
+    ## 작은 총량 갈래 — ``0.0001`` 단위로 채운다
+
+    총량이 작으면 잔차를 흡수한 행이 ``0.0001`` 아래로 내려간다(총량이 「양수 비중 행 수 ×
+    0.0001」보다 작을 때는 반드시, 그 두 배 아래에서도 비중에 따라). 종전에는 그 행을 다시
+    ``0.0001``로 올려 **합이 총량을 넘었다**(`#2275`). 지금은 총량을 ``0.0001`` 단위 수로 보고
+    비중이 큰 행부터(같으면 앞 행부터) 채운다 —
+
+    - 단위 수가 양수 비중 행 수보다 적으면 **앞에서부터 한 단위씩** 주고 **몫이 0이 되는 행은
+      결과에서 뺀다**(``chk_fuel_positive``가 0을 거부한다) — 그 행의 계획값은
+      :func:`_apply_scenario_fuel`이 ``NULL``로 비운다
+    - 그렇지 않으면 **모든 행이 한 단위씩** 받고, 남는 단위를 비중대로 내림해 나눈 뒤 나머지를
+      소수부가 큰 행부터 한 단위씩 더 준다
+
+    보통 갈래가 ``0.0001`` 이상으로 끝나는 입력은 이 갈래를 타지 않으므로 종전 결과가 그대로다.
 
     몫은 **나눗셈으로 새로 만들어 저장하는 값**이라 Layer 1 컨텍스트 안에서 낸다
     (`#2254` · `TECH_SPEC §1.2.1`). :func:`_apply_scenario_fuel`은 코루틴이라 데코레이터를
     달 수 없다 — 컨텍스트가 코루틴 객체를 만드는 동안에만 걸리고 본문이 도는 동안에는
     풀려 있다.
     """
+    if total < _FUEL_STEP or total != total.quantize(_FUEL_STEP):
+        raise ValueError(f"시나리오 연료 총량이 저장 형식(0.0001 t 격자)의 값이 아니다: {total}")
     weight_sum = sum(weights)
     positive = [index for index, weight in enumerate(weights) if weight > 0]
     shares: dict[int, Decimal] = {}
@@ -247,9 +274,24 @@ def _fuel_shares(total: Decimal, weights: list[Decimal]) -> dict[int, Decimal]:
     # 잔차는 비중이 가장 큰 행이 흡수한다.
     anchor = max(positive, key=lambda index: (weights[index], -index))
     shares[anchor] += total - sum(shares.values())
-    if shares[anchor] < _FUEL_STEP:  # pragma: no cover - 행이 극단적으로 많을 때만
-        shares[anchor] = _FUEL_STEP
-    return shares
+    if shares[anchor] >= _FUEL_STEP:
+        return shares
+
+    # 작은 총량 갈래 — 흡수한 행이 최소 저장 단위 아래로 내려갔다.
+    ranked = sorted(positive, key=lambda index: (-weights[index], index))
+    units = int(total / _FUEL_STEP)
+    if units < len(positive):
+        return {index: _FUEL_STEP for index in ranked[:units]}
+    positive_sum = sum(weights[index] for index in positive)
+    exact = {index: (units - len(positive)) * weights[index] / positive_sum for index in positive}
+    counts = {index: int(exact[index]) for index in positive}
+    leftover = units - len(positive) - sum(counts.values())
+    by_fraction = sorted(
+        positive, key=lambda index: (counts[index] - exact[index], -weights[index], index)
+    )
+    for index in by_fraction[:leftover]:
+        counts[index] += 1
+    return {index: _FUEL_STEP * (1 + counts[index]) for index in positive}
 
 
 async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
@@ -275,13 +317,17 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
       그대로 두고, 시나리오 총량은 **양수 비중을 가진 행들에만** 나눈다. 0으로 덮으면
       트리거가 거부해 채택 자체가 500이 된다
     - 반올림으로 0.0000이 되는 몫은 최소 저장 단위(``0.0001``)로 올린다
+    - 총량이 너무 작아 몫을 받지 못한 양수 비중 행은 **``NULL``로 비운다** — 0은 거부되고
+      옛 값을 두면 총량이 보존되지 않는다(`#2275`)
 
     ## 총량을 정확히 보존한다
 
     4자리로 반올림한 몫을 그대로 더하면 합이 시나리오 총량과 어긋난다. **가장 비중이 큰
-    행에 잔차를 얹어** 합을 총량과 같게 맞춘다 — 그 행이 가장 크므로 잔차를 흡수해도
-    부호가 뒤집히지 않는다. 순서는 ``list_fuel_uses``(유종순 · `#867`)를 따르므로 같은
-    입력이면 같은 결과가 나온다.
+    행에 잔차를 얹어** 합을 총량과 같게 맞춘다. 총량이 작아 그 행이 ``0.0001`` 아래로
+    내려가면 **``0.0001`` 단위로 비중이 큰 행부터 채워** 합을 맞춘다 — 이때 몫을 받지
+    못한 양수 비중 행은 **계획값을 ``NULL``로 비워** 양수 비중이던 행 전체의 계획 연료 합이
+    총량과 같게 한다(`#2275`). 비중이 0이거나 원래 비어 있던 행은 종전대로 건드리지 않는다.
+    순서는 ``list_fuel_uses``(유종순 · `#867`)를 따르므로 같은 입력이면 같은 결과가 나온다.
     """
     rows = await voyage_repo.list_fuel_uses(session, target.id)
     total = Decimal(scenario.fuel_ton)
@@ -319,9 +365,17 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
         # 비중이 될 값이 하나도 없다 — 기존 혼합이 **없으므로** 균등이 중립적인 선택이다.
         weights = [Decimal(1)] * len(rows)
 
-    for index, share in _fuel_shares(total, weights).items():
-        rows[index].planned_fuel_ton = share
-        rows[index].source = SOURCE_MODEL_ESTIMATE
+    shares = _fuel_shares(total, weights)
+    for index, row in enumerate(rows):
+        if index in shares:
+            row.planned_fuel_ton = shares[index]
+            row.source = SOURCE_MODEL_ESTIMATE
+        elif weights[index] > 0:
+            # 비중은 있었는데 총량이 너무 작아 몫을 받지 못한 행이다 — 옛 계획값을 두면 항차의
+            # 계획 연료 합이 「옛 값 + 총량」이 된다. NULL로 비운다(`chk_fuel_positive`는 NULL을
+            # 받는다 · `#2275`).
+            row.planned_fuel_ton = None
+            row.source = SOURCE_MODEL_ESTIMATE
     return True
 
 
