@@ -154,7 +154,13 @@ async def test_patch_leaves_unsent_fields_alone(migrated_db, app_fresh_engine):
             client.post("/api/v1/auth/dev-login")
             created = client.post(
                 f"/api/v1/vessels/{vessel_id}/not-underway-periods",
-                json=_period_body(ended_at=None, port_name="Busan", distance_nm="12.5"),
+                # 거리가 있는 유형이어야 한다 — 접안·묘박은 0만 받는다 (`#2130`).
+                json=_period_body(
+                    period_type="CANAL_TRANSIT",
+                    ended_at=None,
+                    port_name="Busan",
+                    distance_nm="12.5",
+                ),
                 headers=_csrf(client),
             )
             assert created.status_code == 201, created.text
@@ -170,7 +176,55 @@ async def test_patch_leaves_unsent_fields_alone(migrated_db, app_fresh_engine):
             assert data["port_name"] == "Busan", "보내지 않은 칸이 지워졌다"
             # 이 칸은 입력 에코라 Layer 1 문자열이 아니다 — 응답이 숫자로 나온다.
             assert float(data["distance_nm"]) == 12.5, data["distance_nm"]
-            assert data["period_type"] == "AT_ANCHOR"
+            assert data["period_type"] == "CANAL_TRANSIT"
+    finally:
+        await _cleanup(vessel_id)
+
+
+async def test_berth_distance_is_422_on_create_and_patch(migrated_db, app_fresh_engine):
+    """#2130 — 접안·묘박 구간의 이동 거리는 0이어야 한다. 생성·수정 모두 **422**다.
+
+    이 거리는 CII 분모 ``Dt``에 더해진다. 종전에는 스키마가 ``>= 0``만 보아 접안에 50을
+    넣으면 그대로 저장되고 등급이 좋아지는 쪽으로 조용히 바뀌었다(로컬 실측).
+    거부 문구와 칸(``details[0].field``)이 응답에 실리는지까지 HTTP에서 본다 — 화면은
+    그 칸 아래에 문구를 붙인다(`API_SPEC §1.3.2`).
+    """
+    from cii_platform.services.not_underway import STATIONARY_DISTANCE_MESSAGE
+
+    vessel_id = await _seed_vessel()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = _csrf(client)
+            base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
+
+            refused = client.post(
+                base, json=_period_body(period_type="IN_PORT", distance_nm="50"), headers=headers
+            )
+            assert refused.status_code == 422, refused.text
+            error = refused.json()["error"]
+            assert error["code"] == "VALIDATION_ERROR", error
+            assert error["details"][0]["field"] == "distance_nm", error
+            assert error["details"][0]["message"] == STATIONARY_DISTANCE_MESSAGE, error
+
+            # 대조군 — 0이면 들어간다. 거부만 보면 전부 거부해도 통과한다.
+            created = client.post(base, json=_period_body(), headers=headers)
+            assert created.status_code == 201, created.text
+            period_id = created.json()["data"]["id"]
+
+            patched = client.patch(
+                f"/api/v1/not-underway-periods/{period_id}",
+                json={"distance_nm": "50"},
+                headers=headers,
+            )
+            assert patched.status_code == 422, patched.text
+            assert patched.json()["error"]["details"][0]["field"] == "distance_nm"
+
+            # 저장된 값은 그대로다 — 거부된 요청이 행을 바꾸지 않는다.
+            listed = client.get(base)
+            assert listed.status_code == 200, listed.text
+            [row] = listed.json()["data"]
+            assert float(row["distance_nm"]) == 0, row
     finally:
         await _cleanup(vessel_id)
 

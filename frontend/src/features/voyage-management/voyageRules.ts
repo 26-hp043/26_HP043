@@ -350,7 +350,12 @@ function checkInstantPair(
 export function validateDraft(draft: VoyageDraft): FieldErrors {
   const errors: FieldErrors = {}
 
-  if (draft.voyageNo.trim() === '') errors.voyageNo = '항차 번호를 입력해 주세요.'
+  /*
+   * 항차 번호는 **선택**이다 (`#2130` · 전수검수 D-11 · `API_SPEC §3.3`). 종전에는 이 폼만 빈
+   * 값을 막아, 같은 자원에 세 입구가 세 규칙이었다 — 서버 스키마는 `str | None`이고 계획 저장
+   * 폼은 「항차 번호 (선택)」이다. 번호 체계가 없는 선사가 임의 값을 지어 넣게 하지 않는다.
+   * 번호 없는 항차는 목록에서 출발항→도착항과 출항일로 식별된다.
+   */
   if (draft.departurePortName.trim() === '') errors.departurePortName = '출발항을 입력해 주세요.'
   if (draft.arrivalPortName.trim() === '') errors.arrivalPortName = '도착항을 입력해 주세요.'
 

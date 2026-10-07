@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   CONSUMER_TYPE_LABELS,
   PERIOD_TYPE_LABELS,
+  STATIONARY_DISTANCE_MESSAGE,
+  STATIONARY_PERIOD_TYPES,
+  distanceLocked,
   formatRange,
+  fuelUseDeleteCaution,
+  periodDeleteCaution,
   hasErrors,
   labelOf,
   toIso,
@@ -123,6 +128,22 @@ describe('입력 검증', () => {
 
   it('음수 거리는 막는다', () => {
     expect(validateDraft({ ...DRAFT, distanceNm: '-1' }).distanceNm).toBeTruthy()
+  })
+
+  it('접안·묘박에 거리가 있으면 서버와 같은 문구로 막는다 (#2130)', () => {
+    // 정본 문구 (API_SPEC §2.10) — 서버 422와 같은 문장이다. 바꾸려면 정본 개정이 먼저다.
+    expect(validateDraft({ ...DRAFT, periodType: 'AT_ANCHOR', distanceNm: '0.01' }).distanceNm).toBe(
+      '접안·묘박 구간의 이동 거리는 0이어야 합니다.',
+    )
+    expect(validateDraft({ ...DRAFT, periodType: 'IN_PORT', distanceNm: '50' }).distanceNm).toBe(
+      STATIONARY_DISTANCE_MESSAGE,
+    )
+  })
+
+  it('거리가 있는 유형은 거리를 받는다 (#2130)', () => {
+    for (const periodType of ['DRIFTING', 'STS', 'CANAL_TRANSIT', 'DRYDOCK']) {
+      expect(hasErrors(validateDraft({ ...DRAFT, periodType, distanceNm: '50' }))).toBe(false)
+    }
   })
 
   it('0톤 연료는 막는다 — 안 썼으면 줄을 지우면 된다', () => {
@@ -261,5 +282,53 @@ describe('validateFuelDraft — 나중에 더하는 연료 한 줄 (#638)', () =
     // 이미 저장된 구간의 연료와 대조해야 하는데 화면은 그것을 알 수 없다.
     // 흉내 내면 두 판정이 갈리고, 갈린 쪽이 맞다고 믿을 근거가 없다.
     expect(validateFuelDraft(ok)).toBeNull()
+  })
+})
+
+describe('접안·묘박 거리 잠금 (#2130 · 전수검수 D-11)', () => {
+  it('잠그는 유형은 접안·묘박 둘이다 — 서버 `STATIONARY_PERIOD_TYPES`와 같다', () => {
+    // 서버 쪽 대조는 `tests/test_not_underway_crud_db.py`가 이 소스를 읽어 한다.
+    expect([...STATIONARY_PERIOD_TYPES]).toEqual(['IN_PORT', 'AT_ANCHOR'])
+    expect(distanceLocked('IN_PORT')).toBe(true)
+    expect(distanceLocked('AT_ANCHOR')).toBe(true)
+    for (const periodType of ['DRIFTING', 'STS', 'CANAL_TRANSIT', 'DRYDOCK', '']) {
+      expect(distanceLocked(periodType)).toBe(false)
+    }
+  })
+})
+
+describe('삭제 확인 줄 문구 (#2130 · 전수검수 D-11)', () => {
+  /*
+   * 표시 문구라 리터럴로 묻지 않는다(`AGENTS §4.6`). 지키려는 성질은 셋이다 —
+   * ⑴ 그 구간·그 줄의 값이 적힌다 ⑵ 연료가 없는 구간에 「0 t」을 적지 않는다
+   * ⑶ 실행 버튼은 「그만두기」와 다른 동사다.
+   */
+  it('구간 — 연료 합계를 표시 자릿수로 적는다', () => {
+    const caution = periodDeleteCaution(PERIOD)
+    // 12 + 4.5 = 16.5 t — 목록 행의 「연료」 칸과 같은 형식이다.
+    expect(caution.message).toContain(quantityText(totalFuelTon(PERIOD), DISPLAY_DIGITS.fuelTon))
+    expect(caution.message).toContain('16.5')
+    expect(caution.confirm).not.toBe('')
+  })
+
+  it('구간 — 연료가 없으면 「0」을 지어내지 않는다 (안 넣은 것과 0은 다르다)', () => {
+    const empty = periodDeleteCaution({ ...PERIOD, fuelUses: [] })
+    expect(empty.message).not.toMatch(/\b0(\.0)? t\b/)
+    expect(empty.message).not.toBe(periodDeleteCaution(PERIOD).message)
+  })
+
+  it('구간 — 이동 거리가 있으면 거리도 빠진다고 적고, 0이면 적지 않는다', () => {
+    const moving = periodDeleteCaution({ ...PERIOD, periodType: 'CANAL_TRANSIT', distanceNm: 80 })
+    expect(moving.message).toContain('80')
+    expect(periodDeleteCaution(PERIOD).message).not.toContain(' nm')
+  })
+
+  it('연료 한 줄 — 그 줄의 소비원·유종·양을 적는다', () => {
+    const caution = fuelUseDeleteCaution(PERIOD.fuelUses[1])
+    expect(caution.message).toContain(CONSUMER_TYPE_LABELS.AUX_ENGINE)
+    expect(caution.message).toContain('HFO')
+    expect(caution.message).toContain('4.5')
+    // 다른 줄을 고르면 문구가 달라진다 — 어느 줄을 지우는지가 문구에 있다.
+    expect(caution.message).not.toBe(fuelUseDeleteCaution(PERIOD.fuelUses[0]).message)
   })
 })

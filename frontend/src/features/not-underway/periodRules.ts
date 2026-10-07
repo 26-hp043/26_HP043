@@ -1,11 +1,13 @@
 import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
   formatGrouped,
   formatTimestamp,
   kstInputToIso,
   toDecimalInput,
   toKstInput,
 } from '../../display/format'
-import type { FuelUseDraft, Period, PeriodDraft } from './types'
+import type { FuelUse, FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
  * not under way 구간 화면 규칙 (`#370`).
@@ -34,6 +36,29 @@ export const CONSUMER_TYPE_LABELS: Readonly<Record<string, string>> = {
   AUX_ENGINE: '보조기관',
   OIL_FIRED_BOILER: '보일러',
   OTHER: '기타',
+}
+
+/**
+ * 이동 거리가 **0이어야 하는** 구간 유형 (`#2130` · 전수검수 D-11).
+ *
+ * 접안·묘박은 배가 움직이지 않는데, 이 거리는 CII 분모 `Dt`에 더해진다(`types.ts`). 접안에
+ * 50을 넣으면 등급이 좋아지는 쪽으로 조용히 바뀐다. 폼은 이 유형을 고르면 거리 칸을 잠그고
+ * `0`을 보낸다.
+ *
+ * ⚠️ **서버가 같은 목록과 문구를 들고 있다** — `services/not_underway.py`의
+ * `STATIONARY_PERIOD_TYPES` · `STATIONARY_DISTANCE_MESSAGE`. 서버는 생성·수정·CSV에서 422로
+ * 막는다(`API_SPEC §2.10`). 두 곳이 갈리면 화면이 잠그지 않은 칸을 서버가 거부하거나 그
+ * 반대가 되므로, `tests/test_not_underway_crud_db.py`가 이 소스 글자를 읽어 대조한다 —
+ * **배열 리터럴과 작은따옴표 문자열 모양을 바꾸면 그 검사를 함께 고친다.**
+ */
+export const STATIONARY_PERIOD_TYPES: readonly string[] = ['IN_PORT', 'AT_ANCHOR']
+
+/** 정본 문구 (`API_SPEC §2.10`) — 서버 422와 같은 문장이다. 바꾸려면 정본 개정이 먼저다. */
+export const STATIONARY_DISTANCE_MESSAGE = '접안·묘박 구간의 이동 거리는 0이어야 합니다.'
+
+/** 이 유형이면 거리 칸을 잠근다 — 값은 `0`으로 고정한다. */
+export function distanceLocked(periodType: string): boolean {
+  return STATIONARY_PERIOD_TYPES.includes(periodType)
 }
 
 /** 라벨이 없으면 코드를 그대로 보여 준다. 빈칸이면 항목이 없는 것으로 읽힌다. */
@@ -94,6 +119,52 @@ export function totalFuelTon(period: Period): number {
   return period.fuelUses.reduce((sum, fu) => sum + fu.fuelTon, 0)
 }
 
+/**
+ * 삭제 전에 한 번 더 묻는 줄의 문구 (`#2130` · 전수검수 D-11).
+ *
+ * 항차 카드의 확인 줄(`voyage-management/voyageRules.ts`의 `transitionCaution` · `#1598`)과
+ * 같은 모양이다 — 설명은 **무엇이 달라지는지**만 말하고, 실행 버튼은 동사로 끝난다.
+ * 「정말로?」만 물으면 누른 사람이 판단할 근거가 없으므로 **그 구간·그 줄의 값**을 적는다.
+ *
+ * * 구간 삭제는 서버에서 소프트 삭제지만(`API_SPEC §2.12`) **되살리는 경로가 없다** —
+ *   사용자에게는 되돌릴 수 없는 동작이다.
+ * * 연료 한 줄 삭제는 **물리 삭제다**(`API_SPEC §2.13` · `types.ts`).
+ *
+ * 둘 다 누적 CII의 분자(연료)·분모(거리)를 바꾼다. 연료가 없는 구간은 「0 t이 빠집니다」가
+ * 아니라 **없다는 사실**을 말한다 — 안 넣은 것과 0을 같게 적지 않는다(목록의 「미입력」과 같다).
+ */
+export interface DeleteCaution {
+  /** 확인 줄의 설명 */
+  message: string
+  /** 확인 버튼 */
+  confirm: string
+}
+
+export function periodDeleteCaution(period: Period): DeleteCaution {
+  const parts: string[] = []
+  if (period.fuelUses.length === 0) {
+    parts.push('이 구간에는 연료 기록이 없습니다.')
+  } else {
+    const ton = quantityText(totalFuelTon(period), DISPLAY_DIGITS.fuelTon)
+    parts.push(`이 구간의 연료 ${ton} ${DISPLAY_UNITS.fuel}이 누적에서 빠집니다.`)
+  }
+  if (period.distanceNm > 0) {
+    const nm = quantityText(period.distanceNm, DISPLAY_DIGITS.distanceNm)
+    parts.push(`이동 거리 ${nm} ${DISPLAY_UNITS.distance}도 빠집니다.`)
+  }
+  parts.push('지운 구간은 되돌릴 수 없습니다.')
+  return { message: parts.join(' '), confirm: '삭제하기' }
+}
+
+export function fuelUseDeleteCaution(fuelUse: FuelUse): DeleteCaution {
+  const consumer = labelOf(fuelUse.consumerType, CONSUMER_TYPE_LABELS)
+  const ton = quantityText(fuelUse.fuelTon, DISPLAY_DIGITS.fuelTon)
+  return {
+    message: `${consumer} ${fuelUse.fuelType} ${ton} ${DISPLAY_UNITS.fuel}이 누적에서 빠집니다. 지운 연료 기록은 되돌릴 수 없습니다.`,
+    confirm: '삭제하기',
+  }
+}
+
 export interface DraftErrors {
   startedAt?: string
   endedAt?: string
@@ -122,6 +193,10 @@ export function validateDraft(draft: PeriodDraft): DraftErrors {
   if (draft.distanceNm === '' || Number.isNaN(distance) || distance < 0) {
     // 0은 정상값이다 — 접안·묘박은 움직이지 않는다(마이그레이션 028).
     errors.distanceNm = '0 이상의 숫자를 입력해 주세요.'
+  } else if (distanceLocked(draft.periodType) && distance !== 0) {
+    // 폼은 칸을 잠가 이 갈래에 닿지 않게 한다. 그래도 두는 것은 **판정이 서버와 같은
+    // 함수 모양**이어야 하기 때문이다 — 잠금이 풀리는 날 서버 422를 받기 전에 여기서 말한다.
+    errors.distanceNm = STATIONARY_DISTANCE_MESSAGE
   }
 
   for (const fu of draft.fuelUses) {

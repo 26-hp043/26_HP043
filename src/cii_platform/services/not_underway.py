@@ -56,6 +56,20 @@ PERIOD_TYPES: tuple[str, ...] = (
     "DRYDOCK",
 )
 
+#: 이동 거리가 **0이어야 하는** 구간 유형 (`#2130` · 전수검수 D-11).
+#:
+#: 접안·묘박은 배가 움직이지 않는다. 그런데 이 거리는 CII 분모 ``Dt``에 더해지므로
+#: (``nu_repo.sum_distance``) 접안 구간에 50을 넣으면 **등급이 좋아지는 쪽으로 조용히**
+#: 바뀐다. 종전에는 스키마가 ``>= 0``만 보아 그 값이 그대로 저장됐다(로컬 실측).
+#:
+#: ⚠️ **화면이 같은 목록을 들고 있다** — ``frontend/src/features/not-underway/periodRules.ts``의
+#: ``STATIONARY_PERIOD_TYPES``. 두 곳이 갈리면 화면은 잠그지 않은 칸을 서버가 거부하거나
+#: 그 반대가 된다. ``tests/test_not_underway_crud_db.py``가 두 목록과 문구를 대조한다.
+STATIONARY_PERIOD_TYPES: tuple[str, ...] = ("IN_PORT", "AT_ANCHOR")
+
+#: 위 규칙의 거부 문구 (`API_SPEC §2.10`). 생성·수정·CSV 가져오기가 같은 문장을 쓴다.
+STATIONARY_DISTANCE_MESSAGE = "접안·묘박 구간의 이동 거리는 0이어야 합니다."
+
 #: ``chk_not_underway_consumer_type``와 같은 4값. MEPC.385(81)이 MARPOL Annex VI
 #: Appendix IX에 추가한 DCS 보고 항목 그대로다(데이터연도 2026~).
 CONSUMER_TYPES: tuple[str, ...] = (
@@ -282,6 +296,27 @@ async def _snapshot_cf(session: AsyncSession, fuel_type: str) -> Decimal:
     return Decimal(str(rows[fuel_type].cf))
 
 
+def stationary_distance_violation(period_type: str, distance_nm: Decimal) -> str | None:
+    """접안·묘박 구간에 이동 거리가 있으면 거부 문구를, 아니면 ``None``을 돌려준다 (`#2130`).
+
+    판정을 순수 함수 하나로 둔다 — 수기 API(생성·수정)는 :class:`ValidationError`로,
+    CSV 파서는 행 오류로 옮겨 쓴다. 경로마다 조건을 다시 적으면 한쪽만 고쳐진다
+    (`#1190`이 한도에서 겪은 것과 같은 꼴).
+    """
+    if period_type in STATIONARY_PERIOD_TYPES and distance_nm != 0:
+        return STATIONARY_DISTANCE_MESSAGE
+    return None
+
+
+def _assert_stationary_distance(period_type: str, distance_nm: Decimal) -> None:
+    """:func:`stationary_distance_violation`을 422로 옮긴다. 칸은 ``distance_nm``이다."""
+    message = stationary_distance_violation(period_type, distance_nm)
+    if message is not None:
+        raise ValidationError(
+            message, field="distance_nm", field_label=_FIELD_LABELS["distance_nm"]
+        )
+
+
 def _validate_enum(value: str, allowed: tuple[str, ...], *, field: str, label: str) -> None:
     """DB CHECK 제약을 **먼저** 확인한다.
 
@@ -370,6 +405,7 @@ async def create_period(
     if voyage_id is not None:
         await _require_voyage_of_vessel(session, voyage_id, vessel_id)
     _validate_enum(period_type, PERIOD_TYPES, field="period_type", label="구간 유형")
+    _assert_stationary_distance(period_type, distance_nm)
     for fu in fuel_uses:
         _validate_enum(fu["consumer_type"], CONSUMER_TYPES, field="consumer_type", label="소비원")
 
@@ -462,6 +498,16 @@ async def update_period(
     if "period_type" in fields:
         _validate_enum(
             str(fields["period_type"]), PERIOD_TYPES, field="period_type", label="구간 유형"
+        )
+
+    # 접안·묘박의 이동 거리 (`#2130`). **바뀐 뒤의 값으로** 본다 — 유형만 접안으로 바꾸고
+    # 저장된 거리 50을 그대로 두는 요청도, 거리만 50으로 바꾸는 요청도 같은 결과여야 한다.
+    # 둘 다 보내지 않은 요청(종료 시각 확정 등)은 보지 않는다 — 주 용도인 「종료 확정」이
+    # 이 규칙 이전에 저장된 행에서 막히면 사용자는 고칠 수 없는 이유로 구간을 닫지 못한다.
+    if "period_type" in fields or "distance_nm" in fields:
+        _assert_stationary_distance(
+            str(fields.get("period_type", period.period_type)),
+            fields.get("distance_nm", period.distance_nm),  # type: ignore[arg-type]
         )
 
     # 귀속 항차를 바꾸는 요청도 생성과 **같은 검사**를 받는다 (`#1333`). 한쪽만 막으면

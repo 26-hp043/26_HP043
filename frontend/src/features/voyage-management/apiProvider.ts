@@ -398,7 +398,9 @@ export function createApiVoyageManagementProvider(
       const body = await call(`/vessels/${vesselId}/voyages`, {
         method: 'POST',
         body: JSON.stringify({
-          voyage_no: draft.voyageNo.trim(),
+          // 비우면 `null` — 「번호 없음」은 빈 문자열이 아니라 값이 없는 것이다 (`#2130` ·
+          // `§3.3` 선택). 빈 문자열을 보내면 그대로 저장돼 `?? '—'`로 그리는 화면들이 빈칸을 낸다.
+          voyage_no: draft.voyageNo.trim() || null,
           departure_port_name: draft.departurePortName.trim(),
           arrival_port_name: draft.arrivalPortName.trim(),
           // 검증과 같은 함수로 읽는다 — 쉼표·전각 숫자를 받는다 (#2124).
