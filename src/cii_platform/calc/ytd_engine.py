@@ -42,7 +42,8 @@ system"*.
   상태인데, ``cii_engine._voyage_co2``는 빈 입력을 ``ValueError``로 막는다.
 
 중간 단계 자릿수 처리는 하지 않는다 — 근거는 :mod:`cii_platform.calc.cii_engine`
-모듈 docstring과 같다(``TECH_SPEC §1.2.1``에 중간 처리 규정이 없다).
+모듈 docstring과 같다(``TECH_SPEC §1.2.1`` 「중간 단계 처리」 — 중간 단계를 정본값
+자릿수로 확정하지 않고 작업 정밀도로 이어 계산한다).
 """
 
 from collections.abc import Sequence

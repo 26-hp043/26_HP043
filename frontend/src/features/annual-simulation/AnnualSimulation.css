@@ -379,7 +379,7 @@
  * 조용히 안 걸리므로, 걸릴 곳을 명시한다.
  */
 .annual-sim__control {
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
@@ -396,7 +396,7 @@
 
 .annual-sim__form button[type='submit'] {
   font-size: var(--font-size-body);
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-24);
   border: none;
   border-radius: var(--radius-control);
@@ -677,7 +677,7 @@
 
 .annual-sim__reproduce button {
   font-size: var(--font-size-body);
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-16);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
@@ -829,7 +829,7 @@
   box-shadow: var(--shadow-lv1);
 }
 
-.annual-sim__playback-map > [role='img'] {
+.annual-sim__playback-map > [role='group'] {
   width: 100%;
   min-height: 22rem;
 }
@@ -904,7 +904,7 @@
     grid-template-columns: 1fr;
   }
   .annual-sim__playback-map,
-  .annual-sim__playback-map > [role='img'] {
+  .annual-sim__playback-map > [role='group'] {
     min-height: 16rem;
   }
 }

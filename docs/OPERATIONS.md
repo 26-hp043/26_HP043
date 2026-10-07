@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-29 (§3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-10-07 (§3.5.4·§4.6·§4.5·§8.1 따라 하면 실패하던 `:8001` curl 다섯 곳을 터널 주소 또는 app-01 안 루프백으로 · §4.4 「레포가 private」 정정 — 레포는 public, GHCR 패키지 공개 범위는 확인 못 함 · #2141 · §3.1 자동 배포 경로에 서버에서 도는 스크립트 둘 · preflight 필수 시크릿 9 → 10종(`INITIAL_ADMIN_EMAILS`) · §5.1 각주 개수 정정 · #2117 · §8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -191,14 +191,17 @@ main 브랜치에 다음 경로가 변경되면 자동 실행:
 ```
 src/  alembic/  alembic.ini  pyproject.toml  Dockerfile
 docker-compose.prod.*.yml  ops/  frontend/  .github/workflows/deploy.yml
+scripts/db_backup.py  scripts/purge_expired.py
 ```
+
+`scripts/`는 **서버에서 도는 둘만** 들어 있다(`#2117`). 서버의 저장소 사본은 배포 때만 갱신되므로, 이 둘이 목록에 없으면 스크립트만 고친 머지가 서버에 닿지 않아 §3.8의 백업·복구가 옛 판으로 돌고, `purge_expired.py`를 crontab에 걸어 두었다면 그것도 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체(이미지 빌드 · db-01 · app-01 · 화면)를 돌린다. 그 밖의 스크립트만 바꾼 머지는 배포를 돌리지 않는다. 서버에서 도는 스크립트가 늘면 `deploy.yml`의 `paths`와 `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
 
 워크플로 파일: `.github/workflows/deploy.yml`
 
 ```
 GitHub Actions (deploy.yml)
   │
-  ├─ preflight (#1234) — 필수 시크릿 9종 점검 (누락 시 이름만 출력)
+  ├─ preflight (#1234) — 필수 시크릿 10종 점검 (누락 시 이름만 출력)
   │
   ├─ build (ubuntu-latest)
   │   └─ Dockerfile (prod target) → GHCR 푸시
@@ -221,7 +224,7 @@ GitHub Actions (deploy.yml)
   │   │    DATABASE_URL의 CUBRID_PASSWORD URL 인코딩도 러너에서 한다)
   │   ├─ GHCR 로그인 + 이미지 풀
   │   ├─ Alembic 마이그레이션 (one-shot)
-  │   ├─ 규제 파라미터 seed
+  │   ├─ 규제 파라미터 seed (`python -m cii_platform.db.seed` — 매 배포 실행 · upsert라 값이 같으면 행 수·값 열 불변 · #2264)
   │   └─ docker compose up -d backend
   │
   └─ health check
@@ -360,7 +363,7 @@ cp .env.app.example .env
 #     비면 새 DB는 관리자 0명이고 역할을 올려 줄 사람이 없다. §4.5 참고, #672 · #1301)
 #     ⚠️ 옛 이름 INITIAL_OFFICE_EMAILS는 읽히지 않는다 — 남아 있으면 기동 실패 (#1301)
 
-# GHCR 로그인 (private repo, 또는 로컬 빌드 시 불필요)
+# GHCR 로그인 (이미지 pull이 거부될 때만 필요 · 로컬 빌드 시 불필요 — §4.4)
 echo "ghp_..." | docker login ghcr.io -u USERNAME --password-stdin
 docker compose -f docker-compose.prod.app.yml pull backend
 
@@ -416,7 +419,7 @@ gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡�
 | 하루 | 관찰선 진행 항차가 도착 예정을 넘겨 `IN_PROGRESS_PAST_ETA` 대상이 된다 |
 | 약 3주 | 최근 구간이 30일 창을 벗어나 `NO_RECENT_DATA`가 된다 |
 
-**적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 `IntegrityError`를 삼키므로 이미 있는 행은 그대로다. 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
+**적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 PK·유니크 중복을 건너뛰므로 이미 있는 행은 그대로다(그 밖의 위반 — 값 트리거 거부 · FK · NOT NULL — 은 건너뛰지 않고 적재 전체를 실패시킨다 · `#2105`). 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
 
 > **시연·인터뷰 직전에 `clear_demo=true` + `seed_demo=true`로 한 번 돌린다.** 회차가 여러 번이면 회차 사이에도 돌린다 — 둘러보기 세션은 관리자 권한이라 누군가 선박을 지웠을 수 있고, 다시 적재하면 되살아난다(#1486 결정).
 >
@@ -527,7 +530,8 @@ DNS는 Cloudflare에 CNAME으로 만든다 — `<이름>` → `26dac387-2f05-49a
 ```bash
 curl -i https://bluelog-bx7.pages.dev/api/v1/health   # 200 → 성공
 curl -i https://bluelog-api.kpubdata.com/api/v1/health # 터널만 검증 (Pages를 건너뛴다)
-curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (터널을 건너뛴다)
+# app-01 안에서(SSH 접속 후) — 백엔드만 검증 (터널을 건너뛴다). 공인 IP `:8001`은 닫혀 있다(#786)
+curl -i http://127.0.0.1:8001/api/v1/health
 ```
 
 | 증상 | 원인 |
@@ -539,7 +543,7 @@ curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (�
 
 #### 3.5.5 되돌리기
 
-**`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
+터널을 처음 붙일 때는 **`:8001`을 먼저 닫지 않는 것**이 요점이었다 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남겼다. 지금은 공인 `:8001`이 닫혀 있다(`#786`). 터널을 되돌린 뒤 백엔드만 따로 확인하려면 app-01에 접속해 루프백으로 부른다(§3.5.4의 마지막 명령).
 
 | 단계 | 되돌리는 법 |
 |---|---|
@@ -869,8 +873,10 @@ docker exec cii-cubrid cubrid server acl reload cii
 
 ### 4.4 GHCR 인증
 
-레포가 private이므로 OCI VM에서 이미지 pull 시 GHCR 로그인 필요.
-deploy 워크플로는 `GITHUB_TOKEN`으로 자동 인증한다.
+레포는 public이다(`gh repo view` → `PUBLIC`). 그러나 **GHCR 패키지의 공개 범위는 레포와 따로 정해지며**
+(패키지 설정), 이 문서를 고치는 시점에 패키지 쪽은 확인하지 못했다(권한 부족 — `read:packages`).
+pull이 거부되면 아래처럼 로그인한다. deploy 워크플로는 패키지 공개 여부와 무관하게 매번
+`GITHUB_TOKEN`으로 로그인한 뒤 pull한다(`deploy.yml` 「GHCR 로그인」).
 
 수동 로그인:
 ```bash
@@ -908,8 +914,8 @@ echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
 > **배포 확인 명령** — 세 줄이 모두 이래야 한다.
 >
 > ```bash
-> curl -s -o /dev/null -w '%{http_code}\n' -X POST http://<호스트>:8001/api/v1/auth/dev-login   # 401
-> curl -s -o /dev/null -w '%{http_code}\n'      http://<호스트>:8001/docs                        # 401
+> curl -s -o /dev/null -w '%{http_code}\n' -X POST https://bluelog-api.kpubdata.com/api/v1/auth/dev-login   # 401
+> curl -s -o /dev/null -w '%{http_code}\n'      https://bluelog-api.kpubdata.com/docs                        # 401
 > docker compose -f docker-compose.prod.app.yml run --rm backend \
 >   python -c "from cii_platform.config import _ENV, exposes_dev_surfaces; print(_ENV, exposes_dev_surfaces(_ENV))"
 > ```
@@ -963,7 +969,7 @@ CORS가 가장 바깥이어야 preflight(OPTIONS)가 auth/rate_limit에 막히�
 curl -sS -X OPTIONS \
   -H "Origin: https://bluelog-bx7.pages.dev" \
   -H "Access-Control-Request-Method: GET" \
-  -D - -o /dev/null http://131.186.22.10:8001/api/v1/health
+  -D - -o /dev/null https://bluelog-api.kpubdata.com/api/v1/health
 
 # 응답에 포함되어야 하는 헤더:
 #   access-control-allow-origin: https://bluelog-bx7.pages.dev
@@ -1064,7 +1070,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `API_ORIGIN` | Pages Function이 백엔드를 부를 **호스트명**(`https://` 포함 · §3.5). ⚠️ **IP를 넣으면 프록시가 403(`error 1003`)을 낸다** — Workers는 IP로 요청하지 못한다 (`#1496`) | `https://bluelog-api.kpubdata.com` |
 | `PROXY_CLIENT_IP_SECRET` | **프록시 서명 헤더의 비밀 값**(`#1483`). 배포가 Pages 시크릿과 app-01 `.env`에 **같은 값**을 넣는다. 프록시가 원 클라이언트 IP를 이 값과 함께 실어 보내고, 백엔드 요청 한도는 값이 맞을 때만 그 IP로 센다(§1.2). ⚠️ 없으면 `deploy-frontend`가 **의도적으로 멈춘다** — 비어도 요청은 통하지만 현장 전원이 로그인 10회/분을 나눠 쓰는 상태로 조용히 돌아가기 때문이다. 값은 난수(`openssl rand -hex 32`) | |
 
-> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 9종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`·`PROXY_CLIENT_IP_SECRET`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
+> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 10종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`·`PROXY_CLIENT_IP_SECRET`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
 
 ### 5.2 권장 시크릿
 
@@ -1158,8 +1164,8 @@ wrangler pages project add-domain bluelog <도메인>
 ### 8.1 헬스 체크
 
 ```bash
-# 외부에서 (브라우저 / curl)
-curl http://131.186.22.10:8001/api/v1/health
+# 외부에서 (브라우저 / curl) — 터널 주소. 공인 IP `:8001`은 닫혀 있다(#786)
+curl https://bluelog-api.kpubdata.com/api/v1/health
 # → {"data":{"status":"ok","version":"0.1.0",...}}
 
 # app-01 내부에서
@@ -1231,9 +1237,9 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
 ### 8.4 디스크 사용량
 
 ```bash
-# Docker 이미지/볼륨
-ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "docker system df"
-ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
+# 루트 디스크 · Docker 이미지/볼륨
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "df -h /; docker system df"
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "df -h /; docker system df"
 
 # CUBRID DB 디렉터리 (db-01) -- 보관 로그(archive log)를 포함한 실제 사용량 (#1640).
 # 데이터는 이미지의 $CUBRID_DATABASES(/home/cubrid/CUBRID/databases)에 있다 -- /var/lib/cubrid가 아니다.
@@ -1241,6 +1247,32 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
   "docker exec cii-cubrid sh -c 'du -sh \"\$CUBRID_DATABASES/cii\"'"
 ```
+
+#### 8.4.1 app-01 옛 백엔드 이미지 (#2041)
+
+배포(`deploy.yml` `deploy-app`)가 끝에서 `bluelog-backend` 이미지를 **실행 중 1개 + 최근 3개**만
+남기고 지운다. 배포 로그에 `[app-01] 옛 이미지 정리: … N개`와 `[app-01] 루트 디스크 …`가 찍힌다.
+
+> 이 단계가 없던 동안 배포마다 이미지가 쌓여 **2026-09-29에 app-01 루트 디스크가 100%**
+> (45G 중 여유 139M · `bluelog-backend` 253개 · `/var/lib/containerd` 36G)까지 찼다.
+> 롤백은 GHCR에서 태그로 다시 받으므로(§3.6.2 · `ops.yml` `rollback-drill`) VM에 옛 이미지를 둘 필요가 없다.
+
+손으로 정리해야 하면 **저장소를 한정해서** 지운다.
+
+```bash
+# app-01 — 실행 중 + 최근 3개를 남기고 bluelog-backend만 지운다
+img="$(docker inspect cii-backend --format '{{.Config.Image}}')"
+docker images "${img%:*}" --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+  | sort -r | cut -f2 | grep -vxF "$img" | grep -v ':<none>$' | tail -n +4 \
+  | xargs -r docker rmi
+
+# journald가 크면(기본 상한은 파일시스템의 10%)
+sudo journalctl --vacuum-size=200M
+```
+
+> ⚠️ **`docker image prune -a`·`docker system prune`은 쓰지 않는다.** app-01은 our-tax와 같은
+> VM이라 저장소를 가리지 않는 정리는 **our-tax의 롤백 이미지까지** 지운다. `--volumes`는 §9.2의
+> 고아 볼륨 복구 가능성을 없앤다(비가역).
 
 ---
 
@@ -1433,8 +1465,8 @@ docker stats --no-stream
 # 스왑 설정 (멱등 · 재부팅을 견디는 /swapfile을 만든다)
 sudo ~/bluelog/ops/host/setup-zram-swap.sh
 
-# 불필요한 이미지 정리
-docker image prune -a
+# 불필요한 이미지 정리 — bluelog-backend만 (§8.4.1)
+# `docker image prune -a`는 같은 VM의 our-tax 이미지까지 지운다 (#2041)
 ```
 
 ### 9.6 포트 충돌

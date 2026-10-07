@@ -542,6 +542,15 @@ class TestScenarioGeneration:
         resp = wired.post(ENDPOINT, json=payload)
         assert resp.status_code == 200, resp.text
 
+        # ⚠️ 종전에는 200만 봤다 — 선박 값 대신 **아무 기본값**을 써도 통과했다(`#2142`).
+        # 직항은 기준 속도 그대로라 연료 = 일일 소모 × 일수다(수치 계약 · 표시 문구 아님).
+        #   30 t/d × 11000 nm ÷ 14 kn ÷ 24 h = 330000 / 336 = 982.142857… → 절사 `982.14`
+        # 요청값 35를 넣었을 때의 앵커(`SCENARIO_ANCHORS` 직항 `1145.83`)와 갈려야 한다.
+        direct = next(s for s in resp.json()["data"]["scenarios"] if s["scenario_type"] == "DIRECT")
+        assert direct["fuel_ton"] == "982.14"
+        with_request_value = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()["data"]["scenarios"]
+        assert direct["fuel_ton"] != with_request_value[0]["fuel_ton"]
+
     def test_non_cii_vessel_warning(self, wired, monkeypatch):
         from cii_platform.services import scenario_compare as svc
 

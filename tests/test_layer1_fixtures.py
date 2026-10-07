@@ -6,6 +6,8 @@
 
 기대값을 코드에 직접 적지 않는다. `TEST_PLAN §1.2`가 정본이고 픽스처가 그
 사본이므로, 코드에 다시 적으면 세 번째 사본이 생긴다.
+
+케이스: UT-CII-001 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

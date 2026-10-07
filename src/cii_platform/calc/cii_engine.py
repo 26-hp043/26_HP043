@@ -196,8 +196,10 @@ def calculate_required_cii(
         CII_ref      = a × reference_capacity^(-c)
         required_CII = CII_ref × (1 - z_factor_percent / 100)
 
-    중간 단계에서 자릿수를 자르거나 반올림하지 않는다. ``prec=30`` 원값을 그대로
-    반환하며, 표시 시점 반올림은 호출부 책임이다. 근거는 모듈 docstring 참조.
+    중간 단계를 정본값 자릿수(30)로 확정하지 않는다. 작업 정밀도
+    (:data:`~cii_platform.calc.precision.LAYER1_WORKING_PRECISION` — 지금 50)로 계산한
+    값을 그대로 반환하며, 공표 자릿수 확정과 표시 시점 반올림은 호출부 책임이다.
+    근거는 모듈 docstring 참조.
 
     :param a: 기준선 계수 ``a``. seed의 IMO 과학 표기(``14479E10`` 등)는 호출부가
         :func:`~cii_platform.calc.imo_parser.parse_imo_scientific`로 해석해 넘긴다.

@@ -28,6 +28,7 @@ from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
+from pdf_env import pdf_environment_gap
 
 from cii_platform.api.main import app
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
@@ -77,11 +78,18 @@ def test_연간_리포트_csv는_첨부로_내려간다(client):
 
 
 def test_연간_리포트_pdf는_첨부로_내려간다(client):
-    """CI는 ``libpango``·``fonts-nanum``을 설치한다 — 없는 환경에서는 건너뛴다."""
+    """CI는 ``libpango``·``fonts-nanum``을 설치한다 — 없는 환경에서는 건너뛴다.
+
+    건너뛸지는 **제품의 판정에 묻지 않는다**(`#2276`). 묻게 두면 판정이 틀려 「없다」고
+    답하는 결함이 같은 skip으로 가려진다. 환경이 갖춰졌으면 판정은 참이어야 한다.
+    """
     from cii_platform.reports import pdf as pdf_module
 
-    if not pdf_module.is_available() or not pdf_module.has_korean_font():
-        pytest.skip("PDF 렌더러 또는 한국어 폰트가 없는 환경")
+    gap = pdf_environment_gap()
+    if gap is not None:
+        pytest.skip(gap)
+    assert pdf_module.is_available(), "환경 검사를 지났는데(또는 CI인데) 렌더러를 불러오지 못했다"
+    assert pdf_module.has_korean_font(), "환경 검사를 지났는데(또는 CI인데) 폰트 판정이 거짓이다"
     r = client.get(f"/api/v1/vessels/{VESSEL_ID_BULK}/annual-report", params={"format": "pdf"})
     assert r.status_code == 200, r.text
     assert r.headers["content-type"] == "application/pdf"

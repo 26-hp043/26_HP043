@@ -44,3 +44,21 @@ export function readPageMeta(body: unknown): { nextCursor: string | null; hasMor
     hasMore: more === true,
   }
 }
+
+/**
+ * 서버 문구가 없을 때 화면이 내는 폴백 문구 (`#2221`).
+ *
+ * **상태 코드는 문구에 싣지 않고 콘솔에만 남긴다.** 서버 쪽 오류 문구에서 내부 값을 뺀
+ * `#2112`와 같은 원칙이다 — 숫자는 사용자가 할 수 있는 일을 바꾸지 않고, 원인을 좇는
+ * 사람은 콘솔에서 본다. 세션 만료 · 찾지 못함 · 권한 없음처럼 호출부가 상태 코드로
+ * 분기해 문구나 플래그로 전하는 구분은 이 함수와 무관하게 그대로다.
+ *
+ * `console.error`가 아니라 `console.warn`이다 — 화면이 이미 실패를 그리고 있고,
+ * 검사는 `console.error`를 실패로 본다(`#1616`).
+ *
+ * 상태 코드를 문자열에 끼우는 자리는 이 함수 하나다 — `errorStatusCode.test.ts`가 잠근다.
+ */
+export function fallbackMessage(message: string, status: number): string {
+  console.warn(`[api] ${message} — HTTP ${status}`)
+  return message
+}

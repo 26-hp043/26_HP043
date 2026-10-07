@@ -70,7 +70,7 @@
 
 .error-state__retry {
   flex: none;
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-16);
   border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);

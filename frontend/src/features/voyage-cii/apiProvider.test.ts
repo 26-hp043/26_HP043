@@ -176,10 +176,13 @@ describe('오류 변환 — 화면은 VoyageCiiError만 안다', () => {
   })
 
   it('오류 응답 형태가 깨져도 VoyageCiiError를 낸다', () => {
+    // 상태 코드는 문구가 아니라 콘솔에 남긴다 (#2221).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const error = toVoyageCiiError(500, { unexpected: true })
     expect(error).toBeInstanceOf(VoyageCiiError)
-    expect(error.message).toContain(MALFORMED_ERROR_MESSAGE)
-    expect(error.message).toContain('500')
+    expect(error.message).toBe(MALFORMED_ERROR_MESSAGE)
+    expect(String(warn.mock.calls[0][0])).toContain('500')
+    warn.mockRestore()
   })
 
   it('details가 없으면 field가 undefined다 — 폼 상단에 표시된다', () => {

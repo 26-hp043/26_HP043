@@ -59,10 +59,11 @@ def decode_cursor(token: str) -> Cursor | None:
     그때 500이 나가면 안 된다. 오류로 볼지 첫 페이지로 볼지는 서비스가 정한다.
 
     **``vessel_id``가 UUID 형식인지 검증한다 (#233).** base64는 정상이더라도
-    안에 든 값이 UUID가 아니면 asyncpg가 쿼리 바인딩 단계에서 거절해 500이 나간다.
-    ``Vessel.id``가 ``postgresql.UUID(as_uuid=True)``인데, asyncpg 방언의 bind
-    processor가 ``None``이라 문자열이 그대로 드라이버로 내려가기 때문이다. 그 경로를
-    여기서 막아 서비스의 422 변환(``_parse_cursor``)이 동작하게 한다.
+    안에 든 값이 UUID가 아니면 쿼리 바인딩 단계에서 거절된다 — ``Vessel.id``의 타입
+    :class:`~cii_platform.db.types.UuidText`가 ``uuid.UUID(str(value))``로 파싱하다
+    ``ValueError``를 낸다. 422가 아니라 처리되지 않은 예외가 되므로, 그 경로를
+    여기서 막아 서비스의 422 변환(``_parse_cursor``)이 동작하게 한다. (`#233` 당시는
+    PostgreSQL이었고 asyncpg가 바인딩에서 거절해 500이 나갔다.)
 
     ``Cursor.vessel_id``를 ``UUID``로 바꾸지 않고 ``str``으로 유지한다 —
     ``encode_cursor``가 ``str(page[-1].id)``로 인코딩하므로 왕복 계약이 str에 맞춰져
@@ -214,15 +215,17 @@ async def list_active(
     """활성 선박 목록을 조회한다 (API_SPEC §2.1).
 
     정렬 기준을 ``(name, id)``로 두는 이유: 화면의 선박 선택지가 이 순서로 그려지는데,
-    정렬이 없으면 PostgreSQL이 물리적 순서로 돌려주어 **같은 데이터에서도 요청마다
+    정렬이 없으면 DB가 돌려주는 순서가 정해져 있지 않아 **같은 데이터에서도 요청마다
     순서가 달라질 수 있다.** ``id``를 2차 키로 두어 동명 선박에서도 순서가 고정되고,
     그래야 keyset 커서가 성립한다.
 
     **``limit + 1``건을 가져온다.** 호출부가 「다음 페이지가 있는가」를 별도 COUNT
     쿼리 없이 판단할 수 있게 하기 위해서다 — 초과분은 호출부가 잘라낸다.
 
-    ``search``는 선박명 부분일치 또는 IMO 번호 부분일치다. 선박명 쪽은 003이 만든
-    ``idx_vessel_name``(pg_trgm GIN)이 받는다.
+    ``search``는 선박명 부분일치 또는 IMO 번호 부분일치다. PostgreSQL 시절에는 003이
+    만든 ``idx_vessel_name``(pg_trgm GIN)이 선박명 쪽을 받았다. CUBRID 전환(`#1058`) 뒤의
+    ``idx_vessel_name``은 ``name`` 한 열의 일반 인덱스이고(``1c444a5c4819``), 이 저장소
+    스키마에 trigram 인덱스는 없다.
     """
     stmt = select(Vessel).where(Vessel.is_deleted == 0)
 

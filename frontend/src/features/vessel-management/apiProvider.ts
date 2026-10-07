@@ -1,4 +1,4 @@
-import { DEFAULT_API_BASE_URL, readPageMeta } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage, readPageMeta } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import {
   VesselManagementError,
@@ -64,7 +64,7 @@ export function toVesselManagementError(
   if (!error || typeof error.code !== 'string') {
     return new VesselManagementError(
       'MANAGEMENT_ERROR',
-      `${MALFORMED_ERROR_MESSAGE} (HTTP ${status})`,
+      fallbackMessage(MALFORMED_ERROR_MESSAGE, status),
     )
   }
   return new VesselManagementError(

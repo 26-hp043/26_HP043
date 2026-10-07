@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type { AssistantProvider, ChatAnswer } from './types'
 
 /**
@@ -52,7 +52,7 @@ export function createApiAssistantProvider(
         credentials: 'include',
         headers: { Accept: 'application/json' },
       })
-      if (!response.ok) throw new AssistantError(`상태를 확인하지 못했습니다 (HTTP ${response.status}).`)
+      if (!response.ok) throw new AssistantError(fallbackMessage('상태를 확인하지 못했습니다.', response.status))
       const body = (await response.json()) as { data?: { available?: unknown } }
       if (typeof body.data?.available !== 'boolean') {
         throw new AssistantError('응답 형식이 올바르지 않습니다.')
@@ -100,7 +100,7 @@ export function createApiAssistantProvider(
       }
       if (!response.ok) {
         throw new AssistantError(
-          body?.error?.message ?? `답변을 받지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? fallbackMessage('답변을 받지 못했습니다.', response.status),
         )
       }
 

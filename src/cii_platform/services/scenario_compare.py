@@ -323,7 +323,7 @@ async def compare_scenarios(
     parameter_hash = compute_parameter_hash(parameters_used)
     model_version = _model_version()
 
-    # 시나리오 행을 먼저 저장한다 — PK가 gen_random_uuid() server_default라 flush를
+    # 시나리오 행을 먼저 저장한다 — PK가 컬럼 기본값(`default=uuid.uuid4`)이라 flush를
     # 해야 id를 알 수 있고, 그 id가 응답 시나리오 객체와 result_json 양쪽에
     # 들어간다(§5.2 adopt가 이 id를 참조한다).
     #
@@ -552,6 +552,7 @@ def _resolve_direct_distance(payload) -> Decimal:
     )
 
 
+@layer1_context
 def _resolve_detour_distance(
     payload, direct_distance: Decimal, waypoint: tuple[Decimal, Decimal] | None
 ) -> Decimal:
@@ -564,6 +565,9 @@ def _resolve_detour_distance(
     **경유지의 검증은 우회 거리 입력과 무관하게 먼저 한다**(`API_SPEC §5.1`). 좌표 넷이
     없으면 어디서 어디로 도는지 알 수 없고, 경유지가 현재 위치나 목적항과 같으면 도는 것이
     아니다 — 우회 거리를 직접 넣었어도 그 경유지는 지도에 그려지므로 같은 규칙을 받는다.
+
+    곱과 합을 **적용 지점 안에서** 낸다 (`#2254` · `TECH_SPEC §1.2.1`) — 부르는 쪽
+    (:func:`compare_scenarios`)이 코루틴이라 거기서는 컨텍스트가 걸려 있지 않다.
     """
     if waypoint is not None:
         _check_waypoint_legs(payload, waypoint)

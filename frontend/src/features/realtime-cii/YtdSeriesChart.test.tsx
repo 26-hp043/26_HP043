@@ -142,3 +142,27 @@ describe('누적 추이 — 무엇을 그리는가 (#1949)', () => {
     expect(screen.getByText('오늘')).toBeTruthy()
   })
 })
+
+/*
+ * 같은 시각·같은 항차의 점이 **종류만 다르게** 둘 올 수 있다 (#2128 ⑸).
+ *
+ * 진행 중 점과 계획의 첫 점이 그렇다. 종전 key는 시각과 항차만 써서 겹쳤고, React는
+ * 겹친 key의 행을 갱신 때 뒤섞을 수 있다. `renderSetup`이 `console.error`를 실패로
+ * 보므로(`#1616`) 중복 key 경고가 나면 이 검사가 떨어진다.
+ */
+describe('추이 표 — 같은 시각의 점이 종류로 구분된다 (#2128)', () => {
+  it('진행 중 점과 계획 점이 같은 시각이어도 두 행으로 남는다', () => {
+    const at = '2026-09-26T00:00:00+00:00'
+    render(
+      <YtdSeriesChart
+        series={series([
+          point('2026-02-26T23:00:00+00:00', 'ACTUAL', '8.979906'),
+          point(at, 'IN_PROGRESS', '8.213830'),
+          point(at, 'PLAN', '8.213830'),
+          point('2026-11-17T00:00:00+00:00', 'PLAN', '8.965893'),
+        ])}
+      />,
+    )
+    expect(document.querySelectorAll('.ytds__table tbody tr')).toHaveLength(4)
+  })
+})

@@ -258,6 +258,9 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     // #2120 — 재계산 중(`pending`)이거나 연도를 못 골랐으면(`year === ''`)도 잠긴다. 앞의 것은 일시적이고, 뒤의 것은 연도 칸이 사유를 글자로 말한다.
     "features/fleet-reduction/FleetReduction.tsx :: saving || pending || year === '' || planName.trim() === '' || pricesInvalid":
       'fr-save-blocked',
+    // #2183 — 연간 리포트인데 연도 목록이 없으면(`yearBlocked`) 미리보기·PDF·CSV 셋이 잠긴다.
+    // 사유는 연도 칸의 상태 문구(로딩·실패·빈 목록)가 말하고 버튼이 그 id를 가리킨다. `busy !== null`은 일시적이다.
+    'features/reports/ReportsView.tsx :: busy !== null || yearBlocked': 'rp-year-state',
     // #1325 — 현장직 잠금(`!office`)이 더해졌다. 낭독은 더 근본적인 사유(사무직 전용)를 앞세우고,
     // 사무직이면 종전대로 `scenario-adopt-stale`로 잇는다.
     "features/scenario-comparison/ScenarioAdoptPanel.tsx :: !ready || adopt.status === 'running' || !office":

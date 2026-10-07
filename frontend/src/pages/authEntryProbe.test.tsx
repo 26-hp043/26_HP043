@@ -75,6 +75,42 @@ function stubFetch(impl: () => Promise<Response>) {
 const meCalls = (fetchImpl: ReturnType<typeof stubFetch>) =>
   fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/auth/me')).length
 
+/*
+ * 세션 확인 호출 수가 **가라앉을 때까지** 기다려 그 수를 돌려준다 (`#2249`).
+ *
+ * ## 왜 화면이 보인 직후에 세면 안 되는가
+ *
+ * 가드(`RequireAuth`)는 마운트될 때 세션을 한 번 확인하는데, 그 호출은 passive effect에서
+ * 나간다 — 화면이 DOM에 놓인 **뒤**에 React 스케줄러가 `setImmediate`로 비운다. 한편
+ * `waitFor`는 화면을 본 뒤 `setTimeout(…, 0)` 한 번을 거쳐 풀린다. 둘 중 무엇이 먼저 도는지는
+ * 이벤트 루프가 그 사이에 1ms를 넘겼는지에 달려 있다. 평소에는 effect가 먼저지만, 부하가
+ * 걸리면 타이머가 먼저 돌아 **호출이 아직 나가기 전의 수**를 읽는다. 종전 검사는 그 수와
+ * 20ms 뒤의 수가 같은지를 보았으므로 `expected 2 to be 1`로 떨어졌다.
+ *
+ * ## 그래서 무엇을 단언하는가
+ *
+ * 두 표본을 서로 비교하지 않는다. **읽을 때마다 상한을 넘지 않는지** 보고, 수가 연속
+ * `QUIET_TURNS`번 그대로일 때까지 계속 읽는다. 일찍 읽은 표본은 다음 회차에서 고쳐질 뿐
+ * 실패가 되지 않는다. 호출이 계속 늘면(순환) 상한을 넘는 순간 실패한다.
+ */
+const QUIET_TURNS = 3
+const QUIET_TURN_MS = 10
+
+async function settledMeCalls(
+  fetchImpl: ReturnType<typeof stubFetch>,
+  atMost: number,
+): Promise<number> {
+  let seen = meCalls(fetchImpl)
+  for (let quiet = 0; quiet < QUIET_TURNS; ) {
+    expect(seen).toBeLessThanOrEqual(atMost)
+    await new Promise((resolve) => setTimeout(resolve, QUIET_TURN_MS))
+    const now = meCalls(fetchImpl)
+    quiet = now === seen ? quiet + 1 : 0
+    seen = now
+  }
+  return seen
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -160,7 +196,8 @@ describe('가드와 겹치지 않는다 (#2127)', () => {
     open('/guarded')
 
     await waitFor(() => expect(screen.getByTestId('login-submit')).toBeTruthy())
-    expect(meCalls(fetchImpl)).toBe(1)
+    // 로그인 화면이 마운트되며 다시 묻는다면 그 호출은 폼이 보인 뒤에 나간다 — 가라앉은 뒤에 센다.
+    expect(await settledMeCalls(fetchImpl, 1)).toBe(1)
   })
 
   it('주소창으로 연 로그인 화면이 이동시킨 뒤 가드와 순환하지 않는다', async () => {
@@ -171,10 +208,8 @@ describe('가드와 겹치지 않는다 (#2127)', () => {
 
     await waitFor(() => expect(screen.getByTestId('guarded')).toBeTruthy())
     // 로그인 화면의 확인 한 번 + 가드가 마운트되며 하는 확인 한 번. 그 뒤로 늘지 않는다.
-    const settled = meCalls(fetchImpl)
-    expect(settled).toBeLessThanOrEqual(2)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(meCalls(fetchImpl)).toBe(settled)
+    // 가드의 확인은 화면이 보인 뒤에 나가므로, 수가 가라앉을 때까지 읽으며 상한을 본다 (`#2249`).
+    await settledMeCalls(fetchImpl, 2)
     expect(screen.getByTestId('guarded')).toBeTruthy()
   })
 
@@ -187,9 +222,9 @@ describe('가드와 겹치지 않는다 (#2127)', () => {
     open('/login?next=%2Fguarded')
 
     await waitFor(() => expect(screen.getByTestId('login-submit')).toBeTruthy())
-    const settled = meCalls(fetchImpl)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(meCalls(fetchImpl)).toBe(settled)
+    // 유효 한 번 + 401 한 번에서 멈춘다. 폼이 보인 뒤에 한 번 더 묻는 것도 순환의 시작이다.
+    expect(await settledMeCalls(fetchImpl, 2)).toBe(2)
+    expect(screen.getByTestId('login-submit')).toBeTruthy()
   })
 })
 

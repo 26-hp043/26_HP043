@@ -180,7 +180,7 @@
    * `styles/controlFont.sync.test.ts`가 `40px` 가족 전체를 센다.
    */
   font-size: var(--font-size-body);
-  height: 40px;
+  height: var(--target-row);
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
@@ -230,7 +230,7 @@
 
 .scenario-comparison__submit {
   /* 높이 40은 §8 🔒 — 무게는 높이가 아니라 폭과 글자 크기로 준다. */
-  height: 40px;
+  height: var(--target-row);
   min-inline-size: 180px;
   padding: 0 var(--space-32);
   border: none;

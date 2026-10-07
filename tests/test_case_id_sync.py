@@ -314,3 +314,82 @@ def test_frontend_test_files_count_as_coverage(tmp_path, monkeypatch):
     found = _ids_in_code()
     assert "A11Y-001" in found
     assert "A11Y-002" not in found
+
+
+# ---------------------------------------------------------------------------
+# 한 ID는 한 케이스만 가리킨다 (#2138)
+#
+# 위 검사들은 ID를 **집합**으로 본다 — 「문서에 있는가 · 코드에 있는가」. 같은 ID가 정의
+# 표의 두 행에 쓰여도 집합에서는 하나라 전부 통과한다. 그러면 테스트의
+# 「케이스: DB-CHK-023」이 **어느 행을 덮는다는 말인지** 정해지지 않는다.
+# ---------------------------------------------------------------------------
+
+#: 같은 ID가 두 행인 채로 **알고 남겨 둔** 것. 값은 사유와 풀리는 조건이다.
+#:
+#: 비어 있는 것이 정상이다. 여기 적힌 ID가 더는 중복이 아니면
+#: :func:`test_known_duplicate_definitions_are_still_duplicated`가 실패해 이 줄을 지우게 한다.
+_KNOWN_DUPLICATE_DEFINITIONS: dict[str, str] = {}
+
+
+def _definition_rows(text: str) -> dict[str, list[int]]:
+    """케이스 정의 표의 행 — ``{ID: [행 번호, …]}``.
+
+    **첫 칸이 케이스 ID 하나뿐인 표 행**만 정의로 센다. 설명 칸의 인용, ``§8``의 수용 기준
+    매핑(첫 칸이 ``AC-*``), ``§14.2`` 인벤토리(첫 칸이 파일명)는 정의가 아니다.
+    ``§14.5``부터는 분류 표라 같은 ID가 다시 나오는 것이 정상이므로 그 앞까지만 본다.
+    """
+    marker = "### 14.5 케이스 ID의 소재"
+    body = text[: text.index(marker)] if marker in text else text
+    rows: dict[str, list[int]] = {}
+    for number, line in enumerate(body.splitlines(), 1):
+        if not line.startswith("|"):
+            continue
+        first_cell = line.split("|")[1].strip().strip("`*~ ")
+        if _ID.fullmatch(first_cell):
+            rows.setdefault(first_cell, []).append(number)
+    return rows
+
+
+def _duplicate_definitions() -> dict[str, list[int]]:
+    rows = _definition_rows(_TEST_PLAN.read_text(encoding="utf-8"))
+    return {case_id: numbers for case_id, numbers in rows.items() if len(numbers) > 1}
+
+
+def test_every_case_id_is_defined_once():
+    """정의 표에서 한 ID는 한 행이다 — 두 행이면 주장이 어느 쪽을 덮는지 알 수 없다.
+
+    새 케이스의 번호는 그 표의 **마지막 번호 다음**으로 준다. 이미 쓰인 번호와 겹쳤다면
+    나중에 쓴 쪽을 새 번호로 옮기고 테스트의 주장을 함께 고친다.
+    """
+    duplicated = {
+        case_id: numbers
+        for case_id, numbers in _duplicate_definitions().items()
+        if case_id not in _KNOWN_DUPLICATE_DEFINITIONS
+    }
+    assert not duplicated, "TEST_PLAN 정의 표에 같은 케이스 ID가 두 번 이상 있다: " + ", ".join(
+        f"{case_id}(행 {' · '.join(map(str, numbers))})"
+        for case_id, numbers in sorted(duplicated.items())
+    )
+
+
+def test_known_duplicate_definitions_are_still_duplicated():
+    """남겨 둔 중복 목록이 낡지 않는다 — 정리됐으면 목록에서도 지운다."""
+    stale = sorted(set(_KNOWN_DUPLICATE_DEFINITIONS) - set(_duplicate_definitions()))
+    assert not stale, (
+        f"이미 중복이 아닌데 _KNOWN_DUPLICATE_DEFINITIONS에 남아 있다: {', '.join(stale)}"
+    )
+
+
+def test_definition_rows_count_first_cells_only():
+    """규칙 자체 — 첫 칸의 ID만 정의이고, 설명 칸의 인용은 중복으로 세지 않는다."""
+    rows = _definition_rows(
+        "| ID | 테스트 | 기대 |\n"
+        "|---|---|---|\n"
+        "| UT-CII-001 | 첫 정의 | — |\n"
+        "| `UT-CII-002` | UT-CII-001과 같은 입력 | — |\n"
+        "| UT-CII-001 | 같은 ID를 다시 쓴 행 | — |\n"
+        "| AC-F1-001 | UT-CII-002 | 수용 기준 매핑 |\n"
+        "### 14.5 케이스 ID의 소재\n"
+        "| UT-CII-002 | 분류 표 |\n"
+    )
+    assert rows == {"UT-CII-001": [3, 5], "UT-CII-002": [4]}

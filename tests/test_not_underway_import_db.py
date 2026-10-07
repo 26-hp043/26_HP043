@@ -82,7 +82,11 @@ async def test_periods_and_fuel_are_stored(session, vessel_id):
     # 비운 소비원은 보조기관이다 — 정박 중 연료의 대부분이 그것이다.
     assert rows[1].consumer_type == "AUX_ENGINE"
     # CF는 적재 시점 스냅샷이다 (`#378`·`PRD §8.4`).
-    assert float(rows[0].cf_used) > 0
+    # ⚠️ 종전에는 `cf_used > 0`이었다 — 아무 양수나 통과했다(`#2142`). 적재 시점의
+    # **마스터 값**이 두 행 모두에 붙어야 스냅샷이다.
+    master = (await session.execute(text("SELECT cf FROM fuel_type WHERE code = 'HFO'"))).all()
+    assert len(master) == 1, master
+    assert [r.cf_used for r in rows] == [master[0].cf, master[0].cf]
 
 
 async def test_one_bad_row_does_not_sink_the_file(session, vessel_id):

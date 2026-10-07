@@ -61,7 +61,7 @@ import {
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
-import { SELECT_VESSEL_FIRST, useYearOptions } from '../parameters/yearCatalog'
+import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
 import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
   deltaFromDirect,
@@ -683,7 +683,7 @@ export function ScenarioComparison({
                */
               <span className="scenario-comparison__field-note">{SELECT_VESSEL_FIRST}</span>
             ) : (
-              <span className="scenario-comparison__field-note">등록된 규제연도가 없습니다</span>
+              <span className="scenario-comparison__field-note">{YEAR_STATE_COPY.empty}</span>
             )
           }
         </Field>

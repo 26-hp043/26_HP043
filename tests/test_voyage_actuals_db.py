@@ -139,7 +139,13 @@ async def test_new_fuel_type_gets_current_cf(session):
     (row,) = await _fuel_rows(session, voyage_id)
     assert row.fuel_type == "DIESEL_GAS_OIL"
     assert row.actual_fuel_ton == Decimal("40.0000")
-    assert row.cf_used > 0
+    # ⚠️ 종전에는 `cf_used > 0`이었다 — 아무 양수나 통과했다(`#2142`). **마스터의 현재
+    # 값**과 같아야 「지금 시점의 CF」다.
+    master = (
+        await session.execute(text("SELECT cf FROM fuel_type WHERE code = 'DIESEL_GAS_OIL'"))
+    ).all()
+    assert len(master) == 1, master
+    assert row.cf_used == master[0].cf
     # 계획값이 없는 실적 행이다 — 계획 없이 뛴 항차가 실제로 있다.
     assert row.planned_fuel_ton is None
 

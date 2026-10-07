@@ -82,6 +82,9 @@ async def test_dev_login_records_login_success(migrated_db, app_fresh_engine):
 
 async def test_logout_records_logout_event(migrated_db, app_fresh_engine):
     """LOGOUT — 실제 세션 무효화 시에만 기록 (#277)."""
+    # 위 검사와 같은 이유로 시작 전에 비운다 (`#2143`) — 이 파일 밖의 검사가 커밋해 둔
+    # `LOGOUT` 행이 있으면 `len(events) == 1`이 그 행까지 센다.
+    await _cleanup()
     try:
         with TestClient(app, base_url=_BASE) as client:
             assert client.post("/api/v1/auth/dev-login").status_code == 200
@@ -108,6 +111,8 @@ async def test_login_failure_records_no_credentials(migrated_db, app_fresh_engin
     **틀린 비밀번호**로 유발하며, 확인할 것은 같다 — 요청에 실린 자격 증명이
     감사 행에 나타나면 안 된다.
     """
+    # 시작 전에 비운다 (`#2143`) — 남이 커밋해 둔 `LOGIN_FAILURE` 행을 세지 않게.
+    await _cleanup()
     try:
         with TestClient(app, base_url=_BASE) as client:
             resp = client.post(

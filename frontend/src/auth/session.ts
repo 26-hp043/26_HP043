@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { clearStored } from '../layout/globalContext'
 import { SCREEN_BY_ID } from '../screens'
 import { safeNext } from './safeNext'
+import { fallbackMessage } from '../api/base'
 
 /**
  * 인증 세션 클라이언트 — `UIFLOW.md` §0 (#278).
@@ -671,7 +672,7 @@ export async function logout(
       const body = (await response.json().catch(() => null)) as {
         error?: { message?: string }
       } | null
-      failure = body?.error?.message ?? `로그아웃하지 못했습니다 (HTTP ${response.status}).`
+      failure = body?.error?.message ?? fallbackMessage('로그아웃하지 못했습니다.', response.status)
     }
   } catch {
     failure = '서버에 연결하지 못했습니다.'

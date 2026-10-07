@@ -377,7 +377,7 @@
   "letterSpacing": {
     "tight": {
       "$type": "number",
-      "$value": -0.3199999928474426,
+      "$value": -0.02,
       "$extensions": {
         "com.figma.variableId": "VariableID:1:294",
         "com.figma.scopes": [
@@ -387,7 +387,7 @@
     },
     "snug": {
       "$type": "number",
-      "$value": -0.1599999964237213,
+      "$value": -0.01,
       "$extensions": {
         "com.figma.variableId": "VariableID:1:295",
         "com.figma.scopes": [

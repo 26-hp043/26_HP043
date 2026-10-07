@@ -18,24 +18,45 @@ import { dirOf, srcKey } from '../test/srcPaths'
  * `#2015`(특이도에 짐) · `#2038`(뷰박스 단위)과 같은 갈래의 세 번째다. 규칙은 정본에
  * 있는데 **화면까지 오지 못한** 자리다.
  *
- * ## 왜 `height: 40px`으로 가르나
+ * ## 왜 컨트롤 높이로 가르나
  *
  * 「무엇이 컨트롤인가」를 선택자 이름으로 가르려 하면 `__control` · `__submit` ·
  * `__button` · `select` · `input[type=…]`까지 목록이 끝나지 않고, 새 이름이 생기면
  * 조용히 빠진다.
  *
- * 그런데 이 저장소는 **컨트롤 높이를 `40px` 하나로** 쓰고 있다 — 입력칸도 제출
- * 버튼도 그 값이다. 그래서 「`height: 40px`을 선언한 규칙」이 곧 「컨트롤을 그리는
- * 규칙」이고, 이름을 몰라도 빠짐없이 모인다. `#2046` 실측에서 **스물둘 중 여덟**이
- * `font-size`를 빠뜨리고 있었다.
+ * 그런데 이 저장소는 **폼 줄의 컨트롤 높이를 한 값으로** 쓰고 있다 — 입력칸도 제출
+ * 버튼도 그 값이다. 그래서 「그 높이를 선언한 규칙」이 곧 「컨트롤을 그리는 규칙」이고,
+ * 이름을 몰라도 빠짐없이 모인다. `#2046` 실측에서 **스물둘 중 여덟**이 `font-size`를
+ * 빠뜨리고 있었다.
  *
- * ⚠️ 높이가 `40px`이 아닌 컨트롤(`.sort select` 꼴의 작은 것들)은 이 검사가 세지
- * 않는다. 그쪽은 아래 둘째 검사가 **클래스 기준**으로 받는다.
+ * ⚠️ 그 높이는 `#2150`에서 리터럴 `40px`에서 토큰 `--target-row`로 옮겨 갔다. **이
+ * 검사가 그 리터럴을 눈으로 삼고 있었으므로** 함께 옮긴다 — 토큰으로 바꾸던 PR에서
+ * 아래 「규칙을 실제로 읽었다」가 0건으로 붉어져 바로 드러났다. 눈이 값에 묶여 있으면
+ * 값이 움직일 때 검사가 조용히 빈손이 된다.
+ *
+ * ⚠️ 폼 줄 밖의 컨트롤(`--target-button` · `.sort select` 꼴의 작은 것들)은 이 검사가
+ * 세지 않는다. 그쪽은 아래 둘째 검사가 **클래스 기준**으로 받는다.
  */
 const SRC = dirOf(import.meta.url, '..')
 
-/** 집의 컨트롤 높이. 이 값이 바뀌면 여기도 함께 간다. */
-const CONTROL_HEIGHT = /height:\s*40px/
+/**
+ * 글자를 **자기가 그리지 않는** 줄 — 면제와 그 사유.
+ *
+ * `.app-shell__nav-link`는 `[아이콘][레이블][태그]`를 담는 상자이고, `AppShell.tsx`에서
+ * 직접 글자를 받지 않는다(자식이 모두 `<span>`이다). 레이블과 태그가 각각 크기를
+ * 선언하므로 **크기 없는 글자가 생기지 않는다.** 상자에 `font-size`를 적는 것은 아무
+ * 글자에도 닿지 않는 장식이 된다.
+ */
+const EXEMPT: Record<string, string> = {
+  'layout/AppShell.css — .app-shell__nav-link':
+    '글자를 직접 받지 않는 상자 — 레이블·태그가 각자 크기를 선언한다',
+}
+
+/** 위 사유가 「각자 선언한다」고 지목한 쪽. 아래 검사가 이 지목을 확인한다. */
+const BEARS_TEXT = ['app-shell__nav-label', 'app-shell__nav-tag']
+
+/** 폼 줄의 컨트롤 높이(`--target-row` · `§8`). 이 토큰이 바뀌면 여기도 함께 간다. */
+const CONTROL_HEIGHT = /(?:block-size|height):\s*var\(--target-row\)/
 
 function walk(dir: string, ext: RegExp, skipTest: boolean): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -73,19 +94,36 @@ describe('컨트롤이 §3 글자 크기를 선언한다 (#2046)', () => {
     expect(rules.filter((r) => CONTROL_HEIGHT.test(r.body)).length).toBeGreaterThan(15)
   })
 
-  it('높이 40px을 선언한 규칙은 font-size도 선언한다', () => {
+  it('폼 줄 높이를 선언한 규칙은 font-size도 선언한다', () => {
     const naked = rules
       .filter((r) => CONTROL_HEIGHT.test(r.body))
       .filter((r) => !/font-size\s*:/.test(r.body))
       .map((r) => `${r.file} — ${r.selector}`)
+      .filter((key) => !(key in EXEMPT))
     expect(naked).toEqual([])
+  })
+
+  /**
+   * 면제의 **근거를 검사한다** (`#2150`).
+   *
+   * 위 면제는 「글자를 그리는 쪽이 따로 있다」에 기대고 있다. 그 기댄 자리가 조용히
+   * 사라지면 면제는 거짓이 되는데, 면제는 그대로 초록을 낸다 — `#2156`에서 사유가
+   * 다른 검사에 말없이 기대고 있던 것과 같은 모양이다. 그래서 **사유가 지목한 클래스**가
+   * 실제로 크기를 선언하는지를 여기서 받는다.
+   */
+  it('면제가 지목한 글자 쪽이 실제로 크기를 선언한다 (#2150)', () => {
+    const silent = BEARS_TEXT.filter(
+      (cls) =>
+        !rules.some((r) => r.selector === `.${cls}` && /font-size\s*:/.test(r.body)),
+    )
+    expect(silent).toEqual([])
   })
 })
 
 /**
  * 높이를 따로 정하지 않는 컨트롤은 **클래스**로 받는다.
  *
- * 위 검사는 `40px` 가족만 본다. 셸의 유틸리티 셀렉트나 목록의 정렬 셀렉트처럼 더 작은
+ * 위 검사는 폼 줄 가족만 본다. 셸의 유틸리티 셀렉트나 목록의 정렬 셀렉트처럼 더 작은
  * 컨트롤은 그 가족이 아니므로, 화면이 붙인 클래스가 `font-size`를 갖는지를 본다.
  *
  * ## ⚠️ 클래스가 없는 컨트롤은 이 검사가 답하지 않는다
@@ -142,11 +180,28 @@ describe('클래스로 그려지는 컨트롤도 크기를 갖는다 (#2046)', (
     .map((p) => code(readFileSync(p, 'utf8')))
     .join('\n')
 
+  /*
+   * 클래스마다 **한 번만** 묻는다 (`#2250`). 아래 정규식은 이어 붙인 CSS 전체를 처음부터
+   * 훑는데, 같은 클래스(`acc__input` 따위)를 단 컨트롤이 여럿이라 종전에는 같은 질문을
+   * 컨트롤 수만큼 되풀이했다 — CI에서 이 검사 하나가 2.3~2.5초였다. 답은 클래스 이름과
+   * 위 `css`에만 달려 있으므로 기억해 두어도 판정이 달라지지 않는다.
+   */
+  const declared = new Map<string, boolean>()
+
   function declaresFontSize(cls: string): boolean {
+    const known = declared.get(cls)
+    if (known !== undefined) return known
     const escaped = cls.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')
     const rule = new RegExp(`([^{}]*\\.${escaped}(?![\\w-])[^{}]*)\\{([^}]*)\\}`, 'g')
-    for (const found of css.matchAll(rule)) if (/font-size\s*:/.test(found[2])) return true
-    return false
+    let answer = false
+    for (const found of css.matchAll(rule)) {
+      if (/font-size\s*:/.test(found[2])) {
+        answer = true
+        break
+      }
+    }
+    declared.set(cls, answer)
+    return answer
   }
 
   const found: { file: string; classes: string[] }[] = []

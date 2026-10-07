@@ -192,6 +192,105 @@ async def test_collect_isolates_failures_and_skips_unsigned_vessels(session):
     assert other.scalar_one() == 0
 
 
+class _BrokenShapeProvider:
+    """부산은 기록을 주고, 울산은 응답 형식이 달라져 제공자 밖의 예외가 샌다 (`#2113`)."""
+
+    async def fetch(self, *, call_sign: str, port_authority_code: str, start: date, end: date):
+        if not call_sign.startswith("TST"):
+            return []
+        if port_authority_code == "820":
+            raise ValueError("invalid literal for int() with base 10: 'serviceKey=SECRETKEY'")
+        return [_call("9014", sign=call_sign)]
+
+
+async def test_collect_contains_any_provider_exception_to_its_pair(session):
+    """제공자가 어떤 예외를 내도 그 쌍만 실패다 — 실행이 멈추면 받은 것까지 되돌려진다.
+
+    순서가 요점이다: 부산(``020``)을 먼저 받고, 울산(``820``)이 깨지고, 인천(``030``)을 마저
+    받는다. 실패 사유는 예외 **종류 이름만**이다(문구에 바깥 값이 섞일 수 있다).
+    """
+    await _insert_vessel(session, "7319701", "TSTV1")
+
+    result = await collect(
+        session,
+        _BrokenShapeProvider(),
+        start=date(2026, 8, 1),
+        end=date(2026, 8, 31),
+        authorities=("020", "820", "030"),
+        fetched_at=FETCHED,
+    )
+
+    assert result.failures == [("TSTV1", "820", "ValueError")]
+    assert "SECRETKEY" not in repr(result.failures)
+    # 부산에서 넣고, 인천이 같은 기항을 다시 주어 갱신 — 울산 뒤의 쌍도 받았다는 뜻이다.
+    assert (result.inserted, result.updated) == (1, 1)
+    assert [row[0] for row in await _rows(session)] == ["9014"]
+
+
+def _naive_call(seq: str, sign: str) -> PortCall:
+    good = _call(seq, sign=sign)
+    naive = PortCallReport(
+        kind=KIND_DEPARTURE, request=REQUEST_FINAL, at=datetime(2026, 8, 9, 10, 0)
+    )
+    return PortCall(**{**good.__dict__, "reports": (good.reports[0], naive)})
+
+
+class _UnstorableProvider:
+    """울산이 저장할 수 없는 기항을 준다 — 시간대 없는 시각 · 빈 차수 · 연도 없음 (`#2113`)."""
+
+    def __init__(self, bad: PortCall) -> None:
+        self._bad = bad
+
+    async def fetch(self, *, call_sign: str, port_authority_code: str, start: date, end: date):
+        if not call_sign.startswith("TST"):
+            return []
+        if port_authority_code == "820":
+            # 멀쩡한 기항과 섞여 온다 — 그 쌍은 통째로 넣지 않는다(반쯤 받은 쌍을 만들지 않는다).
+            return [_call("9020", sign=call_sign), self._bad]
+        return [_call("9014", sign=call_sign)]
+
+
+async def test_collect_never_stores_a_time_without_timezone(session):
+    """시간대 없는 시각은 ``port_call_record``에 들어가지 않는다 — 그 쌍의 실패로 남는다."""
+    await _insert_vessel(session, "7319701", "TSTV1")
+
+    result = await collect(
+        session,
+        _UnstorableProvider(_naive_call("9021", "TSTV1")),
+        start=date(2026, 8, 1),
+        end=date(2026, 8, 31),
+        authorities=("020", "820"),
+        fetched_at=FETCHED,
+    )
+
+    assert [(sign, authority) for sign, authority, _ in result.failures] == [("TSTV1", "820")]
+    assert "시간대" in result.failures[0][2]
+    assert result.inserted == 1
+    assert [row[0] for row in await _rows(session)] == ["9014"]
+
+
+async def test_collect_never_stores_a_call_without_its_key(session):
+    """빈 차수·연도 없음은 유일 키를 뭉갠다 — 넣지 않고 그 쌍의 실패로 남긴다."""
+    await _insert_vessel(session, "7319701", "TSTV1")
+    good = _call("9021", sign="TSTV1")
+
+    for bad in (
+        PortCall(**{**good.__dict__, "call_seq": ""}),
+        PortCall(**{**good.__dict__, "call_year": 0}),
+    ):
+        result = await collect(
+            session,
+            _UnstorableProvider(bad),
+            start=date(2026, 8, 1),
+            end=date(2026, 8, 31),
+            authorities=("820",),
+            fetched_at=FETCHED,
+        )
+        assert [(sign, authority) for sign, authority, _ in result.failures] == [("TSTV1", "820")]
+        assert (result.inserted, result.updated) == (0, 0)
+    assert await _rows(session) == []
+
+
 async def test_collect_call_sign_filter(session):
     """``--call-sign``을 주면 그 배만 묻는다."""
     await _insert_vessel(session, "7319701", "TSTV1")

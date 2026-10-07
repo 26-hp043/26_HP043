@@ -74,9 +74,14 @@ describe('fetchSamplePorts (#1005 — 세 화면이 같은 경로로 받는다)'
     await expect(
       fetchSamplePorts(respond({ data: [{ name: 'BUSAN' }] }) as unknown as typeof fetch, ''),
     ).rejects.toThrow('계약과 다릅니다')
-    await expect(fetchSamplePorts(respond({}, 500) as unknown as typeof fetch, '')).rejects.toThrow(
-      'HTTP 500',
+    // 「못 받았다」는 계약 위반과 다른 문구로 던진다 — 상태 코드는 싣지 않는다 (#2221).
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failure = await fetchSamplePorts(respond({}, 500) as unknown as typeof fetch, '').catch(
+      (error: unknown) => error,
     )
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).not.toMatch(/계약과 다릅니다|HTTP|\d{3}/)
+    warn.mockRestore()
   })
 })
 

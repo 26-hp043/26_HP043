@@ -1202,3 +1202,17 @@ describe('주소의 항차가 진행 중 항차가 아니다 (#2129)', () => {
     expect(provider.loadVoyage).not.toHaveBeenCalled()
   })
 })
+
+describe('결과 맨 아래 다음 행동 (#2224 · DESIGN_SYSTEM §8 결과 카드)', () => {
+  it('같은 배를 담은 연간 등급 관리 하나다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    expect(await screen.findByText(BASE.vesselName)).toBeTruthy()
+
+    const next = document.querySelector('.result-card__next')
+    expect(next).not.toBeNull()
+    const links = next!.querySelectorAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toBe('연간 등급 관리')
+    expect(links[0].getAttribute('href')).toBe('/annual-grade?vessel_id=v-1')
+  })
+})

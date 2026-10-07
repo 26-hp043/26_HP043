@@ -25,6 +25,7 @@ from datetime import UTC
 from pathlib import Path
 
 import pytest
+from pdf_env import pdf_environment_gap
 
 from cii_platform.reports.csv_export import (
     BOM,
@@ -462,43 +463,55 @@ def test_pdf_renders_korean_without_tofu():
     아니라 **추출된 텍스트**로 확인한다. 폰트가 빠지면 추출 텍스트가 비거나
     깨지므로 이 단언이 먼저 깨진다.
 
-    CI는 `libpango` · `fonts-nanum`을 설치한다 — 없는 환경에서는 건너뛴다.
+    환경이 갖춰졌으면(:func:`pdf_env.pdf_environment_gap`) 그 뒤의 실패는 전부 실패다 —
+    제품의 판정이 「없다」고 답하는 것도 포함한다.
     """
-    pdf_module = pytest.importorskip("cii_platform.reports.pdf")
-    if not pdf_module.is_available():
-        pytest.skip("WeasyPrint 런타임(Pango)이 없는 환경")
-    if not pdf_module.has_korean_font():
-        # 로컬 개발 박스에는 한국어 폰트가 없을 수 있다. CI는 fonts-nanum을 설치하므로
-        # 여기서 건너뛰지 않는다 — 회귀를 잡는 것은 CI다.
-        pytest.skip("한국어 폰트가 설치되지 않은 환경 (CI는 fonts-nanum을 설치한다)")
+    gap = pdf_environment_gap()
+    if gap is not None:
+        pytest.skip(gap)
+
+    import pypdf
+
+    from cii_platform.reports import pdf as pdf_module
+
+    assert pdf_module.is_available(), "환경 검사를 지났는데(또는 CI인데) 렌더러를 불러오지 못했다"
+    assert pdf_module.has_korean_font(), "환경 검사를 지났는데(또는 CI인데) 폰트 판정이 거짓이다"
 
     pdf = pdf_module.render_pdf(render_html(_document()))
     assert pdf.startswith(b"%PDF-")
 
-    reader = pytest.importorskip("pypdf", reason="pypdf 없이는 텍스트 추출을 못 한다")
-    import io
-
-    text = reader.PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
+    text = pypdf.PdfReader(io.BytesIO(pdf)).pages[0].extract_text()
     assert "연간 실적 리포트" in text
     assert "STAR SKIPPER" in text
     # 면책이 문서 안에 있어야 한다 (PRD §25.1).
     assert "참고용 예측값" in text
 
 
-def test_missing_korean_font_is_detected_not_ignored():
+def test_missing_korean_font_is_detected_not_ignored(monkeypatch: pytest.MonkeyPatch):
     """폰트가 없으면 오류 없이 tofu가 된다 — 그 상태를 코드가 알아채야 한다.
 
     이 함수가 없으면 배포 이미지에서 폰트 패키지가 빠져도 아무것도 실패하지 않고
     문서의 한글만 □□□가 된다.
+
+    판정의 **양쪽**을 본다. 한국어 폰트가 있는 환경에서는 참이어야 하고, 어떤 폰트에도
+    글리프가 없는 글자(영구 비문자 U+FFFF)로 프로브를 바꾸면 거짓이어야 한다 —
+    폰트가 빠졌을 때 지나는 것과 같은 「글리프 없음」 경로다. 종전에는 ``bool``이기만
+    하면 통과해, 늘 참이나 늘 거짓을 돌려주는 판정도 지나갔다.
     """
+    gap = pdf_environment_gap()
+    if gap is not None:
+        pytest.skip(gap)
+
     from cii_platform.reports import pdf as pdf_module
 
-    if not pdf_module.is_available():
-        pytest.skip("WeasyPrint 런타임(Pango)이 없는 환경")
+    assert pdf_module.has_korean_font() is True
 
-    # 참/거짓 어느 쪽이든 **판정 자체가 동작**해야 한다. 환경에 따라 값이 갈리므로
-    # 값을 단언하지 않고 예외 없이 bool을 돌려주는 것을 본다.
-    assert isinstance(pdf_module.has_korean_font(), bool)
+    monkeypatch.setattr(
+        pdf_module,
+        "_PROBE_HTML",
+        '<html><body style="font-family: sans-serif">\uffff</body></html>',
+    )
+    assert pdf_module.has_korean_font() is False
 
 
 def test_pdf_error_offers_csv_and_keeps_the_cause_in_the_log(
@@ -541,7 +554,7 @@ def test_pdf_is_refused_when_korean_font_is_missing(
     """폰트가 없는 서버는 PDF를 만들지 않는다 — 종전에는 □ 문서가 200으로 나갔다.
 
     **이것이 `#689`의 본체다.** 렌더링은 성공하고 한글만 tofu(□)가 되므로 HTTP 상태도
-    바이트 길이도 예외도 정상이었다. 그 문서 안에 `PRD §18.2`의 면책 문구가 있다 —
+    바이트 길이도 예외도 정상이었다. 그 문서 안에 `PRD §6.3`의 면책 문구가 있다 —
     읽을 수 없는 면책이 실린 문서는 리포트가 아니다.
 
     렌더러 부재와 **같은 방식**으로 다룬다(500 + CSV 안내). 둘 다 사용자 입력의
@@ -845,16 +858,24 @@ def test_fuel_type_label_does_not_invent_a_name():
     assert fuel_type_label(None) == "—"
 
 
-def test_the_fuel_table_carries_no_raw_fuel_code():
+def test_no_known_fuel_code_is_shown_as_itself():
     """`#645`가 출처를 고칠 때 **유종 칸이 남아 있었다** — 같은 표에서 한 칸만 영문이었다.
 
-    열 이름을 짚지 않고 문서 전체를 훑는다 — 연료가 다른 절에 하나 더 실려도 걸린다.
+    ⚠️ 종전 이름은 `test_the_fuel_table_carries_no_raw_fuel_code`였고 docstring이 「문서
+    전체를 훑는다」고 적었으나, 실제로는 **라벨 dict에 `HFO` 키가 있는지**만 봤다 —
+    문서도 표시 함수도 지나지 않았다(`#2142`). 이 파일은 DB 없이 돌아 문서를 조립하지
+    못한다. 문서 전체 훑기는 `test_reports_db.py`의
+    `test_no_raw_source_code_survives_in_the_report`가 한다. 여기서는 그 훑기가 기대는
+    성질 — **아는 코드는 표시 함수를 지나면 코드가 아닌 것이 된다** — 을 본다.
     """
-    from cii_platform.reports.labels import FUEL_TYPE_LABELS
+    from cii_platform.reports.labels import FUEL_TYPE_LABELS, fuel_type_label
 
-    assert "HFO" in FUEL_TYPE_LABELS
-    # 반대 방향도 함께 본다: 「코드가 없다」만 보면 열을 통째로 빼도 통과한다.
-    assert FUEL_TYPE_LABELS["HFO"] == "중유"
+    assert FUEL_TYPE_LABELS, "연료 표가 비었다 — 아래 반복이 아무것도 보지 않는다"
+    for code in FUEL_TYPE_LABELS:
+        shown = fuel_type_label(code)
+        assert shown != code, f"{code}가 원문 코드 그대로 나간다"
+        # 표기가 다른 연료의 코드와 겹치면 「원문 코드가 남았다」 훑기가 헛돈다.
+        assert shown not in FUEL_TYPE_LABELS, (code, shown)
 
 
 def test_ship_type_labels_cover_the_calc_ship_types():

@@ -194,6 +194,16 @@ def _truncate(value: Decimal, kind: str) -> Decimal:
     return canonical.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING)
 
 
+@layer1_context
+def _co2_ton(grams: Decimal | None) -> Decimal | None:
+    """CO₂ g → t. **적용 지점 안에서** 나눈다 (`#2212` · `TECH_SPEC §1.2.1`).
+
+    응답을 조립하는 자리(``_ytd_to_dict`` · ``_project_year_end``)는 적용 지점 밖이라, 거기서
+    바로 나누면 호출 스레드의 기본 정밀도(28자리)로 먼저 깎인 값이 :func:`_publish`에 들어간다.
+    """
+    return None if grams is None else grams / Decimal(1_000_000)
+
+
 def _validate_year(year: int) -> None:
     if not MIN_REGULATION_YEAR <= year <= MAX_REGULATION_YEAR:
         raise ValidationError(
@@ -233,10 +243,7 @@ def _ytd_to_dict(ytd) -> dict[str, object]:
         # 기준은 「정박 연료 기록」이다). 값은 계층 1이 이미 계산한 것을 옮길 뿐이다.
         #
         "not_underway_fuel_ton": _publish(ytd.not_underway_fuel_ton, "fuel_ton"),
-        "not_underway_co2_ton": _publish(
-            None if ytd.not_underway_co2_g is None else ytd.not_underway_co2_g / Decimal(1_000_000),
-            "co2_ton",
-        ),
+        "not_underway_co2_ton": _publish(_co2_ton(ytd.not_underway_co2_g), "co2_ton"),
         "underway_distance_nm": _publish(ytd.underway_distance_nm, "distance_nm"),
         "not_underway_distance_nm": _publish(ytd.not_underway_distance_nm, "distance_nm"),
         "total_distance_nm": _publish(ytd.total_distance_nm, "distance_nm"),
@@ -328,10 +335,14 @@ def _year_bounds(year: int) -> tuple[datetime, datetime]:
     return datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC)
 
 
+@layer1_context
 def _remaining_days(*, as_of: datetime, regulation_year: int) -> Decimal:
     """규제연도의 잔여 일수. ``as_of``가 그 해 밖이면 경계로 자른다.
 
     과거 연도를 조회하면 연중 어느 시점이 아니라 **그 해 전체**가 대상이므로 0이다.
+
+    나눗셈을 **적용 지점 안에서** 한다 (`#2254` · `TECH_SPEC §1.2.1`) — 부르는 쪽
+    (:func:`_project_year_end`)이 코루틴이라 거기서는 컨텍스트가 걸려 있지 않다.
     """
     year_start, year_end = _year_bounds(regulation_year)
     cursor = min(max(as_of, year_start), year_end)
@@ -599,13 +610,9 @@ async def _project_year_end(
             "remaining_days": _publish(remaining_days, "distance_nm"),
             "remaining_voyage_count": inputs.plan_voyage_count,
             "planned_distance_nm": _publish(deterministic.planned_distance_nm, "distance_nm"),
-            "planned_co2_ton": _publish(
-                deterministic.planned_co2_g / Decimal(1_000_000), "co2_ton"
-            ),
+            "planned_co2_ton": _publish(_co2_ton(deterministic.planned_co2_g), "co2_ton"),
             "completed_distance_nm": _publish(deterministic.completed_distance_nm, "distance_nm"),
-            "completed_co2_ton": _publish(
-                deterministic.completed_co2_g / Decimal(1_000_000), "co2_ton"
-            ),
+            "completed_co2_ton": _publish(_co2_ton(deterministic.completed_co2_g), "co2_ton"),
         },
         # 무엇이 올리는가 (`#1673`). 합은 정확히 ``attained_cii − ytd.attained_cii``다.
         "drivers": _year_end_drivers(

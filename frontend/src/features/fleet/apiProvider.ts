@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type { FleetLoadOptions, FleetProvider, FleetSnapshot, FleetVessel } from './types'
 
 /** `API_SPEC §1.5` 상한. 첫 페이지를 크게 두는 이유는 `load()` 주석. */
@@ -223,17 +223,15 @@ export function createApiFleetProvider(
          * 것이므로 화면이 다시 짓지 않고 **그대로 쓴다**(`assistant/apiProvider.ts`와
          * 같은 방식).
          *
-         * ⚠️ **사유가 없을 때의 상태 코드 폴백은 그대로 둔다.** 종전 동작이고
-         * `apiProvider.test.ts`의 「5xx는 상태 코드를 남긴다」가 이미 고정하고 있다.
-         * 서버가 아무 말도 하지 않는 5xx에서는 그 숫자가 **남은 유일한 단서**라,
-         * 빼면 사용자가 문의할 때 넘길 것이 사라진다. 이 이슈가 고치려는 것은
-         * 「사유가 있는데 숫자가 그것을 덮는 것」이다.
+         * 사유가 없을 때의 폴백은 **상태 코드를 문구에 싣지 않는다** (#2221). `#1103`은
+         * 그 숫자를 「남은 유일한 단서」로 보고 문구에 남겼는데, 숫자는 콘솔로 옮겼다
+         * (`fallbackMessage`) — 화면 문구에서 내부 값을 빼는 `#2112`의 원칙을 따른다.
          */
         const serverMessage = body?.error?.message
         throw new FleetUnavailableError(
           typeof serverMessage === 'string' && serverMessage !== ''
             ? serverMessage
-            : `선대 현황을 불러오지 못했습니다 (HTTP ${response.status}).`,
+            : fallbackMessage('선대 현황을 불러오지 못했습니다.', response.status),
         )
       }
 

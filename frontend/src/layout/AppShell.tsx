@@ -24,7 +24,8 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
 import { useI18n, useTextLang } from '../i18n/core'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
-import { BellGlyph, LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { NotificationBell } from '../features/notifications/NotificationBell'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
 
@@ -37,12 +38,12 @@ import type { ShellContext } from './shellContext'
  * - **브랜드와 주 네비게이션은 좌측 사이드바**에 둔다.
  * - **상단바는 우측 정렬 유틸리티 영역** — 전역 컨텍스트(선박·항차) · 알림 · 계정만
  *   배치하고 **네비게이션 항목을 두지 않는다.** 배치 순서는 좌→우로 선박·항차·알림·계정.
- * - 사이드바는 UIFLOW v2.0 §2의 3계층 순서(선대 → 선박 → 항차 → 산출물 →
- *   계층 밖)를 따르며, **미구현 항목은 숨기지 않고 비활성 상태로 노출**한다
- *   (`screens.ts`의 `implemented`).
- * - 사이드바 **폭은 토큰으로 분리**하고 클래스 토글로 접히도록 구조만 잡는다.
- *   접힘 동작 자체는 MVP 범위 밖이라 토글 UI는 두지 않는다 — 나중에 셸을
- *   다시 만들지 않기 위한 준비다.
+ * - 사이드바 순서는 `UIFLOW §2.2.1`이 소유한다 — 계층 순서가 아니라 **작업 흐름
+ *   순서**다(`screens.ts`의 `NAV_ORDER`). **미구현 항목은 숨기지 않고 비활성 상태로
+ *   노출**한다(`screens.ts`의 `implemented`).
+ * - 사이드바 **폭은 토큰으로 분리**한다. **창 폭 `1100px` 이하에서는 축소(64) 상태로
+ *   선다**(`DESIGN_SYSTEM §7.2` · `#1885` — `AppShell.css`의 미디어 규칙). 클래스 토글
+ *   (`.app-shell--collapsed`)은 폭 전환 규칙만 있고, 그 클래스를 붙이는 토글 UI는 없다.
  *
  * 서비스명은 **BlueLog**다(2026-08-04 디자인 담당 확인 — 정식 명칭).
  * 로고 이미지는 아직 전달받지 못해 텍스트로 둔다. SVG를 받으면 이 자리를 교체한다.
@@ -157,19 +158,26 @@ export function AppShell() {
    *
    * 첫 진입에서는 옮기지 않는다. 페이지를 열자마자 초점이 본문으로 뛰면 주소창에서
    * Tab으로 들어오는 흐름이 끊긴다.
+   *
+   * **두 effect로 나눈다** (#2128). 제목은 언어를 따라야 하지만 초점은 **화면이 바뀔
+   * 때만** 옮긴다 — 한 effect에 두면 계정 메뉴에서 언어를 바꾸는 순간 초점이 방금 누른
+   * 토글에서 본문으로 뛴다. 언어 전환은 화면 전환이 아니다.
    */
-  const firstRender = useRef(true)
   useEffect(() => {
     // 제목의 화면 이름은 현재 언어를 따른다(#1215) — 사이드바 라벨과 같은 값이다.
     document.title = screen
       ? `${language === 'en' ? screen.labelEn : screen.label} · ${APP_TITLE}`
       : APP_TITLE
+  }, [screen, language])
+
+  const firstRender = useRef(true)
+  useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false
       return
     }
     document.getElementById(MAIN_ID)?.focus()
-  }, [pathname, screen, language])
+  }, [pathname])
 
   // URL을 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
   useEffect(() => {
@@ -497,24 +505,10 @@ export function AppShell() {
             </select>
           </span>
           {/*
-            알림 — **알림 체계가 아직 없다** (`DESIGN_SYSTEM §16` 항목 10 · `#771` ⑽).
-            자리는 `§7.2`가 정한 대로 두되(선박 · 항차 · 알림 · 계정) **누를 수 없게**
-            한다. 종전에는 `onClick`이 없는 살아 있는 버튼이었다 — 누르게 생겼는데
-            아무 일도 없고, `aria-label`은 「읽지 않음 없음」이라 **셀 것이 없는 상태**를
-            「없다」로 단정했다. 사이드바의 비활성 항목과 같은 판단이다 — 자리가
-            사라지면 「이 제품에는 그런 기능이 없다」로 읽히고, 살아 있으면 동작을
-            기대한다. 알림 체계가 정해지면(PO) 이 `disabled`와 문구만 걷어낸다.
+            알림 — 지금 걸려 있는 상태 목록 (#2204 · `DESIGN_SYSTEM §7.2` 「알림」 · `§16` 항목 10).
+            종전에는 알림 체계가 없어 `disabled` + 「준비 중」이었다(`#771` ⑽).
           */}
-          <button
-            type="button"
-            className="app-shell__iconbtn"
-            lang={textLang}
-            aria-label={t('shell.notification.aria')}
-            title={t('shell.notification.title')}
-            disabled
-          >
-            <BellGlyph />
-          </button>
+          <NotificationBell />
           {/*
             계정 · 로그아웃은 **사이드바로 옮겼다** (#2203 · `DESIGN_SYSTEM §7.2` 개정). 상단바는
             전역 컨텍스트(선박 · 항차)와 알림만 둔다. 테마 · 한/EN 토글은 그 전부터 계정

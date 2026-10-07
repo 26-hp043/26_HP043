@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 
 /**
@@ -175,7 +175,7 @@ export async function fetchSamplePorts(
     credentials: 'include',
     headers: { Accept: 'application/json' },
   })
-  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  if (!response.ok) throw new Error(fallbackMessage('샘플 항만을 불러오지 못했습니다.', response.status))
   const body = (await response.json()) as { data?: unknown }
   if (!Array.isArray(body.data) || !body.data.every(isSamplePort)) {
     throw new Error('샘플 항만 응답이 계약과 다릅니다.')

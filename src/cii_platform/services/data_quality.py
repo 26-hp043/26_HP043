@@ -228,13 +228,28 @@ def _publish_cii(value: Decimal | None) -> str | None:
     return str(canonical.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
+@layer1_context
 def _publish_co2_ton(grams: Decimal) -> str:
-    """CO₂ g → t 문자열 (소수 2자리 · **절사** · `#1600`) — `§2.7` ``co2_ton``과 같은 규약."""
+    """CO₂ g → t 문자열 (소수 2자리 · **절사** · `#1600`) — `§2.7` ``co2_ton``과 같은 규약.
+
+    **나눗셈을 적용 지점 안에서 한다** (`#2212` · `TECH_SPEC §1.2.1`). 밖에서 나누면 호출
+    스레드의 기본 정밀도(28자리)로 먼저 깎이고, 그 뒤의 절사는 깎인 값에서 시작한다.
+    절사 전에 30자리 공표 확정을 거치는 것은 ``_publish`` · ``_publish_cii``와 같다 (`#2184`).
+    """
+    canonical = publish_layer1_canonical(grams / _GRAMS_PER_TON)
     return str(
-        (grams / _GRAMS_PER_TON).quantize(
-            Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=SERIALIZATION_ROUNDING
-        )
+        canonical.quantize(Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=SERIALIZATION_ROUNDING)
     )
+
+
+@layer1_context
+def _cii_delta(attained: Decimal, attained_without: Decimal) -> Decimal:
+    """두 누적 CII의 차 — **적용 지점 안에서** 뺀다 (`#2212` · `TECH_SPEC §1.2.1`).
+
+    ``_impact``는 ``async``라 데코레이터를 달 수 없다 — ``@layer1_context``는 코루틴을
+    만드는 순간만 감싸고, 본문이 도는 동안에는 호출 스레드의 기본 컨텍스트로 돌아가 있다.
+    """
+    return attained - attained_without
 
 
 def _completeness_block(
@@ -244,8 +259,10 @@ def _completeness_block(
 
     ``measured + Σexcluded = total``이 **g 단위에서 정확히** 성립한다 — 각 항차의 CO₂를
     실측 아니면 한 축에만 더하기 때문이다. 톤 문자열은 다섯 값이 **각각** 소수 2자리로
-    반올림되므로, 문자열끼리 더하면 누적과 **최대 0.02 t** 어긋날 수 있다(가수 넷의
-    반올림 오차가 한쪽으로 쏠릴 때 — 코드 검토에서 재현). 정확한 검산은 g 단위다.
+    **절사**되므로(:func:`_publish_co2_ton` · ``SERIALIZATION_ROUNDING``), 가수 넷의 문자열을
+    더한 값은 누적보다 **최대 0.03 t** 작을 수 있다 — 가수 넷이 각각 0.01 t 미만을 버린다
+    (예: 9,900 g씩 넷은 각 ``"0.00"``으로 합 0.00인데 누적 39,600 g은 ``"0.03"``). 더한 값이
+    누적보다 커지는 일은 없다. 정확한 검산은 g 단위다.
     """
     return {
         "total_co2_ton": _publish_co2_ton(total_g),
@@ -281,7 +298,13 @@ async def _base_ytd(session: AsyncSession, vessel: Vessel, year: int) -> _Vessel
     return _VesselBase(ytd, None)
 
 
+@layer1_context
 def _sailing_hours(voyage) -> Decimal | None:
+    """출항~도착 실적 시간(h). **적용 지점 안에서** 나눈다 (`#2254` · `TECH_SPEC §1.2.1`).
+
+    이 값은 ``judge_anomaly``가 암시 속력(거리 ÷ 시간)을 낼 때의 분모다. 판정 함수는 적용
+    지점 안이지만 인자는 그 **밖에서** 먼저 만들어진다.
+    """
     if voyage.actual_departure_at is None or voyage.actual_arrival_at is None:
         return None
     seconds = Decimal(str((voyage.actual_arrival_at - voyage.actual_departure_at).total_seconds()))
@@ -358,7 +381,7 @@ async def _impact(
         {
             "attained_cii": _publish_cii(base.attained_cii),
             "attained_cii_without": _publish_cii(without.attained_cii),
-            "delta": _publish_cii(base.attained_cii - without.attained_cii),
+            "delta": _publish_cii(_cii_delta(base.attained_cii, without.attained_cii)),
             "rating": base.rating,
             "rating_without": without.rating,
         },

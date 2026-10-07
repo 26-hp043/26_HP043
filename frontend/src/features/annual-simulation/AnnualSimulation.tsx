@@ -7,6 +7,7 @@ import { DISPLAY_DIGITS, NO_TIMESTAMP_TEXT, formatDecimalString, formatTimestamp
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
+import { VESSEL_QUERY_KEY } from '../../layout/globalContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
@@ -46,6 +47,8 @@ import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
+import { ChoiceCards } from '../../components/ChoiceCards'
+import { targetDescription, useGradeBoundaries } from './gradeBoundaries'
 import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
@@ -281,6 +284,8 @@ export function AnnualSimulation({
    */
   // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다. 목록이 없으면 `''`다.
   const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear || requestedYear)
+  // 목표 등급 카드의 한 줄 풀이 — 이 배 · 이 연도의 등급 경계 (#2201).
+  const gradeBoundaries = useGradeBoundaries(shell.vesselId, year)
 
   /*
    * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
@@ -576,28 +581,24 @@ export function AnnualSimulation({
           }
         </Field>
 
-        <Field
-          id="annual-sim-target"
-          label={ANNUAL_COPY.targetRatingLabel}
-          hint={ANNUAL_COPY.targetRatingHint}
-        >
-          {(control) => (
-            <select
-              {...control}
-              className="annual-sim__control"
-              value={target}
-              onChange={(event) =>
-                setTarget(event.target.value as (typeof TARGET_RATINGS)[number])
-              }
-            >
-              {TARGET_RATINGS.map((rating) => (
-                <option key={rating} value={rating}>
-                  {rating}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
+        {/*
+          목표 등급 — 선택 카드 (#2201 · `DESIGN_SYSTEM §8.4`). 넷 중 하나이고, 카드마다 **이 배 ·
+          이 연도의 등급 경계**를 한 줄로 적는다(「연말 CII 5.348 이하」) — 셀렉트로는 A~D가 각각
+          무엇을 뜻하는지 고르기 전에 보이지 않았다. 경계는 서버 값이다(`gradeBoundaries.ts`).
+          E는 두지 않는다(`PRD §12.8`).
+        */}
+        <ChoiceCards
+          name="annual-sim-target"
+          legend={ANNUAL_COPY.targetRatingLabel}
+          legendClassName="field__label"
+          value={target}
+          onChange={(rating) => setTarget(rating)}
+          options={TARGET_RATINGS.map((rating) => ({
+            value: rating,
+            label: rating,
+            description: targetDescription(rating, gradeBoundaries),
+          }))}
+        />
 
         {/*
           기본값이 있는 네 칸을 접는다 (#1418). 첫 화면이 입력 폼이 아니라 **기준연도 · 목표 등급 ·
@@ -788,6 +789,7 @@ export function AnnualSimulation({
             <Result
               key={state.result.simulation_id}
               result={state.result}
+              vesselId={shell.vesselId}
               conditions={
                 state.restored ? { ...state.conditions, vesselName: targetVessel } : state.conditions
               }
@@ -886,12 +888,15 @@ function FutureYearsLine({
 
 function Result({
   result,
+  vesselId,
   conditions,
   restored,
   provider,
   mapGeometryProvider,
 }: {
   result: AnnualSimulationResult
+  /** 다음 행동 링크(항로 비교)가 같은 배를 담아 간다 (#2222). 상단바 전역 선택이 소유한다. */
+  vesselId: string | null
   conditions: RunConditions
   restored?: { createdAt: string; needsRecalc: boolean }
   provider: AnnualSimulationProvider
@@ -1220,6 +1225,22 @@ function Result({
             </>
           )}
         </section>
+      ) : null}
+
+      {/*
+        다음 행동 — 결과 맨 아래 한 줄, 하나만 (#2222 · `DESIGN_SYSTEM §8` 결과 카드). 띠 아래
+        「가장 크게 움직이는 변수」(#2208)를 **이번 항로로 확인하는 곳**이 항로 비교다 — 같은 배가
+        선택된 채로 간다(쿼리로 선박을 담는 화면이다). 「함대 단위로 보기」는 실행 조건 쪽 진입로라
+        그 자리에 둔다(rlatnals4114 결정).
+      */}
+      {vesselId !== null ? (
+        <p className="result-card__next">
+          <Link
+            to={`${SCREEN_BY_ID.ROUTE_COMPARISON.path}?${new URLSearchParams({ [VESSEL_QUERY_KEY]: vesselId })}`}
+          >
+            {SCREEN_BY_ID.ROUTE_COMPARISON.label}
+          </Link>
+        </p>
       ) : null}
 
       {/*

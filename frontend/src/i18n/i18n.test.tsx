@@ -200,3 +200,70 @@ describe('ThemeToggle — 낭독 이름이 현재 언어를 따른다 (#1525)', 
     expect(screen.queryByRole('radiogroup', { name: ko['theme.groupLabel'] })).toBeNull()
   })
 })
+
+/*
+ * `radiogroup`이면 **화살표로 옮겨진다** (#2128 ⑶).
+ *
+ * 역할을 선언하면 낭독기는 「라디오 그룹, 2개 중 1번째」라고 읽고 사용자는 화살표를
+ * 누른다. 종전에는 `onKeyDown`이 없어 아무 일도 일어나지 않았고, 두 칸이 **모두 Tab
+ * 순서에** 있었다. 선택된 칸만 Tab을 받고 화살표가 선택과 초점을 함께 옮긴다.
+ */
+describe('두 칸 토글의 키보드 조작 (#2128)', () => {
+  const radios = (group: HTMLElement) => [...group.querySelectorAll<HTMLElement>('[role="radio"]')]
+  const checked = (group: HTMLElement) =>
+    radios(group).find((radio) => radio.getAttribute('aria-checked') === 'true')!
+
+  function exercise(group: HTMLElement) {
+    // Tab이 닿는 칸은 선택된 칸 하나다.
+    expect(radios(group).filter((radio) => radio.tabIndex === 0)).toEqual([checked(group)])
+
+    const start = checked(group)
+    start.focus()
+    for (const key of ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']) {
+      const before = checked(group)
+      act(() => {
+        fireEvent.keyDown(document.activeElement!, { key })
+      })
+      const after = checked(group)
+      expect(after, `${key}가 선택을 옮기지 않았다`).not.toBe(before)
+      expect(document.activeElement, `${key} 뒤 초점이 선택을 따라가지 않았다`).toBe(after)
+      expect(radios(group).filter((radio) => radio.tabIndex === 0)).toEqual([after])
+    }
+    // 네 번 옮겼으니 제자리다 — 두 칸에서 양쪽 끝이 서로 이어진다.
+    expect(checked(group)).toBe(start)
+  }
+
+  it('언어 토글 — 화살표가 선택과 초점을 함께 옮긴다', () => {
+    render(
+      <LanguageProvider>
+        <LanguageToggle />
+      </LanguageProvider>,
+    )
+    exercise(screen.getByRole('radiogroup'))
+  })
+
+  it('테마 토글 — 화살표가 선택과 초점을 함께 옮긴다', () => {
+    render(
+      <LanguageProvider>
+        <ThemeToggle />
+      </LanguageProvider>,
+    )
+    exercise(screen.getByRole('radiogroup'))
+  })
+
+  it('화살표가 아닌 키는 선택을 건드리지 않는다', () => {
+    render(
+      <LanguageProvider>
+        <LanguageToggle />
+      </LanguageProvider>,
+    )
+    const group = screen.getByRole('radiogroup')
+    const before = checked(group)
+    before.focus()
+    act(() => {
+      fireEvent.keyDown(before, { key: 'a' })
+    })
+    expect(checked(group)).toBe(before)
+    expect(document.activeElement).toBe(before)
+  })
+})

@@ -1,4 +1,4 @@
-import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import type {
   AnnualSimulationListItem,
@@ -76,7 +76,7 @@ export function toAnnualSimulationError(status: number, body: unknown): AnnualSi
   const parsed = (body ?? {}) as ServerErrorBody
   const error = parsed.error
   if (!error || typeof error.message !== 'string') {
-    return new AnnualSimulationError(`${MALFORMED_ERROR_MESSAGE} (HTTP ${status})`)
+    return new AnnualSimulationError(fallbackMessage(MALFORMED_ERROR_MESSAGE, status))
   }
   return new AnnualSimulationError(error.message, error.details?.[0]?.field)
 }

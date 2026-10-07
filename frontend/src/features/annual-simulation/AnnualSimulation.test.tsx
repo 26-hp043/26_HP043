@@ -166,6 +166,35 @@ async function runOnce(): Promise<HTMLElement> {
   return screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })
 }
 
+/**
+ * 결과를 기다리는 검사의 시한 (#2220).
+ *
+ * `findBy*`에 준 `{ timeout: 5000 }`은 vitest 기본 `testTimeout`(5000ms)과 **같은 값**이라,
+ * 못 찾았을 때 RTL의 오류(무엇을 못 찾았는지 · 그때의 DOM)보다 테스트 시한이 먼저 터져
+ * 「Test timed out in 5000ms」 한 줄만 남았다. 대기 둘(연도 선택지 · 결과)을 합친 것보다
+ * 길게 잡아 RTL 오류가 먼저 나게 한다.
+ */
+const WAITS_FOR_RESULT_MS = 15_000
+
+/**
+ * 「마지막 실행」을 다시 연 화면에서 실행을 누르고, **요청이 실제로 나갔는지**까지 본다 (#2220).
+ *
+ * 복원 응답과 연도 목록은 따로 온다. 복원이 먼저 오면 결과와 「마지막 실행」 표지는 그려졌는데
+ * 연도는 아직 빈 값이라, 그 순간 누르면 화면이 실행을 거부한다 — 요청이 나가지 않으므로 결과를
+ * 기다리는 쪽은 시한까지 아무것도 받지 못한다(연도 목록을 300ms 늦춰 그 시한 초과를 재현했다).
+ * 그래서 `runOnce`와 같은 전제(연도 선택지 · effect 비우기)를 세운 뒤 누르고, 나가지 않았다면
+ * 시한이 아니라 이 단언의 실패로 드러나게 한다.
+ *
+ * 기다리는 선택지는 `2026`이다 — 복원 스텁(`stubWithLast` · `stubLast`)이 주는 해이며 `runOnce`와
+ * 같은 전제다. 다른 해를 주는 스텁에서 쓰면 선택지를 못 찾아 5초 뒤 실패한다.
+ */
+async function submitRestored(fetchImpl: { mock: { calls: unknown[][] } }): Promise<void> {
+  await screen.findByRole('option', { name: '2026' }, { timeout: 5000 })
+  await act(async () => {})
+  fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+  await waitFor(() => expect(submittedBody(fetchImpl)).not.toBeNull())
+}
+
 /** 기존 검사는 전부 **사무직** 전제다 — 실행이 사무직 전용이 됐다 (#672). */
 function stubRole(role: session.UserRole) {
   vi.spyOn(session, 'useAuthUser').mockReturnValue({
@@ -348,6 +377,23 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(em).toEqual(['D', '+12.0%'])
     // 권고형으로 쓰지 않는다
     expect(line.textContent).not.toMatch(/하세요|최적|추천/)
+  })
+
+  it('결과 맨 아래 다음 행동은 같은 배를 담은 항로 비교 하나다 (#2222)', async () => {
+    stubWith(
+      withSensitivity({
+        speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const next = document.querySelector('.result-card__next')
+    expect(next).not.toBeNull()
+    const links = next!.querySelectorAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toBe('항로 비교')
+    expect(links[0].getAttribute('href')).toBe(`/route-comparison?vessel_id=${VESSEL_ID}`)
   })
 
   it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {
@@ -1157,14 +1203,14 @@ describe('고급 설정을 접는다 (#1418)', () => {
 
   it('네 칸이 접힌 「고급 설정」 안에 있고, 목표 등급은 밖에 있다', async () => {
     openScreen()
-    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+    await screen.findByRole('group', { name: ANNUAL_COPY.targetRatingLabel })
 
     const details = advanced()
     expect(details.open).toBe(false)
     expect(details.contains(screen.getByLabelText(/반복 횟수/))).toBe(true)
     expect(details.contains(screen.getByLabelText(/seed/))).toBe(true)
     expect(details.contains(screen.getByLabelText(ANNUAL_COPY.feedbackToggle))).toBe(true)
-    expect(details.contains(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel))).toBe(false)
+    expect(details.contains(screen.getByRole('group', { name: ANNUAL_COPY.targetRatingLabel }))).toBe(false)
   })
 
   /*
@@ -1185,7 +1231,7 @@ describe('고급 설정을 접는다 (#1418)', () => {
 
   it('기본값 그대로면 「기본값으로 실행」, 바꾸면 그 수를 적는다', async () => {
     openScreen()
-    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+    await screen.findByRole('group', { name: ANNUAL_COPY.targetRatingLabel })
     expect(screen.getByText(new RegExp(ANNUAL_COPY.advancedDefault))).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText(/seed/), { target: { value: '42' } })
@@ -1239,7 +1285,7 @@ describe('재현 정보의 식별자를 접는다 (#1418)', () => {
  * 목표 등급은 C로 시작한다 (`#1453` · `PRD §12.2`).
  *
  * 종전에는 B였다. 첫 값을 바꾸지 않고 실행하는 사용자에게는 기본값이 곧 목표다 —
- * 요청 본문까지 C가 가는지를 본다. 셀렉트만 보면 화면과 전송이 갈릴 때 잡지 못한다.
+ * 요청 본문까지 C가 가는지를 본다. 카드만 보면 화면과 전송이 갈릴 때 잡지 못한다.
  */
 describe('목표 등급 기본값 (#1453)', () => {
   it('처음 고른 목표가 C이고, 바꾸지 않고 실행하면 C가 전송된다', async () => {
@@ -1247,8 +1293,8 @@ describe('목표 등급 기본값 (#1453)', () => {
     const fetchImpl = stubServer()
     renderScreen()
 
-    const select = (await screen.findByLabelText(/목표 등급/)) as HTMLSelectElement
-    expect(select.value).toBe('C')
+    await screen.findByRole('group', { name: /목표 등급/ })
+    expect((screen.getByRole('radio', { name: 'C' }) as HTMLInputElement).checked).toBe(true)
 
     await runOnce()
 
@@ -1312,7 +1358,7 @@ describe('대상 선박과 결과의 조건 (#1553)', () => {
     stubServer()
     renderScreen()
     await runOnce()
-    fireEvent.change(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel), { target: { value: 'A' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'A' }))
 
     const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
     expect(line.textContent).toContain('목표 등급 C')
@@ -1560,7 +1606,7 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     renderScreen()
 
     await screen.findByTestId('annual-sim-last-run')
-    expect((screen.getByLabelText(ANNUAL_COPY.targetRatingLabel) as HTMLSelectElement).value).toBe('B')
+    expect((screen.getByRole('radio', { name: 'B' }) as HTMLInputElement).checked).toBe(true)
     expect(
       (screen.getByLabelText(ANNUAL_COPY.runsLabel, { exact: false }) as HTMLInputElement).value,
     ).toBe('2000')
@@ -1577,11 +1623,11 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
   })
 
   it('새로 실행하면 「마지막 실행」 표지가 사라진다 — 방금 돌린 결과와 구분한다', async () => {
-    stubWithLast(LAST)
+    const fetchImpl = stubWithLast(LAST)
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
 
     /*
      * ⚠️ **기다리는 것은 결과 도착이고, 기본 시한 1초는 그 일에 대한 근거가 없다** (`#1996`).
@@ -1602,7 +1648,7 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
       await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 }),
     ).toBeTruthy()
     expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
-  })
+  }, WAITS_FOR_RESULT_MS)
 })
 
 describe('마지막 결과 복원과 선박 전환 (#1927 · #1701 후속)', () => {
@@ -2220,10 +2266,10 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(altFuel().value).toBe('LNG'))
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
     expect(submittedBody(fetchImpl as never)?.alternative_fuel).toBe('LNG')
-  })
+  }, WAITS_FOR_RESULT_MS)
 
   it('지금 목록에 없는 연료 코드면 셀렉트와 요청이 함께 「고르지 않음」이다', async () => {
     const fetchImpl = stubLast((payload) => {
@@ -2238,33 +2284,33 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
     expect(altFuel().value).toBe('')
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
     expect(submittedBody(fetchImpl as never)).not.toHaveProperty('alternative_fuel')
-  })
+  }, WAITS_FOR_RESULT_MS)
 
   it('복원한 결과를 어시스턴트가 읽는다 — 그 실행의 id로', async () => {
     stubLast()
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
-    expect(currentScreenResult()).toBe('run-sim-last')
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
   })
 
   it('새 실행이 성공하면 어시스턴트가 새 실행을 읽는다', async () => {
-    stubLast()
+    const fetchImpl = stubLast()
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
-    expect(currentScreenResult()).toBe('run-sim-1')
-  })
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-1'))
+  }, WAITS_FOR_RESULT_MS)
 
   it('실행이 실패하면 비운다', async () => {
     const fetchImpl = stubLast()
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
-    expect(currentScreenResult()).toBe('run-sim-last')
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
     const base = fetchImpl.getMockImplementation()!
     fetchImpl.mockImplementation(async (input: unknown, init?: RequestInit) =>
       String(input).endsWith('/annual-simulations') && init?.method === 'POST'
@@ -2272,16 +2318,16 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
         : base(input, init),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await screen.findByRole('alert', undefined, { timeout: 5000 })
     expect(currentScreenResult()).toBeUndefined()
-  })
+  }, WAITS_FOR_RESULT_MS)
 
   it('화면을 떠나면 비운다', async () => {
     stubLast()
     const view = renderScreen()
     await screen.findByTestId('annual-sim-last-run')
-    expect(currentScreenResult()).toBe('run-sim-last')
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 
     view.unmount()
     expect(currentScreenResult()).toBeUndefined()
@@ -2303,7 +2349,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     await screen.findByTestId('annual-sim-last-run')
 
     // 목록이 없는 동안 실행한다 — 요청에는 대체 연료가 실리지 않는다.
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
     expect(submittedBody(fetchImpl as never)).not.toHaveProperty('alternative_fuel')
 
@@ -2312,27 +2358,27 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     })
     await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
     expect(altFuel().value).toBe('')
-  })
+  }, WAITS_FOR_RESULT_MS)
 
   it('실행을 누르면 응답이 오기 전에 어시스턴트가 읽는 실행이 비워진다', async () => {
     let releasePost: () => void = () => {}
     const post = new Promise<void>((resolve) => {
       releasePost = resolve
     })
-    stubLast(() => {}, { post })
+    const fetchImpl = stubLast(() => {}, { post })
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
-    expect(currentScreenResult()).toBe('run-sim-last')
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 
-    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+    await submitRestored(fetchImpl)
     await waitFor(() => expect(currentScreenResult()).toBeUndefined())
 
     await act(async () => {
       releasePost()
     })
     await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 })
-    expect(currentScreenResult()).toBe('run-sim-1')
-  })
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-1'))
+  }, WAITS_FOR_RESULT_MS)
 
   it('연도를 바꾸면 비워진다', async () => {
     const fetchImpl = stubLast()
@@ -2344,7 +2390,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     )
     renderScreen()
     await screen.findByTestId('annual-sim-last-run')
-    expect(currentScreenResult()).toBe('run-sim-last')
+    await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 
     fireEvent.change(screen.getByLabelText(/기준연도/), { target: { value: '2025' } })
     await waitFor(() => expect(screen.queryByTestId('annual-sim-last-run')).toBeNull())

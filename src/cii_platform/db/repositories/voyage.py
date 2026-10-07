@@ -35,7 +35,9 @@ class VoyageCursor(NamedTuple):
 
     **``created_at``은 ``datetime``이다 (``str``이 아니다).** ``list_active``의
     ``tuple_`` 비교가 ``Voyage.created_at``(``DateTime(timezone=True)``)과 맞붙는데,
-    문자열을 넘기면 asyncpg가 그대로 텍스트로 내려보내 PostgreSQL이 거절한다.
+    문자열을 넘기면 시각 열을 문자열과 비교하게 된다. 이 결함이 드러난 `#627` 당시는
+    PostgreSQL이었고, asyncpg가 그대로 텍스트로 내려보내 PostgreSQL이 거절했다
+    (아래 문구는 그때의 것이다).
 
     .. code-block:: text
 
@@ -173,10 +175,11 @@ async def get_by_id(
 async def list_fuel_uses(session: AsyncSession, voyage_id: UUID) -> list[VoyageFuelUse]:
     """항차의 연료 사용 내역을 조회한다. 정렬은 유종순이다 (#867).
 
-    **정렬이 없으면 PostgreSQL이 힙 순서를 준다** — 행 하나를 UPDATE하는 정상
-    조작만으로 순서가 바뀐다. 소비처가 「첫 항목」에 의존하고 있어(진행 중 항차의
+    **정렬이 없으면 돌려받는 순서가 정해져 있지 않다.** `#867` 당시(PostgreSQL)에는 힙
+    순서가 와서 행 하나를 UPDATE하는 정상 조작만으로 순서가 바뀌었다. 소비처가
+    「첫 항목」에 의존하고 있어(진행 중 항차의
     대표 유종 — 지금은 :func:`~cii_platform.services.cii_current._voyage_fuel_split`) 그
-    순간 CO₂ 기여가 튄다 — 실측에서 HFO CF 3.114가 DIESEL_GAS_OIL 3.206으로
+    순간 CO₂ 기여가 튄다 — 그때의 실측에서 HFO CF 3.114가 DIESEL_GAS_OIL 3.206으로
     뒤집혔다. 형제 저장소(``not_underway.list_fuel_uses``)는 처음부터 정렬을
     명시하고 있었고 이쪽만 빠져 있었다.
 

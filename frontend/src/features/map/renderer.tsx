@@ -87,5 +87,10 @@ export function MapRendererHost<Model extends MapModeInput>({
     session.current?.update(model)
   }, [model])
 
-  return <div className={className} ref={setTarget} role="img" aria-label={ariaLabel} aria-describedby={ariaDescribedBy} />
+  /*
+   * `group`이다 — `img`가 아니다 (#2128). `img`는 하위 트리를 통째로 presentational로
+   * 만들어, 렌더러가 이 안에 붙이는 마커·항만 핀 **버튼**이 보조기술에 닿지 않는다
+   * (`GradeDistribution`이 같은 이유로 `group`을 쓴다). 이름과 설명은 그대로 여기 둔다.
+   */
+  return <div className={className} ref={setTarget} role="group" aria-label={ariaLabel} aria-describedby={ariaDescribedBy} />
 }

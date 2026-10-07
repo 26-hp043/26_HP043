@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import contextlib
 import importlib.util
-import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -108,12 +107,34 @@ def test_the_compose_service_name_matches_the_oci_file() -> None:
 
 
 def test_the_environment_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    """이름을 바꿀 **수단**이 실제로 있는지 본다 — 기본값만 고치면 다른 쪽이 깨진다."""
+    """이름을 바꿀 **수단**이 실제로 있는지 본다 — 기본값만 고치면 다른 쪽이 깨진다.
+
+    ⚠️ 종전에는 테스트가 넣은 환경변수를 **테스트가 같은 줄에서 다시 읽었다** — 스크립트가
+    그 변수를 읽는지는 보지 않았다(`#2142`). `main()`을 실제로 돌려 **만들어진 명령**을 본다.
+    """
     purge_expired = _load_script("purge_expired")
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        return type("Done", (), {"returncode": 0, "stdout": b"0", "stderr": b""})()
+
+    monkeypatch.setattr(purge_expired.subprocess, "run", fake_run)
+    monkeypatch.setenv("COMPOSE", "compose")
+
+    def services() -> set[str]:
+        calls.clear()
+        assert purge_expired.main(["--dry-run"]) == 0
+        assert calls, "명령이 만들어지지 않았다"
+        # `exec -T <서비스>` — 서비스 이름은 `-T` 바로 뒤다.
+        return {argv[argv.index("-T") + 1] for argv in calls}
 
     monkeypatch.setenv("DB_SERVICE", "cubrid")
-    assert os.environ.get("DB_SERVICE", purge_expired.DEFAULT_DB_SERVICE) == "cubrid"
-    assert purge_expired.DEFAULT_DB_SERVICE == "db"
+    assert services() == {"cubrid"}
+
+    # 지정하지 않으면 기본값이다 — 단일 호스트 compose의 이름.
+    monkeypatch.delenv("DB_SERVICE")
+    assert services() == {purge_expired.DEFAULT_DB_SERVICE} == {"db"}
 
 
 # --------------------------------------------------------------------------
