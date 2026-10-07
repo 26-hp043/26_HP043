@@ -24,8 +24,17 @@
 키 ``(날짜, 커밋 열 원문)``은 그런 정상 편집을 「사라진 행」으로 읽었다.
 
 1. **base → 머지 결과**에서 줄어든 행 — 덮어쓰기(`#1488`)
-2. **PR의 어느 커밋에든 있었는데** 머지 결과에 없는 행 — 충돌 해결에서 빠짐(`#1512`).
+2. **PR의 커밋이 더한 행인데** 머지 결과에 없는 행 — 충돌 해결에서 빠짐(`#1512`).
    base에 없던 행이라 1번으로는 안 보인다
+
+2번에서 「PR의 행」은 커밋의 **트리에 들어 있는 행 전부가 아니라 그 커밋이 부모와 견줘 더한
+행**이다(`#2286`). 트리 전부를 세면 옛 `main` 위에 얹힌 커밋이 **옛 `main`의 행까지** 자기
+것으로 들고 온다 — 그 뒤 `main`에서 어떤 행의 커밋 열을 일부러 고쳤으면(라벨을 붙인 PR),
+정본을 한 줄도 건드리지 않은 PR이 머지 커밋으로 최신화한 뒤에 걸렸다(Dependabot `#2230`·
+`#2231`). 머지 커밋은 **어느 부모에도 없던 행**만 더한 것으로 본다 — `main`을 끌어온
+머지에서 `main` 쪽 행은 이 PR이 더한 것이 아니다. 놓치는 것은 없다: PR이 더하지 않은 행은
+옛 `main`이나 끌어온 `main`에서 온 것이고, 그것이 지금 base에 있는데 머지 결과에서 빠졌으면
+1번이 잡는다.
 
 같은 PR이 행을 여럿 가질 수 있어(``#1081`` ⑼처럼) 1번은 **개수로** 센다.
 
@@ -98,13 +107,27 @@ def overwritten(base: Counter[Key], merged: Counter[Key]) -> list[Key]:
 
 
 def dropped_in_pr(seen: Counter[Key], merged: Counter[Key]) -> list[Key]:
-    """PR 커밋 어딘가에 있었는데 머지 결과에서 줄어든 행 — 충돌 해결에서 빠짐.
+    """PR 커밋이 더한 행인데 머지 결과에서 줄어든 행 — 충돌 해결에서 빠짐.
 
-    ``seen``은 PR의 각 커밋에서 센 행 수의 **키별 최댓값**이다(`#1607`). 키가 참조
-    집합이라(`#1522`) ``#1081`` ⑼·⑽처럼 한 PR의 여러 행이 한 키로 합쳐지므로, 「있었나/
-    없나」만 보면 둘 중 하나가 빠진 것을 놓친다 — 개수로 본다.
+    ``seen``은 PR의 각 커밋이 더한 행(:func:`added_rows`)의 **키별 최댓값**이다(`#1607`).
+    키가 참조 집합이라(`#1522`) ``#1081`` ⑼·⑽처럼 한 PR의 여러 행이 한 키로 합쳐지므로,
+    「있었나/없나」만 보면 둘 중 하나가 빠진 것을 놓친다 — 개수로 본다.
     """
     return sorted((seen - merged).elements())
+
+
+def added_rows(commit: Counter[Key], parents: list[Counter[Key]]) -> Counter[Key]:
+    """그 커밋이 부모와 견줘 **더한** 행 — 값은 그 커밋 시점의 행 수다 (`#2286`).
+
+    부모가 여럿이면(머지 커밋) 키별 최댓값과 견준다 — 어느 부모에도 없던 만큼만 더한 것이다.
+    값을 늘어난 수가 아니라 **그 시점의 행 수**로 두는 것은 `#1607` 때문이다. 한 커밋이
+    ``#1606`` 행을, 다음 커밋이 ``#1606`` ⑵ 행을 실으면 늘어난 수는 각각 1이라 최댓값이
+    1에 머물고, 충돌 해결에서 하나가 빠져도 보이지 않는다.
+    """
+    inherited: Counter[Key] = Counter()
+    for parent in parents:
+        inherited |= parent
+    return Counter({key: commit[key] for key in commit - inherited})
 
 
 def _git(root: Path, *args: str) -> str:
@@ -126,6 +149,10 @@ def _show(root: Path, rev: str, path: str) -> str:
         return _git(root, "show", f"{rev}:{path}")
     except subprocess.CalledProcessError:
         return ""
+
+
+def _parents(root: Path, rev: str) -> list[str]:
+    return _git(root, "rev-list", "--parents", "-n", "1", rev).split()[1:]
 
 
 def _label(key: Key) -> str:
@@ -154,6 +181,7 @@ def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
     """위반 목록. 비어 있으면 통과다."""
     commits = _git(root, "rev-list", f"{base}..HEAD").split()
     commits += _previous_commits(root, base, previous_head)
+    parents = {rev: _parents(root, rev) for rev in commits}
     problems: list[str] = []
     for doc in DOCS:
         path = root / doc
@@ -165,7 +193,11 @@ def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
 
         seen: Counter[Key] = Counter()
         for rev in commits:
-            seen |= row_keys(_show(root, rev, doc))  # 키별 최댓값 (#1607)
+            # 트리의 행 전부가 아니라 그 커밋이 더한 행만 (#2286) · 키별 최댓값 (#1607)
+            seen |= added_rows(
+                row_keys(_show(root, rev, doc)),
+                [row_keys(_show(root, parent, doc)) for parent in parents[rev]],
+            )
         for key in dropped_in_pr(seen, merged):
             problems.append(
                 f"{doc}: 이 PR의 커밋에 있던 행이 머지 결과에서 빠졌습니다 — {_label(key)}"

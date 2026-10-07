@@ -264,3 +264,122 @@ def test_실제_git_이력에서_같은_PR의_둘째_행이_빠지면_잡는다(
 
     problems = rows.check(tmp_path, "main")
     assert any("커밋에 있던 행" in p and "#1606" in p for p in problems)
+
+
+def test_더한_행은_부모에_없던_키만_그_시점의_개수로_센다():
+    """`#2286` — 트리 전부가 아니라 더한 행만. 값은 늘어난 수가 아니라 그 시점의 행 수다."""
+    parent = rows.row_keys(
+        _table("| 2026-10-01 | `#2080` | 옛 main |", "| 2026-10-02 | `#2100` | a |")
+    )
+    commit = rows.row_keys(
+        _table(
+            "| 2026-10-01 | `#2080` | 옛 main |",
+            "| 2026-10-02 | `#2100` | a |",
+            "| 2026-10-03 | `#2100` ⑵ | b |",
+        )
+    )
+    assert rows.added_rows(commit, [parent]) == Counter({("#2100",): 2})
+    assert rows.added_rows(parent, [parent]) == Counter()
+
+
+def test_머지_커밋은_어느_부모에도_없던_행만_더한_것으로_본다():
+    """`#2286` — `main`을 끌어온 머지에서 `main` 쪽 행은 이 PR이 더한 것이 아니다."""
+    ours = rows.row_keys(
+        _table("| 2026-10-01 | `#2080` | 옛 main |", "| 2026-10-05 | `#2290` | pr |")
+    )
+    theirs = rows.row_keys(_table("| 2026-10-01 | `#2259` | 고친 main |"))
+    merge = rows.row_keys(
+        _table("| 2026-10-01 | `#2259` | 고친 main |", "| 2026-10-05 | `#2290` | pr |")
+    )
+    assert rows.added_rows(merge, [ours, theirs]) == Counter()
+    invented = rows.row_keys(
+        _table("| 2026-10-01 | `#2259` | 고친 main |", "| 2026-10-06 | `#2291` | 새 |")
+    )
+    assert rows.added_rows(invented, [ours, theirs]) == Counter({("#2291",): 1})
+
+
+_OLD_MAIN = ("| 2026-10-01 | `#2080` | 이슈 번호로 적힌 행 |",)
+_NEW_MAIN = (
+    "| 2026-10-01 | `#2259` | PR 번호로 고친 행 |",
+    "| 2026-10-06 | `#2284` | main의 새 행 |",
+)
+_OWN_ROW = "| 2026-10-05 | `#2290` | pr |"
+
+
+def _stale_base_repo(tmp_path: Path, *, pr_adds_row: bool, merged_rows: tuple[str, ...]) -> None:
+    """옛 `main` 위의 PR을, 그 뒤 커밋 열이 고쳐진 `main`과 **머지 커밋으로** 합친 저장소.
+
+    `gh pr update-branch`(리베이스 아님)가 만드는 모양이다. ``merged_rows``가 머지 결과의
+    변경 이력이다 — 충돌 해결을 흉내 내려고 직접 적는다.
+    """
+    doc = tmp_path / "API_SPEC.md"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    doc.write_text(_table(*_OLD_MAIN), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "옛 main")
+
+    _git(tmp_path, "checkout", "-qb", "pr")
+    (tmp_path / "uv.lock").write_text("정본이 아닌 변경", encoding="utf-8")
+    if pr_adds_row:
+        doc.write_text(_table(*_OLD_MAIN, _OWN_ROW), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "PR 커밋")
+
+    _git(tmp_path, "checkout", "-q", "main")
+    doc.write_text(_table(*_NEW_MAIN), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "커밋 열을 고치고 새 행을 싣는다")
+
+    _git(tmp_path, "checkout", "-q", "pr")
+    _git(tmp_path, "merge", "-q", "--no-commit", "--no-ff", "-s", "ours", "main")
+    doc.write_text(_table(*merged_rows), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "main을 끌어온다")
+    assert len(_git(tmp_path, "rev-list", "--merges", "main..HEAD").split()) == 1
+
+
+def test_정본을_건드리지_않은_PR은_옛_base_위에_있어도_통과한다(tmp_path):
+    """`#2286` — Dependabot `#2230`·`#2231`. 옛 커밋의 트리에 든 옛 `main` 행은 PR의 행이 아니다."""
+    _stale_base_repo(tmp_path, pr_adds_row=False, merged_rows=_NEW_MAIN)
+    assert rows.check(tmp_path, "main") == []
+    assert rows.main(["--base", "main", "--root", str(tmp_path)]) == 0
+
+
+def test_옛_base_위에서_행을_더한_PR도_자기_행이_남으면_통과한다(tmp_path):
+    """`#2286` — 정본을 바꾼 커밋이라도 그 트리의 옛 `main` 행까지 PR의 행으로 세지 않는다."""
+    _stale_base_repo(tmp_path, pr_adds_row=True, merged_rows=(*_NEW_MAIN, _OWN_ROW))
+    assert rows.check(tmp_path, "main") == []
+
+
+def test_머지_커밋의_충돌_해결에서_자기_행이_빠지면_잡는다(tmp_path):
+    """`#1512` — 이 검사가 있는 이유다. 더한 행만 세도 PR이 더한 행은 그대로 센다."""
+    _stale_base_repo(tmp_path, pr_adds_row=True, merged_rows=_NEW_MAIN)
+    problems = rows.check(tmp_path, "main")
+    assert [p for p in problems if "커밋에 있던 행" in p] == [
+        "API_SPEC.md: 이 PR의 커밋에 있던 행이 머지 결과에서 빠졌습니다 — #2290"
+    ]
+    assert not any("#2080" in p for p in problems)
+
+
+def test_머지_커밋의_충돌_해결에서_main의_행이_빠지면_1번이_잡는다(tmp_path):
+    """`#2286` — 2번이 세지 않게 된 행(끌어온 `main`의 행)은 1번의 몫이다. 빈틈이 생기지 않는다."""
+    _stale_base_repo(tmp_path, pr_adds_row=True, merged_rows=(_NEW_MAIN[0], _OWN_ROW))
+    assert rows.check(tmp_path, "main") == ["API_SPEC.md: base에 있던 행이 사라졌습니다 — #2284"]
+
+
+def test_실제_git_이력에서_두_커밋에_나눠_실은_행_중_하나가_빠지면_잡는다(tmp_path):
+    """`#1607` × `#2286` — 커밋마다 늘어난 수(1)만 세면 최댓값이 1에 머물러 못 본다."""
+    doc = tmp_path / "TEST_PLAN.md"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "checkout", "-qb", "pr")
+    one = ("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1606` | 하나 |")
+    doc.write_text(_table(*one), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "첫 행")
+    doc.write_text(_table(*one, "| 2026-09-22 | `#1606` ⑵ | 둘 |"), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "둘째 행")
+    doc.write_text(_table(*one), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "충돌 해결에서 하나가 빠짐")
+
+    problems = rows.check(tmp_path, "main")
+    assert any("커밋에 있던 행" in p and "#1606" in p for p in problems)
