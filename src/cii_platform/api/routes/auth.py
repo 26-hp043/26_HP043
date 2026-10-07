@@ -173,6 +173,10 @@ LAST_ADMIN_MESSAGE = (
     "다른 계정을 먼저 관리자로 지정해 주세요."
 )
 
+#: 둘러보기 계정의 역할을 바꾸려 할 때 (#2291). 둘러보기 계정은 서비스를 다 보이려고
+#: 관리자로 고정돼 있어 — 다음 둘러보기 로그인이 되돌리므로 — 바꿔도 잠깐만 남는다.
+TOUR_ROLE_FIXED_MESSAGE = "둘러보기 계정의 역할은 바꿀 수 없습니다."
+
 #: 없는 계정의 역할을 바꾸려 할 때.
 USER_NOT_FOUND_MESSAGE = "계정을 찾을 수 없습니다."
 
@@ -1069,6 +1073,11 @@ async def update_user_role(
     될 수 없다 — 0명이 되면 아무도 되돌릴 수 없다. 판정은 관리자 행을 잠근 채 한다
     (``_lock_admin_users``).
 
+    ## 둘러보기 계정은 대상이 아니다 (#2291)
+
+    다음 둘러보기 로그인이 관리자로 되돌리므로 바꿔도 잠깐만 남는다. 같은 값(`ADMIN`)을
+    요청해도 거절한다 — 「바꿀 수 없는 계정」이라는 하나의 규칙으로 읽히게 한다.
+
     ## 같은 값이면 아무것도 쓰지 않는다
 
     감사 로그에 「OFFICE → OFFICE」가 쌓이면 실제 변경을 찾기 어려워진다. 200과 현재 상태만
@@ -1084,6 +1093,9 @@ async def update_user_role(
     target = result.scalar_one_or_none()
     if target is None:
         raise NotFoundError(USER_NOT_FOUND_MESSAGE)
+
+    if target.id == _TOUR_USER_ID:
+        return _error_response(request, 409, "CONFLICT", TOUR_ROLE_FIXED_MESSAGE)
 
     before = target.role
     if before == payload.role:

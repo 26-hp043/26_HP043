@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router'
 import { AccountPanel } from './AccountPanel'
 import { RegulationParametersSection } from '../parameters/RegulationParametersSection'
 import { visibleSections } from '../../pages/settingsSections'
-import { WITHDRAWAL_NOTICE } from '../auth/authRules'
+import { ROLE_LABEL, WITHDRAWAL_NOTICE } from '../auth/authRules'
 import * as session from '../../auth/session'
 
 /**
@@ -251,6 +251,30 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672 · #1301)', () => 
     fireEvent.change(select, { target: { value: 'FIELD' } })
     await waitFor(() => expect(screen.getByText(message)).toBeTruthy())
     expect(select.value).toBe('ADMIN')
+  })
+
+  it('둘러보기 계정 행은 역할을 바꿀 수 없고 다른 행은 바꿀 수 있다 (#2291)', async () => {
+    stubUser('ADMIN')
+    const rows: session.CurrentUser[] = [
+      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'ADMIN', emailVerifiedAt: null, hasAvatar: false },
+      { id: 'u-2', email: 'crew@bluelog.local', displayName: null, role: 'FIELD', emailVerifiedAt: null, hasAvatar: false },
+      { id: 'u-t', email: 'tour@bluelog.local', displayName: null, role: 'ADMIN', emailVerifiedAt: null, hasAvatar: false, isTour: true },
+    ]
+    vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
+    const update = vi.spyOn(session, 'updateUserRole')
+    renderPanel()
+
+    // 다른 행은 선택 상자가 있다
+    expect(await screen.findByLabelText(/crew@bluelog.local/)).toBeTruthy()
+    // 둘러보기 행은 선택 상자가 없다 — 이메일을 라벨로 하는 조작 요소가 하나도 없다
+    expect(screen.queryByLabelText(/tour@bluelog.local/)).toBeNull()
+    const row = screen.getByTestId('acc-tour-u-t')
+    expect(row.querySelector('select')).toBeNull()
+    // 까닭이 글자로 있고(낭독기가 읽는다), 역할 자리는 「관리자」가 아닌 값이다
+    expect(row.textContent).toContain('tour@bluelog.local')
+    expect(row.textContent).not.toContain(ROLE_LABEL.ADMIN)
+    expect(row.textContent!.length).toBeGreaterThan('tour@bluelog.local'.length)
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('목록 조회가 실패하면 실패라고 말한다 — 빈 목록으로 보이지 않는다', async () => {

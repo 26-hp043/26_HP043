@@ -37,6 +37,8 @@ import {
 import type { AccountFieldErrors, PasswordChangeDraft } from './accountRules'
 import './AccountPanel.css'
 import { ErrorState } from '../../components/ErrorState'
+import { useI18n } from '../../i18n/core'
+import { roleKey } from '../../layout/accountRole'
 import { Field } from '../../components/Field'
 
 /**
@@ -141,6 +143,7 @@ export function AccountPanel() {
  * 갈린다. 실패하면 셀렉트를 **원래 값으로 되돌린다** — 화면이 서버와 다르게 남지 않게.
  */
 function RoleSection({ me }: { me: CurrentUser }) {
+  const { t } = useI18n()
   const [users, setUsers] = useState<CurrentUser[] | null>(null)
   const [loadFailure, setLoadFailure] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -195,12 +198,23 @@ function RoleSection({ me }: { me: CurrentUser }) {
         <ul className="acc__users" data-testid="acc-users">
           {users.map((row) => {
             const selectId = `acc-role-${row.id}`
+            const who = `${row.email}${row.id === me.id ? ' (나)' : ''}${row.displayName ? ` · ${row.displayName}` : ''}`
+            if (row.isTour === true) {
+              // 둘러보기 계정은 역할을 바꿀 수 없다(`API_SPEC §1.2.6` · #2291) — 잠긴 선택 상자
+              // 대신 글자로 적는다. `disabled`는 초점에서 빠져 까닭을 낭독기가 못 읽는다.
+              return (
+                <li key={row.id} className="acc__user" data-testid={`acc-tour-${row.id}`}>
+                  <span className="acc__label">{who}</span>
+                  <span className="acc__hint">
+                    {t(roleKey(row))} · {TOUR_ROLE_FIXED_NOTICE}
+                  </span>
+                </li>
+              )
+            }
             return (
               <li key={row.id} className="acc__user">
                 <label className="acc__label" htmlFor={selectId}>
-                  {row.email}
-                  {row.id === me.id ? ' (나)' : ''}
-                  {row.displayName ? ` · ${row.displayName}` : ''}
+                  {who}
                 </label>
                 <select
                   id={selectId}
@@ -228,6 +242,9 @@ function RoleSection({ me }: { me: CurrentUser }) {
     </SettingsSectionCard>
   )
 }
+
+/** 둘러보기 계정 행에 붙는 까닭 — 서버가 같은 이유로 거절한다(`API_SPEC §1.2.6`). */
+const TOUR_ROLE_FIXED_NOTICE = '역할을 바꿀 수 없는 계정입니다.'
 
 /**
  * 프로필 이미지 (`#2080` · `API_SPEC §1.2.5a`).
