@@ -396,6 +396,35 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(links[0].getAttribute('href')).toBe(`/route-comparison?vessel_id=${VESSEL_ID}`)
   })
 
+  it('다음 행동은 결과 영역의 마지막 요소이고 「재현 · 계산 근거」 바로 위에 놓인다 (#2222 · #2297)', async () => {
+    // 이슈 문구는 「결과 맨 아래」인데 화면은 「계산 근거」 섹션을 그 아래에 둔다 —
+    // 근거 섹션은 카드 밖 바닥이라 결과 영역의 끝은 다음 행동이다. 그 자리를 잠근다.
+    stubWith(
+      withSensitivity({
+        speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const next = document.querySelector('.result-card__next') as HTMLElement
+    const basis = document.querySelector('.annual-sim__basis') as HTMLElement
+    expect(next).not.toBeNull()
+    expect(basis).not.toBeNull()
+    // 바로 아래 형제가 계산 근거다
+    expect(next.nextElementSibling).toBe(basis)
+    // 결과 본문(`.annual-sim__results`)과 「가장 크게 움직이는 변수」 줄 뒤에 온다
+    for (const before of ['.annual-sim__results', '[data-testid="annual-sim-top-lever"]']) {
+      const el = document.querySelector(before)
+      expect(el, `${before}가 그려졌다`).not.toBeNull()
+      expect(el!.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    // 다음 행동 뒤에 이어지는 형제는 근거 섹션뿐이다 — 결과 요소가 더 오지 않는다
+    const after: Element[] = []
+    for (let el = next.nextElementSibling; el; el = el.nextElementSibling) after.push(el)
+    expect(after.every((el) => el.classList.contains('annual-sim__basis'))).toBe(true)
+  })
+
   it('대체 연료 행은 코드 원문이 아니라 다른 자리와 같은 연료 표기를 쓴다 (#2122)', async () => {
     stubWith(
       withSensitivity({

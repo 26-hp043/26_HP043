@@ -3,6 +3,7 @@ import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { AssistantOverlay, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatAnswer } from './types'
@@ -898,6 +899,53 @@ describe('범이 첫 방문 안내 (#2205)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
     expect(screen.queryByText(HINT)).toBeNull()
     expect(window.localStorage.getItem('bluelog.assistant.introHintDismissed')).toBe('true')
+  })
+
+  it('말풍선이 떠 있어도 화면의 Tab 순서는 그대로고, 늘어난 정지점은 런처 바로 앞의 둘뿐이다 (#2297)', async () => {
+    // 화면 쪽 정지점 둘을 앞에 두고, 말풍선이 있을 때와 없을 때의 Tab 순서를 견준다.
+    async function tabOrder(): Promise<string[]> {
+      const user = userEvent.setup()
+      const stops: string[] = []
+      for (let i = 0; i < 6; i += 1) {
+        await user.tab()
+        const active = document.activeElement as HTMLElement
+        if (active === document.body) break
+        const name = active.getAttribute('aria-label') ?? active.textContent ?? ''
+        if (stops.includes(name)) break
+        stops.push(name)
+      }
+      return stops
+    }
+    function mount() {
+      return render(
+        <>
+          <button type="button">화면 앞</button>
+          <button type="button">화면 뒤</button>
+          <AssistantOverlay provider={{ ask: vi.fn() }} />
+        </>,
+      )
+    }
+
+    reset()
+    const withHint = mount()
+    expect(screen.queryByRole('status')).not.toBeNull()
+    const hinted = await tabOrder()
+    withHint.unmount()
+
+    // 안내를 이미 본 사람 — 말풍선이 없다
+    window.localStorage.setItem('bluelog.assistant.introHintDismissed', 'true')
+    const plain = mount()
+    expect(screen.queryByRole('status')).toBeNull()
+    const bare = await tabOrder()
+    plain.unmount()
+
+    // 화면 쪽 순서는 같고, 런처는 여전히 마지막이다
+    expect(hinted.slice(0, 2)).toEqual(bare.slice(0, 2))
+    expect(hinted[hinted.length - 1]).toBe(bare[bare.length - 1])
+    // 늘어난 정지점은 말풍선의 버튼 둘뿐이고 화면 쪽과 런처 사이에 놓인다
+    expect(hinted).toHaveLength(bare.length + 2)
+    expect(hinted.slice(2, 4)).toHaveLength(2)
+    expect(hinted.slice(2, 4)).not.toContain(bare[bare.length - 1])
   })
 })
 

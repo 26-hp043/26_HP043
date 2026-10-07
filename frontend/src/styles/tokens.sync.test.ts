@@ -817,6 +817,9 @@ describe('시맨틱 색을 문자색으로 쓰지 않는다 — §0.2 제약 1 (
     '--color-warning',
     '--semantic-primary',
     '--color-primary',
+    // Success도 같다(#1653) — 라이트 `#38a169`가 네 면 모두 미달이라 문자색은 `--color-success-text`다
+    '--semantic-success',
+    '--color-success',
   ]
 
   function cssFiles(dir: string): string[] {

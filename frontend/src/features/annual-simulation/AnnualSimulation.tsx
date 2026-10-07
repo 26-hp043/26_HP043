@@ -1279,7 +1279,8 @@ function Result({
 
                 ⚠️ **색을 쓰지 않는다.** 라이트 `--color-success`(`#38a169`)가 이 면
                 (`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지 못한다.
-                Success 값이 정해지면(별건 이슈) 아이콘과 문구에 색만 입히면 된다.
+                문자 전용 별칭 `--color-success-text`(`#1653`)는 이미 있다 — 이 면 위에서도
+                4.61이라 넘는다. 색을 입히는 것은 별건이고, 지금은 입히지 않는다.
               */}
               <div className="annual-sim__reproduce-ok" role="status">
                 <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size="inline" />

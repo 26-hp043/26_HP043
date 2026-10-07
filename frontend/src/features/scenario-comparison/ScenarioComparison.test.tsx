@@ -2121,3 +2121,61 @@ describe('우회 경유지 (#1300)', () => {
     expect(screen.getByRole('status', { name: '' }).textContent ?? '').toMatch(/기본 규칙/)
   })
 })
+
+describe('막대 옆 값은 비교 표 칸과 같은 문자열이다 (#2202 · #2297)', () => {
+  /*
+   * 막대 부품 단독 검사(`ScenarioBars.test.tsx`)는 자기 픽스처만 본다. 표와 막대는 각자
+   * 값을 포맷하므로, 한쪽만 자릿수 · 단위 · 순서가 바뀌면 같은 응답이 두 모양으로 보인다.
+   * 칸이 뒤바뀐 것도 잡으려고 세 안의 값을 전부 다르게 둔다.
+   */
+  const DISTINCT_BODY = {
+    ...COMPARE_BODY,
+    data: {
+      ...COMPARE_BODY.data,
+      scenarios: COMPARE_BODY.data.scenarios.map((s, i) => ({
+        ...s,
+        attained_cii: ['6.614000', '7.125000', '5.250000'][i],
+        duration_hours: ['78.1250', '90.5000', '120.2500'][i],
+        fuel_ton: ['87.50', '1234.57', '55.25'][i],
+        co2_emission_ton: ['272.48', '3845.12', '172.01'][i],
+      })),
+    },
+  }
+
+  // 막대 항목의 전송 키 → 표 행 머리글의 앞부분
+  const PAIRS = [
+    { key: 'attained_cii', rowLabel: 'CII' },
+    { key: 'duration_hours', rowLabel: '예상 소요시간' },
+    { key: 'fuel_ton', rowLabel: '예상 연료' },
+    { key: 'co2_emission_ton', rowLabel: 'CO₂ 배출량' },
+  ]
+
+  it('네 항목 모두 표의 칸과 막대 옆 값이 같다', async () => {
+    stubServerWithComparison(DISTINCT_BODY)
+    renderScreen()
+    await compareAndWaitForResult()
+
+    const table = document.querySelector('table.scenario-table') as HTMLElement
+    expect(table).not.toBeNull()
+    const select = screen.getByLabelText('막대로 볼 항목')
+
+    for (const { key, rowLabel } of PAIRS) {
+      const row = [...table.querySelectorAll('tbody tr')].find((tr) =>
+        tr.querySelector('th')?.textContent?.startsWith(rowLabel),
+      )
+      expect(row, `${rowLabel} 행이 표에 있다`).toBeDefined()
+      const tableValues = [...row!.querySelectorAll('.scenario-table__value')].map(
+        (el) => el.textContent,
+      )
+
+      fireEvent.change(select, { target: { value: key } })
+      // 값 글자만 본다 — 단위는 자식 span이라 첫 자식(글자 노드)이 값이다
+      const barValues = [...document.querySelectorAll('.scenario-bars__value')].map(
+        (el) => el.firstChild?.textContent,
+      )
+      expect(barValues, `${key}: 막대 옆 값`).toEqual(tableValues)
+      // 픽스처가 정말 서로 달랐는지 — 같으면 칸 뒤바뀜을 못 본다
+      expect(new Set(tableValues).size).toBe(3)
+    }
+  })
+})
