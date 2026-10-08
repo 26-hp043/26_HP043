@@ -56,14 +56,14 @@ _cubrid_engine_kw: dict = {}
 #:   `::timestamptz` · `RETURNING` 따위를 CUBRID 것으로 옮겼다.
 #: * **무결성 위반의 예외 갈래가 달랐다.** `db/cubrid_errors.py` 참조.
 #:
-#: 남은 7건은 **건너뛰지 않고 실패한 채 보인다.** 가려 두면 다음 사람이 다시
-#: 조사하게 되고, 무엇보다 트리거 144개가 CI에서 확인되지 않는다. 성질은 이렇다.
+#: 전환 초기에는 아래 성질들을 실제 DB에서 확인해야 했다. 지금은 파일 전체를
+#: 건너뛰지 않고 각 제약 검사와 마이그레이션에서 확인한다(아래 skip 집합은 비었다).
 #:
 #: * `idx_sim_snapshot_unique`가 DB에 없다 (2건) — CUBRID가 FK 컬럼에 인덱스를 또
 #:   두는 것을 거부한다(`errno=-272`). 결정요청 §3⑵의 미결 항목이다.
 #: * `not_underway_period`의 부분 인덱스에 필터가 없다 (1건).
-#: * 부모 쪽 `fuel_type` DELETE를 막지 않는다 (1건) — `REPLACE INTO`가 DELETE로
-#:   구현돼 시드 재적재가 막히므로 `a7d3e9b14f26`이 의도적으로 뺐다(`DB_SCHEMA §7.4`).
+#: * 부모 쪽 `fuel_type` DELETE는 069부터 세 참조가 남으면 거부한다 — 시드가
+#:   UPDATE/INSERT로 바뀌어 REPLACE 때문에 제외했던 사유가 사라졌다 (`#2308`).
 #: * 불변성 트리거 거부를 `IntegrityError`로 기대한다 (2건) — 성질이 다르다.
 #: * `'fixed abc'`가 `LIKE 'fixed %'`를 통과한다 (1건) — 원문 CHECK에도 있던 구멍이다.
 #:

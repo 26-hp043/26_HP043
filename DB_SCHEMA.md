@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-08 |
+| 최종 수정일 | 2026-10-09 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -101,7 +101,7 @@ erDiagram
 | `ship_type` | VARCHAR(50) | NOT NULL | CII 선종 enum. `cii_reference_line.ship_type`에 존재해야 함 |
 | `gross_tonnage` | NUMERIC(12,2) | NULL | GT |
 | `deadweight` | NUMERIC(12,2) | NULL | DWT |
-| `default_fuel_type` | VARCHAR(30) | NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_vessel_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부** [S-1] | 기본 연료 코드 |
+| `default_fuel_type` | VARCHAR(30) | NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_vessel_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부 · 참조 중인 부모 삭제는 `trg_fuel_type_referenced_delete`(`069`)가 거부** [S-1] | 기본 연료 코드 |
 | `reference_speed_kn` | NUMERIC(6,2) | NULL, **60 이하 — 트리거 `trg_chk_speed_max_ins`·`_upd`** [#1269] | 기준 속도 (kn). 상한은 VAL-009의 물리 상한(`PRD §9.1` · 마이그레이션 062) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
@@ -172,7 +172,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 
 > `gross_tonnage`와 `deadweight`는 PRD §7.2에서 "조건부 필수"이다. CII 계산 시점에 VAL-010으로 검증한다.
 >
-> **[S-1]** `default_fuel_type`에 FK 제약 추가. `fuel_type.code`를 참조하며 `ON UPDATE CASCADE`로 코드 변경 시 자동 전파 — 이것이 PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부한다.** 연료를 바꾸려면 새 코드를 넣고 옛 코드를 `is_active = 0`으로 끈다.
+> **[S-1]** `default_fuel_type`에 FK 제약 추가. `fuel_type.code`를 참조하며 `ON UPDATE CASCADE`로 코드 변경 시 자동 전파 — 이것이 PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부하며 참조 중인 부모 삭제는 `trg_fuel_type_referenced_delete`(`069` · #2308)가 거부한다.** 연료를 바꾸려면 새 코드를 넣고 옛 코드를 `is_active = 0`으로 끈다.
 
 ---
 
@@ -281,7 +281,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
 |---|---|---|---|
 | `id` | UUID | PK | ID |
 | `voyage_id` | UUID | NOT NULL, FK → voyage(id) **ON DELETE CASCADE** [DB-C-3] | 항차 ID |
-| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부** [S-1] | 연료 종류 |
+| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부 · 참조 중인 부모 삭제는 `trg_fuel_type_referenced_delete`(`069`)가 거부** [S-1] | 연료 종류 |
 | `planned_fuel_ton` | NUMERIC(12,4) | NULL | 계획 연료 사용량 |
 | `actual_fuel_ton` | NUMERIC(12,4) | NULL | 실제 연료 사용량 |
 | `cf_used` | NUMERIC(10,6) | NOT NULL | **입력 시점의 CF 기록** — 확정 실적의 계산 근거. 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다 (`#832`) |
@@ -314,7 +314,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 
 > **[ORACLE-C-4 제약]** `voyage.status = COMPLETED` 전환 시 최소 1개 `voyage_fuel_use.actual_fuel_ton > 0`이 필요하다. 이는 DB 제약보다 애플리케이션 서비스 계층에서 검증한다. DB 트리거 대안도 가능하나 복잡도가 높다.
 >
-> **[S-1]** `fuel_type`에 FK 제약 추가. `ON UPDATE CASCADE`로 연료 코드 변경 시 자동 전파 — PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부한다.**
+> **[S-1]** `fuel_type`에 FK 제약 추가. `ON UPDATE CASCADE`로 연료 코드 변경 시 자동 전파 — PostgreSQL 시절의 선언이다. ⚠️ **CUBRID에서는 FK로 성립하지 않고 전파되지도 않는다** (`§7.4` 1·2항). 참조 정합은 자식 쪽 트리거가 지키고, **부모 쪽 코드 개명은 `trg_fuel_type_code_no_rename`(`068` · #2260)이 거부하며 참조 중인 부모 삭제는 `trg_fuel_type_referenced_delete`(`069` · #2308)가 거부한다.**
 >
 > **[S-2]** `(voyage_id, fuel_type)` UNIQUE 제약 추가. 동일 항차에 동일 연료 타입 레코드가 중복 삽입되는 것을 방지한다. 중복 시 CII 계산에서 CO₂ 배출량이 이중 산정되는 치명적 버그가 발생한다.
 
@@ -1101,7 +1101,7 @@ CREATE INDEX idx_not_underway_period_voyage
 | `id` | UUID | PK, NOT NULL DEFAULT `gen_random_uuid()` | 행 ID |
 | `period_id` | UUID | NOT NULL, **FK → not_underway_period(id) ON DELETE CASCADE** | 소속 구간 |
 | `consumer_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 4종 | `MAIN_ENGINE`/`AUX_ENGINE`/`OIL_FIRED_BOILER`/`OTHER` |
-| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_nu_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부 · 부모 쪽 삭제는 막지 않는다(`§7.4`)** | 연료 코드 |
+| `fuel_type` | VARCHAR(30) | NOT NULL, **→ fuel_type(code) — 자식 쪽 트리거 `trg_nu_fuel_use_fuel_type_ref_ins/upd` · 부모 쪽 개명은 `trg_fuel_type_code_no_rename`(`068`)이 거부 · 참조 중인 부모 삭제는 `trg_fuel_type_referenced_delete`(`069` · `§7.4`)가 거부한다** | 연료 코드 |
 | `fuel_ton` | NUMERIC(12,2) | NOT NULL, CHECK `fuel_ton > 0` | 사용량 (t) |
 | `cf_used` | NUMERIC(10,6) | NOT NULL, CHECK `cf_used > 0` | **계산 시점 CF snapshot** (마이그레이션 030 · `#378`) |
 
@@ -1679,9 +1679,9 @@ CREATE INDEX idx_port_call_record_sign ON port_call_record (call_sign, port_auth
 | `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조. ⚠️ **CUBRID에서는 FK가 아니라 트리거다** — `§2.6 [S-6]`·`§7.4` (`050`) |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
 | `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
-| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068` · #2260), ON DELETE NO ACTION (활성 연료 삭제 방지 — **CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_vessel_fuel_type_ref_ins/upd` · `§7.4` |
-| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · `§7.4` |
-| `fuel_type(code)` | `not_underway_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**CUBRID에서는 막지 않는다**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_nu_fuel_use_fuel_type_ref_ins/upd`(`a7d3e9b14f26`) · `§2.18` |
+| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068` · #2260), ON DELETE NO ACTION (**`069` 부모 삭제 트리거가 참조 중인 code를 거부**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_vessel_fuel_type_ref_ins/upd` · `§7.4` |
+| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**`069` 부모 삭제 트리거가 참조 중인 code를 거부**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_voyage_fuel_use_fuel_type_ref_ins/upd` · `§7.4` |
+| `fuel_type(code)` | `not_underway_fuel_use.fuel_type` | **ON UPDATE — 개명 거부**(`trg_fuel_type_code_no_rename` · `068`), ON DELETE NO ACTION (**`069` 부모 삭제 트리거가 참조 중인 code를 거부**). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 자식 쪽 `trg_nu_fuel_use_fuel_type_ref_ins/upd`(`a7d3e9b14f26`) · `§2.18` |
 | `vessel(id)` | `vessel_position_snapshot.vessel_id` | **RESTRICT** | 위치 이력 보존(`§2.21`) — 선박은 soft-delete만 |
 | `vessel(id)` | `not_underway_period.vessel_id` | **RESTRICT** | 정박 구간 보존(`§2.17`) |
 | `vessel(id)` | `chat_session.vessel_id` | **SET NULL** [#1242 · 056] | 선박이 지워져도 대화는 남고 귀속만 푼다(`§2.23`) |
@@ -1871,6 +1871,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 | `066` | 해시 형식 4(`trg_calcrun_*_hash_format`·`trg_snap_*_hash_format`)를 `REGEXP` → `REGEXP BINARY`로 교체 — 대문자 hex·`SHA256:` 접두 거부(#2103). 이름·시점·개수는 그대로 |
 | `067` | `054`의 활성-유니크 6(`trg_regulation_year_active_unique_*`·`trg_cii_reference_line_active_unique_*`·`trg_cii_rating_boundary_active_unique_*`)의 조건을 `IF EXISTS (…)` → `IF NOT (new.is_active = 0 OR NOT EXISTS (…))`로 교체 — 활성 행이 있는 키의 **이행 행** INSERT·UPDATE 통과, 활성 둘은 여전히 거부(#2104 · `047`과 같은 모양). 이름·시점·개수는 그대로 |
 | `068` | 부모 쪽 연료 코드 개명 거부 1(`trg_fuel_type_code_no_rename` · `BEFORE UPDATE ON fuel_type IF new.code <> obj.code EXECUTE REJECT`) — `code`가 바뀌는 UPDATE만 거부, 다른 열 갱신·seed 재적재는 통과(#2260 · 2항). 합계 176 → **177** |
+| `069` | 참조 중인 부모 연료 코드 DELETE 거부 1(`trg_fuel_type_referenced_delete`) — 선박 기본 연료·항차 연료·정박 연료 참조 중 하나라도 있으면 거부. 삭제 이력 포함·미참조 삭제 허용·seed UPDATE/INSERT 유지(#2308). 합계177 → **178** |
 
 조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
 (불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
@@ -1879,29 +1880,20 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 되살렸을 때 **가려져 있던 결함이 그 자리에서 드러났다** — `test_constraint_triggers_db`가
 허용값에 없는 `calculation_type = 'VOYAGE_CII'`를 넣고 있었다(코드 어디에도 없는 값이다).
 
-그래서 **지금 되살리지 않은 것은 하나뿐이다** — 부모 쪽 **삭제**다. 부모 쪽 **개명**(UPDATE)은
-`068`(#2260)이 `trg_fuel_type_code_no_rename`으로 막는다(위 2항).
+부모 쪽 **개명**(UPDATE)은 `068`(#2260)이 무조건 막고(위 2항), 참조 중인 부모
+**삭제**는 `069`(#2308)이 `trg_fuel_type_referenced_delete`로 막는다.
 
-- 🔴 **부모 쪽 연료 코드 삭제 금지** — 원래 FK의 `ON DELETE NO ACTION`에 해당한다.
-  한 번 트리거로 넣었다가 **뺐다.** `db/seed.py`의 재적재가
-  `sqlalchemy_cubrid.dml.replace`(= `REPLACE INTO`)를 쓰는데 **CUBRID의 `REPLACE`는
-  DELETE + INSERT로 구현되어** `BEFORE DELETE` 트리거를 깨운다. 같은 `code`가 곧바로
-  다시 들어가 고아가 생기지 않는데도 재적재 전체가 막혔다(`tests/test_seed_data.py` 7건이
-  fixture 단계에서 죽었다). 트리거는 REPLACE가 부른 DELETE와 사람이 친 DELETE를
-  구분하지 못한다. ⚠️ #2086부터 `fuel_type` 재적재는 `REPLACE`가 아니라 활성 행 UPDATE다 —
-  **이 제외 사유는 `fuel_type`에서는 사라졌다.** 삭제 금지 트리거를 되살릴지는 따로 정한다.
-
-  **남는 구멍** — `DELETE FROM fuel_type`을 직접 쳐서 참조 중인 코드를 지우면 자식이
-  고아가 된다. 자식 쪽 트리거는 **넣는 쪽만** 보므로 이미 들어간 행을 지켜 주지 않는다.
-  `tests/test_constraint_triggers_db.py::test_parent_side_delete_is_deliberately_not_guarded`가
-  이 구멍이 열려 있다는 사실을 고정한다 — 나중에 막게 되면 그 검사가 실패하고, 그때
-  seed 재적재를 함께 봐야 한다.
-
-  ⚠️ `tests/test_voyage_migrations.py`의 검사는 **자식 쪽으로 방향을 바꿨다**
-  (`test_voyage_fuel_use_rejects_an_unknown_fuel_code` · `#1058`). 종전 이름
-  `test_fuel_type_no_action_delete`는 부모 쪽 삭제가 막히는 것을 보고 있었는데 그 전제가
-  사라졌다. **검사를 지우지 않고** §7.1이 지키려던 것(「없는 연료 코드를 참조하는 행이
-  생기지 않는다」)을 자식 쪽에서 보게 했다.
+- **참조 중인 연료 코드의 DELETE 거부** — `vessel.default_fuel_type`,
+  `voyage_fuel_use.fuel_type`, `not_underway_fuel_use.fuel_type` 중 하나라도 code를 참조하면
+  `BEFORE DELETE`에서 `EXECUTE REJECT`한다. soft-delete된 선박/항차/구간의 참조도 이력으로
+  보존하며, 참조가 없으면 DELETE를 허용한다. 기존 고아 행을 복구하는 작업은 아니다.
+- **시드 재적재와 별개다** — 과거에는 REPLACE의 DELETE 때문에 부모 보호를 제외했다.
+  #2086 이후 `fuel_type` 시드는 활성 시드 판본 UPDATE·코드가 없을 때 INSERT다. 다른 두
+  파라미터 표의 REPLACE는 이 연료 부모 트리거를 호출하지 않는다. CF/활성/판본 갱신과
+  개정 적재는 통과하고 `code` 개명은 기존068 그대로 거부한다.
+- **검증** — `test_constraint_triggers_db.py`가 세 참조의 활성/삭제 이력 6상황 거부,
+  미참조 삭제 허용, DOWN/UP·멱등을 실제 DB로 본다. `test_seed_data.py`와 함께 재적재를
+  확인한다. 기존 자식 쪽 검사도 유지해 없는 연료 코드가 새 행에 들어가지 않게 한다.
 
 #### CUBRID에서 달라지는 것 열
 
@@ -2030,12 +2022,12 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `068`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `069`** | 무엇 |
 |---|---|---|---|
 | `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
-| 그 밖 | 20 | **31** | 해시 형식 4 · 연료 코드 참조 6 · **`068` 연료 코드 개명 거부 1**(`trg_fuel_type_code_no_rename` — 부모 쪽 `BEFORE UPDATE`) · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
-| **합계** | **148** | **177** | 전환 직후에는 **0개**였다 |
+| 그 밖 | 20 | **32** | 해시 형식 4 · 연료 코드 참조 6 · **`068` 연료 코드 개명 거부 1**(`trg_fuel_type_code_no_rename` — 부모 쪽 `BEFORE UPDATE`) · **`069` 참조 중인 연료 부모 삭제 거부 1** · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
+| **합계** | **148** | **178** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
@@ -2071,7 +2063,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068 → 069
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2419,3 +2411,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-07 | `#2307` | **§7.2 파라미터 개정의 전환 단위와 시드의 범위** (`#2172` 결정 1 가 · `#2086` 결정). 표의 파라미터 행에 전환 단위(연도 표는 연도, 기준선·경계는 **선종** — 파일에 든 선종은 모든 구간을 담아야 한다)를 적고, 각주 `[#2086]`을 신설했다 — 시드는 시드 판본(`1.0`) 행만 갱신하고 개정 판본 활성 행이 있는 묶음은 갱신도 삽입도 하지 않는다. 종전 시드는 판본을 보지 않고 활성 행을 UPDATE해 「UPDATE로 덮어쓰면 개정 이력이 사라진다」는 바로 위 문장과 어긋났다. `fuel_type` 시드가 `REPLACE`에서 활성 행 UPDATE + `content_hash` 계산으로 바뀐 것을 `§7.4`(068 행 · 2항 · 부모 쪽 삭제 금지의 제외 사유)와 `§8.1.1`에 반영했다. `AGENTS §4.3`상 각주 보강·서술 정정이라 버전은 올리지 않는다 (#2172 · #2086) |
 | 2026-10-08 | `#2341` | `§8.1.2` 「24시간은 하루 한 번 정기 백업의 간격」을 **「24시간 창은 그대로 · 백업은 주기 실행 없이 `ops.yml backup`을 손으로」**로 정정 (`#2329`). 정기 백업은 없다 — `#788` 결정(2026-09-17 「10/10까지 수동 + 시연 전날 1회」 · 2026-09-26 실행 경로 `ops.yml`). 24시간 창 규칙 자체(`migration_guard`)는 바꾸지 않았다. `AGENTS §4.3`상 오기 정정이라 버전은 올리지 않는다 (#2329) |
 | 2026-10-08 | `#2362` | §2.14 `audit_log.action`에 실제 운영 만료 행 정리 액션 `EXPIRED_PURGE`와 기록 형식 각주를 추가했다. 운영에서 2026-10-07부터 생성된 값이며 `tests/test_audit_enum_sync.py`가 스크립트 상수·실제 INSERT·문서 값을 대조한다. `AGENTS §4.3`상 값·각주 보강이므로 버전은 올리지 않는다 (#2328) |
+| 2026-10-09 | `#___` | §2.1·§2.3·§2.18·§7.1·§7.4 참조 중인 연료 부모 DELETE 보호069 반영. 세 참조/삭제 이력 거부·미참조 허용·seed UPDATE/INSERT 설명. head069·트리거178·그래프와 현재 제외 사유를 맞춤 (#2308) |
