@@ -26,6 +26,56 @@ from cii_platform.services import chat_tools
 from cii_platform.services.llm_guard import OUTBOUND_WHITELIST, OutboundFieldError
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "implementation_name"),
+    [
+        (chat_tools.TOOL_LOOKUP_REGULATION, "_lookup_regulation"),
+        (chat_tools.TOOL_PROJECT_YEAR_END, "_project_year_end"),
+        (chat_tools.TOOL_CALC_VOYAGE_CII, "_calc_voyage_cii"),
+        (chat_tools.TOOL_COMPARE_SCENARIOS, "_compare_scenarios"),
+    ],
+)
+async def test_turn_year_is_used_only_when_the_tool_year_is_missing(
+    monkeypatch, tool_name, implementation_name
+):
+    """자정 경계 뒤 도구가 시간을 다시 읽어 다른 '올해'를 고르지 않는다 (#2355)."""
+    received: list[dict[str, object]] = []
+
+    async def _lookup(_session, arguments, _vessel_id):
+        received.append(arguments)
+        return "{}"
+
+    monkeypatch.setattr(chat_tools, implementation_name, _lookup)
+    await chat_tools.run_tool(
+        None,
+        name=tool_name,
+        arguments={},
+        vessel_id="selected",
+        current_year=2027,
+    )
+    await chat_tools.run_tool(
+        None,
+        name=tool_name,
+        arguments={"regulation_year": 2025},
+        vessel_id="selected",
+        current_year=2027,
+    )
+    await chat_tools.run_tool(
+        None,
+        name=tool_name,
+        arguments={"regulation_year": 2025},
+        vessel_id="selected",
+        current_year=2027,
+        current_year_only=True,
+    )
+    assert received == [
+        {"regulation_year": 2027},
+        {"regulation_year": 2025},
+        {"regulation_year": 2027},
+    ]
+
+
 def test_tool_schemas_cover_exactly_the_registered_tools() -> None:
     """IT-CHAT-016 — 등록된 도구 목록이 스키마와 일치하고, **쓰기 도구가 없다**."""
     names = [schema["name"] for schema in chat_tools.tool_schemas()]

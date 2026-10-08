@@ -28,7 +28,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
@@ -48,8 +50,10 @@ from cii_platform.services.chat_tools import run_tool, tool_schemas
 from cii_platform.services.llm_guard import (
     NumberFabricationError,
     user_number_forms,
+    verify_current_year_claim,
     verify_numbers,
 )
+from cii_platform.services.simulation_clock import current_regulation_year
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -165,6 +169,14 @@ _RULES = (
 #: 들고, 왕복이 비용 폭주의 실제 경로다(``PRD §16.1`` 가드 2). 풀이는 정적이고
 #: 짧아 프롬프트에 두는 편이 싸다.
 SYSTEM_PROMPT = f"{_RULES}\n\n{glossary_prompt()}"
+
+_CURRENT_YEAR_WORD = re.compile(r"올해|금년|현재\s*(?:연도|년도)")
+_OTHER_YEAR_WORD = re.compile(r"(?:19|20)\d{2}\s*년?|작년|지난해|전년|내년|다음\s*해|비교|대비")
+
+
+def _asks_only_current_year(question: str) -> bool:
+    """사용자가 오직 올해를 물으면 모델이 넘긴 다른 연도로 조회하지 않는다 (#2355)."""
+    return bool(_CURRENT_YEAR_WORD.search(question)) and not _OTHER_YEAR_WORD.search(question)
 
 
 def _digest(value: object) -> str:
@@ -324,7 +336,19 @@ async def _answer_turn(
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
     )
-    messages: list[dict[str, object]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # 한 턴의 한국 달력 해를 고정한다. 자정 경계를 넘어도 모델·도구·답 검증이
+    # 서로 다른 해를 쓰지 않게 한다 (#2355 · #2131).
+    turn_year = current_regulation_year(datetime.now(UTC))
+    current_year_only = _asks_only_current_year(question)
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": (
+                f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
+                "'올해'와 '현재 연도'는 이 해를 뜻합니다."
+            ),
+        }
+    ]
     messages += [
         {"role": "user" if row.role == ROLE_USER else "assistant", "content": row.content}
         for row in _from_a_question(history)
@@ -410,6 +434,8 @@ async def _answer_turn(
                 chat_session_id=chat_session_id,
                 vessel_locked=vessel_id is not None,
                 screen_run_id=calculation_run_id,
+                current_year=turn_year,
+                current_year_only=current_year_only,
             )
             if outcome.resolved_vessel_id is not None and vessel_id is None:
                 await chat_repo.set_vessel(
@@ -443,7 +469,8 @@ async def _answer_turn(
         prior_answers = [
             row.content for row in _from_a_question(history) if row.role == ROLE_ASSISTANT
         ]
-        verify_numbers(reply, tool_outputs, prior_answers=prior_answers)
+        verify_current_year_claim(reply, turn_year)
+        verify_numbers(reply, [*tool_outputs, str(turn_year)], prior_answers=prior_answers)
     except NumberFabricationError as exc:
         # ⚠️ **폐기한다.** 저장도 하지 않는다 — 틀린 답을 이력에 남기면 다음 턴이
         # 그것을 근거로 삼는다.

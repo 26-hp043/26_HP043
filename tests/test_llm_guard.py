@@ -28,10 +28,38 @@ from cii_platform.services.llm_guard import (
     extract_numbers,
     filter_outbound,
     user_number_forms,
+    verify_current_year_claim,
     verify_numbers,
 )
 
 _PRD = Path(__file__).resolve().parents[1] / "PRD.md"
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "현재 2025년입니다.",
+        "현재 연도는 2025년입니다.",
+        "올해(2025년) 연말 예상입니다.",
+        "현재는 **2025년**입니다.",
+        "현재는 `2025`년입니다.",
+        "현재연도는 2025년입니다.",
+        "지금은 2025년입니다.",
+        "금년은 2025년입니다.",
+    ],
+)
+def test_wrong_current_year_is_blocked_even_though_general_number_guard_ignores_years(answer):
+    """도구 없이 현재 해를 지어낸 답은 일반 수치 가드의 연도 예외를 통과한다 (#2355)."""
+    verify_numbers(answer, [])
+    with pytest.raises(NumberFabricationError, match="현재 연도"):
+        verify_current_year_claim(answer, 2026)
+
+
+def test_current_year_guard_allows_correct_year_and_historical_explanations():
+    """과거 규제값을 설명하는 해는 '지금'이라는 주장이 아니다."""
+    verify_current_year_claim("현재는 2026년입니다. 2025년 규제값은 별도입니다.", 2026)
+    verify_current_year_claim("2025년 규제값을 설명합니다.", 2026)
+    verify_current_year_claim("현재는 **2026년**입니다.", 2026)
 
 
 def _whitelist_in_prd() -> set[str]:
