@@ -14,7 +14,8 @@
 ## 무엇을 검사하나
 
 ```
-코드가 실제로 쓰는 리터럴  ──==──▶  AUDIT_ACTIONS (+ DB_BACKUP)  ──==──▶  DB_SCHEMA §2.14 행
+코드 리터럴 ──==──▶ AUDIT_ACTIONS (+ DB_BACKUP·EXPIRED_PURGE)
+                         ──==──▶ DB_SCHEMA §2.14 행
 ```
 
 1. **소스에 박힌 리터럴**이 상수 목록과 같다 — 상수만 고치고 코드를 안 고치면(또는 그
@@ -31,6 +32,7 @@ from pathlib import Path
 
 from cii_platform.db.migration_guard import BACKUP_ACTION
 from cii_platform.services.audit import AUDIT_ACTIONS, AUDIT_ENTITY_TYPES
+from scripts.purge_expired import PURGE_ACTION
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "cii_platform"
@@ -69,7 +71,7 @@ def test_action_constants_match_the_literals_in_source():
     상수만 고치고 호출부를 안 고치면(또는 그 반대) 여기서 드러난다 — 목록이 코드보다
     앞서거나 뒤처지면 `DB_SCHEMA` 대조가 **틀린 기준**으로 통과한다.
 
-    ``DB_BACKUP``은 여기서 빼고 아래에서 따로 본다 — `migration_guard`가 **상수 이름으로**
+    ``DB_BACKUP``·``EXPIRED_PURGE``는 아래에서 따로 본다 — 둘 다 **상수 이름으로**
     넣으므로 ``action="…"`` 리터럴로는 잡히지 않는다.
     """
     written = set(_ACTION_LITERAL.findall(_sources()))
@@ -95,6 +97,14 @@ def test_db_backup_action_is_written_by_the_migration_guard():
     assert '{"action": BACKUP_ACTION}' in source
 
 
+def test_expired_purge_action_is_written_by_the_script():
+    """스크립트가 선언한 액션을 실제 감사 INSERT에 쓴다 (#2328)."""
+    source = (ROOT / "scripts" / "purge_expired.py").read_text(encoding="utf-8")
+
+    assert f'PURGE_ACTION = "{PURGE_ACTION}"' in source
+    assert "f\"VALUES ('{uuid.uuid4().hex}', '{PURGE_ACTION}', '{escaped}')\"" in source
+
+
 def test_entity_type_constants_match_the_literals_in_source():
     """``entity_type``도 같은 규칙이다."""
     written = set(_ENTITY_LITERAL.findall(_sources()))
@@ -110,7 +120,7 @@ def test_entity_type_constants_match_the_literals_in_source():
 def test_db_schema_action_row_matches_the_constants():
     """`DB_SCHEMA §2.14` `action` 행이 상수와 같은 집합을 적는다."""
     documented = set(_BACKTICKED_UPPER.findall(_schema_row("| `action` |")))
-    declared = set(AUDIT_ACTIONS) | {BACKUP_ACTION}
+    declared = set(AUDIT_ACTIONS) | {BACKUP_ACTION, PURGE_ACTION}
 
     assert not sorted(declared - documented), f"문서에 없는 action: {sorted(declared - documented)}"
     assert not sorted(documented - declared), (
