@@ -352,14 +352,14 @@ jobs:
 
           # 레포 클론 또는 업데이트
           if [ ! -d ~/bluelog ]; then
-            git clone "https://github.com/${GH_REPO}.git" ~/bluelog
+            GIT_TERMINAL_PROMPT=0 git clone "https://github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
           # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
           # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
           # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
           git remote set-url origin "https://github.com/${GH_REPO}.git"
-          git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
+          GIT_TERMINAL_PROMPT=0 git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
           # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
           # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.
@@ -612,14 +612,14 @@ jobs:
 
           # 레포 클론 또는 업데이트
           if [ ! -d ~/bluelog ]; then
-            git clone "https://github.com/${GH_REPO}.git" ~/bluelog
+            GIT_TERMINAL_PROMPT=0 git clone "https://github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
           # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
           # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
           # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
           git remote set-url origin "https://github.com/${GH_REPO}.git"
-          git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
+          GIT_TERMINAL_PROMPT=0 git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
           # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
           # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.
