@@ -22,7 +22,7 @@ export function timeSource(raw: unknown): TimeSource | null {
 }
 
 /** 표식의 앞머리 — 데이터 점검의 「이 값으로 채우기」가 남긴 값이라는 뜻이다. */
-export const PUBLIC_RECORD_FILLED_LABEL = '공적 기록에서 채움'
+const PUBLIC_RECORD_FILLED_LABEL = '공적 기록에서 채움'
 
 /**
  * 표식 한 줄. 시각은 부르는 쪽이 표시 문자열로 만들어 넘긴다(`formatTimestamp`). 읽을 수
