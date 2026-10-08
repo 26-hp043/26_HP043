@@ -74,10 +74,12 @@ services:
       - ./ops/cubrid/conf/cubrid_broker.conf:/home/cubrid/CUBRID/conf/cubrid_broker.conf:ro
       - ./ops/cubrid/conf/server_access.conf:/home/cubrid/CUBRID/conf/server_access.conf:ro
       - ./ops/cubrid/conf/broker_access.conf:/home/cubrid/CUBRID/conf/broker_access.conf:ro
+      # 이미지 Python3.6/CCI 인증 helper — 비밀번호는 stdin으로만 읽는다 (#2117).
+      # 디렉터리를 마운트해 Git이 파일 inode를 바꿔도 새 helper를 읽는다.
+      - ./scripts:/opt/bluelog:ro
     healthcheck:
-      # `CMD`(exec 형식)는 셸을 거치지 않아 환경변수가 펼쳐지지 않는다 — `sh -c`로 감싼다.
-      # 빈 값도 `-p ""`로 통과하므로(실측) 비밀번호를 걸기 전과 뒤가 같은 명령으로 돈다.
-      test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
+      # 값은 내장 printf의 pipe로 보낸다. sh/Python argv에는 비밀번호가 없다 (#2117).
+      test: ["CMD", "sh", "-c", 'printf "%s" "$$CUBRID_PASSWORD" | python3 /opt/bluelog/cubrid_auth_stdin.py probe "$$CUBRID_DB"']
       interval: 30s
       timeout: 5s
       retries: 30

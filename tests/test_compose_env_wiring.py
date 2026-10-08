@@ -147,7 +147,15 @@ def test_every_db_healthcheck_passes_the_password():
         service = _db_service(path, name)
         test = service["healthcheck"]["test"]
         joined = " ".join(test)
-        assert "csql" in joined, f"{path.name}: healthcheck가 csql이 아니다 — {test}"
+        if path.name == "docker-compose.prod.db.yml":
+            assert "cubrid_auth_stdin.py probe" in joined
+            assert "printf" in joined and "| python3" in joined
+            assert "-p " not in joined
+            assert any(
+                str(volume) == "./scripts:/opt/bluelog:ro" for volume in service.get("volumes", [])
+            )
+        else:
+            assert "csql" in joined, f"{path.name}: healthcheck가 csql이 아니다 — {test}"
         assert "CUBRID_PASSWORD" in joined, (
             f"{path.name}: healthcheck에 CUBRID_PASSWORD가 없다 — 비밀번호를 건 뒤 "
             f"컨테이너가 영영 unhealthy가 된다: {test}"

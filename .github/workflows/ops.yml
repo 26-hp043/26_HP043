@@ -492,8 +492,9 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" \
-            "IMAGE_SHA='${IMAGE_SHA}' CURRENT_SHA='${CURRENT_SHA}' IMAGE_REPO='${IMAGE_REPO}' GHCR_USER='${GHCR_USER}' GHCR_TOKEN='${GHCR_TOKEN}' bash -s" <<'ENDSSH'
+          source scripts/ssh_stdin.sh
+          ssh_stdin "${SSH_USER}@${APP_HOST}" \
+            IMAGE_SHA CURRENT_SHA IMAGE_REPO GHCR_USER GHCR_TOKEN <<'ENDSSH'
           set -euo pipefail
           cd ~/bluelog
           compose="docker compose -f docker-compose.prod.app.yml"

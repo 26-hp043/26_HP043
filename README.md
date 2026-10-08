@@ -140,7 +140,7 @@
 
 ## 배포
 
-> 🔴 **실제 운영 배포의 정본은 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md)다** (`#1339`).
+> 🔴 **실제 운영 배포의 정본은 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) **v1.1**이다** (`#1339`).
 > 운영은 **OCI 2-VM 분리 토폴로지 + Cloudflare Pages**이고, 그 절차·시크릿·롤백은 전부
 > 그쪽에 있다. 아래는 **단일 호스트 compose 경로**이며 **로컬 검증용**이다.
 > **두 경로는 토폴로지가 다르다** — 아래 절차를 운영에 그대로 적용하지 않는다.
@@ -773,3 +773,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-08 | `#2369` | 문서 구조 표의 TECH_SPEC.md **v1.16**(§20 보안 응답 헤더)으로 갱신 (#2111) |
 | 2026-10-08 | `#2370` | 문서 구조 표의 TECH_SPEC.md **v1.17**(§16 공용 검증·라우트 예외·경계 가드)으로 갱신 (#2101) |
 | 2026-10-09 | `#2375` | TEST_PLAN v1.33 · 실제 표본과 고정 기대값이 있는 Fixture 3·전체 분기 계측 정의 (#2144) |
+| 2026-10-09 | `#___` | 운영 배포 정본을 OPERATIONS v1.1로 명시 — SSH/DB stdin 인증·공개 Git 토큰 제거 (#2117) |

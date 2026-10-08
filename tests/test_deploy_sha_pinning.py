@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 DEPLOY = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "deploy.yml"
 
 
@@ -49,12 +51,18 @@ def test_remote_hosts_do_not_fetch_a_branch():
 
 def test_both_remote_hosts_receive_the_run_sha():
     """두 호스트 모두 **이 실행의 커밋**을 넘겨받는다."""
-    body = _text()
-    assert body.count("DEPLOY_SHA='${{ github.sha }}'") == 2, (
-        "`DEPLOY_SHA`를 넘기는 자리가 둘이 아니다 — db-01·app-01 양쪽에 있어야 한다"
-    )
-    pinned = 'git fetch "https://x-access-token:${GH_TOKEN}@github.com'
-    assert body.count(pinned + '/${GH_REPO}.git" "${DEPLOY_SHA}"') == 2
+    workflow = yaml.safe_load(_text())
+    for job in ("deploy-db", "deploy-app"):
+        steps = [
+            step for step in workflow["jobs"][job]["steps"] if "ssh_stdin " in step.get("run", "")
+        ]
+        assert len(steps) == 1
+        step = steps[0]
+        assert step["env"]["DEPLOY_SHA"] == "${{ github.sha }}"
+        call = step["run"].split("ssh_stdin ", 1)[1].split("<<'ENDSSH'", 1)[0]
+        assert "DEPLOY_SHA" in call.split()
+        assert 'git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"' in step["run"]
+        assert "x-access-token" not in step["run"]
 
 
 def test_a_mismatch_stops_the_deploy():

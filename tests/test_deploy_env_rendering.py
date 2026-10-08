@@ -247,7 +247,8 @@ def test_deploy_db_renders_every_value_the_db_compose_substitutes():
             f"deploy-db의 `emit`이 잡 env의 {name}을 쓰지 않는다 — 렌더 줄이 빈 값을 적는다."
         )
     # 원격의 게시 주소 확인(#1867)은 `.env`가 아니라 셸 변수로 이 값을 읽는다.
-    assert "OCI_DB_PRIVATE_IP='${OCI_DB_PRIVATE_IP}'" in job, (
+    stdin_call = job.split("ssh_stdin ", 1)[1].split("<<'ENDSSH'", 1)[0]
+    assert "OCI_DB_PRIVATE_IP" in stdin_call.split(), (
         "deploy-db가 ssh 원격 셸에 OCI_DB_PRIVATE_IP를 넘기지 않는다 — 게시 주소 확인이 "
         "빈 값과 비교해 배포가 선다."
     )
