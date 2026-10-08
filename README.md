@@ -773,4 +773,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-08 | `#2369` | 문서 구조 표의 TECH_SPEC.md **v1.16**(§20 보안 응답 헤더)으로 갱신 (#2111) |
 | 2026-10-08 | `#2370` | 문서 구조 표의 TECH_SPEC.md **v1.17**(§16 공용 검증·라우트 예외·경계 가드)으로 갱신 (#2101) |
 
-| 2026-10-09 | `#___` | TEST_PLAN v1.33 · 실제 표본과 고정 기대값이 있는 Fixture 3·전체 분기 계측 정의 (#2144) |
+| 2026-10-09 | `#2375` | TEST_PLAN v1.33 · 실제 표본과 고정 기대값이 있는 Fixture 3·전체 분기 계측 정의 (#2144) |
