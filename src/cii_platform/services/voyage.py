@@ -23,9 +23,20 @@ from cii_platform.reports.labels import inclusion_policy_label, voyage_status_la
 from cii_platform.services.pagination import normalize_limit
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+
+def require_unique_fuel_codes(codes: Sequence[str]) -> None:
+    """같은 항차의 유종 중복을 생성·실적 입력·CSV에서 같은 규칙으로 막는다."""
+    if len(set(codes)) != len(codes):
+        raise ValidationError(
+            "같은 연료 종류가 두 번 들어 있습니다.",
+            field="fuel_uses",
+            field_label="연료 종류",
+        )
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -248,12 +259,7 @@ async def create_voyage(
     # `_upsert_fuel_actuals`는 같은 가드를 이미 갖고 있었고 생성 경로만 빠져 있었다 —
     # 화면 폼이 연료를 한 종만 보내(`#610` 잔여) **도달할 수 없는 경로였기 때문**이다.
     # 문구는 그쪽과 같게 둔다: 같은 잘못에 다른 말을 하면 규칙이 둘로 읽힌다.
-    if len(set(codes)) != len(codes):
-        raise ValidationError(
-            "같은 연료 종류가 두 번 들어 있습니다.",
-            field="fuel_uses",
-            field_label="연료 종류",
-        )
+    require_unique_fuel_codes(codes)
 
     fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
     for fu in fuel_uses:
@@ -831,14 +837,7 @@ async def _apply_fuel_actuals(
     중복이 생기면 **CO₂가 이중 산정**된다. 그래서 유종을 키로 갱신·삽입을 가른다.
     """
     codes = [item["fuel_type"] for item in fuel_uses]
-    if len(set(codes)) != len(codes):
-        # 한 요청 안의 중복은 DB 제약 이전에 막는다 — 어느 쪽이 이겼는지 알 수 없는
-        # 결과를 만들지 않는다.
-        raise ValidationError(
-            "같은 연료 종류가 두 번 들어 있습니다.",
-            field="fuel_uses",
-            field_label="연료 종류",
-        )
+    require_unique_fuel_codes(codes)
 
     fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
     existing = {row.fuel_type: row for row in await voyage_repo.list_fuel_uses(session, voyage_id)}

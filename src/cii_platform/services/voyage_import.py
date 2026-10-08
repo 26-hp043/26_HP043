@@ -57,6 +57,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
@@ -68,9 +69,16 @@ from cii_platform.api.schemas.bounds import DISTANCE, SPEED, VOYAGE_FUEL
 from cii_platform.api.validation_messages import _MESSAGES
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.repositories import parameters as param_repo
+from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import AppError, ValidationError
 from cii_platform.reports.csv_export import sanitize
-from cii_platform.services.voyage import create_voyage, require_vessel, time_order_violation
+from cii_platform.services.voyage import (
+    create_voyage,
+    require_unique_fuel_codes,
+    require_vessel,
+    time_order_violation,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -105,6 +113,30 @@ OPTIONAL_COLUMNS: tuple[str, ...] = ("planned_departure_at", "planned_arrival_at
 
 #: 시각 칸의 예. 오류 문구와 화면 안내가 같은 예를 쓴다.
 INSTANT_EXAMPLE = "2026-09-12T09:00:00+09:00"
+
+#: API_SPEC §8.2 — 항차 번호 묶음의 오류 원문 (#2094).
+EXISTING_NUMBER_MESSAGE = "이미 있는 항차 번호입니다."
+GROUP_MISMATCH_MESSAGE = "같은 항차 번호의 항구·거리·속력·시각이 서로 다릅니다."
+GROUP_INVALID_MESSAGE = "같은 항차 번호의 다른 행에 오류가 있어 묶음을 가져올 수 없습니다."
+GROUP_TRUNCATED_MESSAGE = "같은 항차 번호의 일부 행이 상한 밖에 있어 묶음을 가져올 수 없습니다."
+
+_GROUP_FIELDS = (
+    "departure_port_name",
+    "arrival_port_name",
+    "planned_distance_nm",
+    "planned_speed_kn",
+    "planned_departure_at",
+    "planned_arrival_at",
+)
+
+
+@dataclass(frozen=True)
+class _VoyageGroup:
+    """한 항차로 들어갈 원본 CSV 행과 파싱한 공통 정보·연료."""
+
+    row_numbers: list[int]
+    item: dict[str, object]
+    fuel_uses: list[dict[str, object]]
 
 
 class RowError(Exception):
@@ -369,9 +401,9 @@ def _skipped_count(errors: list[dict[str, object]], truncated: int) -> int:
     return len(errors) - (1 if truncated else 0) + truncated
 
 
-def read_rows(
+def _read_rows(
     content: bytes, *, content_type: str | None = None
-) -> tuple[list[dict[str, str]], int]:
+) -> tuple[list[dict[str, str]], int, set[str]]:
     """파일을 행 목록으로 읽는다. 돌려주는 둘째 값은 **상한을 넘겨 잘라 낸 행 수**다.
 
     파일 단위 문제(크기·형식·인코딩·필수 컬럼)는 여기서 ``ValidationError``다 —
@@ -397,12 +429,98 @@ def read_rows(
 
     rows: list[dict[str, str]] = []
     truncated = 0
+    retained_numbers: set[str] = set()
+    incomplete_numbers: set[str] = set()
     for row in reader:
+        number = sanitize((row.get("voyage_no") or "").strip())
         if len(rows) >= MAX_ROWS:
             truncated += 1
+            # 상한 안에 있는 번호만 기억한다 — 잘린 모든 행을 메모리에 쌓지 않는다.
+            # 연료 한 행만 잘렸다고 나머지 연료를 가진 반쪽 항차를 만들지 않는다.
+            if number in retained_numbers:
+                incomplete_numbers.add(number)
             continue
         rows.append(row)
+        retained_numbers.add(number)
+    return rows, truncated, incomplete_numbers
+
+
+def read_rows(
+    content: bytes, *, content_type: str | None = None
+) -> tuple[list[dict[str, str]], int]:
+    """기존 파서 계약: 처리 범위 안의 행과 잘라 낸 행 수를 반환한다."""
+    rows, truncated, _ = _read_rows(content, content_type=content_type)
     return rows, truncated
+
+
+def _group_rows(
+    rows: list[dict[str, str]], known_fuels: set[str], incomplete_numbers: set[str]
+) -> tuple[list[_VoyageGroup], list[dict[str, object]]]:
+    """같은 번호를 한 항차로 묶고 잘못된 묶음은 원본 행마다 사유를 남긴다."""
+    source_rows: dict[str, list[int]] = {}
+    parsed: dict[str, list[dict[str, object]]] = {}
+    invalid_numbers: set[str] = set()
+    errors: dict[int, dict[str, object]] = {}
+
+    def reject(number: str, field: str, message: str) -> None:
+        for row_number in source_rows[number]:
+            # 원래 잘못된 칸의 사유는 보존하고 정상 동반 행에 묶음 거부 사유를 붙인다.
+            errors.setdefault(row_number, {"row": row_number, "field": field, "message": message})
+
+    for row_number, row in enumerate(rows, start=2):
+        try:
+            number = _text(row, "voyage_no")
+        except RowError as error:
+            errors[row_number] = {"row": row_number, "field": error.field, "message": error.message}
+            continue
+        source_rows.setdefault(number, []).append(row_number)
+        try:
+            parsed.setdefault(number, []).append(parse_row(row, known_fuels))
+        except RowError as error:
+            invalid_numbers.add(number)
+            errors[row_number] = {"row": row_number, "field": error.field, "message": error.message}
+
+    groups: list[_VoyageGroup] = []
+    for number, items in parsed.items():
+        if number in invalid_numbers:
+            reject(number, "voyage_no", GROUP_INVALID_MESSAGE)
+            continue
+        if number in incomplete_numbers:
+            reject(number, "voyage_no", GROUP_TRUNCATED_MESSAGE)
+            continue
+        first = items[0]
+        mismatch = next(
+            (
+                field
+                for field in _GROUP_FIELDS
+                if any(item[field] != first[field] for item in items)
+            ),
+            None,
+        )
+        if mismatch is not None:
+            reject(number, mismatch, GROUP_MISMATCH_MESSAGE)
+            continue
+        codes = [item["fuel_type"] for item in items]
+        try:
+            require_unique_fuel_codes(codes)
+        except ValidationError as error:
+            reject(number, "fuel_type", str(error))
+            continue
+        groups.append(
+            _VoyageGroup(
+                source_rows[number],
+                first,
+                [
+                    {
+                        "fuel_type": item["fuel_type"],
+                        "planned_fuel_ton": item["planned_fuel_ton"],
+                        "source": "IMPORT",
+                    }
+                    for item in items
+                ],
+            )
+        )
+    return groups, [errors[row_number] for row_number in sorted(errors)]
 
 
 async def import_voyages(
@@ -428,14 +546,10 @@ async def import_voyages(
     # 없는 선박이면 500이었다(`API_SPEC §1.4`는 404).
     await require_vessel(session, vessel_id)
 
-    rows, truncated = read_rows(content, content_type=content_type)
+    rows, truncated, incomplete_numbers = _read_rows(content, content_type=content_type)
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
 
-    errors: list[dict[str, object]] = []
-    # **원본 행 번호를 함께 들고 간다** (#1087과 같은 이유). 파싱 성공분만 담아
-    # ``enumerate(parsed)``로 번호를 다시 세면, 앞에서 한 행이라도 파싱에 실패했을 때
-    # 그 뒤 저장 오류가 전부 **위쪽 행 번호**로 보고된다.
-    parsed: list[tuple[int, dict[str, object]]] = []
+    groups, errors = _group_rows(rows, known_fuels, incomplete_numbers)
 
     if truncated:
         # 잘라 낸 사실을 오류 목록에 남긴다. 개수만 맞추고 말하지 않으면 **사용자는
@@ -448,30 +562,46 @@ async def import_voyages(
             }
         )
 
-    for index, row in enumerate(rows):
-        # 행 번호는 **파일에서 보이는 번호**다 — 헤더가 1행이므로 +2.
-        row_number = index + 2
-        try:
-            parsed.append((row_number, parse_row(row, known_fuels)))
-        except RowError as error:
-            errors.append({"row": row_number, "field": error.field, "message": error.message})
-
-    # 들어가는 행 가운데 출항 예정 시각이 빈 수 — 진행 중 누적에 0으로 기여한다 (#906).
-    missing_departure = sum(1 for _, item in parsed if item["planned_departure_at"] is None)
-
     if dry_run:
+        existing = await voyage_repo.list_existing_numbers(
+            session, vessel_id, [group.item["voyage_no"] for group in groups]
+        )
+        accepted = [group for group in groups if group.item["voyage_no"] not in existing]
+        for group in groups:
+            if group.item["voyage_no"] in existing:
+                errors.extend(
+                    {"row": row_number, "field": "voyage_no", "message": EXISTING_NUMBER_MESSAGE}
+                    for row_number in group.row_numbers
+                )
         return {
-            "imported_count": len(parsed),
+            "imported_count": sum(len(group.row_numbers) for group in accepted),
             "skipped_count": _skipped_count(errors, truncated),
-            "errors": errors,
-            "missing_departure_count": missing_departure,
+            "errors": sorted(errors, key=lambda error: error["row"]),
+            "missing_departure_count": sum(
+                len(group.row_numbers)
+                for group in accepted
+                if group.item["planned_departure_at"] is None
+            ),
             "dry_run": True,
         }
 
     imported = 0
     stored_missing_departure = 0
-    for row_number, item in parsed:
+    for group in groups:
+        item = group.item
         try:
+            # 각 묶음 커밋으로 잠금이 풀리므로 묶음마다 잡고 최신 번호를 다시 읽는다.
+            # 부모 선박 → 새 항차 순서다 (TECH_SPEC §16.3).
+            await vessel_repo.lock_row(session, vessel_id)
+            existing = await voyage_repo.list_existing_numbers(
+                session, vessel_id, [item["voyage_no"]]
+            )
+            if existing:
+                errors.extend(
+                    {"row": row_number, "field": "voyage_no", "message": EXISTING_NUMBER_MESSAGE}
+                    for row_number in group.row_numbers
+                )
+                continue
             await create_voyage(
                 session,
                 vessel_id,
@@ -490,13 +620,7 @@ async def import_voyages(
                 planned_departure_at=item["planned_departure_at"],
                 planned_arrival_at=item["planned_arrival_at"],
                 regulation_year=None,
-                fuel_uses=[
-                    {
-                        "fuel_type": item["fuel_type"],
-                        "planned_fuel_ton": item["planned_fuel_ton"],
-                        "source": "IMPORT",
-                    }
-                ],
+                fuel_uses=group.fuel_uses,
                 notes=None,
                 created_from="IMPORT",
             )
@@ -505,11 +629,15 @@ async def import_voyages(
             # ``SQLAlchemyError``까지 받는 것은 ``AppError``만으로는 부족해서다 —
             # ``ProgrammingError(-494)``는 ``AppError``가 아니라 그대로 올라가 500이 됐고,
             # `create_voyage`가 행마다 커밋하므로 **앞 행은 저장된 채 남았다.**
-            errors.append(await save_stage_row_error(session, row_number, error, field=None))
+            # DB 실패의 rollback은 한 번만 하고 같은 사유를 묶음 원본 행마다 돌려준다.
+            saved_error = await save_stage_row_error(
+                session, group.row_numbers[0], error, field=None
+            )
+            errors.extend({**saved_error, "row": row_number} for row_number in group.row_numbers)
             continue
-        imported += 1
+        imported += len(group.row_numbers)
         if item["planned_departure_at"] is None:
-            stored_missing_departure += 1
+            stored_missing_departure += len(group.row_numbers)
 
     return {
         "imported_count": imported,
@@ -517,6 +645,6 @@ async def import_voyages(
         # 「들어갔지만 시각이 없다」는 뜻이 무너진다 (#906 · #1090과 같은 종류).
         "missing_departure_count": stored_missing_departure,
         "skipped_count": _skipped_count(errors, truncated),
-        "errors": errors,
+        "errors": sorted(errors, key=lambda error: error["row"]),
         "dry_run": False,
     }
