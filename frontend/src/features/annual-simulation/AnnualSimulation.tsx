@@ -43,7 +43,11 @@ import {
   targetVesselText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
-import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
+import type {
+  AnnualSimulationProvider,
+  AnnualSimulationResult,
+  LatestAnnualSimulation,
+} from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { ChoiceCards } from '../../components/ChoiceCards'
@@ -164,6 +168,11 @@ export function AnnualSimulation({
   // 실행은 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직은 폼을 읽되 실행 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
   const [state, setState] = useState<RunState>({ status: 'idle' })
+  /**
+   * 그 배의 마지막 실행 — 받아만 두고 **화면에 바로 올리지 않는다** (#2348 · `rlatnals4114`
+   * 2026-10-08 결정 B). 빈 화면에 「지난 결과 보기」 버튼으로 두고 누를 때 올린다.
+   */
+  const [lastRun, setLastRun] = useState<{ vesselId: string; found: LatestAnnualSimulation } | null>(null)
   /*
    * 실행 **세대 번호** — 늦은 응답을 버린다 (`#1094` · `#874` 선례).
    *
@@ -338,33 +347,13 @@ export function AnnualSimulation({
     if (vesselId === null) return
     const ticket = restoreCancelRef.current
     let alive = true
+    // oxlint-disable-next-line react/set-state-in-effect -- 선박이 바뀌면 앞 배의 「지난 결과」를 내린다 — 받는 조회의 시작점이다
+    setLastRun(null)
     provider
       .latest(vesselId)
       .then((found) => {
         if (!alive || found === null || ticket !== restoreCancelRef.current) return
-        const { item, result } = found
-        const itemYear = String(item.regulation_year)
-        restoredKeyRef.current = `${vesselId}|${itemYear}`
-        setChosenYear(itemYear)
-        if ((TARGET_RATINGS as readonly string[]).includes(item.target_rating)) {
-          setTarget(item.target_rating as (typeof TARGET_RATINGS)[number])
-        }
-        setRuns(String(item.simulation_runs))
-        /*
-         * 실적 보정·대체 연료도 **결과 본문이 말하는 값**으로 맞춘다 (#2125). 옛 결과에는 두 블록이
-         * 없을 수 있다 — 값을 지어내지 않고 기본(끔·고르지 않음)으로 둔다. `seed`는 되돌리지
-         * 않는다: 결과의 `rng` 메타는 서버가 정한 값이어서, 사용자가 직접 고르지 않은 실행에서
-         * 입력칸을 채우면 「직접 고정했다」로 읽힌다(고급 설정 변경 수 표시도 달라진다).
-         */
-        setApplyFeedback(result.feedback?.requested === true)
-        setAlternativeFuel(result.sensitivity_analysis?.fuel_cf_alternative?.alternative_fuel ?? '')
-        setState({
-          status: 'success',
-          result,
-          // 선박명은 렌더할 때 채운다 — 복원 결과는 선박이 바뀌면 지워지므로 지금 이름이 그 배다.
-          conditions: { vesselName: '', year: itemYear, target: item.target_rating },
-          restored: { createdAt: item.created_at, needsRecalc: item.needs_recalc },
-        })
+        setLastRun({ vesselId, found })
       })
       .catch(() => {
         // 편의 조회다 — 실패해도 빈 화면 그대로 둔다(위 주석).
@@ -428,6 +417,38 @@ export function AnnualSimulation({
     return () => publishScreenResult(null)
   }, [shownRunId])
 
+  /*
+   * 「지난 결과 보기」를 눌렀을 때 (#2348). 종전(#1701)에는 들어오자마자 이것을 했다 — 10/7 개편에서
+   * 「마지막 실행」 표시가 조건 줄 끝의 회색 글자로 줄면서, 계산 버튼을 누르기 전에 결과가 떠 있는 것이
+   * **오류처럼** 보였다. 이제는 누를 때만 올리고, 올리는 방법은 그대로다 — 입력칸도 그 결과의
+   * 조건으로 맞춰 결과와 입력이 다른 조건을 가리키지 않게 한다.
+   */
+  function openLastRun(vesselId: string, found: LatestAnnualSimulation) {
+    const { item, result } = found
+    const itemYear = String(item.regulation_year)
+    restoredKeyRef.current = `${vesselId}|${itemYear}`
+    setChosenYear(itemYear)
+    if ((TARGET_RATINGS as readonly string[]).includes(item.target_rating)) {
+      setTarget(item.target_rating as (typeof TARGET_RATINGS)[number])
+    }
+    setRuns(String(item.simulation_runs))
+    /*
+     * 실적 보정·대체 연료도 **결과 본문이 말하는 값**으로 맞춘다 (#2125). 옛 결과에는 두 블록이
+     * 없을 수 있다 — 값을 지어내지 않고 기본(끔·고르지 않음)으로 둔다. `seed`는 되돌리지
+     * 않는다: 결과의 `rng` 메타는 서버가 정한 값이어서, 사용자가 직접 고르지 않은 실행에서
+     * 입력칸을 채우면 「직접 고정했다」로 읽힌다(고급 설정 변경 수 표시도 달라진다).
+     */
+    setApplyFeedback(result.feedback?.requested === true)
+    setAlternativeFuel(result.sensitivity_analysis?.fuel_cf_alternative?.alternative_fuel ?? '')
+    setState({
+      status: 'success',
+      result,
+      // 선박명은 렌더할 때 채운다 — 복원 결과는 선박이 바뀌면 지워지므로 지금 이름이 그 배다.
+      conditions: { vesselName: '', year: itemYear, target: item.target_rating },
+      restored: { createdAt: item.created_at, needsRecalc: item.needs_recalc },
+    })
+  }
+
   const run = useCallback(async () => {
     // 실행 전 차단은 `blocked`다 — 실패가 아니라 안내 (#1096 ⑸).
     if (shell.vesselId === null) {
@@ -463,6 +484,8 @@ export function AnnualSimulation({
     generationRef.current += 1
     restoreCancelRef.current += 1
     restoredKeyRef.current = null
+    // 새로 실행하면 받아 둔 「지난 결과」는 더 이상 마지막이 아니다 (#2348)
+    setLastRun(null)
     const ticket = generationRef.current
     // 누른 순간의 조건을 잡아 둔다 — 응답을 기다리는 동안 목표를 바꿔도 결과 줄은 이것이다.
     const conditions: RunConditions = { vesselName: targetVessel, year, target }
@@ -741,10 +764,25 @@ export function AnnualSimulation({
 
         <div className="annual-sim__results">
           {state.status === 'idle' ? (
-            <p className="annual-sim__placeholder">
-              {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
-              {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
-            </p>
+            <div className="annual-sim__idle">
+              <p className="annual-sim__placeholder">
+                {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
+                {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
+              </p>
+              {/* 지난 결과는 누를 때만 올린다 (#2348) — 계산 전에 결과가 떠 있지 않게 */}
+              {lastRun !== null && lastRun.vesselId === shell.vesselId ? (
+                <button
+                  type="button"
+                  className="annual-sim__last-run"
+                  onClick={() => openLastRun(lastRun.vesselId, lastRun.found)}
+                >
+                  {ANNUAL_COPY.lastRunOpen}
+                  {formatTimestamp(lastRun.found.item.created_at) !== null
+                    ? ` · ${formatTimestamp(lastRun.found.item.created_at)}`
+                    : ''}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {/*
             실행 전 차단은 안내다 — `role="status"`로 읽히고 「실패했습니다」 제목이 없다.

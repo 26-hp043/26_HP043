@@ -98,6 +98,8 @@ export const ANNUAL_COPY = {
   resultConditionsLabel: '이 결과의 조건',
   /** 들어올 때 다시 연 마지막 실행 (#1701) — 뒤에 「기준 시각」이 붙는다. 방금 돌린 결과와 구분한다 */
   lastRunLabel: '마지막 실행',
+  /** 빈 화면의 「지난 결과 보기」 버튼 (#2348) — 뒤에 「· 그 실행의 시각」이 붙는다. 누를 때만 결과를 올린다 */
+  lastRunOpen: '지난 결과 보기',
   /** 마지막 실행 뒤 제원이 바뀌었다(`needs_recalc` · `API_SPEC §6.5`) (#1701) */
   lastRunNeedsRecalc: '제원이 바뀌어 다시 실행이 필요합니다.',
   targetRatingLabel: '목표 등급',

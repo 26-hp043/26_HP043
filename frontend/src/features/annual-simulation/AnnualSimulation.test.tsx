@@ -216,6 +216,14 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/**
+ * 빈 화면의 「지난 결과 보기」를 누른다 (#2348). 종전(#1701)에는 들어오자마자 마지막 결과를 올렸는데,
+ * 지금은 받아만 두고 이 버튼을 누를 때 올린다 — 복원 경로의 검사는 이 한 번을 앞에 둔다.
+ */
+async function openLastRun() {
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp(ANNUAL_COPY.lastRunOpen) }))
+}
+
 describe('이 seed로 다시 실행 (#776)', () => {
   it('실행 전에는 버튼이 없다 — 재현할 원본이 없다', async () => {
     stubServer()
@@ -1622,7 +1630,7 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
   })
 })
 
-describe('들어오면 마지막 결과부터 (#1701)', () => {
+describe('마지막 결과는 「지난 결과 보기」로 연다 (#1701 → #2348)', () => {
   const LAST = {
     simulation_id: 'sim-last',
     calculation_run_id: 'run-sim-last',
@@ -1665,6 +1673,7 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     const fetchImpl = stubWithLast(LAST)
     renderScreen()
 
+    await openLastRun()
     const lastRun = await screen.findByTestId('annual-sim-last-run')
     expect(lastRun.textContent).toContain(formatTimestamp(LAST.created_at)!)
     expect(screen.getByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeTruthy()
@@ -1676,11 +1685,30 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     stubWithLast(LAST)
     renderScreen()
 
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     expect((screen.getByRole('radio', { name: 'B' }) as HTMLInputElement).checked).toBe(true)
     expect(
       (screen.getByLabelText(ANNUAL_COPY.runsLabel, { exact: false }) as HTMLInputElement).value,
     ).toBe('2000')
+  })
+
+  it('⚠️ 들어오자마자 결과를 올리지 않는다 — 계산 전에는 빈 화면과 「지난 결과 보기」 버튼뿐이다 (#2348)', async () => {
+    const fetchImpl = stubWithLast(LAST)
+    renderScreen()
+
+    const button = await screen.findByRole('button', { name: new RegExp(ANNUAL_COPY.lastRunOpen) })
+    // 버튼에 그 실행의 시각이 붙어 무엇을 여는지 말한다
+    expect(button.textContent).toContain(formatTimestamp(LAST.created_at)!)
+    // 결과는 아직 없다 — 빈 화면 안내가 그대로다
+    expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
+    expect(screen.getByText(ANNUAL_COPY.empty)).toBeTruthy()
+    expect(fetchImpl.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(false)
+
+    // 누르면 그때 올라온다
+    fireEvent.click(button)
+    expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: new RegExp(ANNUAL_COPY.lastRunOpen) })).toBeNull()
   })
 
   it('실행한 적이 없으면 지금의 빈 화면 그대로다', async () => {
@@ -1691,11 +1719,13 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     await act(async () => {})
     expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
     expect(screen.getByText(ANNUAL_COPY.empty)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: new RegExp(ANNUAL_COPY.lastRunOpen) })).toBeNull()
   })
 
   it('새로 실행하면 복원한 실행의 시각과 재계산 안내가 사라진다 — 방금 돌린 결과와 구분한다', async () => {
     const fetchImpl = stubWithLast(LAST)
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     expect(screen.getByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeTruthy()
 
@@ -1857,6 +1887,7 @@ describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후�
       await listHeld
     })
 
+    await openLastRun()
     expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
     expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
   })
@@ -2102,6 +2133,7 @@ describe('남은 해 기준 한 줄 (#2043)', () => {
 
     renderScreen()
     // 복원된 결과가 그려졌다 — 그 위에 「이대로면 2026년 …」이 없다.
+    await openLastRun()
     expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
     expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
     expect(screen.queryByTestId('annual-sim-future-years')).toBeNull()
@@ -2328,6 +2360,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
       }
     })
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     expect(feedbackBox().checked).toBe(true)
   })
@@ -2335,6 +2368,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
   it('켜지 않고 돌렸거나 feedback 블록이 없는 옛 실행은 끈 채로 둔다', async () => {
     stubLast()
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     expect(feedbackBox().checked).toBe(false)
     await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
@@ -2350,6 +2384,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
       }
     })
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(altFuel().value).toBe('LNG'))
 
@@ -2367,6 +2402,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
       }
     })
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(altFuel().options.length).toBeGreaterThan(1))
     expect(altFuel().value).toBe('')
@@ -2379,6 +2415,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
   it('복원한 결과를 어시스턴트가 읽는다 — 그 실행의 id로', async () => {
     stubLast()
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
   })
@@ -2386,6 +2423,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
   it('새 실행이 성공하면 어시스턴트가 새 실행을 읽는다', async () => {
     const fetchImpl = stubLast()
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
 
     await submitRestored(fetchImpl)
@@ -2396,6 +2434,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
   it('실행이 실패하면 비운다', async () => {
     const fetchImpl = stubLast()
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
     const base = fetchImpl.getMockImplementation()!
@@ -2413,6 +2452,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
   it('화면을 떠나면 비운다', async () => {
     stubLast()
     const view = renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 
@@ -2433,6 +2473,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
       }
     }, { fuels })
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
 
     // 목록이 없는 동안 실행한다 — 요청에는 대체 연료가 실리지 않는다.
@@ -2454,6 +2495,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
     })
     const fetchImpl = stubLast(() => {}, { post })
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 
@@ -2476,6 +2518,7 @@ describe('복원한 마지막 실행의 조건 (#2125)', () => {
         : base(input, init),
     )
     renderScreen()
+    await openLastRun()
     await screen.findByTestId('annual-sim-last-run')
     await waitFor(() => expect(currentScreenResult()).toBe('run-sim-last'))
 

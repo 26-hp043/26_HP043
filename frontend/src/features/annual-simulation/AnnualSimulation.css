@@ -1176,3 +1176,35 @@
   font-weight: var(--font-weight-body);
   color: var(--text-secondary);
 }
+
+/*
+ * 빈 화면의 「지난 결과 보기」 (#2348) — 안내 문장 아래 보조 버튼 하나. 계산이 주 행동이라
+ * 채움이 아니라 테두리 버튼이다. 높이는 혼자 있는 텍스트 버튼 규칙(`§8` · 32px)을 따른다.
+ */
+.annual-sim__idle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+
+.annual-sim__last-run {
+  min-height: 32px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-control-bg);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.annual-sim__last-run:hover {
+  border-color: var(--color-primary);
+}
+
+.annual-sim__last-run:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
