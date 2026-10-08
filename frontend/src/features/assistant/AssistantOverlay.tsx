@@ -477,6 +477,41 @@ export function AssistantOverlay({
     )
   }
 
+  /*
+   * 문의 유형별 예시 질문 (#2322). 처음에는 첫 묶음을 펼쳐 두고, 답을 받은 뒤 다시 보일 때는
+   * 전부 접어 둔다 — 대화가 자리를 써야 한다 (#2344).
+   */
+  const exampleGroups = (openFirst: boolean) => (
+      <div className="assistant__groups" role="group" aria-label="예시 질문">
+        {EXAMPLE_GROUPS.map((group, index) => (
+          <details key={group.title} className="assistant__group" open={openFirst && index === 0}>
+            <summary className="assistant__group-head">
+              <span className="assistant__group-title">{group.title}</span>
+              <span className="assistant__group-hint">{group.hint}</span>
+            </summary>
+            <ul className="assistant__examples" role="list">
+              {group.questions.map((example) => (
+                <li key={example}>
+                  <button
+                    type="button"
+                    className="assistant__example"
+                    disabled={stopped}
+                    onClick={() => {
+                      setDraft(example)
+                      inputRef.current?.focus()
+                    }}
+                  >
+                    {example}
+                    <span className="assistant__example-arrow" aria-hidden="true">→</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
+      </div>
+  )
+
   return (
     <section
       className="assistant"
@@ -583,34 +618,7 @@ export function AssistantOverlay({
       {turns.length === 0 ? (
         <>
         <p className="assistant__examples-label">무엇이 궁금하세요?</p>
-        <div className="assistant__groups" role="group" aria-label="예시 질문">
-          {EXAMPLE_GROUPS.map((group, index) => (
-            <details key={group.title} className="assistant__group" open={index === 0}>
-              <summary className="assistant__group-head">
-                <span className="assistant__group-title">{group.title}</span>
-                <span className="assistant__group-hint">{group.hint}</span>
-              </summary>
-              <ul className="assistant__examples" role="list">
-                {group.questions.map((example) => (
-                  <li key={example}>
-                    <button
-                      type="button"
-                      className="assistant__example"
-                      disabled={stopped}
-                      onClick={() => {
-                        setDraft(example)
-                        inputRef.current?.focus()
-                      }}
-                    >
-                      {example}
-                      <span className="assistant__example-arrow" aria-hidden="true">→</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ))}
-        </div>
+        {exampleGroups(true)}
         </>
       ) : null}
 
@@ -695,6 +703,18 @@ export function AssistantOverlay({
           <p className="assistant__turn assistant__turn--pending">{PENDING_TEXT}</p>
         ) : null}
       </div>
+      {/*
+        #2344 — 답을 받은 뒤에도 예시 질문을 다시 꺼낼 수 있게 한다. 종전에는 첫 질문을 보내면
+        예시가 사라져 두 번째부터는 빈 입력칸만 남았다. 로그(`role="log"` · `aria-live`) **밖**에
+        두는 것은 답이 올 때마다 예시 목록까지 낭독되지 않게 하기 위해서이고, 한 줄 접힘으로 두는
+        것은 대화 영역(`min-height` 120px · `§16` 항목 16)을 늘 차지하지 않게 하기 위해서다.
+      */}
+      {turns.length > 0 && !pending && !stopped ? (
+        <details className="assistant__followup">
+          <summary className="assistant__followup-head">이어서 물어보기</summary>
+          {exampleGroups(false)}
+        </details>
+      ) : null}
       </div>
 
       {/*
