@@ -4,7 +4,7 @@ import '../../test/renderSetup'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ImportCsv } from './ImportCsv'
-import type { ImportResult } from './importRules'
+import { GROUP_IMPORT_NOTICE, type ImportResult } from './importRules'
 import type { VoyageManagementProvider } from './apiProvider'
 
 /**
@@ -40,6 +40,15 @@ function commitButton(): HTMLButtonElement {
 }
 
 describe('늦게 온 검증 결과 (#1642)', () => {
+  it('번호 묶기·재업로드 거부와 행 단위를 검증 전에 설명한다 (#2094)', () => {
+    const { provider } = deferred()
+    render(<ImportCsv vesselId="v-1" provider={provider} onImported={vi.fn()} />)
+    const notice = screen.getByText(GROUP_IMPORT_NOTICE)
+    expect(notice.closest('details')).toBeNull()
+    expect(notice.textContent).toMatch(/행 수/)
+    expect(commitButton().disabled).toBe(true)
+  })
+
   it('기다리는 동안 파일을 바꾸면 앞 파일의 성공으로 확정이 열리지 않는다', async () => {
     const { provider, finish } = deferred()
     render(<ImportCsv vesselId="v-1" provider={provider} onImported={vi.fn()} />)

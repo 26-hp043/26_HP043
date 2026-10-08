@@ -55,6 +55,10 @@ export const OPTIONAL_COLUMNS: readonly string[] = ['planned_departure_at', 'pla
 /** 시각 칸의 예. 서버 `INSTANT_EXAMPLE`과 같은 값이다. */
 export const INSTANT_EXAMPLE = '2026-09-12T09:00:00+09:00'
 
+/** 같은 번호 묶기·재업로드 거부와 행 수의 의미 (API_SPEC §8.2 · #2094). */
+export const GROUP_IMPORT_NOTICE =
+  '같은 항차 번호의 연료 행은 한 항차로 합칩니다. 항구·거리·속력·시각이 다르면 해당 번호의 모든 행을 건너뛰고, 이미 저장된 항차 번호는 다시 가져오지 않습니다. 결과 건수는 CSV 행 수입니다.'
+
 export interface ImportRowError {
   /** **파일에서 보이는 행 번호다** — 헤더가 1행이므로 첫 데이터 행이 `2`다 (`§8.2`). */
   row: number

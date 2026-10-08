@@ -387,6 +387,233 @@ async def test_dry_run_counts_missing_departures_among_rows_that_would_go_in(ses
     assert result["missing_departure_count"] == 1
 
 
+# ── 같은 번호의 혼합 연료와 재업로드 (#2094 · API_SPEC §8.2) ──────────────────────
+
+
+async def test_mixed_fuel_rows_are_one_stored_voyage(session, vessel_id):
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V001,Busan,Tokyo,1000,13.5,HFO,80.25",
+            "V001,Busan,Tokyo,1000,13.5,LNG,20.75",
+        ),
+    )
+    assert result["imported_count"] == 2  # 항차 수가 아니라 원본 CSV 행 수다.
+    assert result["errors"] == []
+    stored = await _stored(session, vessel_id)
+    assert len(stored) == 1
+    assert Decimal(stored[0].planned_distance_nm) == Decimal("1000")
+    fuels = await session.execute(
+        text(
+            "SELECT f.fuel_type, f.planned_fuel_ton FROM voyage_fuel_use f "
+            "JOIN voyage v ON v.id=f.voyage_id WHERE v.vessel_id=:vid ORDER BY f.fuel_type"
+        ),
+        {"vid": vessel_id},
+    )
+    assert [(f.fuel_type, Decimal(f.planned_fuel_ton)) for f in fuels] == [
+        ("HFO", Decimal("80.25")),
+        ("LNG", Decimal("20.75")),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("departure_port_name", "Ulsan"),
+        ("arrival_port_name", "Osaka"),
+        ("planned_distance_nm", "1100"),
+        ("planned_speed_kn", "14"),
+        ("planned_departure_at", "2026-09-13T00:00:00Z"),
+        ("planned_arrival_at", "2026-09-17T00:00:00Z"),
+    ],
+)
+async def test_inconsistent_groups_are_rejected_without_rejecting_other_voyages(
+    session, vessel_id, field, replacement
+):
+    import csv
+    import io
+
+    first = {
+        "voyage_no": "V001",
+        "departure_port_name": "Busan",
+        "arrival_port_name": "Tokyo",
+        "planned_distance_nm": "1000",
+        "planned_speed_kn": "13.5",
+        "fuel_type": "HFO",
+        "planned_fuel_ton": "80",
+        "planned_departure_at": "2026-09-12T00:00:00Z",
+        "planned_arrival_at": "2026-09-16T00:00:00Z",
+    }
+    second = {**first, "fuel_type": "LNG", field: replacement}
+    third = {**first, "voyage_no": "V002"}
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(first))
+    writer.writeheader()
+    writer.writerows([first, second, third])
+    file = buffer.getvalue().encode()
+    dry = await import_voyages(session, vessel_id, content=file, dry_run=True)
+    real = await import_voyages(session, vessel_id, content=file)
+    assert dry["errors"] == real["errors"]
+    assert real["imported_count"] == 1
+    assert real["skipped_count"] == 2
+    assert [error["row"] for error in real["errors"]] == [2, 3]
+    assert {error["field"] for error in real["errors"]} == {field}
+    assert [v.voyage_no for v in await _stored(session, vessel_id)] == ["V002"]
+
+
+async def test_reupload_is_rejected_before_and_during_storage(session, vessel_id):
+    file = csv_bytes("V001,Busan,Tokyo,1000,13.5,HFO,80", "V001,Busan,Tokyo,1000,13.5,LNG,20")
+    await import_voyages(session, vessel_id, content=file)
+    dry = await import_voyages(session, vessel_id, content=file, dry_run=True)
+    real = await import_voyages(session, vessel_id, content=file)
+    assert dry["imported_count"] == real["imported_count"] == 0
+    assert dry["skipped_count"] == real["skipped_count"] == 2
+    # 정본 문구 (API_SPEC §8.2).
+    assert (
+        dry["errors"]
+        == real["errors"]
+        == [
+            {"row": n, "field": "voyage_no", "message": "이미 있는 항차 번호입니다."}
+            for n in (2, 3)
+        ]
+    )
+    assert len(await _stored(session, vessel_id)) == 1
+
+
+async def test_existing_number_scope_is_vessel_specific_and_excludes_deleted_voyages(
+    session, vessel_id
+):
+    file = csv_bytes("V001,Busan,Tokyo,1000,13.5,HFO,80")
+    await import_voyages(session, vessel_id, content=file)
+    other = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'OTHER IMPORT TEST', 'BULK_CARRIER', 50000)"
+        ),
+        {"id": other, "imo": f"9{other.int % 1000000:06d}"},
+    )
+    other_result = await import_voyages(session, other, content=file)
+    assert other_result["imported_count"] == 1
+    await session.execute(
+        text("UPDATE voyage SET is_deleted=1 WHERE vessel_id=:vid"), {"vid": vessel_id}
+    )
+    replaced = await import_voyages(session, vessel_id, content=file)
+    assert replaced["imported_count"] == 1
+    active_count = await session.execute(
+        text("SELECT COUNT(*) FROM voyage WHERE vessel_id=:vid AND is_deleted=0"),
+        {"vid": vessel_id},
+    )
+    assert active_count.scalar_one() == 1
+
+
+async def test_invalid_time_order_does_not_leave_one_fuel_of_a_group(session, vessel_id):
+    header = HEADER + ",planned_departure_at,planned_arrival_at"
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V001,Busan,Tokyo,1000,13.5,HFO,80,2026-09-12T00:00:00Z,2026-09-16T00:00:00Z",
+            "V001,Busan,Tokyo,1000,13.5,LNG,20,2026-09-12T00:00:00Z,2026-09-11T00:00:00Z",
+            "V002,Busan,Tokyo,1000,13.5,HFO,80,,",
+            header=header,
+        ),
+    )
+    assert result["imported_count"] == 1
+    assert result["skipped_count"] == 2
+    assert result["errors"][1]["field"] == "planned_arrival_at"
+    assert [v.voyage_no for v in await _stored(session, vessel_id)] == ["V002"]
+
+
+async def test_the_row_limit_does_not_store_a_partial_fuel_group(session, vessel_id, monkeypatch):
+    monkeypatch.setattr(voyage_import, "MAX_ROWS", 2)
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V001,Busan,Tokyo,1000,13.5,HFO,80",
+            "V002,Busan,Tokyo,1000,13.5,HFO,80",
+            "V001,Busan,Tokyo,1000,13.5,LNG,20",
+        ),
+    )
+    assert result["imported_count"] == 1
+    assert result["skipped_count"] == 2
+    assert result["imported_count"] + result["skipped_count"] == 3
+    assert [v.voyage_no for v in await _stored(session, vessel_id)] == ["V002"]
+
+
+async def test_http_mixed_fuel_import_and_reupload_contract(migrated_db, app_fresh_engine):
+    """실제 multipart·인증·CSRF·응답 봉투를 거쳐 혼합 연료와 재업로드를 확인한다."""
+    from fastapi.testclient import TestClient
+
+    from cii_platform.api.main import API_V1_PREFIX, app
+    from cii_platform.db.session import get_sessionmaker
+    from cii_platform.imo_number import imo_check_digit
+
+    head = f"7{uuid4().int % 100_000:05d}"
+    vessel_id = None
+    file = csv_bytes("V001,Busan,Tokyo,1000,13.5,HFO,80", "V001,Busan,Tokyo,1000,13.5,LNG,20")
+    try:
+        with TestClient(app, base_url="https://testserver") as client:
+            assert client.post(f"{API_V1_PREFIX}/auth/dev-login", json={}).status_code == 200
+            headers = {"X-CSRF-Token": client.cookies["csrf"]}
+            created = client.post(
+                f"{API_V1_PREFIX}/vessels",
+                json={
+                    "imo_number": head + str(imo_check_digit(head)),
+                    "name": "CSV GROUP HTTP TEST",
+                    "ship_type": "BULK_CARRIER",
+                },
+                headers=headers,
+            )
+            assert created.status_code == 201
+            vessel_id = created.json()["data"]["id"]
+            path = f"{API_V1_PREFIX}/vessels/{vessel_id}/import"
+
+            def upload(dry_run):
+                return client.post(
+                    path,
+                    params={"dry_run": str(dry_run).lower()},
+                    data={"type": "voyages"},
+                    files={"file": ("mixed.csv", file, "text/csv")},
+                    headers=headers,
+                )
+
+            preview = upload(True)
+            assert preview.status_code == 200
+            assert preview.json()["data"]["imported_count"] == 2
+            assert client.get(f"{API_V1_PREFIX}/vessels/{vessel_id}/voyages").json()["data"] == []
+            real = upload(False)
+            assert real.status_code == 200
+            assert set(real.json()) == {"data", "meta"}
+            assert real.json()["data"]["imported_count"] == 2
+            voyages = client.get(f"{API_V1_PREFIX}/vessels/{vessel_id}/voyages").json()["data"]
+            assert len(voyages) == 1
+            assert {fuel["fuel_type"] for fuel in voyages[0]["fuel_uses"]} == {"HFO", "LNG"}
+            for dry_run in (True, False):
+                repeated = upload(dry_run)
+                assert repeated.status_code == 200
+                data = repeated.json()["data"]
+                assert data["imported_count"] == 0
+                assert data["skipped_count"] == 2
+                assert [error["row"] for error in data["errors"]] == [2, 3]
+    finally:
+        if vessel_id is not None:
+            async with get_sessionmaker()() as cleanup:
+                params = {"id": UUID(vessel_id).hex}
+                await cleanup.execute(
+                    text(
+                        "DELETE FROM voyage_fuel_use WHERE voyage_id IN "
+                        "(SELECT id FROM voyage WHERE vessel_id=:id)"
+                    ),
+                    params,
+                )
+                await cleanup.execute(text("DELETE FROM voyage WHERE vessel_id=:id"), params)
+                await cleanup.execute(text("DELETE FROM vessel WHERE id=:id"), params)
+                await cleanup.commit()
+
+
 @pytest.mark.asyncio
 async def test_imported_in_progress_voyage_now_counts_toward_the_running_total(session):
     """이슈 완료 기준 — **CSV로 만든 진행 중 항차가 누적에 기여한다** (#906).

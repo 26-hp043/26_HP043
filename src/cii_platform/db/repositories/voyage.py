@@ -195,6 +195,20 @@ async def list_fuel_uses(session: AsyncSession, voyage_id: UUID) -> list[VoyageF
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def list_existing_numbers(
+    session: AsyncSession, vessel_id: UUID, numbers: Sequence[str]
+) -> set[str]:
+    """선박의 삭제되지 않은 항차 중 요청한 번호가 존재하는지 조회한다 (#2094)."""
+    if not numbers:
+        return set()
+    stmt = select(Voyage.voyage_no).where(
+        Voyage.vessel_id == vessel_id,
+        Voyage.is_deleted == 0,
+        Voyage.voyage_no.in_(numbers),
+    )
+    return set((await session.execute(stmt)).scalars().all())
+
+
 async def list_fuel_uses_by_voyage_ids(
     session: AsyncSession, voyage_ids: list[UUID]
 ) -> dict[UUID, list[VoyageFuelUse]]:

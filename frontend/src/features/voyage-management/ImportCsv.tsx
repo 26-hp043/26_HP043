@@ -3,6 +3,7 @@ import { VoyageError, type VoyageManagementProvider } from './apiProvider'
 import { ErrorState } from '../../components/ErrorState'
 import { FilePicker } from '../../components/FilePicker'
 import {
+  GROUP_IMPORT_NOTICE,
   IMPORT_NOTICE,
   INSTANT_EXAMPLE,
   MAX_ROWS,
@@ -124,6 +125,8 @@ export function ImportCsv({
           UTF-8 · 최대 5MB · {MAX_ROWS.toLocaleString('ko-KR')}행까지.
         </p>
       </details>
+
+      <p className="vy-import__hint">{GROUP_IMPORT_NOTICE}</p>
 
       <div className="vy-import__row">
         <FilePicker
