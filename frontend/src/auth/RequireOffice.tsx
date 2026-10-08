@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
-import { ErrorState } from '../components/ErrorState'
-import { OFFICE_ONLY_SCREEN_NOTICE } from '../features/auth/authRules'
+import { Lock } from 'lucide-react'
+import { Icon } from '../components/Icon'
+import '../components/ErrorState.css'
+import { OFFICE_ONLY_SCREEN_NOTICE, OFFICE_ONLY_SCREEN_TITLE } from '../features/auth/authRules'
 import { isOffice, useAuthUser } from './session'
 
 /**
@@ -25,9 +27,20 @@ import { isOffice, useAuthUser } from './session'
 export function RequireOffice({ children }: { children: ReactNode }) {
   const user = useAuthUser()
   if (isOffice(user)) return <>{children}</>
+  /*
+   * 실패가 아니라 **권한 안내**다 (#2352) — `ErrorState`(제목 고정 「화면을 불러오지 못했습니다」 ·
+   * `role="alert"`)를 쓰지 않는다. 모양은 페이지 층위 블록을 그대로 빌리고, 낭독은 경보가 아니라
+   * 상태(`role="status"`)로 · 아이콘은 경고 삼각형 대신 자물쇠로 둔다. 다시 시도해도 같으므로 재시도도 없다.
+   */
   return (
     <div className="page">
-      <ErrorState level="page" message={OFFICE_ONLY_SCREEN_NOTICE} />
+      <div className="error-state error-state--page" role="status">
+        <Icon glyph={Lock} className="error-state__icon" />
+        <div className="error-state__body">
+          <p className="error-state__title">{OFFICE_ONLY_SCREEN_TITLE}</p>
+          <p className="error-state__message">{OFFICE_ONLY_SCREEN_NOTICE}</p>
+        </div>
+      </div>
     </div>
   )
 }

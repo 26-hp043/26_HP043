@@ -9,7 +9,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { RealtimeCiiView } from './RealtimeCiiView'
 import { RealtimeCiiError } from './apiProvider'
-import { POLL_INTERVAL_MS } from './realtimeRules'
+import { IN_PROGRESS_BOTH_WARNING, POLL_INTERVAL_MS } from './realtimeRules'
 import type { RealtimeCii, RealtimeCiiProvider } from './types'
 import { regulationParametersPath } from '../parameters/referenceRules'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
@@ -625,6 +625,16 @@ describe('면책은 한 번만 (#1416)', () => {
     await screen.findAllByText(/참고용 예측값/)
     expect(document.querySelector('.rt__warnings')).toBeNull()
   })
+
+  it('진행 중 경고 둘이 함께면 경고 띠에 한 줄이다 (#2295)', async () => {
+    renderView(
+      once({ ...BASE, warnings: ['IN_PROGRESS_PAST_ETA', 'IN_PROGRESS_PLANNED_DISTANCE_REACHED'] }),
+    )
+    await screen.findAllByText(/참고용 예측값/)
+    const items = document.querySelectorAll('.rt__warnings li')
+    expect(items).toHaveLength(1)
+    expect(items[0].textContent).toBe(IN_PROGRESS_BOTH_WARNING)
+  })
 })
 
 /**
@@ -1022,6 +1032,12 @@ describe('실시간 CII — 이번 항차 지도 (#1949)', () => {
   it('지도에 이 화면의 대체 정보 제목을 넘긴다', () => {
     const source = readFileSync(join(import.meta.dirname, 'RealtimeCiiView.tsx'), 'utf8')
     expect(source).toMatch(/alternativeTitle="이번 항차 지도"/)
+  })
+
+  /** 도착 마커 이름도 제목과 같은 보이는 이름이다 (#2295) — WebGL이 없어 원본에서 본다(위와 같은 이유). */
+  it('도착 마커 이름을 저장 코드가 아니라 보이는 항구 이름으로 넘긴다 (#2295)', () => {
+    const source = readFileSync(join(import.meta.dirname, 'RealtimeCiiView.tsx'), 'utf8')
+    expect(source).toMatch(/destinationName=\{portDisplayName\(ports,/)
   })
 
   it('조회가 실패해도 화면의 나머지는 그대로 선다', async () => {

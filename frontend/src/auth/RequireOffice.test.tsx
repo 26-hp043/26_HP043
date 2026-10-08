@@ -4,7 +4,8 @@ import '../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { RequireOffice } from './RequireOffice'
-import { OFFICE_ONLY_SCREEN_NOTICE, ROLE_LABEL } from '../features/auth/authRules'
+import { OFFICE_ONLY_SCREEN_NOTICE, OFFICE_ONLY_SCREEN_TITLE, ROLE_LABEL } from '../features/auth/authRules'
+import { PAGE_FAILURE_TITLE } from '../components/errorCopy'
 import * as session from './session'
 
 /**
@@ -52,6 +53,21 @@ describe('RequireOffice (#672)', () => {
     )
     expect(screen.queryByText('보고서 화면')).toBeNull()
     expect(screen.getByText(OFFICE_ONLY_SCREEN_NOTICE)).toBeTruthy()
+  })
+
+  it('현장직 안내의 제목은 실패가 아니라 권한을 말한다 — 「화면을 불러오지 못했습니다」가 아니다 (#2352)', () => {
+    stub({ ...OFFICE, role: 'FIELD' })
+    render(
+      <RequireOffice>
+        <p>보고서 화면</p>
+      </RequireOffice>,
+    )
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
+    expect(screen.getByText(OFFICE_ONLY_SCREEN_TITLE)).toBeTruthy()
+    expect(screen.queryByText(PAGE_FAILURE_TITLE)).toBeNull()
+    // 경보가 아니라 상태로 낭독한다 — 고장이 아니다.
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain(OFFICE_ONLY_SCREEN_TITLE)
   })
 
   it('관리자도 자식을 그대로 그린다 — ADMIN은 OFFICE의 상위집합 (#1301)', () => {

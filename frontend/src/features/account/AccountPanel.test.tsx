@@ -537,3 +537,40 @@ describe('프로필 이미지 — #2080', () => {
     expect(notice.textContent).toContain('정사각형')
   })
 })
+
+/**
+ * 결과 메시지는 마지막으로 손댄 구역 하나만 남는다 (#2352).
+ *
+ * 프로필 이미지 실패 → 표시 이름 저장 성공 → 비밀번호 실패를 차례로 하면 세 구역의 메시지가
+ * 한꺼번에 남아, 어느 것이 지금 일의 결과인지 읽을 수 없었다.
+ */
+describe('설정의 결과 메시지는 하나만 (#2352)', () => {
+  it('다른 구역에서 일을 시작하면 앞 구역의 결과 메시지가 걷힌다', async () => {
+    stubUser()
+    vi.spyOn(session, 'uploadAvatar').mockRejectedValue(new session.AuthRequestError('이미지 실패', 500))
+    vi.spyOn(session, 'updateDisplayName').mockResolvedValue(undefined as never)
+    vi.spyOn(session, 'changePassword').mockRejectedValue(new session.AuthRequestError('비밀번호 실패', 500))
+    renderPanel()
+
+    // ⑴ 프로필 이미지 실패
+    const file = new File([new Uint8Array([1, 2, 3])], 'me.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('프로필 이미지 파일'), { target: { files: [file] } })
+    fireEvent.click(screen.getByRole('button', { name: '이 사진으로 바꾸기' }))
+    await screen.findByText('이미지 실패')
+
+    // ⑵ 표시 이름 저장 성공 — 이미지 실패가 걷힌다
+    fireEvent.click(screen.getByRole('button', { name: '표시 이름 저장' }))
+    await waitFor(() => expect(screen.queryByText('이미지 실패')).toBeNull())
+    const saved = await screen.findByRole('status')
+    const savedText = saved.textContent
+
+    // ⑶ 비밀번호 실패 — 표시 이름 성공도 걷히고 비밀번호 실패만 남는다
+    fireEvent.change(screen.getByLabelText('현재 비밀번호'), { target: { value: 'current-pass-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호'), { target: { value: 'new-pass-long-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호 확인'), { target: { value: 'new-pass-long-1' } })
+    fireEvent.click(screen.getByRole('button', { name: '비밀번호 바꾸기' }))
+    await screen.findByText('비밀번호 실패')
+    expect(screen.queryByText(savedText!)).toBeNull()
+    expect(screen.queryByText('이미지 실패')).toBeNull()
+  })
+})

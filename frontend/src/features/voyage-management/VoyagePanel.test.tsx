@@ -4,7 +4,7 @@ import '../../test/renderSetup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
-import { formatTimestamp } from '../../display/format'
+import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 
 /**
  * 행의 「자세히」를 눌러 펼침 줄을 연다 (#1729).
@@ -1275,5 +1275,64 @@ describe('항차 표의 항구 이름 (#1742)', () => {
   it('목록을 못 받으면 저장값 그대로다 — 빈칸으로 두지 않는다', async () => {
     renderWithPorts([])
     expect(await screen.findByText('BUSAN → SINGAPORE')).toBeTruthy()
+  })
+})
+
+/**
+ * 계획 대비 칸은 연료 차이를 앞에 둔다 (#2296).
+ *
+ * CII를 움직이는 것은 연료인데 종전에는 거리 차이만 있었다. 문구가 아니라 **성질**을 본다
+ * (`AGENTS §4.6`) — 연료 차이가 먼저 오고, 끝나지 않은 항차나 연료가 일부만 있는 항차에는
+ * 연료 차이를 지어내지 않는다.
+ */
+describe('계획 대비 — 연료 차이를 앞에 (#2296)', () => {
+  const DONE: ManagedVoyage = {
+    ...IN_PROGRESS,
+    status: 'CONFIRMED',
+    inclusionPolicy: 'INCLUDE_AS_ACTUAL',
+    actualDistanceNm: 2400,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 421 }],
+  }
+
+  function renderOne(voyage: ManagedVoyage) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+        })}
+      />,
+    )
+  }
+  const deltaCell = () => document.querySelector('#voyage-v-1 .vy__deltas') as HTMLElement | null
+
+  it('끝난 항차는 연료 차이가 먼저, 거리 차이가 그 아래다', async () => {
+    renderOne(DONE)
+    await waitFor(() => expect(deltaCell()).not.toBeNull())
+    const parts = [...deltaCell()!.children].map((el) => el.textContent ?? '')
+    expect(parts).toHaveLength(2)
+    expect(parts[0]).toContain('+90')
+    expect(parts[0]).toContain(DISPLAY_UNITS.fuel)
+    expect(parts[1]).toContain('+100')
+    expect(parts[1]).toContain(DISPLAY_UNITS.distance)
+  })
+
+  it('항해 중에는 연료 차이를 적지 않는다 — 지금까지의 연료는 계획 대비가 아니다', async () => {
+    renderOne({ ...DONE, status: 'IN_PROGRESS', inclusionPolicy: 'INCLUDE_AS_PLAN' })
+    await screen.findByText(/Busan|부산/)
+    expect(deltaCell()).toBeNull()
+  })
+
+  it('유종 일부만 실적이 있으면 연료 차이를 적지 않고 거리만 둔다', async () => {
+    renderOne({
+      ...DONE,
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 421 },
+        { fuelType: 'MDO', plannedFuelTon: 10, actualFuelTon: null },
+      ],
+    })
+    await waitFor(() => expect(deltaCell()).not.toBeNull())
+    expect(deltaCell()!.children).toHaveLength(1)
+    expect(deltaCell()!.textContent).toContain(DISPLAY_UNITS.distance)
   })
 })
