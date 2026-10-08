@@ -79,6 +79,9 @@ VOYAGE_CII_NOTE = "항차 단위 CII는 공식 등급 지표가 아닙니다. �
 
 #: 시나리오 사후 비교 표의 「없음」 표지 셋 (`#2092`). ``—``(기록된 값 없음)와 **다른 말**이다.
 #:
+#: ⚠️ 정본 문구 (`PRD §6.3` 「항차 리포트 — 사후 비교 표지」 · `rlatnals4114` 2026-10-08
+#: 확정 · `#2216`) — 바꾸려면 `PRD` 개정이 먼저다(`AGENTS §4.6`).
+#:
 #: 여기(문서 모델)에 두는 것은 렌더러도 읽어야 하기 때문이다 — HTML의 열 정렬 판정이 이
 #: 표지를 값으로 세면 수치 열이 통째로 왼쪽으로 뒤집힌다(`#2004`의 ``—``와 같은 이유).
 #: 서비스(``services/report.py``)는 이 이름을 그대로 가져다 쓴다.
@@ -97,6 +100,25 @@ ACTUAL_RATING_NOT_RATED = "산출 안 함"
 ABSENT_MARKERS: frozenset[str] = frozenset(
     {SCENARIO_NOT_STORED, ACTUAL_CII_NOT_COMPUTABLE, ACTUAL_RATING_NOT_RATED}
 )
+
+
+class ReportTime(str):
+    """사람이 읽는 시각과 CSV에 싣는 시각을 함께 쥔 값 (`#2151` · `DESIGN_SYSTEM §4.4`).
+
+    ``str`` 그대로는 **미리보기 · PDF가 읽는 형식**(`2026. 10. 8. 14:30` — 화면과 같은 `§4.4`
+    형식)이다. CSV는 :attr:`csv`(`2026-10-08 14:30:00 KST`)를 쓴다 — 스프레드시트가 정렬·필터로
+    읽는 자리라 자릿수가 고정된 형식이 낫다(`rlatnals4114` 2026-10-08 결정).
+
+    ``KeyValueSection.rows``가 ``str``을 요구하므로 하위 클래스로 둔다 — 렌더러 둘(HTML · PDF)은
+    아무것도 바꾸지 않아도 사람이 읽는 형식을 싣는다.
+    """
+
+    csv: str
+
+    def __new__(cls, display: str, csv: str) -> ReportTime:
+        obj = super().__new__(cls, display)
+        obj.csv = csv
+        return obj
 
 
 @dataclass(frozen=True)

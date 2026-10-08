@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { PAGE_FAILURE_TITLE } from './errorCopy'
 import './ErrorBoundary.css'
 
 /**
@@ -123,8 +124,12 @@ export function ErrorScreen({
 }) {
   return (
     <section className="error-screen" role="alert" aria-labelledby="error-screen-title">
+      {/*
+        정본 문구 (`PRD §6.4` 「페이지 실패 — 제목」) — 종전 「화면을 표시하지 못했습니다」는 정본과
+        한 낱말이 달랐다(#2151). 다른 페이지 실패 화면과 같은 상수를 쓴다.
+      */}
       <h2 id="error-screen-title" className="error-screen__title">
-        화면을 표시하지 못했습니다
+        {PAGE_FAILURE_TITLE}
       </h2>
       <p className="error-screen__body">
         예상하지 못한 오류가 발생했습니다. 아래에서 다시 시도하거나 다른 화면으로

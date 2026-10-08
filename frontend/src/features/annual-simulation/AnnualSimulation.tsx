@@ -1086,7 +1086,7 @@ function ResultBasis({
                     value={
                       feedback.factor === null
                         ? ANNUAL_COPY.feedbackUnavailableValue
-                        : `× ${formatDecimalString(feedback.factor, 4)}`
+                        : `× ${formatDecimalString(feedback.factor, DISPLAY_DIGITS.feedbackFactor)}`
                     }
                   />
                   <Row

@@ -1074,14 +1074,47 @@ def test_report_time_is_local_not_utc_iso():
 
     shown = _local_time(datetime(2026, 8, 20, 8, 34, 36, 889061, tzinfo=UTC))
 
-    assert shown == "2026-08-20 17:34:36 KST"
-    # ISO 구분자 `T`가 아니라 공백이다. (`"T" not in shown`으로 쓰면 "KST"에 걸린다 —
+    # 미리보기 · PDF는 화면과 같은 `DESIGN_SYSTEM §4.4` 형식 — 분까지 (#2151)
+    assert shown == "2026. 8. 20. 17:34"
+    # CSV는 정렬하기 쉬운 종전 형식을 따로 쥔다
+    assert shown.csv == "2026-08-20 17:34:36 KST"
+    # ISO 구분자 `T`가 아니다. (`"T" not in shown`으로 쓰면 "KST"에 걸린다 —
     # 실제로 그렇게 썼다가 이 테스트가 잡았다.)
-    assert "2026-08-20T" not in shown
+    assert "2026-08-20T" not in shown.csv
     # 마이크로초를 문서에 싣지 않는다.
-    assert "889061" not in shown
+    assert "889061" not in shown and "889061" not in shown.csv
     # UTC 시각(08:34)이 아니라 KST(17:34)다.
-    assert "17:34:36" in shown
+    assert "17:34" in shown
+
+
+def test_report_time_display_matches_design_system_example():
+    """`DESIGN_SYSTEM §4.4`의 예 행 — `2026-09-20T00:30:00Z` → `2026. 9. 20. 09:30` (#2151).
+
+    화면(`formatTimestamp`)과 같은 예를 문서도 낸다. 한쪽만 바뀌면 같은 시각이 화면과 PDF에서
+    다르게 보인다.
+    """
+    from cii_platform.services.report import _local_time
+
+    assert _local_time("2026-09-20T00:30:00Z") == "2026. 9. 20. 09:30"
+
+
+def test_csv_writes_report_time_in_csv_format():
+    """CSV는 `ReportTime.csv`를 싣는다 — 사람이 읽는 형식이 스프레드시트에 섞이지 않는다 (#2151)."""
+    from cii_platform.reports.csv_export import render_csv
+    from cii_platform.reports.document import KeyValueSection, ReportDocument
+    from cii_platform.services.report import _local_time
+
+    when = _local_time("2026-09-20T00:30:00Z")
+    document = ReportDocument(
+        title="t",
+        slug="t",
+        meta=[("생성 시각", when)],
+        sections=[KeyValueSection(title="요약", rows=[("출항 (실적)", when)])],
+    )
+    text = render_csv(document)
+    # 표지(meta)와 본문 섹션 둘 다
+    assert text.count("2026-09-20 09:30:00 KST") == 2
+    assert "2026. 9. 20. 09:30" not in text
 
 
 def test_report_time_handles_missing_value():
@@ -1119,7 +1152,9 @@ def test_report_time_accepts_iso_string():
     """
     from cii_platform.services.report import _local_time
 
-    assert _local_time("2026-08-20T08:34:36.889061+00:00") == "2026-08-20 17:34:36 KST"
+    shown = _local_time("2026-08-20T08:34:36.889061+00:00")
+    assert shown == "2026. 8. 20. 17:34"
+    assert shown.csv == "2026-08-20 17:34:36 KST"
 
 
 # ── 렌더링은 스레드에서, 한 번에 하나만 (`#1363`) ────────────────────────────────

@@ -5,6 +5,7 @@ import '../test/renderSetup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ErrorBoundary, ErrorScreen } from './ErrorBoundary'
+import { PAGE_FAILURE_TITLE } from './errorCopy'
 import { formatCapacity } from '../display/format'
 
 /**
@@ -64,7 +65,7 @@ describe('렌더 예외를 받아 화면을 남긴다 (#823)', () => {
   it('자식이 던지면 오류 화면을 그린다 — 백지가 되지 않는다', () => {
     render(withBoundary(<Boom />))
 
-    expect(screen.getByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(screen.getByText(PAGE_FAILURE_TITLE)).toBeTruthy()
     // 사용자가 다음에 무엇을 할지 알 수 있어야 한다.
     expect(screen.getByRole('button', { name: '다시 시도' })).toBeTruthy()
   })
@@ -80,7 +81,7 @@ describe('렌더 예외를 받아 화면을 남긴다 (#823)', () => {
     render(withBoundary(<span>정상</span>))
 
     expect(screen.getByText('정상')).toBeTruthy()
-    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
+    expect(screen.queryByText(PAGE_FAILURE_TITLE)).toBeNull()
   })
 
   it('`role="alert"`로 낸다 — 스크린리더가 즉시 읽는다', () => {
@@ -103,7 +104,7 @@ describe('재현 케이스 — 1e-7 DWT (#823)', () => {
   it('그 값이 화면에 와도 오류 화면으로 끝난다', () => {
     render(withBoundary(<CapacityCell value={1e-7} />))
 
-    expect(screen.getByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(screen.getByText(PAGE_FAILURE_TITLE)).toBeTruthy()
   })
 
   it('경계 바로 아래 값은 던지지 않는다 — 폴백을 두지 않은 근거', () => {
@@ -125,7 +126,7 @@ describe('경계는 스스로 리셋되지 않는다 (#823)', () => {
     }
 
     render(withBoundary(<Flaky />))
-    expect(screen.getByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(screen.getByText(PAGE_FAILURE_TITLE)).toBeTruthy()
 
     shouldThrow = false
     fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
@@ -137,7 +138,7 @@ describe('경계는 스스로 리셋되지 않는다 (#823)', () => {
     render(withBoundary(<Boom />))
     fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
 
-    expect(screen.getByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(screen.getByText(PAGE_FAILURE_TITLE)).toBeTruthy()
   })
 
   it('`key`가 바뀌면 새 인스턴스가 만들어져 회복된다 — 셸의 경로 전환이 이 성질을 쓴다', () => {
@@ -146,12 +147,12 @@ describe('경계는 스스로 리셋되지 않는다 (#823)', () => {
      * **사이드바를 눌러도 오류 화면이 남아** 사용자 입장에서는 백지와 같다.
      */
     const { rerender } = render(withBoundary(<Boom />, '/vessels'))
-    expect(screen.getByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(screen.getByText(PAGE_FAILURE_TITLE)).toBeTruthy()
 
     rerender(withBoundary(<span>다른 화면</span>, '/dashboard'))
 
     expect(screen.getByText('다른 화면')).toBeTruthy()
-    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
+    expect(screen.queryByText(PAGE_FAILURE_TITLE)).toBeNull()
   })
 })
 

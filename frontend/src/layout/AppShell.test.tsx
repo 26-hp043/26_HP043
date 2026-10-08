@@ -10,6 +10,7 @@ import { VESSEL_QUERY_KEY } from './globalContext'
 import { NAV_ORDER, SCREEN_BY_ID } from '../screens'
 import * as session from '../auth/session'
 import { LanguageProvider } from '../i18n/Provider'
+import { PAGE_FAILURE_TITLE } from '../components/errorCopy'
 
 /**
  * 셸 → 화면 **전역 컨텍스트 배선** 검증 (#557).
@@ -236,7 +237,7 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
 
     renderShellWithBoom()
 
-    expect(await screen.findByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    expect(await screen.findByText(PAGE_FAILURE_TITLE)).toBeTruthy()
     // 셸이 남아야 사용자가 다른 화면으로 갈 수 있다 — 이것이 루트 경계와의 차이다.
     expect(screen.getByRole('navigation')).toBeTruthy()
     expect(
@@ -250,7 +251,7 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
 
     renderShellWithBoom()
 
-    await screen.findByText('화면을 표시하지 못했습니다')
+    await screen.findByText(PAGE_FAILURE_TITLE)
     expect(screen.getByRole('link', { name: '대시보드로' })).toBeTruthy()
   })
 
@@ -259,7 +260,7 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     renderShellWithBoom()
-    await screen.findByText('화면을 표시하지 못했습니다')
+    await screen.findByText(PAGE_FAILURE_TITLE)
 
     /*
      * ⚠️ 이 단언이 `key={pathname}`을 잠근다. key가 없으면 경계가 스스로 리셋되지
@@ -271,7 +272,7 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
     )
 
     expect(await screen.findByText('다른 화면')).toBeTruthy()
-    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
+    expect(screen.queryByText(PAGE_FAILURE_TITLE)).toBeNull()
   })
 
   it('던지지 않는 화면은 평소대로 그린다', async () => {
@@ -280,7 +281,7 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
     renderShellWithBoom(MANAGEMENT_PATH)
 
     expect(await screen.findByText('다른 화면')).toBeTruthy()
-    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
+    expect(screen.queryByText(PAGE_FAILURE_TITLE)).toBeNull()
   })
 })
 

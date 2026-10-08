@@ -743,8 +743,8 @@ function FleetVerdict({
           {netNumber === null ? null : (
             <span className="fr-hero__value">
               {netNumber > 0 ? '+' : netNumber < 0 ? '−' : ''}
-              {formatGrouped(String(Math.abs(netNumber)), 0)}
-              <span className="fr-hero__unit">USD</span>
+              {formatGrouped(String(Math.abs(netNumber)), DISPLAY_DIGITS.moneyUsd)}
+              <span className="fr-hero__unit">{DISPLAY_UNITS.usd}</span>
             </span>
           )}
           {netNumber !== null && krwRate !== null ? (
@@ -1096,7 +1096,9 @@ function Money({
   if (value === null) return <span className="fr__muted">{missingText}</span>
   return (
     <>
-      <span className="fr__num">{formatGrouped(value, 0)} USD</span>
+      <span className="fr__num">
+        {formatGrouped(value, DISPLAY_DIGITS.moneyUsd)} {DISPLAY_UNITS.usd}
+      </span>
       {krwRate !== null && Number.isFinite(Number(value)) ? (
         <span className="fr__krw">≈ {krwText(Math.abs(Number(value)) * krwRate)}</span>
       ) : null}
