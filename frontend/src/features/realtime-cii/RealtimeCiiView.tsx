@@ -54,6 +54,7 @@ import {
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
+  alertLines,
   ytdGradeScaleVector,
   ytdRisk,
 } from "./realtimeRules";
@@ -456,8 +457,9 @@ export function RealtimeCiiView({
       {shownWarnings.length > 0 ? (
         <div className="rt__alert" role="status">
           <ul className="rt__warnings">
-            {shownWarnings.map((code) => (
-              <li key={code}>{warningText(code)}</li>
+            {/* 진행 중 경고 둘은 한 문장으로 합친다 (#2295 · `alertLines`) */}
+            {alertLines(shownWarnings).map((line) => (
+              <li key={line.key}>{line.text}</li>
             ))}
           </ul>
           {data.currentVoyage && vesselId ? (
@@ -717,6 +719,8 @@ function VoyageMapBlock({
     [provider],
   );
   const [route, setRoute] = useState<VoyageRoute | null>(null);
+  // 도착 마커도 제목(「부산 → 상하이」)과 같은 보이는 이름으로 (#2295) — 저장 코드 `SHANGHAI`를 그대로 두지 않는다.
+  const ports = useSamplePorts();
 
   useEffect(() => {
     const loadRoute = client.loadRoute;
@@ -754,7 +758,7 @@ function VoyageMapBlock({
         currentLon={route.currentLon}
         destinationLat={route.arrivalLat}
         destinationLon={route.arrivalLon}
-        destinationName={route.arrivalPortName ?? arrivalPortName ?? ""}
+        destinationName={portDisplayName(ports, route.arrivalPortName ?? arrivalPortName ?? "")}
         /*
           ⚠️ **빌려 쓴 부품의 기본 문안은 그 화면 기준이다.** 그대로 두면 이 화면에
           「항로 비교 지도 텍스트 정보」가 나온다 — 실측에서 그렇게 나왔다.

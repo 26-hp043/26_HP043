@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { settingsSection } from '../../pages/settingsSections'
 import { Avatar } from '../../components/Avatar'
 import { Icon } from '../../components/Icon'
@@ -90,6 +90,24 @@ function SettingsSectionCard({
  * 설정 탭 (10/7 디자인 결정) — `account`는 내 계정(프로필 · 계정 정보 한 카드 + 비밀번호 + 탈퇴 링크),
  * `team`은 관리자 전용 계정 · 역할 목록이다.
  */
+/*
+ * 상태 메시지는 **마지막으로 손댄 구역 하나만** 남긴다 (#2352).
+ *
+ * 구역마다 자기 메시지를 따로 들고 있어, 프로필 이미지 실패 → 표시 이름 저장 성공 → 비밀번호 실패를
+ * 차례로 하면 세 메시지가 한꺼번에 남았다 — 어느 것이 지금 일의 결과인지 읽을 수 없다. 구역이 일을
+ * 시작할 때 「주인」을 가져가고, 주인이 아닌 구역은 결과 메시지(성공·실패)를 감춘다. 입력칸에 붙은
+ * 칸 오류는 그 칸의 사실이라 감추지 않는다. 바깥에서 쓰이면(맥락 없음) 늘 보인다.
+ */
+const MessageOwner = createContext<{ owner: string | null; claim: (id: string) => void }>({
+  owner: null,
+  claim: () => {},
+})
+
+function useSectionMessages(id: string): { visible: boolean; claim: () => void } {
+  const { owner, claim } = useContext(MessageOwner)
+  return { visible: owner === null || owner === id, claim: () => claim(id) }
+}
+
 export function AccountPanel({ part = 'account' }: { part?: 'account' | 'team' }) {
   const user = useAuthUser()
   if (!user) return null
@@ -99,6 +117,7 @@ export function AccountPanel({ part = 'account' }: { part?: 'account' | 'team' }
   }
 
   return (
+    <MessageOwnerScope>
     <div className="acc">
       <SettingsSectionCard id="account-info">
         {/*
@@ -133,7 +152,14 @@ export function AccountPanel({ part = 'account' }: { part?: 'account' | 'team' }
       <PasswordSection />
       <WithdrawalSection />
     </div>
+    </MessageOwnerScope>
   )
+}
+
+function MessageOwnerScope({ children }: { children: ReactNode }) {
+  const [owner, setOwner] = useState<string | null>(null)
+  const value = useMemo(() => ({ owner, claim: setOwner }), [owner])
+  return <MessageOwner.Provider value={value}>{children}</MessageOwner.Provider>
 }
 
 /**
@@ -264,9 +290,11 @@ function DisplayNameForm({ initial }: { initial: string }) {
   const [failure, setFailure] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const [busy, setBusy] = useState(false)
+  const messages = useSectionMessages('display-name')
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    messages.claim()
     const found = validateDisplayName(name)
     setError(found)
     if (found) return
@@ -310,10 +338,10 @@ function DisplayNameForm({ initial }: { initial: string }) {
         )}
       </Field>
 
-      {failure ? (
+      {failure && messages.visible ? (
         <ErrorState level="region" size="compact" message={failure} />
       ) : null}
-      {done ? (
+      {done && messages.visible ? (
         <p className="acc__ok" role="status">
           표시 이름을 바꿨습니다.
         </p>
@@ -336,12 +364,14 @@ function PasswordSection() {
   const [failure, setFailure] = useState<string | null>(null)
   const [changed, setChanged] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const messages = useSectionMessages('password')
 
   const set = (key: keyof PasswordChangeDraft) => (value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }))
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
+    messages.claim()
     const found = validatePasswordChange(draft)
     setErrors(found)
     if (hasAccountErrors(found)) return
@@ -418,7 +448,7 @@ function PasswordSection() {
           autoComplete="new-password"
         />
 
-        {failure ? (
+        {failure && messages.visible ? (
           <ErrorState level="region" size="compact" message={failure} />
         ) : null}
 
@@ -492,8 +522,10 @@ function WithdrawalSection() {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const messages = useSectionMessages('withdrawal')
 
   async function withdraw() {
+    messages.claim()
     setBusy(true)
     setError(null)
     try {
@@ -519,7 +551,7 @@ function WithdrawalSection() {
       */}
       {confirming ? <p className="acc__notice">{WITHDRAWAL_NOTICE}</p> : null}
 
-      {error !== null ? (
+      {error !== null && messages.visible ? (
         <ErrorState level="region" size="compact" message={error} />
       ) : null}
 
@@ -568,8 +600,10 @@ function ProfileHero({ user }: { user: CurrentUser }) {
   const [done, setDone] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const problem = picked === null ? null : avatarFileProblem(picked)
+  const messages = useSectionMessages('avatar')
 
   const run = async (action: () => Promise<unknown>, message: string) => {
+    messages.claim()
     setBusy(true)
     setFailure(null)
     setDone(null)
@@ -601,6 +635,7 @@ function ProfileHero({ user }: { user: CurrentUser }) {
           className="sr-only"
           onChange={(event) => {
             const file = event.target.files?.[0] ?? null
+            messages.claim()
             setPicked(file)
             setDone(null)
             setFailure(file === null ? null : avatarFileProblem(file))
@@ -646,8 +681,8 @@ function ProfileHero({ user }: { user: CurrentUser }) {
       ) : null}
 
       <p className="acc-hero__hint">{AVATAR_NOTICE}</p>
-      {failure ? <ErrorState level="region" size="compact" message={failure} /> : null}
-      {done ? (
+      {failure && messages.visible ? <ErrorState level="region" size="compact" message={failure} /> : null}
+      {done && messages.visible ? (
         <p className="acc__ok" role="status">
           {done}
         </p>

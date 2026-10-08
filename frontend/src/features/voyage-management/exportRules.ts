@@ -42,7 +42,7 @@ export const EXPORT_TYPE_LABELS: Record<ExportType, string> = {
 
 /** 각 종류가 무엇을 담는지 한 줄. 고르기 전에 알아야 하는 것이다. */
 export const EXPORT_TYPE_HINTS: Record<ExportType, string> = {
-  voyages: '항차별 거리·연료·상태. 가져오기와 같은 표다.',
+  voyages: '항차별 거리·연료·상태. 가져오기와 같은 형식입니다.',
   calculations: '실행한 CII 계산의 입력·결과·해시.',
   simulations: '연간 시뮬레이션 실행 기록과 확률.',
 }

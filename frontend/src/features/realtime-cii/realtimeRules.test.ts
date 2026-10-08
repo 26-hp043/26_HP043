@@ -16,6 +16,8 @@ import {
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
+  alertLines,
+  IN_PROGRESS_BOTH_WARNING,
   ytdGradeScaleVector,
   ytdRisk,
 } from './realtimeRules'
@@ -597,5 +599,26 @@ describe('showsCurrentVoyage — 주소의 항차가 진행 중 항차인가 (#2
   it('손으로 친 대문자 주소도 같은 항차다', async () => {
     const { showsCurrentVoyage } = await import('./realtimeRules')
     expect(showsCurrentVoyage(ID.toUpperCase(), ID, 'current')).toBe(true)
+  })
+})
+
+describe('경고 띠의 줄 — 진행 중 경고 둘은 한 문장 (#2295)', () => {
+  const ETA = 'IN_PROGRESS_PAST_ETA'
+  const DIST = 'IN_PROGRESS_PLANNED_DISTANCE_REACHED'
+
+  it('둘이 함께면 한 줄로 합치고, 같은 안내를 두 번 적지 않는다', () => {
+    const lines = alertLines([ETA, DIST])
+    expect(lines).toHaveLength(1)
+    expect(lines[0].text).toBe(IN_PROGRESS_BOTH_WARNING)
+  })
+
+  it('하나만 서면 정본 문구 그대로다', () => {
+    expect(alertLines([ETA]).map((l) => l.text)).toEqual([warningText(ETA)])
+    expect(alertLines([DIST]).map((l) => l.text)).toEqual([warningText(DIST)])
+  })
+
+  it('다른 경고는 합치지 않고 자리도 지킨다 — 합친 줄은 두 코드 중 앞선 자리에', () => {
+    const lines = alertLines(['SPEED_UNCORRECTED', DIST, 'X_OTHER', ETA])
+    expect(lines.map((l) => l.key)).toEqual(['SPEED_UNCORRECTED', 'IN_PROGRESS_BOTH', 'X_OTHER'])
   })
 })

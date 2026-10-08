@@ -106,6 +106,41 @@ export function warningText(code: string): string {
   return WARNING_TEXT[code] ?? warningMessage(code)
 }
 
+/*
+ * 「도착 예정일 지남」과 「계획 거리 채움」이 함께 섰을 때의 한 문장 (#2295).
+ *
+ * 둘 다 서면 누적은 **계획 거리에서** 멈춘 것이다 — 예정일이 먼저 지났다면 시계가 거기서 멈춰
+ * 거리가 더 늘 수 없으므로, 두 코드가 함께라는 것은 거리가 예정일 이전에 찼다는 뜻이다
+ * (`services/simulation_clock.py` · `#649` · `#1321`). 그래서 「계획 거리까지만」이 사실이다.
+ * 두 줄을 연달아 두면 같은 안내(「도착 실적을 입력하면 확정됩니다」)가 두 번 나온다.
+ *
+ * 정본 문구 (`API_SPEC §1.6` `[#2295]` 각주) — 바꾸려면 정본 개정이 먼저다.
+ */
+export const IN_PROGRESS_BOTH_WARNING =
+  '진행 중 항차가 계획 거리를 모두 채웠고 도착 예정일도 지났습니다. 누적은 계획 거리까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.'
+
+const PAST_ETA = 'IN_PROGRESS_PAST_ETA'
+const PLANNED_DISTANCE = 'IN_PROGRESS_PLANNED_DISTANCE_REACHED'
+
+/**
+ * 경고 띠에 놓을 줄 — 두 진행 중 경고가 함께면 한 줄로 합친다 (#2295). 나머지는 코드마다 한 줄.
+ * 합친 줄은 두 코드 중 앞선 자리에 놓는다(서버 순서를 흔들지 않는다).
+ */
+export function alertLines(codes: readonly string[]): { key: string; text: string }[] {
+  const both = codes.includes(PAST_ETA) && codes.includes(PLANNED_DISTANCE)
+  const lines: { key: string; text: string }[] = []
+  for (const code of codes) {
+    if (both && (code === PAST_ETA || code === PLANNED_DISTANCE)) {
+      if (!lines.some((line) => line.key === 'IN_PROGRESS_BOTH')) {
+        lines.push({ key: 'IN_PROGRESS_BOTH', text: IN_PROGRESS_BOTH_WARNING })
+      }
+      continue
+    }
+    lines.push({ key: code, text: warningText(code) })
+  }
+  return lines
+}
+
 export function projectionReason(code: string | null): string {
   if (code === null) return '연말 예상을 산출할 수 없습니다.'
   return PROJECTION_REASONS[code] ?? code

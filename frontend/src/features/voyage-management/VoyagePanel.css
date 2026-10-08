@@ -760,6 +760,20 @@
 }
 
 /* 계획 대비 칩 — 색을 쓰지 않는다. 「늘었다」가 곧 나쁨은 아니다(`§2.3`). */
+/* 계획 대비 (#2296) — 연료 칩이 위, 거리는 아래 보조 줄 */
+.vy__deltas {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.vy__delta-sub {
+  color: var(--text-secondary);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
 .vy__delta {
   display: inline-block;
   padding: 2px var(--spacing-sm);

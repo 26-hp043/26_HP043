@@ -562,16 +562,12 @@ function VoyageRow({
           />
         </td>
         {/*
-          계획 대비 칩 — 거리 차이 하나다. 두 값을 나란히 보는 이유가 이 차이이므로
-          그 차이를 화면이 직접 적는다. 색을 쓰지 않는다 — 「늘었다」가 곧 나쁨은 아니다
-          (`§2.3` 경고색은 한 자리에 한 번).
+          계획 대비 — **연료 차이를 앞에** 둔다 (#2296). CII를 움직이는 것은 연료이고, 종전에는 거리
+          차이만 있어 「+90 t」 같은 연료 편차가 이 칸 어디에도 없었다. 거리는 아래 보조 줄이다.
+          색을 쓰지 않는다 — 「늘었다」가 곧 나쁨은 아니다(`§2.3` 경고색은 한 자리에 한 번).
         */}
         <td className="num">
-          {deltaText(voyage) === null ? (
-            NO_VALUE
-          ) : (
-            <span className="vy__delta">{deltaText(voyage)}</span>
-          )}
+          <PlanDelta voyage={voyage} />
         </td>
         <td className="vy__row-actions">
           {/*
@@ -794,26 +790,63 @@ function PairCell({ planned, actual }: { planned: string; actual: string }) {
 }
 
 /**
- * 계획 대비 거리 차이 (#1729). 실적이 없으면 `null` — 0으로 적으면 「계획대로 갔다」가 된다.
+ * 계획 대비 차이 (#1729 거리 · #2296 연료). 실적이 없으면 `null` — 0으로 적으면 「계획대로 갔다」가 된다.
  *
  * 자릿수·단위는 `DESIGN_SYSTEM §4.2`를 따른다. 부호는 늘 붙인다 — 「+65」와 「65」가
  * 같은 칸에 섞이면 어느 쪽이 늘어난 것인지 읽을 수 없다.
  */
-function deltaText(voyage: ManagedVoyage): string | null {
+function signed(diff: number, digits: number, unit: string): string {
+  const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±'
+  return `${sign}${formatGrouped(String(Math.abs(diff)), digits)} ${unit}`
+}
+
+/*
+  ⚠️ **항해가 끝나기 전에는 적지 않는다.** 항해 중의 실적은 「지금까지」라 계획과 빼면
+  「−2,100 nm 덜 갔다」가 된다 — 계획 대비 차이가 아니라 남은 양이다. 완료 · 확정 · 보관에서만
+  두 값이 같은 것을 재는 값이 된다.
+*/
+function finished(voyage: ManagedVoyage): boolean {
+  return !(voyage.status === 'DRAFT' || voyage.status === 'PLANNED' || voyage.status === 'IN_PROGRESS')
+}
+
+function distanceDeltaText(voyage: ManagedVoyage): string | null {
   const planned = voyage.plannedDistanceNm
   const actual = voyage.actualDistanceNm
-  if (planned === null || actual === null) return null
-  /*
-    ⚠️ **항해 중에는 적지 않는다.** 그때의 실적 거리는 「지금까지 간 거리」라, 계획과 빼면
-    「−2,100 nm 덜 갔다」가 된다 — 계획 대비 차이가 아니라 남은 거리다. 항해가 끝난 뒤
-    (완료 · 확정 · 보관)에만 두 값이 같은 것을 재는 값이 된다.
-  */
-  if (voyage.status === 'DRAFT' || voyage.status === 'PLANNED' || voyage.status === 'IN_PROGRESS') {
-    return null
-  }
-  const diff = actual - planned
-  const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±'
-  return `${sign}${formatGrouped(String(Math.abs(diff)), DISPLAY_DIGITS.distanceNm)} ${DISPLAY_UNITS.distance}`
+  if (planned === null || actual === null || !finished(voyage)) return null
+  return signed(actual - planned, DISPLAY_DIGITS.distanceNm, DISPLAY_UNITS.distance)
+}
+
+/** 연료는 유종마다 계획·실적이 **모두** 있을 때만 — 일부만 있으면 합계 차이가 거짓이 된다. */
+function fuelDeltaText(voyage: ManagedVoyage): string | null {
+  if (!finished(voyage)) return null
+  const planned = fuelTotal(voyage, 'planned')
+  const actual = fuelTotal(voyage, 'actual')
+  if (planned.kind !== 'total' || actual.kind !== 'total') return null
+  // 부동소수 합의 꼬리(0.30000000000000004)가 표시 자릿수 밖에서 부호를 뒤집지 않게 자릿수에서 자른다.
+  const diff = Number((actual.value - planned.value).toFixed(DISPLAY_DIGITS.fuelTon))
+  return signed(diff, DISPLAY_DIGITS.fuelTon, DISPLAY_UNITS.fuel)
+}
+
+function PlanDelta({ voyage }: { voyage: ManagedVoyage }) {
+  const fuel = fuelDeltaText(voyage)
+  const distance = distanceDeltaText(voyage)
+  if (fuel === null && distance === null) return <>{NO_VALUE}</>
+  return (
+    <span className="vy__deltas">
+      {fuel !== null ? (
+        <span className="vy__delta">
+          <span className="sr-only">연료 </span>
+          {fuel}
+        </span>
+      ) : null}
+      {distance !== null ? (
+        <span className={fuel !== null ? 'vy__delta-sub' : 'vy__delta'}>
+          <span className="sr-only">거리 </span>
+          {distance}
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
 function VoyageForm({
