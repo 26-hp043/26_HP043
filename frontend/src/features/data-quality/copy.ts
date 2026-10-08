@@ -34,7 +34,7 @@ export const DATA_QUALITY_COPY = {
   /*
    * 공적 기록 대조의 분모 (#2114) — 「공적 기록과 다름 0건」이 「견줘 보지 못했다」를 덮지 않게
    * 한다(`PRD §17.4.1` 「판정하지 못한 것을 0건과 섞지 않는다」를 공적 기록에도). 사유 조각과
-   * 수집 시각은 부르는 쪽이 표시 문자열로 만들어 넘긴다(아래 `publicRecordMismatch`와 같은 방침).
+   * 수집 시각은 부르는 쪽이 표시 문자열로 만들어 넘긴다(아래 공적 기록 대조 문구와 같은 방침).
    */
   publicRecordCoverage: (reconciled: number, unreconciled: number, reasons: string) =>
     unreconciled === 0
@@ -76,18 +76,15 @@ export const DATA_QUALITY_COPY = {
   noActualVoyages: '올해 실적 항차 없음',
 
   /*
-   * 공적 기록 대조 한 줄 (#1197). 시각·항만청 이름은 부르는 쪽에서 이미 표시 문자열로
-   * 만들어 넘긴다 — 이 파일은 `formatTimestamp` 같은 표시 포맷터를 갖지 않는다(다른 화면
-   * 표시값도 `DataQuality.tsx`가 포맷하고 `copy.ts`는 틀만 쥔다).
+   * 공적 기록 대조 (#1197 → #2359). 한 줄 문장이던 것을 「입력 / 공적 기록」 두 칸 비교와
+   * 차이로 나눴다 — 카드 제목보다 큰 회색 문장이 위계를 뒤집고 있었다(`#2357`).
+   * 시각·항만청 이름은 부르는 쪽에서 이미 표시 문자열로 만들어 넘긴다 — 이 파일은
+   * `formatTimestamp` 같은 표시 포맷터를 갖지 않는다(다른 화면 표시값도 `DataQuality.tsx`가
+   * 포맷하고 `copy.ts`는 틀만 쥔다).
    */
-  publicRecordMismatch: (
-    fieldLabel: string,
-    entered: string,
-    recorded: string,
-    authorityName: string,
-    hours: number,
-    minutes: number,
-  ) => `${fieldLabel} 입력 ${entered} · 공적 기록 ${recorded} (${authorityName}) · ${hours}시간 ${minutes}분 차이`,
+  publicRecordEntered: '입력',
+  publicRecordRecorded: (authorityName: string) => `공적 기록 (${authorityName})`,
+  publicRecordDifference: (hours: number, minutes: number) => `${hours}시간 ${minutes}분 차이`,
   /** 출처 표기 — `DESIGN_SYSTEM` 확정 대기 중이라 개발 임시안이다(#1197). */
   publicRecordSourceNote: (sourceText: string, fetchedAt: string | null) =>
     // 받은 시각을 읽을 수 없으면 그 조각을 뺀다 — 「— 기준」을 적지 않는다 (#2124).

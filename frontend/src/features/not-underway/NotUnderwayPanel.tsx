@@ -309,7 +309,8 @@ function PeriodRow({
           {period.fuelUses.map((fu) => (
             <li key={fu.id}>
               <span>{labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)}</span>
-              <span>{fu.fuelType}</span>
+              {/* 코드가 아니라 표시 이름 — 같은 연료가 입력 셀렉트에서는 이미 이름이다 (#2359) */}
+              <span>{fuelTypeText(fu.fuelType)}</span>
               <span className="num">
                 {quantityText(fu.fuelTon, DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
               </span>
@@ -324,7 +325,7 @@ function PeriodRow({
               <button
                 type="button"
                 className="nu__fuel-remove"
-                aria-label={`${labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)} ${fu.fuelType} 연료 기록 삭제`}
+                aria-label={`${labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)} ${fuelTypeText(fu.fuelType)} 연료 기록 삭제`}
                 aria-expanded={pending?.kind === 'fuel' && pending.fuelUse.id === fu.id}
                 onClick={(event) => openPending({ kind: 'fuel', fuelUse: fu }, event.currentTarget)}
               >
@@ -543,7 +544,7 @@ function DeleteCautionRow({
       <div className="nu__caution-actions">
         <button
           type="button"
-          className="nu__button nu__danger"
+          className="nu__button nu__danger nu__danger--confirm"
           onClick={onConfirm}
           data-testid="nu-caution-confirm"
         >

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DataQuality } from './DataQuality'
-import { DATA_QUALITY_COPY, SEVERITY_TITLE } from './copy'
+import { DATA_QUALITY_COPY, PUBLIC_RECORD_FIELD_LABEL, SEVERITY_TITLE } from './copy'
 import { formatTimestamp } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import type { DataQualityProvider, DataQualitySnapshot } from './types'
@@ -389,7 +389,7 @@ describe('공적 기록과 다름 (#1197)', () => {
     expect(chip?.textContent).toContain('1')
   })
 
-  it('행마다 어긋남을 한 줄로 적는다 — 입력·공적 기록·항만청·차이', async () => {
+  it('어긋남을 「입력 / 공적 기록(항만청)」 두 칸으로 비교하고 차이만 강조한다 (#2359)', async () => {
     renderWith(snapshotWithPublicRecord())
 
     const group = await listSection()
@@ -398,10 +398,20 @@ describe('공적 기록과 다름 (#1197)', () => {
     expect(group.querySelector('.dq__severity--public_record')?.textContent).toBe(
       SEVERITY_TITLE.PUBLIC_RECORD,
     )
-    const line = within(group).getByText(
-      `도착 시각 입력 ${formatTimestamp('2026-08-08T17:20:00+00:00')} · 공적 기록 ${formatTimestamp('2026-08-08T05:20:00+00:00')} (부산) · 12시간 0분 차이`,
-    )
-    expect(line).toBeTruthy()
+    const row = group.querySelector('.dq__mismatch')!
+    expect(row.querySelector('.dq__mismatch-field')?.textContent).toBe(PUBLIC_RECORD_FIELD_LABEL.ARRIVAL)
+    // 두 칸 — 이름과 값이 짝을 이룬다. 항만청은 공적 기록 칸 이름에 붙는다.
+    const cells = [...row.querySelectorAll('.dq__compare-cell')]
+    expect(cells).toHaveLength(2)
+    expect(cells[0].querySelector('dt')?.textContent).toBe(DATA_QUALITY_COPY.publicRecordEntered)
+    expect(cells[0].querySelector('dd')?.textContent).toBe(formatTimestamp('2026-08-08T17:20:00+00:00'))
+    expect(cells[1].querySelector('dt')?.textContent).toContain('부산')
+    expect(cells[1].querySelector('dd')?.textContent).toBe(formatTimestamp('2026-08-08T05:20:00+00:00'))
+    // 강조는 차이 하나에만 — `<strong>`은 이 줄에 하나다.
+    const strong = row.querySelectorAll('strong')
+    expect(strong).toHaveLength(1)
+    expect(strong[0].className).toBe('dq__mismatch-diff')
+    expect(strong[0].textContent).toContain('12')
   })
 
   it('출처를 「해양수산부 선박운항정보(공공데이터포털) · 수집 시각 기준」으로 적는다', async () => {

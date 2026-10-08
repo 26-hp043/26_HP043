@@ -151,7 +151,7 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ create })} />)
     fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
 
-    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-09' } })
+    fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-09' } })
     fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
     fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
     fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
@@ -227,7 +227,7 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
       render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
       fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
 
-      fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-09' } })
+      fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-09' } })
       fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
       fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
       fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
@@ -468,7 +468,7 @@ describe('연료가 선택돼 보이면 그대로 저장된다 (#824 ⑹)', () =
     const fuel = (await screen.findByLabelText(/연료 종류 1/)) as HTMLSelectElement
     expect(fuel.value).toBe('HFO')
 
-    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-09' } })
+    fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-09' } })
     fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
     fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
     fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
@@ -525,7 +525,7 @@ describe('샘플 항만 선택 (#760)', () => {
     // 고른 항은 저장 이름(대문자 영문)으로 바뀐다 — 데모 시드와 같은 표기로 쌓인다.
     expect((screen.getByLabelText('출발항') as HTMLInputElement).value).toBe('BUSAN')
 
-    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-10' } })
+    fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-10' } })
     fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
     fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
     fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
@@ -689,7 +689,7 @@ describe('계획 거리의 출처 (#1256)', () => {
     fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
     fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
     await screen.findByText(/좌표 기반 추정 거리 — /)
-    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-10' } })
+    fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-10' } })
     fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
     fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
     return create
@@ -1214,7 +1214,7 @@ describe('바뀌면 부모에게 알린다 (#1647)', () => {
       />,
     )
     fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
-    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-11' } })
+    fireEvent.change(screen.getByLabelText('항차 번호 (선택)'), { target: { value: '2026-11' } })
     fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
     fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
     fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '1000' } })

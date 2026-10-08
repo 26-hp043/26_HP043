@@ -7,6 +7,7 @@ import {
   toDecimalInput,
   toKstInput,
 } from '../../display/format'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import type { FuelUse, FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
@@ -160,7 +161,7 @@ export function fuelUseDeleteCaution(fuelUse: FuelUse): DeleteCaution {
   const consumer = labelOf(fuelUse.consumerType, CONSUMER_TYPE_LABELS)
   const ton = quantityText(fuelUse.fuelTon, DISPLAY_DIGITS.fuelTon)
   return {
-    message: `${consumer} ${fuelUse.fuelType} ${ton} ${DISPLAY_UNITS.fuel}이 누적에서 빠집니다. 지운 연료 기록은 되돌릴 수 없습니다.`,
+    message: `${consumer} ${fuelTypeText(fuelUse.fuelType)} ${ton} ${DISPLAY_UNITS.fuel}이 누적에서 빠집니다. 지운 연료 기록은 되돌릴 수 없습니다.`,
     confirm: '삭제하기',
   }
 }

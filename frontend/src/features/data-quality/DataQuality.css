@@ -197,11 +197,56 @@
 }
 
 /* 공적 기록 어긋남 — 「문제」 칸 안에 행마다 붙는다 (#1197) */
+/*
+ * 공적 기록 비교 (#2359) — 카드 제목(`.dq-task__why`)과 같은 label 크기·본문 색. 제목보다 크거나
+ * 흐리게 두지 않는다. 강조는 차이 하나에만 준다.
+ */
 .dq__mismatches {
+  display: grid;
+  gap: var(--space-8);
   margin: var(--space-4) 0 0;
   padding: 0;
   list-style: none;
-  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  color: var(--text-primary);
+}
+
+.dq__mismatch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-12);
+}
+
+.dq__mismatch-field {
+  color: var(--text-secondary);
+}
+
+.dq__compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: var(--space-12);
+  margin: 0;
+}
+
+.dq__compare-cell {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.dq__compare-cell dt {
+  color: var(--text-secondary);
+}
+
+.dq__compare-cell dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dq__mismatch-diff {
+  font-weight: var(--font-weight-strong);
+  color: var(--color-warning-text);
 }
 
 .dq__source {

@@ -471,7 +471,7 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
 
 
 /**
- * 공적 기록과의 어긋남 — 항목 한 줄마다 「입력값 · 공적 기록 · 항만청 · 차이」(#1197).
+ * 공적 기록과의 어긋남 — 항목마다 「입력 / 공적 기록(항만청)」 두 칸 비교와 차이(#1197 · #2359).
  *
  * **출처는 행 아래에 함께 적는다.** 그룹으로 묶지 않고 한 표에 늘어놓는 화면이라
  * (`#1766`), 어느 행이 어느 출처·수집 시각을 근거로 하는지는 그 행에 붙어야 흔들리지
@@ -495,16 +495,21 @@ function PublicRecordDetail({
           const authority = mismatch.portAuthorityName ?? mismatch.portAuthorityCode
           return (
             // 한 항차에 정박 구간이 둘이면 같은 칸(`BERTH_START`)이 두 줄이다 — 순번을 붙인다.
-            <li key={`${mismatch.field}-${index}`}>
-              {COPY.publicRecordMismatch(
-                PUBLIC_RECORD_FIELD_LABEL[mismatch.field],
-                // 「이름 값」 꼴이라 읽을 수 없는 시각은 값 없음으로 적는다 (#2124).
-                formatTimestamp(mismatch.enteredAt) ?? NO_TIMESTAMP_TEXT,
-                formatTimestamp(mismatch.recordedAt) ?? NO_TIMESTAMP_TEXT,
-                authority,
-                hours,
-                minutes,
-              )}
+            <li key={`${mismatch.field}-${index}`} className="dq__mismatch">
+              {/* 「입력 / 공적 기록」 두 칸 비교 + 차이만 강조 (#2359). */}
+              <span className="dq__mismatch-field">{PUBLIC_RECORD_FIELD_LABEL[mismatch.field]}</span>
+              <dl className="dq__compare">
+                <div className="dq__compare-cell">
+                  <dt>{COPY.publicRecordEntered}</dt>
+                  {/* 읽을 수 없는 시각은 값 없음으로 적는다 (#2124). */}
+                  <dd>{formatTimestamp(mismatch.enteredAt) ?? NO_TIMESTAMP_TEXT}</dd>
+                </div>
+                <div className="dq__compare-cell">
+                  <dt>{COPY.publicRecordRecorded(authority)}</dt>
+                  <dd>{formatTimestamp(mismatch.recordedAt) ?? NO_TIMESTAMP_TEXT}</dd>
+                </div>
+              </dl>
+              <strong className="dq__mismatch-diff">{COPY.publicRecordDifference(hours, minutes)}</strong>
               {fill && canFill(issue, mismatch) ? (
                 <FillControl issue={issue} record={record} mismatch={mismatch} fill={fill} />
               ) : null}
