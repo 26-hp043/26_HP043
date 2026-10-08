@@ -1041,8 +1041,11 @@ async def test_voyage_report_times_are_kst(session, vessel_id):
     # 하고, KST는 그보다 9시간 앞선 **09시**다.
     for label, day in (("출항 (실적)", "2026-03-01"), ("입항 (실적)", "2026-03-10")):
         assert rows[label] != "—", f"{label}: 실적 시각을 넣었는데 비어 있다"
-        assert rows[label].endswith("KST"), f"{label}: {rows[label]}"
-        assert rows[label].startswith(f"{day} 09:00"), f"{label}: {rows[label]}"
+        # 문서(미리보기 · PDF)는 `§4.4` 형식, CSV는 종전 형식을 따로 쥔다 (#2151)
+        y, m, d = (int(part) for part in day.split("-"))
+        assert rows[label] == f"{y}. {m}. {d}. 09:00", f"{label}: {rows[label]}"
+        assert rows[label].csv.startswith(f"{day} 09:00"), f"{label}: {rows[label].csv}"
+        assert rows[label].csv.endswith("KST"), f"{label}: {rows[label].csv}"
 
 
 @pytest.mark.asyncio

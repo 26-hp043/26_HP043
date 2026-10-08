@@ -100,6 +100,8 @@ describe('formatDecimalString', () => {
       speedKn: 1,
       capacity: 0,
       percent: 1,
+      feedbackFactor: 4,
+      moneyUsd: 0,
     })
   })
 
@@ -150,7 +152,7 @@ describe('formatGrouped', () => {
 
   it('CII·비율·확률은 대상이 아니다', () => {
     // §4.2 — 명시적으로 제외하지 않으면 구현에서 일괄 적용될 여지가 있다
-    expect(GROUPED_FIELDS).toEqual(['fuelTon', 'co2Ton', 'distanceNm', 'capacity'])
+    expect(GROUPED_FIELDS).toEqual(['fuelTon', 'co2Ton', 'distanceNm', 'capacity', 'moneyUsd'])
     expect(GROUPED_FIELDS).not.toContain('cii')
     expect(GROUPED_FIELDS).not.toContain('percent')
     expect(GROUPED_FIELDS).not.toContain('days')
@@ -231,6 +233,7 @@ describe('DISPLAY_UNITS', () => {
     expect(DISPLAY_UNITS.duration).toBe('h')
     expect(DISPLAY_UNITS.speed).toBe('kn')
     expect(DISPLAY_UNITS.day).toBe('일')
+    expect(DISPLAY_UNITS.usd).toBe('USD')
   })
 
   it('일수는 소수를 갖지 않는다 — 소수 구간은 시간이 소유한다', () => {

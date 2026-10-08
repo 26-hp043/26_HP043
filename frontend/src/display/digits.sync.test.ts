@@ -44,6 +44,8 @@ const KEY_BY_LABEL: Readonly<Record<string, keyof typeof DISPLAY_DIGITS>> = {
   '평균 속력': 'speedKn',
   '용량 (DWT·GT)': 'capacity',
   '확률': 'percent',
+  '실적 보정계수': 'feedbackFactor',
+  '금액': 'moneyUsd',
 }
 
 /** `§4.2` 「소수 자릿수」 표에서 (항목, 자릿수)를 뽑는다. */

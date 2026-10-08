@@ -48,6 +48,7 @@ from cii_platform.reports.document import (
     ChartSection,
     KeyValueSection,
     ReportDocument,
+    ReportTime,
     Section,
     TableSection,
 )
@@ -167,7 +168,12 @@ _REPORT_TIMEZONE = ZoneInfo("Asia/Seoul")
 
 
 def _local_time(value) -> str:
-    """시각을 KST 표기로. 없으면 ``—``다."""
+    """시각을 KST 표기로. 없으면 ``—``다.
+
+    시간대가 붙은 값은 :class:`ReportTime`을 낸다 — 미리보기 · PDF는 화면과 같은
+    `DESIGN_SYSTEM §4.4` 형식(`2026. 10. 8. 14:30` · 분까지)이고, CSV는 종전 형식
+    (`2026-10-08 14:30:00 KST`)을 그대로 싣는다 (`#2151` · `rlatnals4114` 2026-10-08 결정).
+    """
     if value is None:
         return "—"
     if isinstance(value, str):
@@ -178,7 +184,9 @@ def _local_time(value) -> str:
             return value
     if value.tzinfo is None:
         return value.strftime("%Y-%m-%d %H:%M:%S")
-    return value.astimezone(_REPORT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S KST")
+    local = value.astimezone(_REPORT_TIMEZONE)
+    display = f"{local.year}. {local.month}. {local.day}. {local:%H:%M}"
+    return ReportTime(display, local.strftime("%Y-%m-%d %H:%M:%S KST"))
 
 
 # ─── 항차 완료 리포트 (PRD §25.2) ────────────────────────────────────────────

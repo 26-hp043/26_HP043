@@ -72,6 +72,10 @@ export const DISPLAY_DIGITS = {
   capacity: 0,
   /** 비율·확률의 **백분율** 자릿수 (`§4.2`) */
   percent: 1,
+  /** 실적 보정계수 (`§4.2` · #2151) — 1에 가까운 배수끼리의 차이가 의미라 4자리 */
+  feedbackFactor: 4,
+  /** 금액 USD (`§4.2` · #2151) — 계획 가정 단가로 낸 추정 비용이라 정수. 단위는 값 뒤 */
+  moneyUsd: 0,
 } as const
 
 /**
@@ -87,7 +91,7 @@ export const DISPLAY_DIGITS = {
  * `capacity`는 `#633`에서 들어왔다 — 5만 톤 급 값에 구분자가 없으면 자릿수를
  * 세어야 읽힌다. 보고서(`#584`)도 이미 쓰고 있었다.
  */
-export const GROUPED_FIELDS = ['fuelTon', 'co2Ton', 'distanceNm', 'capacity'] as const
+export const GROUPED_FIELDS = ['fuelTon', 'co2Ton', 'distanceNm', 'capacity', 'moneyUsd'] as const
 
 /**
  * 화면에 붙이는 단위 문자열 (`DESIGN_SYSTEM §4.2`).
@@ -126,6 +130,8 @@ export const DISPLAY_UNITS = {
    * 나머지와 맞춰 `d`로 적으면 그 문장이 읽힐 수 없게 된다.
    */
   day: '일',
+  /** 금액 (`§4.2` · #2151) — 값 뒤에 한 칸 띄워 적는다. 기호(`$`)를 앞에 두지 않는다 */
+  usd: 'USD',
 } as const
 
 /**

@@ -197,9 +197,10 @@ def extract_numbers(text: str) -> list[str]:
 #: 그래서 모델이 화면과 같게 ``4.982``라고 쓰면 **폐기됐다** — 도구가 준
 #: ``4.982400``과 문자열이 다르기 때문이다. 값이 틀린 것이 아니라 **표기가 다른** 것이다.
 #:
-#: 제품의 표시 자릿수는 전부 3 이하다 — CII 3 · 연료·CO₂ 1 · 거리·일수 0
-#: (``DESIGN_SYSTEM §4.1``·``§4.2`` · ``frontend/src/display/format.ts``).
-_DISPLAY_PLACES = (0, 1, 2, 3)
+#: 제품의 표시 자릿수는 4 이하다 — 실적 보정계수 4 · CII 3 · 연료·CO₂ 1 · 거리·일수·금액 0
+#: (``DESIGN_SYSTEM §4.1``·``§4.2`` · ``frontend/src/display/format.ts``). 보정계수 4자리는
+#: `#2151`(2026-10-08)이 정본에 올렸다 — 넓히는 것은 **같은 값의 다른 표기**뿐이다.
+_DISPLAY_PLACES = (0, 1, 2, 3, 4)
 
 
 def _rounded_forms(token: str) -> set[str]:

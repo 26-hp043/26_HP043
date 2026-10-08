@@ -46,6 +46,7 @@ from cii_platform.reports.document import (
     DISCLAIMER,
     ChartSection,
     KeyValueSection,
+    ReportTime,
     TableSection,
     column_kinds,
 )
@@ -88,6 +89,11 @@ def sanitize(value: str) -> str:
 #: ⚠️ 이 정규식은 **선언 없는 열에는 절대 적용되지 않는다.** 그 순간 「값 모양으로
 #: 판정」이 되어 모듈 머리가 경고한 취약점이 된다.
 NUMERIC_CELL = re.compile(r"-?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?")
+
+
+def _csv_text(value: str) -> str:
+    """시각은 CSV 형식을 따로 쥔다 — 사람이 읽는 형식은 미리보기 · PDF 몫이다 (`#2151`)."""
+    return value.csv if isinstance(value, ReportTime) else value
 
 
 def serialize_cell(value: str, kind: ColumnKind) -> str:
@@ -148,7 +154,7 @@ def _iter_csv_chunks(document: ReportDocument) -> Iterator[str]:
     writer.writerow([sanitize(DISCLAIMER)])
     writer.writerow([])
     for label, value in document.meta:
-        writer.writerow([sanitize(label), sanitize(value)])
+        writer.writerow([sanitize(label), sanitize(_csv_text(value))])
     yield flush()
 
     for section in document.sections:
@@ -160,7 +166,7 @@ def _iter_csv_chunks(document: ReportDocument) -> Iterator[str]:
         # 실패한다.
         if isinstance(section, KeyValueSection):
             for label, value in section.rows:
-                writer.writerow([sanitize(label), sanitize(value)])
+                writer.writerow([sanitize(label), sanitize(_csv_text(value))])
         elif isinstance(section, TableSection):
             _write_table(writer, section)
         elif isinstance(section, ChartSection):
