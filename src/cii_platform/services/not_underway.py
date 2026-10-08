@@ -142,7 +142,8 @@ def to_dict(period, fuel_uses: list) -> dict[str, object]:
         # null은 「진행 중」이다. 「모름」이 아니다 — 화면이 이 둘을 같게 그리면
         # 사용자가 끝난 구간의 종료 시각을 잊었다고 오해한다.
         "ended_at": _iso(period.ended_at),
-        # #1923 — 두 시각의 출처. None은 「모른다」(항차 실적의 `actual_*_source`와 같은 규칙).
+        # #1923 · #2114 — 두 시각의 출처. 구간 목록(`NotUnderwayPanel`)은
+        # `PUBLIC_RECORD`에서만 「공적 기록에서 채움」을 보여 준다. None은 「모른다」다.
         "started_at_source": period.started_at_source,
         "ended_at_source": period.ended_at_source,
         "port_name": period.port_name,

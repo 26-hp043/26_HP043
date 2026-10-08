@@ -11,6 +11,8 @@
  * 그대로 보여 주면 되므로, 이쪽은 갈라져도 화면이 깨지지 않는다.
  */
 
+import type { TimeSource } from '../data-quality/timeSource'
+
 /** 연료 기록 1건. `cfUsed`는 서버가 뜬 snapshot이며 화면은 표시만 한다. */
 export interface FuelUse {
   id: string
@@ -29,6 +31,13 @@ export interface Period {
   startedAt: string
   /** `null`이면 **진행 중**이다. 「모름」이 아니다 — 화면이 이 둘을 같게 그리면 안 된다. */
   endedAt: string | null
+  /**
+   * 두 시각의 출처 (#1923 · #2114). `PUBLIC_RECORD`면 데이터 점검의 「이 값으로 채우기」가
+   * 공적 기록에서 옮긴 값이다. **`null`·없음은 「모른다」** — 표식을 붙이지 않는다.
+   * 옛 대역은 필드가 없어 선택 필드로 둔다.
+   */
+  startedAtSource?: TimeSource | null
+  endedAtSource?: TimeSource | null
   portName: string | null
   /** CII 분모 `Dt`에 더해진다. 접안·묘박은 0이 정상값이다. */
   distanceNm: number

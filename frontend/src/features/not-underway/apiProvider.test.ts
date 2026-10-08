@@ -111,6 +111,22 @@ describe('목록', () => {
     expect(result.fuelTypes).toEqual(['DIESEL_GAS_OIL', 'HFO', 'LNG'])
   })
 
+  it('서버의 구간 시작·끝 시각 출처를 목록에서 읽는 값으로 옮긴다 (#2114)', async () => {
+    const fetchImpl = routedFetch({
+      ...LIST_BODY,
+      data: [{
+        ...LIST_BODY.data[0],
+        ended_at: '2026-08-12T09:00:00+00:00',
+        started_at_source: 'PUBLIC_RECORD',
+        ended_at_source: 'USER_INPUT',
+      }],
+    })
+
+    const row = (await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)).periods[0]
+    expect(row.startedAtSource).toBe('PUBLIC_RECORD')
+    expect(row.endedAtSource).toBe('USER_INPUT')
+  })
+
   it('연료 목록을 §7.2 엔드포인트에서 받는다 — 구간 meta의 우회를 쓰지 않는다', async () => {
     // `#444` 이전에는 구간 목록 응답의 `meta.fuel_types`를 읽었다. 남겨 두면 연료
     // 목록을 주는 곳이 화면마다 달라진다.

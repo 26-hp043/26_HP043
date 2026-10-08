@@ -10,6 +10,7 @@ import {
   type PublicRecord,
   type PublicRecordField,
   type PublicRecordFillRequest,
+  type PublicRecordCoverage,
   type PublicRecordFillResult,
   type Rating,
   type Severity,
@@ -82,6 +83,11 @@ interface ServerBody {
       /** 옛 서버는 이 필드가 없다 — 그때는 0으로 읽는다. */
       public_record_count?: number
       anomaly_unjudged_count: number
+      /** #2114 — 옛 서버는 아래 넷이 없다. 그때는 대조 요약을 만들지 않는다 */
+      public_record_reconciled_count?: number
+      public_record_unreconciled_count?: number
+      public_record_unreconciled_reasons?: Partial<Record<string, number>>
+      public_record_last_fetched_at?: string | null
       completeness_ratio: string | null
       completeness?: ServerCompleteness
     }
@@ -117,6 +123,32 @@ function toCompleteness(raw: ServerCompleteness | null | undefined): Completenes
     excludedUnavailableCo2Ton: raw.excluded_unavailable_co2_ton,
     excludedSubstitutedCo2Ton: raw.excluded_substituted_co2_ton,
     excludedAnomalyCo2Ton: raw.excluded_anomaly_co2_ton,
+  }
+}
+
+/**
+ * 공적 기록 대조의 분모 (#2114). **세 건수 중 하나라도 없으면**(옛 서버) `undefined`다 — 없는
+ * 값을 0으로 채우면 「견줘 보니 맞았다」로 읽힌다. 사유 객체에서 빠진 키는 0으로 읽는다
+ * (서버는 세 키를 늘 싣는다).
+ */
+function toCoverage(s: NonNullable<ServerBody['data']>['summary']): PublicRecordCoverage | undefined {
+  if (
+    s.public_record_reconciled_count === undefined ||
+    s.public_record_unreconciled_count === undefined ||
+    s.public_record_unreconciled_reasons === undefined
+  ) {
+    return undefined
+  }
+  const reasons = s.public_record_unreconciled_reasons
+  return {
+    reconciled: s.public_record_reconciled_count,
+    unreconciled: s.public_record_unreconciled_count,
+    reasons: {
+      NO_CALL_SIGN: reasons.NO_CALL_SIGN ?? 0,
+      NO_RECORD: reasons.NO_RECORD ?? 0,
+      PORT_UNMAPPED: reasons.PORT_UNMAPPED ?? 0,
+    },
+    lastFetchedAt: s.public_record_last_fetched_at ?? null,
   }
 }
 
@@ -220,6 +252,7 @@ export function createApiDataQualityProvider(
           PUBLIC_RECORD: s.public_record_count ?? 0,
         },
         anomalyUnjudged: s.anomaly_unjudged_count,
+        publicRecordCoverage: toCoverage(s),
         completenessRatio: s.completeness_ratio,
         completeness: toCompleteness(s.completeness) ?? undefined,
         vessels: data.vessels.map((v) => ({

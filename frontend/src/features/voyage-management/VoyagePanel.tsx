@@ -32,6 +32,7 @@ import {
   type SamplePort,
 } from '../ports/samplePorts'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft, VoyageStatus } from './types'
+import { publicRecordFilledNote } from '../data-quality/timeSource'
 import './VoyagePanel.css'
 import { Field } from '../../components/Field'
 import { ErrorState } from '../../components/ErrorState'
@@ -631,6 +632,29 @@ function VoyageRow({
           */}
           {voyage.plannedDistanceSource === 'COORDINATE_ESTIMATE' ? (
             <p className="vy__hint">{ESTIMATED_DISTANCE_LIST_NOTE}</p>
+          ) : null}
+
+          {/*
+            「이 값으로 채우기」로 넣은 실제 시각이면 그 사실을 붙인다 (#2114 · `PRD §17.4.4`).
+            바로 위 추정 거리 표식과 **같은 자리·모양**이다(`vy__hint` 한 줄) — 출처가
+            `PUBLIC_RECORD`일 때만이고, `null`(「모른다」)에는 붙이지 않는다. 카드 행에 실제 시각
+            칸이 없어 시각을 표식 안에 함께 적는다. ⚠️ 디자인 담당 확인 전 개발 임시안이다.
+          */}
+          {voyage.actualDepartureSource === 'PUBLIC_RECORD' ? (
+            <p className="vy__hint">
+              {publicRecordFilledNote(
+                '실제 출항 시각',
+                voyage.actualDepartureAt === null ? null : formatTimestamp(voyage.actualDepartureAt),
+              )}
+            </p>
+          ) : null}
+          {voyage.actualArrivalSource === 'PUBLIC_RECORD' ? (
+            <p className="vy__hint">
+              {publicRecordFilledNote(
+                '실제 도착 시각',
+                voyage.actualArrivalAt === null ? null : formatTimestamp(voyage.actualArrivalAt),
+              )}
+            </p>
           ) : null}
 
           {rowError ? (

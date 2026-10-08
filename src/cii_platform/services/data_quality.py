@@ -69,10 +69,13 @@ from cii_platform.port_calls.reconcile import (
     FIELD_BERTH_START,
     FIELD_DEPARTURE,
     FIELD_ORDER,
+    UNRECONCILED_REASONS,
+    VOYAGE_RECONCILED,
     EnteredTime,
     Mismatch,
     RecordedCall,
-    reconcile,
+    classify_voyage,
+    mismatches_of,
 )
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
@@ -458,9 +461,14 @@ async def get_fleet_data_quality(
     signed = [vessel for vessel in vessels if vessel.call_sign]
     records_by_sign: dict[str, list[RecordedCall]] = {}
     record_source_by_sign: dict[str, str] = {}
+    # 요약의 「마지막 수집」 — 대상 선박들의 기록 가운데 가장 늦게 받은 것 (`#2114`).
+    # 「기록 없음」이 수집이 오래된 탓인지 가리는 보조 값이다. 기록이 하나도 없으면 ``None``.
+    last_fetched_at = None
     for row in await port_call_repo.list_for_call_signs(
         session, [str(vessel.call_sign) for vessel in signed]
     ):
+        if last_fetched_at is None or row.fetched_at > last_fetched_at:
+            last_fetched_at = row.fetched_at
         records_by_sign.setdefault(row.call_sign, []).append(
             RecordedCall(
                 port_authority_code=row.port_authority_code,
@@ -474,10 +482,11 @@ async def get_fleet_data_quality(
         )
         record_source_by_sign.setdefault(row.call_sign, row.source)
     periods_by_voyage: dict[UUID, list[NotUnderwayPeriod]] = {}
-    signed_with_records = [vessel.id for vessel in signed if vessel.call_sign in records_by_sign]
-    if signed_with_records:
+    # 구간은 **모든 선박**에서 읽는다 (`#2114`) — 견주지 못하는 배(호출부호 없음 · 기록 없음)도
+    # 「넣은 시각이 있는 항차」인지는 알아야 대조하지 못한 항차로 셀 수 있다.
+    if vessels:
         grouped = await not_underway_repo.list_periods_for_year_for_vessels(
-            session, vessel_ids=signed_with_records, regulation_year=year
+            session, vessel_ids=[vessel.id for vessel in vessels], regulation_year=year
         )
         for periods in grouped.values():
             for period in periods:
@@ -489,6 +498,9 @@ async def get_fleet_data_quality(
     issues: list[dict[str, object]] = []
     vessel_rows: list[dict[str, object]] = []
     unjudged = 0
+    # 공적 기록 대조의 분모 (`#2114`) — 항차 단위. 「다름 0건」이 대조 못 한 항차를 덮지 않게.
+    reconciled = 0
+    unreconciled = dict.fromkeys(UNRECONCILED_REASONS, 0)
     fleet_measured = Decimal(0)
     fleet_total = Decimal(0)
     fleet_excluded = dict.fromkeys(_EXCLUSION_PRIORITY, Decimal(0))
@@ -572,31 +584,36 @@ async def get_fleet_data_quality(
             if voyage.status == _STATUS_COMPLETED:
                 voyage_issues.append((SEVERITY_UNCONFIRMED, [UNCONFIRMED_COMPLETED]))
 
-            if vessel_records:
-                entries = [
-                    EnteredTime(
-                        FIELD_DEPARTURE, voyage.actual_departure_at, voyage.departure_port_name
-                    ),
-                    EnteredTime(FIELD_ARRIVAL, voyage.actual_arrival_at, voyage.arrival_port_name),
-                ]
-                for period in periods_by_voyage.get(voyage.id, []):
-                    entries.append(
-                        EnteredTime(
-                            FIELD_BERTH_START, period.started_at, period.port_name, period.id
-                        )
-                    )
-                    entries.append(
-                        EnteredTime(FIELD_BERTH_END, period.ended_at, period.port_name, period.id)
-                    )
-                mismatches = reconcile(entries, vessel_records)
-                if mismatches:
-                    codes = list(
-                        dict.fromkeys(f"{PUBLIC_RECORD_CODE}:{item.field}" for item in mismatches)
-                    )
-                    voyage_issues.append((SEVERITY_PUBLIC_RECORD, codes))
-                    public_record = _public_record_block(
-                        mismatches, record_source_by_sign[str(vessel.call_sign)], voyage.status
-                    )
+            # 공적 기록 대조 (`#1197`) — 견주지 못한 항차도 사유와 함께 센다 (`#2114`).
+            entries = [
+                EnteredTime(
+                    FIELD_DEPARTURE, voyage.actual_departure_at, voyage.departure_port_name
+                ),
+                EnteredTime(FIELD_ARRIVAL, voyage.actual_arrival_at, voyage.arrival_port_name),
+            ]
+            for period in periods_by_voyage.get(voyage.id, []):
+                entries.append(
+                    EnteredTime(FIELD_BERTH_START, period.started_at, period.port_name, period.id)
+                )
+                entries.append(
+                    EnteredTime(FIELD_BERTH_END, period.ended_at, period.port_name, period.id)
+                )
+            outcome, outcomes = classify_voyage(
+                entries, vessel_records, has_call_sign=bool(vessel.call_sign)
+            )
+            if outcome == VOYAGE_RECONCILED:
+                reconciled += 1
+            elif outcome is not None:
+                unreconciled[outcome] += 1
+            mismatches = mismatches_of(outcomes)
+            if mismatches:
+                codes = list(
+                    dict.fromkeys(f"{PUBLIC_RECORD_CODE}:{item.field}" for item in mismatches)
+                )
+                voyage_issues.append((SEVERITY_PUBLIC_RECORD, codes))
+                public_record = _public_record_block(
+                    mismatches, record_source_by_sign[str(vessel.call_sign)], voyage.status
+                )
 
             voyage_co2 = _voyage_co2(rows)
             total += voyage_co2
@@ -680,6 +697,14 @@ async def get_fleet_data_quality(
             "public_record_count": counts[SEVERITY_PUBLIC_RECORD],
             # 이상치 0건과 섞지 않는다 — 판정하지 못한 항차 수 (`PRD §17.4.1`).
             "anomaly_unjudged_count": unjudged,
+            # 공적 기록과 **견준** 항차 수와 견주지 못한 항차 수 · 사유별 내역 (`#2114`).
+            # 「다름 0건」을 「견줘 보니 맞았다」로 읽으려면 대조한 항차가 있어야 한다.
+            "public_record_reconciled_count": reconciled,
+            "public_record_unreconciled_count": sum(unreconciled.values()),
+            "public_record_unreconciled_reasons": unreconciled,
+            "public_record_last_fetched_at": (
+                None if last_fetched_at is None else last_fetched_at.isoformat()
+            ),
             "completeness_ratio": _publish(
                 completeness_ratio(fleet_measured, fleet_total), _RATIO_DIGITS
             ),

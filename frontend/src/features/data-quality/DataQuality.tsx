@@ -13,16 +13,19 @@ import {
   PUBLIC_RECORD_FIELD_LABEL,
   SEVERITY_MEANING,
   SEVERITY_TITLE,
+  UNRECONCILED_REASON_LABEL,
   publicRecordSourceText,
   reasonText,
 } from './copy'
 import { IMPACT_DIGITS, orderedIssues } from './issueOrder'
 import {
   SEVERITIES,
+  UNRECONCILED_REASONS,
   type DataQualityIssue,
   type DataQualityProvider,
   type DataQualitySnapshot,
   type PublicRecord,
+  type PublicRecordCoverage,
   type PublicRecordMismatch,
 } from './types'
 import './DataQuality.css'
@@ -217,6 +220,25 @@ const TASK_COPY: Record<
   },
 }
 
+/**
+ * 공적 기록 대조의 분모 한 줄 (#2114) — 「공적 기록과 다름 0건」 옆에 **견준 항차와 견주지 못한
+ * 항차**를 함께 적는다. 0건 사유는 괄호에서 뺀다. 요약 띠의 다른 보조 줄(`unjudgedHint`)과 같은
+ * 자리·모양이다 — 새 표현이 아니다.
+ */
+function PublicRecordCoverageNote({ coverage }: { coverage: PublicRecordCoverage }) {
+  const reasons = UNRECONCILED_REASONS.filter((reason) => coverage.reasons[reason] > 0)
+    .map((reason) => `${UNRECONCILED_REASON_LABEL[reason]} ${coverage.reasons[reason]}`)
+    .join(' · ')
+  const fetched = coverage.lastFetchedAt === null ? null : formatTimestamp(coverage.lastFetchedAt)
+  return (
+    <p className="dq-hero__note">
+      {COPY.publicRecordCoverage(coverage.reconciled, coverage.unreconciled, reasons)}
+      {' · '}
+      {COPY.publicRecordLastFetched(fetched)}
+    </p>
+  )
+}
+
 function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: FillHandler }) {
   const [filter, setFilter] = useState<(typeof SEVERITIES)[number] | null>(null)
   if (snapshot.vessels.length === 0) {
@@ -291,6 +313,9 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
         </div>
         {snapshot.anomalyUnjudged > 0 ? (
           <p className="dq-hero__note">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</p>
+        ) : null}
+        {snapshot.publicRecordCoverage ? (
+          <PublicRecordCoverageNote coverage={snapshot.publicRecordCoverage} />
         ) : null}
       </section>
 

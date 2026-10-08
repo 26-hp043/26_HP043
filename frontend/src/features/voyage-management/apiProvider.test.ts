@@ -117,6 +117,25 @@ describe('list', () => {
     expect(result.voyages[0].plannedDistanceNm).toBe(11000)
   })
 
+  it('서버의 실제 시각 출처를 카드에서 읽는 값으로 옮긴다 (#2114)', async () => {
+    const fetchMock = fakeFetch({
+      '/parameters/fuel-types': ok(FUEL_TYPES_BODY),
+      '/voyages': ok({
+        data: [{
+          ...VOYAGE_BODY.data,
+          actual_departure_at: '2026-06-01T00:00:00+00:00',
+          actual_arrival_at: '2026-06-10T00:00:00+00:00',
+          actual_departure_source: 'PUBLIC_RECORD',
+          actual_arrival_source: 'USER_INPUT',
+        }],
+      }),
+    })
+
+    const row = (await createApiVoyageManagementProvider(fetchMock, '').list('v-1')).voyages[0]
+    expect(row.actualDepartureSource).toBe('PUBLIC_RECORD')
+    expect(row.actualArrivalSource).toBe('USER_INPUT')
+  })
+
   /*
    * 커서 페이지네이션 (`#627`).
    *

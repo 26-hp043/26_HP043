@@ -785,6 +785,38 @@ describe('계획 거리의 출처 (#1256)', () => {
   )
 })
 
+describe('공적 기록에서 채운 실제 시각의 출처 (#2114)', () => {
+  it.each([
+    ['PUBLIC_RECORD', true],
+    ['USER_INPUT', false],
+    [null, false],
+  ] as const)('출항 시각 출처 %s의 표식 여부가 다르다', async (source, shown) => {
+    const voyage: ManagedVoyage = {
+      ...IN_PROGRESS,
+      actualDepartureAt: '2026-06-01T00:00:00+00:00',
+      actualDepartureSource: source,
+    }
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({
+            voyages: [voyage],
+            fuelTypes: ['HFO'],
+            nextCursor: null,
+            hasMore: false,
+          })),
+        })}
+      />,
+    )
+
+    await expandRow()
+    const note = screen.queryByText(/공적 기록에서 채움 — 실제 출항 시각/)
+    expect(note !== null).toBe(shown)
+    if (shown) expect(note?.textContent).toContain(formatTimestamp(voyage.actualDepartureAt!))
+  })
+})
+
 /**
  * CSV 형식 안내는 접혀 있고 열면 그대로 보인다 (#1415).
  *
