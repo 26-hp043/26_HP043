@@ -369,7 +369,7 @@ async def _require_voyage_of_vessel(
     계산**이 재계산 필요로 표시되고, 아무 오류도 나지 않는다.
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
-    if voyage is None or voyage.is_deleted:
+    if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
     if voyage.vessel_id != vessel_id:
         raise ValidationError(

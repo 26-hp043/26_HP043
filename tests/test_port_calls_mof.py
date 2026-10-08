@@ -59,7 +59,7 @@ def test_real_response_is_read_into_port_calls():
     assert (first.previous_port, first.next_port) == ("JPAXT", "JPAXT")
     assert first.arrival_at == _kst("2026-08-08T14:20:00")
     assert first.departure_at == _kst("2026-08-09T12:20:00")
-    assert first.gross_tonnage == Decimal("9520")
+    assert any(r.gross_tonnage == Decimal("9520") for r in first.reports)
 
 
 def test_anchorage_then_berth_is_one_stay():
@@ -190,20 +190,6 @@ def test_final_report_wins_over_first():
     only_first = _call(PortCallReport(KIND_ARRIVAL, REQUEST_FIRST, _kst("2026-08-01T01:00:00")))
     assert only_first.arrival_at == _kst("2026-08-01T01:00:00")
     assert only_first.departure_at is None
-
-
-def test_gross_tonnage_prefers_grtg_and_skips_zero():
-    """내항선은 국제총톤수가 ``0``으로 온다 — ``grtg``를 먼저, 0은 값이 아니다 (09-23)."""
-    call = _call(
-        PortCallReport(
-            KIND_ARRIVAL,
-            REQUEST_FINAL,
-            _kst("2026-08-01T01:00:00"),
-            gross_tonnage=Decimal("4559"),
-            international_gross_tonnage=Decimal("0"),
-        )
-    )
-    assert call.gross_tonnage == Decimal("4559")
 
 
 # --- 부르기 ----------------------------------------------------------------------

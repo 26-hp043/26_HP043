@@ -619,11 +619,8 @@ async def tour_login(
         user.role = ROLE_ADMIN
     if user.email_verified_at is None:
         user.email_verified_at = _TOUR_VERIFIED_AT
-    # **탈퇴 상태도 되돌린다.** 둘러보기 세션은 관리자라 `DELETE /auth/me`를 누를 수
-    # 있고, 그러면 이 행에 `is_deleted`가 선다. 그 상태를 그대로 두면 다음 사람이
-    # **탈퇴한 계정으로 세션을 받는다** — 로그인 조회는 `is_deleted == 0`으로 거르는데
-    # 여기는 PK로 직접 가져오므로 걸러지지 않는다. 지워진 계정이 살아 있는 세션을 갖는
-    # 상태가 되어, 화면은 정상인데 다른 경로에서는 없는 사람이 된다.
+    # API 탈퇴는 둘러보기 정책의 403으로 막힌다 (#2102).
+    # 외부 관리로 삭제 상태가 된 스텁도 다음 방문에 정상 행으로 복구한다.
     if user.is_deleted:
         user.is_deleted = False
     # **비밀번호 해시도 자리표시자로 되돌린다** (#1495).
@@ -979,15 +976,8 @@ async def delete_me(
 
     # 마지막 관리자는 탈퇴할 수 없다 (#672 · #1301 · `API_SPEC §1.2`). 관리자 0명이 되면
     # 아무도 역할을 되돌릴 수 없다 — `#506`이 연 탈퇴 경로에 조건 하나를 더한다.
-    # ⚠️ **둘러보기 스텁은 이 판정의 대상이 아니다** (#1495). 스텁은 계수에서 빠져 있으므로
-    # (`_lock_admin_users`), 스텁 자신이 탈퇴할 때 사람 관리자가 한 명뿐이면 계수가 1이 되어
-    # 「마지막 관리자라 탈퇴할 수 없다」로 막혔다 — **사실이 아니고**, 노출을 줄이려 스텁을
-    # 지우려는 운영자를 막는다. 스텁이 사라져도 사람 관리자는 그대로다.
-    if (
-        user.role == ROLE_ADMIN
-        and user.id != _TOUR_USER_ID
-        and await _lock_admin_users(session) <= 1
-    ):
+    # 둘러보기는 비안전 요청을 미들웨어에서 거부하므로 이 라우트에 들어오지 않는다.
+    if user.role == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
         return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     user.is_deleted = True

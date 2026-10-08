@@ -473,3 +473,25 @@ def test_seed_script_normalizes_database_url(given, expected):
     from cii_platform.db.url import normalize_to_async
 
     assert normalize_to_async(given) == expected
+
+
+def test_seed_guard_uses_shared_a_validation_and_rejects_mismatch(monkeypatch):
+    # 독립 전사값의 오차를 정규화해서 숨기지 않고 실제 seed 가드가 거부한다 (#2102).
+    from dataclasses import replace
+
+    import cii_platform.db.seed as seed_module
+
+    original = seed_module.SEED_REFERENCE_LINES[0]
+    bad = replace(original, a_decimal=original.a_decimal + Decimal("1"))
+    monkeypatch.setattr(seed_module, "SEED_REFERENCE_LINES", (bad,))
+    shared = seed_module.validate_a_value
+    seen = []
+
+    def validate(raw, decimal):
+        seen.append((raw, decimal))
+        return shared(raw, decimal)
+
+    monkeypatch.setattr(seed_module, "validate_a_value", validate)
+    with pytest.raises(ValueError, match="a_raw/a_decimal mismatch"):
+        seed_module.validate_reference_lines()
+    assert seen == [(bad.a_raw, bad.a_decimal)]

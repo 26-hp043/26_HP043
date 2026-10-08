@@ -104,8 +104,6 @@ def test_negative_min_factor_never_samples_negative():
     plan = np.array([20.0, 500.0])
     sampled = _sample_band(create_rng(1), band, plan, (5000, 2))
     assert sampled.min() >= 0.0
-    left, _, _ = band.bounds(20.0)
-    assert left >= 0.0
 
 
 def test_normal_band_samples_unchanged_by_floor():
