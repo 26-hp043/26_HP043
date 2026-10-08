@@ -2,6 +2,7 @@ import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../aut
 import { createApiParametersProvider } from '../../api/parameters'
 import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { overlapText } from './periodRules'
+import { timeSource } from '../data-quality/timeSource'
 import type {
   FuelUse,
   FuelUseDraft,
@@ -59,6 +60,9 @@ interface ServerPeriod {
   period_type: string
   started_at: string
   ended_at: string | null
+  /** #1923 — 두 시각의 출처. 옛 서버는 없다 */
+  started_at_source?: string | null
+  ended_at_source?: string | null
   port_name: string | null
   distance_nm: number
   fuel_uses: ServerFuelUse[]
@@ -82,6 +86,9 @@ function toPeriod(raw: ServerPeriod): Period {
     periodType: raw.period_type,
     startedAt: raw.started_at,
     endedAt: raw.ended_at,
+    // 출처 (#2114) — 두 값 밖은 「모른다」로 접는다(`timeSource`).
+    startedAtSource: timeSource(raw.started_at_source),
+    endedAtSource: timeSource(raw.ended_at_source),
     portName: raw.port_name,
     distanceNm: raw.distance_nm,
     fuelUses: (raw.fuel_uses ?? []).map(toFuelUse),

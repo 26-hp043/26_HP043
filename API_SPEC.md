@@ -1850,6 +1850,14 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       "anomaly_count": 1,
       "unconfirmed_count": 2,
       "public_record_count": 0,
+      "public_record_reconciled_count": 1,
+      "public_record_unreconciled_count": 2,
+      "public_record_unreconciled_reasons": {
+        "NO_CALL_SIGN": 1,
+        "NO_RECORD": 1,
+        "PORT_UNMAPPED": 0
+      },
+      "public_record_last_fetched_at": "2026-10-01T03:00:00+00:00",
       "anomaly_unjudged_count": 0,
       "completeness_ratio": "0.9420",
       "completeness": {
@@ -1921,6 +1929,9 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 
 | 필드 | 설명 |
 |---|---|
+| `summary.public_record_reconciled_count` | **공적 기록과 실제로 견준 항차 수**. 넣은 출항·도착·정박 시각 중 한 칸이라도 같은 항만청의 기항 시각과 48시간 안에서 짝지으면 1건이다. 6시간 안에서 맞은 항차와 6시간을 넘게 다른 항차를 모두 포함한다. 시각 칸이 없는 항차는 대조 대상에서 제외한다(`#2114` · `PRD §17.4.4`) |
+| `summary.public_record_unreconciled_count` · `summary.public_record_unreconciled_reasons` | **한 칸도 견주지 못한 항차 수와 사유별 내역**. 항차마다 사유 하나만 센다. 우선순위는 `NO_CALL_SIGN`(선박 호출부호 없음) → `NO_RECORD`(항만청에 이은 칸은 있으나 해당 기록이 없거나 48시간 밖) → `PORT_UNMAPPED`(넣은 모든 시각 칸의 항구를 항만청과 잇지 못함)이다. 세 사유의 합은 `public_record_unreconciled_count`와 같다. 세 키는 0건이어도 모두 싣는다. 시각 칸이 없는 항차는 세지 않는다(`#2114`) |
+| `summary.public_record_last_fetched_at` | 조회 대상 선박들의 저장된 공적 기록 `fetched_at` 최댓값(ISO 8601). 기록이 없으면 `null`. **가장 최근에 받은 기록의 시각**이며 개별 항차와 짝지은 기록의 시각은 아니다. 대조 불가 사유를 해석하는 보조 정보다(`#2114`) |
 | `summary.anomaly_unjudged_count` | 이상치를 **판정하지 못한** 항차 수 — 선박 제원·운항 시각이 없어 세 검사 중 하나도 돌릴 수 없었다. **이상치 0건과 섞지 않는다** |
 | `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
 | `summary.completeness` · `vessels[].completeness` | **[#1532]** 그 비율의 분자·분모와 제외 내역 — 비율만으로는 0%든 54.2%든 화면에서 검산할 수 없다. 모두 **CO₂ 톤 · 소수 2자리 문자열**(`§2.7` `co2_ton`과 같은 규약 · `§1.7` `[#1600]`의 절사 — 마지막 자리는 절사값이다). `total_co2_ton`(분모 · 누적 CO₂, not under way 포함) · `measured_co2_ton`(분자 · 실측으로 인정된 CO₂, not under way 포함) · `excluded_unavailable_co2_ton` · `excluded_substituted_co2_ton` · `excluded_anomaly_co2_ton`(각각 계산 불가 · 대체 계산 · 이상치로 빠진 CO₂). **`measured + Σexcluded = total`이 g 단위에서 정확히 성립한다** — 한 항차가 여러 심각도에 걸리면 빠진 CO₂를 **계산 불가 > 대체 계산 > 이상치** 순으로 앞선 한 축에만 더한다(두 축에 다 더하면 합이 맞지 않는다). 톤 문자열은 다섯 값이 **각각** 절사되므로 문자열끼리 더하면 누적보다 **최대 0.03 t** 작을 수 있다(가수 넷이 각각 0.01 t 미만을 버린다 · 예: 9,900 g씩 넷은 각 `"0.00"`으로 합 0.00인데 누적 39,600 g은 `"0.03"`). 더한 값이 누적보다 커지는 일은 없다. 정확한 검산은 g 단위다. `vessels[].completeness`는 `completeness_ratio`와 같은 조건에서 `null`(선박 누적을 낼 수 없을 때); `summary.completeness`는 낼 수 있는 선박들의 합이라 늘 있다 — 선박이 0척이면 전부 `"0.00"`이고 비율은 `null`이다. 실적 확정 전(`UNCONFIRMED`)은 어느 축에도 없다 — 완결성에서 빼지 않기 때문이다(`PRD §17.4.3`) |
@@ -5278,3 +5289,4 @@ POST /api/v1/chat
 | 2026-10-08 | `#2342` | **§4.1 거리·연료를 항차 저장과 같은 범위로 · §2.3 · §11 VAL-003에 IMO 검사숫자** (`#2134` 결정 D-15). CII 예측의 `distance_nm`·`fuel_uses[].fuel_ton`은 종전에 `> 0`뿐이라 저장할 수 없는 값(1억 t · 1e-9 t)도 계산을 통과해 지울 수 없는 계산 이력에 남았고, 같은 값을 계획 저장으로 넘기면 그때서야 걸렸다 — 항차 저장(`§3.3`)과 같은 **0.01 ~ 9,999,999,999.99** · **0.0001 ~ 99,999,999.9999**를 적었다(`§11` VAL-002에도). **막는 것은 저장 범위 밖뿐이다** — 99,999,999t 같은 범위 안 극단값은 비율 경고를 두지 않는 결정이라 여전히 계산된다(결정 코멘트의 「사용자에게 보이는 결과」 예시는 이 범위와 어긋나며, 결정 표를 따랐다). `§1.3.2` 오류 응답 예시도 지금 문구(`항해거리는 0.01 이상이어야 합니다.`)로 맞췄다. `imo_number`는 앞 여섯 자리에 7·6·5·4·3·2를 곱해 더한 값의 1의 자리가 마지막 자리와 같아야 하고, 틀리면 `IMO 번호 검사숫자가 맞지 않습니다.`(VAL-003). `§2.8` 응답 예시의 `9100001`은 검사숫자가 맞지 않아 `9100011`로 바꿨다. `AGENTS §4.3`상 값·행 보강이라 버전은 올리지 않는다 (#2134) |
 | 2026-10-08 | `#2343` | **§1.10 「기본 규제연도」 단락 신설 · 기본 연도 서술 여섯 곳 통일** (`#2131`) — 연도를 지정하지 않았을 때의 「올해」는 기준 시각 `as_of`의 **한국 달력(`Asia/Seoul`) 해**다. 서버가 `as_of.year`(UTC 달력)를 읽어 KST 1월 1일 0시~8시 59분에 전년도가 「올해」가 됐고, 내보내기(`§8.1`)만 한국 달력이라 같은 시각에 두 화면이 다른 해를 보였다. `PRD §12.7`·`DESIGN_SYSTEM §4.4`의 KST 기준과 맞췄다. `§2.7` `to` · `status` · `§2.8` `regulation_year` · `§2.14` · `§2.16` · `§2.18` · `§2.19` · `§8.4` `year`의 「기본 `as_of` 연도」 · 「올해」를 같은 문구로 바꿨다. 항차·정박 구간의 귀속 연도(UTC 고정, `#1333`)는 이 규칙의 대상이 아니다. `AGENTS §4.3`상 규약 보강이라 버전은 올리지 않는다 (#2131) |
 | 2026-10-08 | `#2349` | §6.5 서두 — 화면이 이 경로로 받은 마지막 결과를 **들어오자마자 올리지 않고** 「지난 결과 보기」를 누를 때 올린다는 한 줄 (`#2348` · `rlatnals4114` 2026-10-08 결정). 계약(요청·응답)은 바뀌지 않는다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 |
+| 2026-10-08 | `#___` | §2.16 공적 기록 대조 범위 요약 4필드와 항차 단위 집계·사유 우선순위·마지막 수집 시각 계약 추가 (#2114) |

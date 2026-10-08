@@ -140,6 +140,43 @@ describe('데이터 점검 화면 (#513)', () => {
     expect(await screen.findByText(DATA_QUALITY_COPY.unjudgedHint(3))).toBeTruthy()
   })
 
+  it('공적 기록과 다름 0건이어도 대조하지 못한 항차와 사유·수집 시각을 보인다 (#2114)', async () => {
+    renderWith({
+      ...SNAPSHOT,
+      publicRecordCoverage: {
+        reconciled: 0,
+        unreconciled: 2,
+        reasons: { NO_CALL_SIGN: 1, NO_RECORD: 1, PORT_UNMAPPED: 0 },
+        lastFetchedAt: '2026-10-01T03:00:00+00:00',
+      },
+    })
+
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    expect(hero.textContent).toContain('공적 기록과 다름 0')
+    expect(hero.textContent).toContain('대조한 항차 0건')
+    expect(hero.textContent).toContain('대조하지 못한 항차 2건')
+    expect(hero.textContent).toContain('호출부호 없음 1')
+    expect(hero.textContent).toContain('기록 없음 1')
+    expect(hero.textContent).toContain(`마지막 수집 ${formatTimestamp('2026-10-01T03:00:00+00:00')}`)
+  })
+
+  it('실제로 대조해 다름 0건인 경우에는 대조 못 한 항차를 표시하지 않는다 (#2114)', async () => {
+    renderWith({
+      ...SNAPSHOT,
+      publicRecordCoverage: {
+        reconciled: 2,
+        unreconciled: 0,
+        reasons: { NO_CALL_SIGN: 0, NO_RECORD: 0, PORT_UNMAPPED: 0 },
+        lastFetchedAt: '2026-10-01T03:00:00+00:00',
+      },
+    })
+
+    const hero = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    expect(hero.textContent).toContain('대조한 항차 2건')
+    expect(hero.textContent).not.toContain('대조하지 못한 항차')
+    expect(hero.textContent).toContain(`마지막 수집 ${formatTimestamp('2026-10-01T03:00:00+00:00')}`)
+  })
+
   it('CII 영향은 부호를 붙이고, 등급이 바뀌면 전이를 그린다', async () => {
     renderWith(SNAPSHOT)
 

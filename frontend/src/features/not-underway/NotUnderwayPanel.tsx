@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import { fuelTypeText } from '../parameters/fuelTypes'
 import { createApiNotUnderwayProvider, NotUnderwayError } from './apiProvider'
-import { DISPLAY_DIGITS, DISPLAY_UNITS } from '../../display/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatTimestamp } from '../../display/format'
+import { publicRecordFilledNote } from '../data-quality/timeSource'
 import {
   CONSUMER_TYPE_LABELS,
   PERIOD_TYPE_LABELS,
@@ -262,6 +263,20 @@ function PeriodRow({
         <span className="nu__range num">{formatRange(period)}</span>
         {ongoing ? <span className="nu__badge">진행 중</span> : null}
       </div>
+
+      {/*
+        「이 값으로 채우기」로 넣은 시각이면 그 사실을 붙인다 (#2114 · `PRD §17.4.4`). 항차
+        카드의 같은 표식과 같은 문구 틀이다(`publicRecordFilledNote`) — 출처가 `PUBLIC_RECORD`일
+        때만이고 `null`(「모른다」)에는 붙이지 않는다. ⚠️ 디자인 담당 확인 전 개발 임시안이다.
+      */}
+      {period.startedAtSource === 'PUBLIC_RECORD' ? (
+        <p className="nu__hint">
+          {publicRecordFilledNote('시작 시각', formatTimestamp(period.startedAt))}
+        </p>
+      ) : null}
+      {period.endedAtSource === 'PUBLIC_RECORD' && period.endedAt !== null ? (
+        <p className="nu__hint">{publicRecordFilledNote('끝 시각', formatTimestamp(period.endedAt))}</p>
+      ) : null}
 
       <dl className="nu__figures">
         <div>

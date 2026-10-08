@@ -57,6 +57,31 @@ function stub(over: Partial<NotUnderwayProvider> = {}): NotUnderwayProvider {
   }
 }
 
+describe('공적 기록에서 채운 구간 시각의 출처 (#2114)', () => {
+  it.each([
+    ['PUBLIC_RECORD', true],
+    ['USER_INPUT', false],
+    [null, false],
+  ] as const)('시작·끝 시각 출처 %s의 표식 여부가 다르다', async (source, shown) => {
+    const period: Period = {
+      ...PERIOD,
+      endedAt: '2026-08-16T07:20:00.000Z',
+      startedAtSource: source,
+      endedAtSource: source,
+    }
+    render(
+      <NotUnderwayPanel
+        vesselId="v-1"
+        provider={stub({ list: vi.fn().mockResolvedValue({ ...LIST, periods: [period] }) })}
+      />,
+    )
+
+    await screen.findByText(/BUSAN/)
+    expect(screen.queryByText(/공적 기록에서 채움 — 시작 시각/) !== null).toBe(shown)
+    expect(screen.queryByText(/공적 기록에서 채움 — 끝 시각/) !== null).toBe(shown)
+  })
+})
+
 describe('구간 연료 편집 (#638)', () => {
   it('구간을 지우지 않고 연료를 더할 수 있다', async () => {
     const addFuelUse = vi.fn().mockResolvedValue(PERIOD.fuelUses[0])

@@ -184,6 +184,37 @@ describe('createApiDataQualityProvider — public_record', () => {
     expect(snapshot.counts.PUBLIC_RECORD).toBe(1)
   })
 
+  it('대조한 항차와 대조하지 못한 사유·마지막 수집 시각을 화면 값으로 옮긴다 (#2114)', async () => {
+    const body = bodyWithPublicRecord()
+    const fetchImpl = vi.fn(async (_input: unknown) =>
+      jsonResponse({
+        ...body,
+        data: {
+          ...body.data,
+          summary: {
+            ...body.data.summary,
+            public_record_reconciled_count: 2,
+            public_record_unreconciled_count: 1,
+            public_record_unreconciled_reasons: {
+              NO_CALL_SIGN: 0,
+              NO_RECORD: 1,
+              PORT_UNMAPPED: 0,
+            },
+            public_record_last_fetched_at: '2026-10-01T03:00:00+00:00',
+          },
+        },
+      }),
+    )
+    const snapshot = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').load(2026)
+
+    expect(snapshot.publicRecordCoverage).toEqual({
+      reconciled: 2,
+      unreconciled: 1,
+      reasons: { NO_CALL_SIGN: 0, NO_RECORD: 1, PORT_UNMAPPED: 0 },
+      lastFetchedAt: '2026-10-01T03:00:00+00:00',
+    })
+  })
+
   it('issues[].public_record을 필드 그대로 옮긴다', async () => {
     const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse(bodyWithPublicRecord()))
     const snapshot = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').load(2026)

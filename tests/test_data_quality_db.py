@@ -132,6 +132,10 @@ _COMPLETENESS_KEYS = {
 }
 
 
+#: `API_SPEC §2.16` ``summary.public_record_unreconciled_reasons`` 키 (#2114).
+_UNRECONCILED_KEYS = {"NO_CALL_SIGN", "NO_RECORD", "PORT_UNMAPPED"}
+
+
 def _excluded_sum(block: dict[str, str]) -> Decimal:
     return sum(
         (Decimal(block[key]) for key in _COMPLETENESS_KEYS if key.startswith("excluded_")),
@@ -336,9 +340,14 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "unconfirmed_count",
         "public_record_count",
         "anomaly_unjudged_count",
+        "public_record_reconciled_count",
+        "public_record_unreconciled_count",
+        "public_record_unreconciled_reasons",
+        "public_record_last_fetched_at",
         "completeness_ratio",
         "completeness",
     }
+    assert set(result["summary"]["public_record_unreconciled_reasons"]) == _UNRECONCILED_KEYS
     assert set(result["summary"]["completeness"]) == _COMPLETENESS_KEYS
     mine = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
     assert set(mine) == {
@@ -398,7 +407,20 @@ def test_the_route_answers_over_http(migrated_db, app_fresh_engine):
         body = response.json()
         assert set(body) == {"data", "meta"}
         assert body["data"]["regulation_year"] == YEAR
-        assert set(body["data"]["summary"]) >= {"anomaly_unjudged_count", "completeness_ratio"}
+        summary = body["data"]["summary"]
+        assert set(summary) >= {
+            "anomaly_unjudged_count",
+            "completeness_ratio",
+            # 공적 기록 대조의 분모 (`#2114`) — 엔진만이 아니라 응답에 실려 나가는지
+            "public_record_reconciled_count",
+            "public_record_unreconciled_count",
+            "public_record_unreconciled_reasons",
+            "public_record_last_fetched_at",
+        }
+        assert set(summary["public_record_unreconciled_reasons"]) == _UNRECONCILED_KEYS
+        assert summary["public_record_unreconciled_count"] == sum(
+            summary["public_record_unreconciled_reasons"].values()
+        )
 
         out_of_range = client.get(f"{API_V1_PREFIX}/fleet/data-quality?regulation_year=1999")
         assert out_of_range.status_code == 422
@@ -570,7 +592,14 @@ async def test_a_vessel_without_a_ratio_has_no_breakdown_either(session, vessel_
     assert vessel["completeness"] is None
 
 
-async def _port_call(session, *, sign: str, arrival: str, departure: str) -> None:
+async def _port_call(
+    session,
+    *,
+    sign: str,
+    arrival: str,
+    departure: str,
+    fetched: str = "2026-09-26T00:00:00+00:00",
+) -> None:
     """공적 재항 기록 한 건 (``DB_SCHEMA §2.25``) — 부산 항만청."""
     await session.execute(
         text(
@@ -584,7 +613,7 @@ async def _port_call(session, *, sign: str, arrival: str, departure: str) -> Non
             "sign": sign,
             "arr": datetime.fromisoformat(arrival),
             "dep": datetime.fromisoformat(departure),
-            "fetched": datetime.fromisoformat("2026-09-26T00:00:00+00:00"),
+            "fetched": datetime.fromisoformat(fetched),
         },
     )
 
@@ -650,6 +679,122 @@ async def test_within_six_hours_or_without_call_sign_raises_nothing(session, ves
     )
     _, issues, _ = await _mine(session, vessel_id)
     assert _by(issues, SEVERITY_PUBLIC_RECORD) == []  # 6시간 정각 — 띄우지 않는다
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 대조하지 못한 항차를 센다 (#2114) — 「다름 0건」이 대조 불가를 덮지 않게
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _summary(session) -> dict:
+    return (await get_fleet_data_quality(session, regulation_year=YEAR))["summary"]
+
+
+def _reconcile_delta(before: dict, after: dict) -> dict[str, int]:
+    """대조 집계의 증가분 — 시드 선박이 함께 세지므로 **차이로** 본다."""
+    delta = {
+        key: after[key] - before[key]
+        for key in (
+            "public_record_count",
+            "public_record_reconciled_count",
+            "public_record_unreconciled_count",
+        )
+    }
+    for reason in _UNRECONCILED_KEYS:
+        delta[reason] = (
+            after["public_record_unreconciled_reasons"][reason]
+            - before["public_record_unreconciled_reasons"][reason]
+        )
+    return delta
+
+
+@pytest.mark.asyncio
+async def test_no_call_sign_fleet_and_clean_fleet_have_different_summaries(
+    conn, session, vessel_id
+):
+    """⚠️ **완료 기준** — 호출부호 없는 선박과, 견줘서 어긋남이 없는 선박의 요약이 갈린다.
+
+    둘 다 「공적 기록과 다름」은 0건 늘어난다. 종전에는 거기서 끝이라 두 요약이 같았다
+    (`#2114` 확인된 사실). 이제 앞쪽은 **대조하지 못함(호출부호 없음)**, 뒤쪽은 **대조함**으로 센다.
+    """
+    await _port_call(
+        session,
+        sign="DQ2114",
+        arrival="2026-02-28T20:00:00+00:00",
+        departure="2026-03-01T03:00:00+00:00",  # 넣은 출항 00:00Z와 3시간 — 맞다
+    )
+    before = await _summary(session)
+    await _voyage(session, vessel_id, no="A")
+    no_sign = _reconcile_delta(before, await _summary(session))
+
+    await session.execute(
+        text("UPDATE vessel SET call_sign = 'DQ2114' WHERE id = :id"), {"id": vessel_id}
+    )
+    # 새 세션으로 읽는다 — 앞 조회가 세션(과 요청 캐시)에 올려 둔 선박 객체는 원시 UPDATE를
+    # 모른다. 같은 연결이라 넣은 행은 그대로 보인다.
+    async with AsyncSession(bind=conn, expire_on_commit=False) as fresh:
+        clean = _reconcile_delta(before, await _summary(fresh))
+
+    assert no_sign == {
+        "public_record_count": 0,
+        "public_record_reconciled_count": 0,
+        "public_record_unreconciled_count": 1,
+        "NO_CALL_SIGN": 1,
+        "NO_RECORD": 0,
+        "PORT_UNMAPPED": 0,
+    }
+    assert clean == {
+        "public_record_count": 0,
+        "public_record_reconciled_count": 1,
+        "public_record_unreconciled_count": 0,
+        "NO_CALL_SIGN": 0,
+        "NO_RECORD": 0,
+        "PORT_UNMAPPED": 0,
+    }
+    assert no_sign != clean
+
+
+@pytest.mark.asyncio
+async def test_unreconciled_voyages_are_split_into_no_record_and_port_unmapped(session, vessel_id):
+    """호출부호는 있는데 기록이 없으면 「기록 없음」, 항구가 모두 해외면 「항구 미대응」."""
+    await session.execute(
+        text("UPDATE vessel SET call_sign = 'DQ2115' WHERE id = :id"), {"id": vessel_id}
+    )
+    before = await _summary(session)
+    await _voyage(session, vessel_id, no="A")  # 부산 → 싱가포르 · 부산 기록 없음
+    abroad = await _voyage(session, vessel_id, no="B")
+    await session.execute(
+        text("UPDATE voyage SET departure_port_name = 'ROTTERDAM' WHERE id = :id"),
+        {"id": abroad},
+    )
+    # 넣은 시각이 하나도 없는 항차는 어느 쪽에도 세지 않는다
+    await _voyage(session, vessel_id, no="C", hours=None)
+
+    delta = _reconcile_delta(before, await _summary(session))
+
+    assert delta["public_record_reconciled_count"] == 0
+    assert delta["NO_RECORD"] == 1
+    assert delta["PORT_UNMAPPED"] == 1
+    assert delta["NO_CALL_SIGN"] == 0
+    assert delta["public_record_unreconciled_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_summary_carries_the_latest_fetch_time_of_the_fleets_records(session, vessel_id):
+    """마지막 수집 = 대상 선박들의 ``port_call_record.fetched_at`` 최댓값 (`#2114`)."""
+    await session.execute(
+        text("UPDATE vessel SET call_sign = 'DQ2116' WHERE id = :id"), {"id": vessel_id}
+    )
+    # 시드가 받아 둔 어떤 기록보다 늦게 — 최댓값이 이 행이어야 한다
+    await _port_call(
+        session,
+        sign="DQ2116",
+        arrival="2026-02-28T20:00:00+00:00",
+        departure="2026-03-01T03:00:00+00:00",
+        fetched="2030-01-01T09:30:00+00:00",
+    )
+    summary = await _summary(session)
+    assert summary["public_record_last_fetched_at"].startswith("2030-01-01T09:30:00")
 
 
 async def _period(session, vessel_id: str, voyage_id: str, *, kind: str, start: str, end: str):

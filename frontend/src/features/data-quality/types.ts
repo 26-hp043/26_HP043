@@ -117,11 +117,32 @@ interface DataQualityVessel {
   completeness?: CompletenessBreakdown | null
 }
 
+/** 대조하지 못한 사유 (`API_SPEC §2.16` `summary.public_record_unreconciled_reasons` · #2114). */
+export const UNRECONCILED_REASONS = ['NO_CALL_SIGN', 'NO_RECORD', 'PORT_UNMAPPED'] as const
+export type UnreconciledReason = (typeof UNRECONCILED_REASONS)[number]
+
+/**
+ * 공적 기록 대조의 분모 (#2114). 「공적 기록과 다름 0건」이 **견줘 보니 맞았다**인지
+ * **견줘 보지 못했다**인지 가른다 — 이상치의 「판정하지 못함」과 같은 원칙(`PRD §17.4.1`).
+ * 단위는 실적 항차 하나다. 넣은 시각이 하나도 없는 항차는 어느 쪽에도 세지 않는다.
+ */
+export interface PublicRecordCoverage {
+  /** 넣은 시각 칸 중 하나라도 공적 기록과 견준 항차 수(맞음·다름 무관) */
+  reconciled: number
+  /** 견주지 못한 항차 수 — `reasons`의 합 */
+  unreconciled: number
+  reasons: Record<UnreconciledReason, number>
+  /** 대상 선박들의 공적 기록 가운데 가장 늦게 받은 시각. 받은 기록이 없으면 `null` */
+  lastFetchedAt: string | null
+}
+
 export interface DataQualitySnapshot {
   regulationYear: number
   counts: Record<Severity, number>
   /** 이상치를 **판정하지 못한** 항차 수 — 0건과 섞지 않는다 */
   anomalyUnjudged: number
+  /** 공적 기록 대조의 분모 — 옛 서버는 없다(`undefined`). 그때는 요약 줄을 그리지 않는다 */
+  publicRecordCoverage?: PublicRecordCoverage
   completenessRatio: string | null
   /** 선대 합의 내역 — 낼 수 있는 선박들의 분자·분모를 각각 더한 것 */
   completeness?: CompletenessBreakdown

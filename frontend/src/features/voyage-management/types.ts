@@ -17,6 +17,8 @@
  * 세 번째로 같은 이름을 얹으면 import 한 줄만 보고는 무엇인지 알 수 없다.
  */
 
+import type { TimeSource } from '../data-quality/timeSource'
+
 /** `API_SPEC §3.5` 상태. 서버의 CHECK 제약과 같은 집합이다. */
 export type VoyageStatus =
   | 'DRAFT'
@@ -90,6 +92,13 @@ export interface ManagedVoyage {
   plannedArrivalAt: string | null
   actualDepartureAt: string | null
   actualArrivalAt: string | null
+  /**
+   * 실제 시각의 출처 (#1923 · #2114). `PUBLIC_RECORD`면 데이터 점검의 「이 값으로 채우기」가
+   * 공적 기록에서 옮긴 값이다. **`null`·없음은 「모른다」** — 표식을 붙이지 않는다
+   * (`plannedDistanceSource`와 같은 규칙). 옛 대역은 필드가 없어 선택 필드로 둔다.
+   */
+  actualDepartureSource?: TimeSource | null
+  actualArrivalSource?: TimeSource | null
   fuelUses: VoyageFuelUse[]
 }
 

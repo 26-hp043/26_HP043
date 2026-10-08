@@ -1,4 +1,5 @@
 import { csrfHeaders, redirectToLogin, SESSION_EXPIRED_MESSAGE } from '../../auth/session'
+import { timeSource } from '../data-quality/timeSource'
 import { filenameFrom, saveBlob } from '../../download/file'
 import { fallbackMessage, readPageMeta } from '../../api/base'
 import { createApiParametersProvider } from '../../api/parameters'
@@ -102,6 +103,9 @@ interface ServerVoyage {
   planned_arrival_at?: unknown
   actual_departure_at?: unknown
   actual_arrival_at?: unknown
+  /** #1923 — 실제 시각의 출처. 옛 서버는 없다 */
+  actual_departure_source?: unknown
+  actual_arrival_source?: unknown
   fuel_uses?: unknown
 }
 
@@ -178,6 +182,9 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
     plannedArrivalAt: text(raw.planned_arrival_at),
     actualDepartureAt: text(raw.actual_departure_at),
     actualArrivalAt: text(raw.actual_arrival_at),
+    // 출처 (#2114) — 두 값 밖은 「모른다」로 접는다(`timeSource`). 화면은 `PUBLIC_RECORD`에만 표식을 붙인다.
+    actualDepartureSource: timeSource(raw.actual_departure_source),
+    actualArrivalSource: timeSource(raw.actual_arrival_source),
     fuelUses: Array.isArray(raw.fuel_uses) ? (raw.fuel_uses as ServerFuelUse[]).map(toFuelUse) : [],
   }
 }

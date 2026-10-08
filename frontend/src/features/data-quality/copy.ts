@@ -1,5 +1,5 @@
 import { fuelTypeText } from '../parameters/fuelTypes'
-import type { PublicRecordField, Severity } from './types'
+import type { PublicRecordField, Severity, UnreconciledReason } from './types'
 
 /**
  * 데이터 점검 화면 문구 (`UIFLOW 2-11` · `PRD §17.4` · #513).
@@ -30,6 +30,19 @@ export const DATA_QUALITY_COPY = {
   completenessNone: '계산할 배출 없음',
   /* 판정 못 한 항차는 0건과 섞지 않는다 (`PRD §17.4.1`). */
   unjudgedHint: (n: number) => `판정하지 못한 항차 ${n}건 — 선박 제원 또는 운항 시각이 없습니다`,
+
+  /*
+   * 공적 기록 대조의 분모 (#2114) — 「공적 기록과 다름 0건」이 「견줘 보지 못했다」를 덮지 않게
+   * 한다(`PRD §17.4.1` 「판정하지 못한 것을 0건과 섞지 않는다」를 공적 기록에도). 사유 조각과
+   * 수집 시각은 부르는 쪽이 표시 문자열로 만들어 넘긴다(아래 `publicRecordMismatch`와 같은 방침).
+   */
+  publicRecordCoverage: (reconciled: number, unreconciled: number, reasons: string) =>
+    unreconciled === 0
+      ? `공적 기록 대조: 대조한 항차 ${reconciled}건`
+      : `공적 기록 대조: 대조한 항차 ${reconciled}건 · 대조하지 못한 항차 ${unreconciled}건(${reasons})`,
+  /** 마지막 수집 — 받은 기록이 없거나 시각을 읽을 수 없으면 「없음」을 적는다(「— 기준」을 쓰지 않는다 · #2124) */
+  publicRecordLastFetched: (fetchedAt: string | null) =>
+    fetchedAt === null ? '받은 공적 기록 없음' : `마지막 수집 ${fetchedAt}`,
 
   listTitle: '점검 항목',
   countSuffix: '건',
@@ -121,6 +134,13 @@ export const PUBLIC_RECORD_FIELD_LABEL: Record<PublicRecordField, string> = {
   ARRIVAL: '도착 시각',
   BERTH_START: '정박 시작',
   BERTH_END: '정박 끝',
+}
+
+/** 대조하지 못한 사유 → 화면 문구 (#2114). 사용자가 할 일이 사유마다 다르다(선박 등록 · 수집). */
+export const UNRECONCILED_REASON_LABEL: Record<UnreconciledReason, string> = {
+  NO_CALL_SIGN: '호출부호 없음',
+  NO_RECORD: '기록 없음',
+  PORT_UNMAPPED: '항구 미대응',
 }
 
 /** `public_record.source` → 화면 문구. **모르는 출처는 원문 그대로**(`reasonText`와 같은 방침). */

@@ -73,8 +73,9 @@ def to_dict(voyage, fuel_uses: list) -> dict[str, object]:
         "planned_arrival_at": _iso(voyage.planned_arrival_at),
         "actual_departure_at": _iso(voyage.actual_departure_at),
         "actual_arrival_at": _iso(voyage.actual_arrival_at),
-        # #1923 — 실제 시각의 출처. None은 「모른다」— 화면은 `PUBLIC_RECORD`일 때만 「공적 기록에서
-        # 채움」을 붙이고, None에는 아무것도 붙이지 않는다(계획 거리 출처와 같은 규칙).
+        # #1923 · #2114 — 실제 시각의 출처. 항차 카드(`VoyagePanel`)는 `PUBLIC_RECORD`일
+        # 때만 「공적 기록에서 채움」을 붙인다. None(「모른다」)과 사람이 넣은 값에는 붙이지
+        # 않는다(계획 거리 출처와 같은 규칙).
         "actual_departure_source": voyage.actual_departure_source,
         "actual_arrival_source": voyage.actual_arrival_source,
         "annual_inclusion_policy": voyage.annual_inclusion_policy,
