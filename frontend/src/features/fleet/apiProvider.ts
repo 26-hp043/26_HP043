@@ -96,6 +96,8 @@ interface ServerBody {
       severity: string
       reason: string
       message: string
+      /** #2350 이전 서버에는 없다. 현재 계약에서는 모든 조치에 실린다. */
+      vessel?: ServerVessel
     }>
   }
   /** 오류 응답의 본문 (`API_SPEC §1.3.2`). 성공 응답에는 없다. */
@@ -281,6 +283,7 @@ export function createApiFleetProvider(
           severity: a.severity === 'critical' ? 'critical' : 'warning',
           reason: a.reason as FleetSnapshot['actions'][number]['reason'],
           message: a.message,
+          ...(a.vessel ? { vessel: toVessel(a.vessel) } : {}),
         })),
       }
     },

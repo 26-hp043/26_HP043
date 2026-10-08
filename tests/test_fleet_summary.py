@@ -1482,6 +1482,39 @@ async def test_summary_counts_the_whole_fleet_while_vessels_are_paged(session):
 
 
 @pytest.mark.asyncio
+async def test_paged_actions_include_the_same_vessel_row_as_the_full_fleet(session):
+    """첫 페이지 밖의 조치도 표가 등급·상태를 정확히 표시할 근거를 갖는다 (#2350)."""
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9205101", name="가선")
+    other = await _insert_vessel(session, imo="9205103", name="다선")
+    risky = await _insert_vessel(session, imo="9205102", name="나선")
+    for vessel_id in (other, risky):
+        await _insert_voyage(
+            session,
+            vessel_id,
+            arrived=datetime(YEAR, 3, 1, tzinfo=UTC),
+            distance=1000,
+            fuel=2000,
+        )
+    as_of = datetime(YEAR, 6, 25, tzinfo=UTC)
+
+    first = await get_fleet_summary(
+        session, regulation_year=YEAR, as_of=as_of, sort="name", limit=1
+    )
+    full = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of, sort="name")
+
+    assert [row["name"] for row in first["vessels"]] == ["가선"]
+    # 삽입은 다선 → 나선이지만, 조치는 요청한 이름순으로 온다.
+    assert [action["vessel_name"] for action in first["actions"]] == ["나선", "다선"]
+    action = first["actions"][0]
+    assert action["vessel_name"] == "나선"
+    assert action["vessel"] == full["vessels"][1]
+    assert action["vessel"]["ytd_rating"] == "E"
+    assert action["vessel"]["underway_state"] is None
+
+
+@pytest.mark.asyncio
 async def test_bad_sort_limit_and_cursor_are_422_not_silently_accepted(session):
     """정렬을 바꾸고 옛 커서로 물으면 다른 순서의 n번째부터가 나온다 — 조용히 받지 않는다."""
     await _seed_parameters(session)

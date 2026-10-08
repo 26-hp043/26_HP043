@@ -283,6 +283,51 @@ describe('확인할 선박 — 조치가 걸린 배 (#2200 → #2311)', () => {
     // 조치가 없는 배에는 감축 계획 링크가 없다
     expect(within(rows[1]).queryByRole('link', { name: /감축 계획/ })).toBeNull()
   })
+
+  it('7척째에 조치가 있으면 펼치지 않아도 그 행이 보이고 더 보기 개수가 중복되지 않는다 (#2350)', async () => {
+    const ships = Array.from({ length: 7 }, (_, index) => vessel(`v${index + 1}`, `${index + 1}번선`))
+    const body = page(ships, { next_cursor: null, has_more: false })
+    body.data.summary.total = 7
+    body.data.actions = [{
+      vessel_id: 'v7', vessel_name: '7번선', reason: 'E_THIS_YEAR',
+      severity: 'critical', message: '7번선 조치',
+    }] as never
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response))
+
+    render(<MemoryRouter><FleetDashboard /></MemoryRouter>)
+    const card = await screen.findByRole('region', { name: '확인할 선박' })
+    const table = within(card).getByRole('table')
+    const rows = within(table).getAllByRole('row').slice(1)
+
+    expect(rows).toHaveLength(7)
+    expect(within(rows[0]).getByRole('link', { name: '7번선' })).toBeTruthy()
+    expect(within(rows[0]).getByText('7번선 조치')).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: /더 보기/ })).toBeNull()
+  })
+
+  it('아직 불러오지 않은 페이지의 조치도 등급과 다음 작업을 함께 보여 준다 (#2350)', async () => {
+    const actionVessel = {
+      ...vessel('v7', '7번선'), ytd_rating: 'E', ytd_attained_cii: '9.4200', risk_reasons: ['E_THIS_YEAR'],
+    }
+    const body = page([vessel('v1', '1번선'), vessel('v2', '2번선')], { next_cursor: 'c2', has_more: true })
+    body.data.summary.total = 7
+    body.data.actions = [{
+      vessel_id: 'v7', vessel_name: '7번선', reason: 'E_THIS_YEAR',
+      severity: 'critical', message: '7번선 조치', vessel: actionVessel,
+    }] as never
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response))
+
+    render(<MemoryRouter><FleetDashboard /></MemoryRouter>)
+    const card = await screen.findByRole('region', { name: '확인할 선박' })
+    const table = within(card).getByRole('table')
+    const row = within(table).getByRole('link', { name: '7번선' }).closest('tr') as HTMLElement
+
+    expect(within(table).getAllByRole('row')).toHaveLength(4)
+    expect(within(row).getByText('7번선 조치')).toBeTruthy()
+    expect(within(row).getByText('9.420')).toBeTruthy()
+    expect(within(row).getByRole('link', { name: '함대 감축 계획 세우기' })).toBeTruthy()
+    expect(within(card).getByRole('button', { name: /전체 7척 중 3척 표시/ })).toBeTruthy()
+  })
 })
 
 describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {

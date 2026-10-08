@@ -214,6 +214,8 @@ export interface FleetAction {
   severity: 'critical' | 'warning'
   reason: RiskReason
   message: string
+  /** 선대 전체 조치 대상의 같은 시점 선박 행. 구버전 서버 응답에는 없다 (#2350). */
+  vessel?: FleetVessel
 }
 
 export interface FleetSnapshot {

@@ -798,13 +798,20 @@ async def get_fleet_summary(
     ordered = sort_fleet_rows(rows, sort)
     page = ordered[offset : offset + page_size]
     has_more = offset + page_size < len(ordered)
+    rank_by_id = {row["vessel_id"]: rank for rank, row in enumerate(ordered)}
+    # 조치는 선대 전체다. 페이지 밖 선박도 표가 정확한 등급·상태를 그릴 수 있도록
+    # 같은 시점에 계산한 행을 붙인다. 알림도 쓰는 compute_fleet_rows의 조치형은 그대로 둔다 (#2350).
+    ordered_actions = [
+        {**action, "vessel": ordered[rank_by_id[action["vessel_id"]]]}
+        for action in sorted(actions, key=lambda item: rank_by_id[item["vessel_id"]])
+    ]
     return {
         "as_of": resolved.isoformat(),
         "regulation_year": year,
         # 선대 전체 — 페이지와 무관하다(위 docstring).
         "summary": _aggregate_counts(rows),
         "vessels": page,
-        "actions": actions,
+        "actions": ordered_actions,
         # 라우트가 `meta`로 옮긴다(`§1.5`). `data`에 남기지 않는다.
         "_page": {
             "next_cursor": _encode_fleet_cursor(offset + page_size, sort) if has_more else None,
