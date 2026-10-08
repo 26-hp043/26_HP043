@@ -251,7 +251,7 @@ export function pickDefaultYear(
 /**
  * 거리·연료의 범위 — **항차 저장과 같다** (`#2134` · 결정 D-15).
  *
- * 서버 `api/schemas/bounds.py`의 `DISTANCE`(`NUMERIC(12,2)`)·`VOYAGE_FUEL`(`NUMERIC(12,4)`)과
+ * 서버 `validation/bounds.py`의 `DISTANCE`(`NUMERIC(12,2)`)·`VOYAGE_FUEL`(`NUMERIC(12,4)`)과
  * 같은 식이다. 종전에는 이 폼도 서버도 `> 0`만 봐서 저장할 수 없는 값(1억 t · 1e-9 t)도
  * 계산을 통과해 지울 수 없는 계산 이력에 남았고, 같은 값을 계획 저장으로 넘기면 그때서야
  * 걸렸다. **막는 것은 저장 범위 밖(상한 초과·하한 미만)뿐이다** — 99,999,999t 같은 범위 안

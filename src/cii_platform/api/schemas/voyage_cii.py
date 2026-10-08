@@ -19,7 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import DISTANCE, SPEED, VOYAGE_FUEL
+from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL
 
 #: API_SPEC §4.1 ``weather_model`` enum. 8/8 UI는 이 값을 보내지 않으며 기본값 NONE이다.
 WeatherModel = Literal["NONE", "SIMPLE_RULE", "TOWNSIN_KWON_ALPHA"]

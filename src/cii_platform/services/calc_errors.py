@@ -26,7 +26,8 @@ from cii_platform.errors import AppError, ParameterError, ValidationError
 
 _log = logging.getLogger(__name__)
 
-#: 용량 축 → 사용자에게 보이는 이름. ``api/field_labels.py``의 ``deadweight``·``gross_tonnage``
+#: 용량 축 → 사용자에게 보이는 이름. ``validation/field_labels.py``의
+#: ``deadweight``·``gross_tonnage``
 #: 라벨과 같다. 둘 다 받침 없이 끝나(「…톤수」) 조사는 「가」·「는」·「를」이다.
 CAPACITY_LABELS: dict[str, str] = {"DWT": "재화중량톤수(DWT)", "GT": "총톤수(GT)"}
 

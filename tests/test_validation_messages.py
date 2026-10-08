@@ -25,9 +25,9 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field, field_validator
 
 from cii_platform.api.error_handlers import validation_error_handler
-from cii_platform.api.field_labels import field_label
 from cii_platform.api.main import app
-from cii_platform.api.validation_messages import FALLBACK, is_korean, josa, korean_message
+from cii_platform.validation.field_labels import field_label
+from cii_platform.validation.messages import FALLBACK, is_korean, josa, korean_message
 
 _HANGUL = re.compile(r"[가-힣]")
 
@@ -278,7 +278,7 @@ def test_every_request_field_has_a_korean_label():
         if not _HANGUL.search(field_label(name))
     }
     assert not missing, (
-        "한글 라벨이 없는 요청 필드 — src/cii_platform/api/field_labels.py에 등록하세요 "
+        "한글 라벨이 없는 요청 필드 — src/cii_platform/validation/field_labels.py에 등록하세요 "
         "(라벨은 화면의 입력칸 이름을 따릅니다):\n"
         + "\n".join(f"  {k}  ←  {', '.join(v)}" for k, v in sorted(missing.items()))
     )

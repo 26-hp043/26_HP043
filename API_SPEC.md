@@ -399,7 +399,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 
 > **`message` 언어 규정**: `error.message`·`details[].message`는 `field_label`과 동일하게 **한국어**로 작성한다 (§1.4의 프레임워크 발생 오류 포함). 프레임워크(Starlette/FastAPI) 기본 영문 문구(`'Not Found'`, `'Method Not Allowed'`)를 그대로 내보내지 않는다.
 >
-> **[#900] Pydantic 검증 실패(422)도 이 규정을 따른다.** 종전에는 Pydantic 원문(`String should have at most 100 characters`)이 `message`로, 필드명 원문(`display_name`)이 `field_label`로 나갔다 — 라벨 표가 기능① 요청 필드와 목록 쿼리 17항목뿐이었다. 이제 서버가 **오류의 `type`·한계값에서 한국어 문장을 새로 만든다**(원문을 번역하지 않는다 — 원문은 Pydantic 판마다 바뀌지만 `type`은 공개 계약이다). 문장 틀은 §11 VAL-001 「`{field_label}`을/를 입력하세요.」 · VAL-002 「`{field_label}`는 0보다 커야 합니다.」를 따르고, 조사는 라벨의 받침으로 고른다. 직접 만든 검증기의 한국어 문구는 그대로 쓰며, **모르는 `type`은 「`{field_label}` 값이 올바르지 않습니다.」**로 떨어진다. 본문이 JSON이 아니면 `field`는 빈 문자열, `field_label`은 「요청 본문」이다. **모든 엔드포인트의 요청 필드가 한글 라벨을 가진다** — 라벨은 화면의 입력칸 이름을 따르며, 새 필드가 라벨 없이 들어오면 검사가 실패한다(`src/cii_platform/api/field_labels.py` · `validation_messages.py`).
+> **[#900] Pydantic 검증 실패(422)도 이 규정을 따른다.** 종전에는 Pydantic 원문(`String should have at most 100 characters`)이 `message`로, 필드명 원문(`display_name`)이 `field_label`로 나갔다 — 라벨 표가 기능① 요청 필드와 목록 쿼리 17항목뿐이었다. 이제 서버가 **오류의 `type`·한계값에서 한국어 문장을 새로 만든다**(원문을 번역하지 않는다 — 원문은 Pydantic 판마다 바뀌지만 `type`은 공개 계약이다). 문장 틀은 §11 VAL-001 「`{field_label}`을/를 입력하세요.」 · VAL-002 「`{field_label}`는 0보다 커야 합니다.」를 따르고, 조사는 라벨의 받침으로 고른다. 직접 만든 검증기의 한국어 문구는 그대로 쓰며, **모르는 `type`은 「`{field_label}` 값이 올바르지 않습니다.」**로 떨어진다. 본문이 JSON이 아니면 `field`는 빈 문자열, `field_label`은 「요청 본문」이다. **모든 엔드포인트의 요청 필드가 한글 라벨을 가진다** — 라벨은 화면의 입력칸 이름을 따르며, 새 필드가 라벨 없이 들어오면 검사가 실패한다(`src/cii_platform/validation/field_labels.py` · `src/cii_platform/validation/messages.py`).
 >
 > **[#999] 서비스가 직접 던지는 문구도 같다.** 필드명 원문(`regulation_year` 등)을 문장에 쓰지 않고 라벨로 부르며, **계산 엔진의 영문 예외를 문구 뒤에 붙이지 않는다** — 종전에는 DWT가 빈 선박이 「선박 제원이 부족해 계산할 수 없습니다: deadweight is required for ship_type 'BULK_CARRIER' … but was None」을 받았다. 사용자가 고칠 수 있는 원인(선종의 용량 축 DWT·GT가 비었거나 0 이하)은 **무엇이 비었는지** 한국어로 말하고, 고칠 수 없는 원인(기준선 구간의 빈틈 · 결과 NaN)은 정본 문구(§11 VAL-005 · VAL-008)만 두고 진단은 서버 로그로 보낸다 — 응답의 `request_id`로 찾는다. **용량 축이 비어 기준선·등급 경계를 고르지 못한 경우는 409가 아니라 422 `VALIDATION_ERROR`(`field: vessel_id`)다** — 종전에는 규정 파라미터 오류(409)로 나가 사용자가 제원을 채우면 풀리는 일을 서버 문제로 보이게 했다. 검사가 서비스의 `raise` 문을 읽어 같은 결함이 다시 들어오지 않게 한다(`tests/test_error_message_language.py`).
 
@@ -4320,7 +4320,7 @@ POST /api/v1/vessels/{vessel_id}/import
 
 | 열 | 한도의 출처 |
 |---|---|
-| `planned_distance_nm` | `NUMERIC(12,2)` — `schemas/bounds.py` `DISTANCE` |
+| `planned_distance_nm` | `NUMERIC(12,2)` — `validation/bounds.py` `DISTANCE` |
 | `planned_speed_kn` | `NUMERIC(6,2)` — `SPEED`(하한 `1.0`·상한 `60` 모두 도메인 · VAL-009) |
 | `planned_fuel_ton` | `NUMERIC(12,4)` — `VOYAGE_FUEL` |
 | `voyage_no` · 항만명 | `String(100)` · `String(200)` — **escape(`'` 접두) 뒤의 길이**를 센다 |
@@ -5353,3 +5353,4 @@ POST /api/v1/chat
 | 2026-10-08 | `#2364` | §1.6 경고 표 아래에 `[#2295]` 각주 — `IN_PROGRESS_PAST_ETA`·`IN_PROGRESS_PLANNED_DISTANCE_REACHED`가 함께 서면 실시간 CII 경고 띠가 쓰는 **한 문장 원문**을 등재했다(결정 `rlatnals4114`). 응답 코드·정의는 그대로이고 합치는 것은 화면 표시뿐이다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#2295) |
 | 2026-10-08 | `#2365` | §2.16 선박별·선대 fuel_no_record_count 추가. 연료 행 없는 실적 집계 항차를 CO₂ 완결성 비율과 함께 표시하고 연도·정책·삭제·행의 값 누락 경계와 연도 전체 점검/기준 시각 예상의 범위를 명시 (#2096) |
 | 2026-10-08 | `#2367` | **v1.53 — §8.2 항차 번호 묶음 규칙 신설**. 혼합 연료 합침·공통 정보/행 오류의 묶음 거부·저장된 번호 재업로드 거부·dry_run 일치·행 단위 건수·상한에서 잘린 묶음·정본 오류 문구 명시 (#2094) |
+| 2026-10-08 | `#___` | §1.3.2 공용 라벨·검증 문구와 §8.2 입력 범위의 소스 경로를 validation으로 맞춤(값·계약 변화 없음) (#2101) |

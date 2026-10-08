@@ -13,14 +13,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import (
+from cii_platform.api.schemas.instants import Instant
+from cii_platform.validation.bounds import (
     DISTANCE,
     PORT_NAME_MAX_LENGTH,
     REGULATION_YEAR,
     SPEED,
     VOYAGE_FUEL,
 )
-from cii_platform.api.schemas.instants import Instant
 
 #: 계획 거리의 출처 (#1256 · `DB_SCHEMA §2.2` `planned_distance_source`).
 #:

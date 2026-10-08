@@ -16,8 +16,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cii_platform.api.schemas.bounds import DAILY_FOC, REFERENCE_SPEED, storable, storable_from
 from cii_platform.imo_number import IMO_CHECK_DIGIT_MESSAGE, imo_check_digit_ok
+from cii_platform.validation.bounds import DAILY_FOC, REFERENCE_SPEED, storable, storable_from
 
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:

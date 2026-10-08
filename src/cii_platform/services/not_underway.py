@@ -37,6 +37,7 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services.voyage import reset_stale_sources
+from cii_platform.validation.field_labels import field_label
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -83,13 +84,11 @@ CONSUMER_TYPES: tuple[str, ...] = (
 #: 오류 문구에 시각을 적을 때의 시간대. 화면(`DESIGN_SYSTEM §4.4`)·리포트와 같은 KST다.
 _MESSAGE_TIMEZONE = ZoneInfo("Asia/Seoul")
 
-#: 오류 메시지의 한국어 항목명. ``api.field_labels``를 쓰지 않는 이유는 ``services``가
-#: ``api``를 import 할 수 없기 때문이다(TECH_SPEC §16 계층 방향, ``errors`` 주석 참조).
-_FIELD_LABELS = {
-    "period_type": "구간 유형",
-    "started_at": "시작 시각",
-    "distance_nm": "이동 거리",
-}
+
+def _field_label(field: str) -> str:
+    """공용 라벨을 쓰되 정박 거리와 항차 항해거리의 기존 구분을 유지한다."""
+    return field_label("not_underway.distance_nm" if field == "distance_nm" else field)
+
 
 #: 시각 칸 → 출처 칸 (#1923 · `DB_SCHEMA §2.17`). 항차의 `ACTUAL_TIME_SOURCE_FIELDS`와 같은 규칙.
 TIME_SOURCE_FIELDS: dict[str, str] = {
@@ -313,9 +312,7 @@ def _assert_stationary_distance(period_type: str, distance_nm: Decimal) -> None:
     """:func:`stationary_distance_violation`을 422로 옮긴다. 칸은 ``distance_nm``이다."""
     message = stationary_distance_violation(period_type, distance_nm)
     if message is not None:
-        raise ValidationError(
-            message, field="distance_nm", field_label=_FIELD_LABELS["distance_nm"]
-        )
+        raise ValidationError(message, field="distance_nm", field_label=_field_label("distance_nm"))
 
 
 def _validate_enum(value: str, allowed: tuple[str, ...], *, field: str, label: str) -> None:
@@ -493,7 +490,7 @@ async def update_period(
             raise ValidationError(
                 "비울 수 없는 항목입니다.",
                 field=column,
-                field_label=_FIELD_LABELS[column],
+                field_label=_field_label(column),
             )
 
     if "period_type" in fields:

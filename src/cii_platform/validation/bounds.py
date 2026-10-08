@@ -16,7 +16,7 @@
 정하지 않는다. 소수 아래 자릿수는 **막지 않는다** — 받아서 DB가 반올림한다.
 
 값은 ORM 모델의 ``Numeric(precision, scale)``과 같아야 하며 ``tests/test_vessel_spec_bounds.py``
-·``tests/test_request_bounds_db.py``가 둘을 대조한다.
+·``tests/test_request_bounds.py``가 둘을 대조한다.
 """
 
 from __future__ import annotations

@@ -102,7 +102,7 @@ describe('eunNeun — 주격 조사 (#1369)', () => {
   })
 
   it('끝의 괄호 설명은 건너뛰고 앞 낱말로 고른다', () => {
-    // 서버(`api/validation_messages.py`의 `_TRAILING_PAREN`)와 같은 규칙이다.
+    // 서버(`validation/messages.py`의 `_TRAILING_PAREN`)와 같은 규칙이다.
     // 이것이 없으면 아래 라벨들에서 화면과 서버가 다른 조사를 낸다.
     expect(withEunNeun('총톤수(GT)')).toBe('총톤수(GT)는')
     expect(withEunNeun('재화중량톤수(DWT)')).toBe('재화중량톤수(DWT)는')

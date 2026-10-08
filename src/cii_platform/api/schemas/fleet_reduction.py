@@ -84,7 +84,7 @@ class ReductionPlanRequest(BaseModel):
 class ReductionPlanSaveRequest(ReductionPlanRequest):
     """``POST /fleet/reduction-plans`` 본문 — 계산 본문 + 이름."""
 
-    #: ``name``이 아닌 이유 — 필드 라벨(``api/field_labels.py``)이 필드명 하나로 매겨지는데
+    #: ``name``이 아닌 이유 — 필드 라벨(``validation/field_labels.py``)이 필드명 하나로 매겨지는데
     #: ``name``은 이미 「선명」이다. 같은 이름이면 계획 이름 오류가 「선명」으로 나간다.
     #:
     #: **앞뒤 공백을 먼저 걷고 길이를 잰다** (#1070 ⑴). 종전에는 공백만 있는 이름이

@@ -187,7 +187,7 @@ export function storableRange(precision: number, scale: number): { min: number; 
 }
 
 /**
- * 속력의 물리 상한(kn) — `PRD §9.1` VAL-009 (#1269). 서버 `api/schemas/bounds.py`의
+ * 속력의 물리 상한(kn) — `PRD §9.1` VAL-009 (#1269). 서버 `validation/bounds.py`의
  * `MAX_SPEED_KN`·DB 트리거(`062`)와 같은 값이다.
  *
  * 저장 형식의 상한(9,999.99)은 「운항할 수 없는 값」을 하나도 막지 못했다 — `120`kn이

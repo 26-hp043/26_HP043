@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.16 |
+| 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
 | 최종 수정일 | 2026-10-08 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1842,7 +1842,7 @@ class SimulationSnapshot:
 ```
 사용자 요청
     ↓
-[api/routes]        ← HTTP 요청/응답만 (검증, 직렬화). 서비스만 호출.
+[api/routes]        ← HTTP 요청/응답·트랜잭션 경계. 업무 처리는 서비스 호출.
     ↓
 [services]          ← 비즈니스 로직 (계산 흐름, 규칙, fallback·상태 전환 결정)
     ↓         ↘
@@ -1861,6 +1861,7 @@ class SimulationSnapshot:
 ```
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
+├── validation/          ← 계층 중립 범위·필드 라벨·검증 문구 (#2101)
 ├── config.py            ← 설정 (DATABASE_URL 등)
 ├── log_config.py        ← 구조화(JSON) 로그 설정 (#827)
 ├── depcheck.py          ← dev 이미지 의존성 드리프트 검사 (#523)
@@ -1986,7 +1987,7 @@ frontend/
 
 | 계층 | 하는 일 | 하지 않는 일 | 호출 가능 대상 |
 |---|---|---|---|
-| `api/routes` | 요청 검증, 응답 직렬화 | 계산, DB 직접 접근 | `services`만 |
+| `api/routes` | 요청 검증, 응답 직렬화, 감사 원자 커밋 경계 | 계산·일반 업무의 DB 직접 접근 | `services` · 공용 `validation` · 아래 명시적 DB 예외 |
 | `services` | 계산 흐름 조율, 비즈니스 규칙, fallback·상태 전환 결정 | HTTP 처리, 원시 SQL | `calc`, `db/repositories` |
 | `calc` | 순수 수학 계산 | DB 접근, HTTP, 비즈니스 흐름 | (없음 — 순수 함수) |
 | `db/repositories` | DB 쿼리(SELECT/INSERT…) | 비즈니스 로직, 계산 | `db/models` |
@@ -1994,6 +1995,20 @@ frontend/
 
 - **역방향 의존 금지**: 하위 계층은 상위 계층을 import하지 않는다. 특히 `calc`·`db`·`services`는 `api`를 import하지 않는다.
 - ORM 모델은 `db/models`, API 스키마는 `api/schemas`로 분리한다(DB 표현과 API 표현의 혼용 방지).
+- **공용 입력 규칙·문구는 계층 중립 위치** (`#2101` D-4): `validation/bounds.py`·`field_labels.py`·`messages.py`. API 스키마·서비스 CSV·오류 변환이 같은 정의를 사용하며 이 패키지는 API를 import하지 않는다. 정박 거리의 라벨은 `not_underway.distance_nm`으로 항차의 `distance_nm`과 구분해 기존 문구를 유지한다.
+- **세션 주입·트랜잭션 종료는 DB 직접 쿼리와 구분한다**: 라우트의 `db.session.get_session`, `sqlalchemy.ext.asyncio.AsyncSession`은 의존성 주입·형식 용도로 허용한다. `commit`·`rollback`은 아래 원자 커밋 규칙대로 라우트가 맡을 수 있다. 이 허용이 SQL·repository·ORM 직접 조회/변경을 허용하는 것은 아니다. 계산·시나리오 라우트는 서비스와 감사 호출 뒤 `commit`만 하므로 DB 예외 목록에 넣지 않는다.
+- **직접 DB 접근 예외는 아래 파일·목적에 한정한다** (`#2101` D-4). 새로운 업무 라우트나 계산식에 자동으로 적용하지 않는다. 예외를 추가·확대하려면 목적을 대조해 이 표와 가드를 함께 개정한다.
+
+| 라우트 파일 | 허용 목적·현재 접근 |
+|---|---|
+| `auth.py` | 계정·세션·역할·탈퇴와 연관된 대화 정리의 ORM·repository·SQL |
+| `auth_dev.py` | 개발 로그인 계정·세션의 ORM 접근 |
+| `auth_tokens.py` | 메일 인증·재설정 토큰과 계정 조회/확정의 ORM·SQL |
+| `audit_logs.py` | 감사 조회. 현재는 감사 서비스 호출만 하며 직접 쿼리는 없다 |
+| `chat.py` | 대화 이력·세션과 인증 사용자에 한정한 모델·repository 접근 |
+
+`tests/test_layer_boundaries.py`가 하위(`calc`·`db`·`services`·공용 `validation`)→API를 0건으로, 라우트→계산을 0건으로 검사한다. 라우트의 DB/SQLAlchemy import는 위 예외 또는 정확한 두 주입 import만 허용하고, 예외 밖 주입 세션의 직접 메소드 호출은 commit/rollback만 허용한다. 절대·상대·함수 안·TYPE_CHECKING import, 상수 문자열 동적 import·세션 단순 별칭도 검사한다. 임의 문자열 조합·반영(reflection)·모든 런타임 간접 호출을 완전히 해석하는 분석기는 아니다. 가드는 실제 저장소뿐 아니라 금지/허용 소스 표본으로 검출력을 확인한다. health의 canonical RNG 진단도 `services.health`를 거쳐 기존 계산 함수에 도달하며 응답·캐시·실패 처리는 유지한다.
+
 - **상태에 의존하는 쓰기는 부모 행을 먼저 잠근다** (`#1630` · `F-8` 결정). 읽고 판정하고 쓰는 사이에 다른 요청이 끼면 **둘 다 같은 옛 상태를 보고** 통과한다 — 활성 토큰이 두 개 남거나(`services/auth_token.issue_token`), 마지막 관리자가 0명이 되는(`routes/auth._lock_admin_users`) 형태다. 쓰기 전에 `SELECT … FOR UPDATE`로 **부모 행**(사용자·선박·항차)을 잡는다.
   - **토큰·구간처럼 아직 없는 행에는 걸 수 없다** — 두 요청이 보는 행이 아예 없는 것이 그 경합의 시작이다. 그래서 자식이 아니라 부모를 잠근다.
   - 트랜잭션 경계는 바꾸지 않는다. 잠금은 호출부가 커밋할 때 함께 풀린다.
@@ -2018,11 +2033,11 @@ frontend/
 
 PR 리뷰 시 다음을 확인한다:
 
-- [ ] `api/routes`가 `services`만 호출하고 `db`·`calc`를 직접 호출하지 않는가
+- [ ] `api/routes`의 업무 처리·계산은 `services`를 거치며, DB 직접 접근은 §16.3의 파일·목적 예외/정확한 세션 주입·커밋 범위에 한정되는가
 - [ ] `services`가 HTTP 객체(Request/Response)나 원시 SQL을 다루지 않는가
 - [ ] `calc`가 DB·HTTP·비즈니스 흐름에 의존하지 않는 순수 함수인가
 - [ ] `db/repositories`에 비즈니스 로직(상태 전환 검증, fallback 결정 등)이 섞이지 않았는가
-- [ ] 하위 계층(`calc`/`db`/`services`)이 `api`를 import하지 않는가(역방향 의존 없음)
+- [ ] 하위 계층(`calc`/`db`/`services`)과 공용 `validation`이 `api`를 import하지 않고 `test_layer_boundaries.py`의 실제 저장소·검출 표본을 통과하는가
 - [ ] 오류가 `AppError` 계열로 던져지고 API 응답 포맷(API_SPEC §1.3.2)을 따르는가
 - [ ] 새 모듈(라우터·미들웨어·의존성 주입)이 `main.py`에 **배선**됐는가 — 모듈만 작성하고 배선을 빠뜨려도 테스트가 통과할 수 있다. 배선 검증 테스트는 실제 `cii_platform.api.main.app`을 대상으로 한다 (최소 `FastAPI()` 앱에 직접 붙이는 방식은 "실제 앱에 붙어 있다"를 증명하지 못한다)
 
@@ -2344,3 +2359,4 @@ nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 
 | 2026-10-07 | `#2301` | **낡은 서술 정정** (`#2139`). ⑴ `§16.2` 트리의 「기능 단위 18종」 → **20종**(`map`·`notifications` 추가)과 트리에 없던 `log_config.py`·`port_calls/`·`i18n/` 행 추가 — `tests/test_doc_cross_refs.py`가 수·이름을 `frontend/src/features`와 대조한다. ⑵ `§13.1` `[#277]` 각주의 자격 증명 예 `id_token`·`code`(OIDC)를 자체 인증의 **비밀번호·세션 토큰·메일 인증·재설정 토큰**으로(`PRD §20 O-14` · `#413`). ⑶ `[#235]` 각주의 `asyncpg` → `pycubrid`(`pyproject.toml`이 `#1058`로 `asyncpg`를 뺐다). ⑷ 선택 키 규약의 「기능③에서는 세 번 적용됐다」 → **네 번**(`calc/hash.py` `ANNUAL_INPUT_FIELDS`의 `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`). ⑸ `CII = M / (W · Dt)` 표기를 `M / (transport_capacity × Dt)`로 — 식의 뜻은 그대로다 (#2139) |
 | 2026-10-08 | `#2343` | **§5.4.1 항목 6 신설 — 연도를 지정하지 않았을 때의 「올해」는 기준 시각의 한국 달력 해** (`#2131`). 구현은 `simulation_clock.current_regulation_year(as_of)` 하나이며 `zoneinfo`로 `Asia/Seoul`을 고정해 호스트 시간대와 무관하다. `as_of.year`를 서비스가 직접 읽던 자리(`cii_current`(`year` 미지정 기본값만) · `cii_ytd_series` · `data_quality` · `fleet_summary` · `cii_history` · `report` · `notifications` · `chat_tools`)가 이 함수를 쓴다. 항차·정박 구간의 귀속 연도(UTC 고정, `#1333`)와는 별개다. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#2131) |
 | 2026-10-08 | `#2369` | **v1.16 — §20 보안 응답 헤더 신설**. 세 헤더의 값·배포 경로·오류/쿠키/Range 보존·CSP 실측 유예와 검증·출처 명시 (#2111) |
+| 2026-10-08 | `#___` | **v1.17 — §16.2·§16.3·§16.5 계층 경계 정리**. 공용 검증 모듈 중립 이동·라우트 DB 예외와 주입/원자 커밋 구분·AST 가드·health 서비스 경유 명시 (#2101) |

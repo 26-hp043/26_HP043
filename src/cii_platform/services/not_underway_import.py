@@ -39,8 +39,6 @@ from uuid import UUID
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from cii_platform.api.schemas.bounds import NOT_UNDERWAY_FUEL
-from cii_platform.api.validation_messages import _MESSAGES, josa
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ConflictError, ValidationError
@@ -61,6 +59,8 @@ from cii_platform.services.voyage_import import (
     column_length,
     save_stage_row_error,
 )
+from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
+from cii_platform.validation.messages import _MESSAGES, josa
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
     from sqlalchemy.ext.asyncio import AsyncSession

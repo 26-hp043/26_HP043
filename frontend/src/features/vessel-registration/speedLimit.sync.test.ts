@@ -8,12 +8,12 @@ import { initialFormState, MAX_SPEED_KN, STORABLE, validateForm } from './formRu
  *
  * 서버가 상한을 내려주는 API가 없어 값을 옮겨 적을 수밖에 없다. **옮겨 적은 것이 어긋나면
  * CI가 실패하게** 한다 — `specBounds.sync.test.ts`와 같은 취지다. 원본은 서버
- * `api/schemas/bounds.py`의 `MAX_SPEED_KN`이며, 모델 CHECK·마이그레이션 `062`와의 대조는
+ * `validation/bounds.py`의 `MAX_SPEED_KN`이며, 모델 CHECK·마이그레이션 `062`와의 대조는
  * `tests/test_request_bounds.py`가 한다.
  */
 
 const boundsPy = readFileSync(
-  new URL('../../../../src/cii_platform/api/schemas/bounds.py', import.meta.url),
+  new URL('../../../../src/cii_platform/validation/bounds.py', import.meta.url),
   'utf-8',
 )
 

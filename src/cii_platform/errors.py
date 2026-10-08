@@ -92,7 +92,7 @@ class ValidationError(AppError):
     (API_SPEC §1.3.2 ``details[].field``). ``field``가 있으면 ``details`` 한 건을
     자동으로 구성한다 — 호출부마다 dict를 손으로 만들면 형식이 갈린다.
 
-    ``field_label``은 :mod:`cii_platform.api.field_labels`가 아니라 호출부에서
+    ``field_label``은 :mod:`cii_platform.validation.field_labels`가 아니라 호출부에서
     주입한다. ``errors``는 레이어 중립 모듈이라 ``api`` 패키지를 import할 수 없다
     (TECH_SPEC §16 계층 방향).
     """
