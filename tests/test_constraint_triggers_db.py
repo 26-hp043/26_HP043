@@ -12,8 +12,8 @@
 2. **불변성** — ``calculation_run``·``simulation_snapshot``의 UPDATE·DELETE 차단.
    단 ``calculation_run``은 ``needs_recalc`` 0 → 1 플립만 통과한다(`024` 계약).
 3. **연료 코드 참조** — 없는 코드가 들어가지 않고, 부모 쪽 코드는 개명되지 않는다
-   (``068`` · #2260 — 참조 행이 없어도 막는다). 참조 중인 코드의 **삭제**는 일부러 막지
-   않는다(아래). CUBRID의 FK는 **PK만** 가리킬 수 있어 ``fuel_type.code``(별도 UNIQUE)에는
+   (``068`` · #2260 — 참조 행이 없어도 막는다). 참조 중인 코드의 **삭제**도 부모 트리거로 막는다
+   (``069`` · #2308). CUBRID의 FK는 **PK만** 가리킬 수 있어 ``fuel_type.code``(별도 UNIQUE)에는
    걸 수 없다 — 그래서 FK가 아니라 트리거다.
 4. **열 목록이 스키마를 따라간다** — ``calculation_run``에 열이 늘면 불변성 조건에도
    더해야 한다. 빠뜨리면 **그 열만 조용히 수정 가능해진다.**
@@ -324,28 +324,132 @@ async def test_unknown_fuel_code_is_rejected(conn: AsyncConnection, table: str, 
 
 
 @pytest.mark.asyncio
-async def test_parent_side_delete_is_deliberately_not_guarded(conn: AsyncConnection):
-    """참조 중인 연료를 지우는 것은 **막지 않는다** — 일부러 그렇게 두었다.
-
-    원래 FK는 ``ON DELETE NO ACTION``이라 막았고, 한 번은 트리거로 되살렸다. 그런데
-    `db/seed.py`의 재적재가 ``sqlalchemy_cubrid.dml.replace``를 쓰고 **CUBRID의
-    ``REPLACE``는 DELETE + INSERT로 구현되어** 그 트리거를 깨운다. 같은 ``code``가 곧바로
-    다시 들어가 고아가 생기지 않는데도 재적재 전체가 막혔다(`test_seed_data.py` 7건이
-    fixture에서 죽었다). 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다.
-
-    **이 검사는 그 구멍이 열려 있다는 사실을 고정한다.** 나중에 부모 쪽을 막게 되면 이
-    검사가 실패하고, 그때 `test_seed_data.py`와 `DB_SCHEMA §7.4`를 함께 봐야 한다.
-    """
-    code = await conn.scalar(text("SELECT fuel_type FROM voyage_fuel_use"))
-    # 데모 시드(`migrated_db`)가 연료 실적을 넣으므로 비어 있을 수 없다 — 비었으면 이 검사가
-    # 고정하려던 사실을 보지 못한 것이므로 건너뛰지 않고 실패한다 (`#2143`).
-    assert code is not None, "voyage_fuel_use가 비었다 — 데모 시드가 연료 실적을 넣지 못했다"
-
-    await conn.execute(text("DELETE FROM fuel_type WHERE code = :code"), {"code": str(code)})
-    remaining = await conn.scalar(
-        text("SELECT count(*) FROM fuel_type WHERE code = :code"), {"code": str(code)}
+@pytest.mark.parametrize("reference", ["vessel", "voyage", "period"])
+@pytest.mark.parametrize("deleted", [False, True])
+async def test_parent_side_delete_rejects_referenced_code(conn, reference, deleted):
+    """세 참조의 활성/삭제 이력을 보존한다. 하나의 참조만 둬 각 갈래를 직접 본다 (#2308)."""
+    code = "RF" + uuid.uuid4().hex[:12].upper()
+    await conn.execute(
+        text(
+            "INSERT INTO fuel_type (code, display_name, cf, source_ref) "
+            "VALUES (:code, '삭제 참조 검사', 1, 'TEST')"
+        ),
+        {"code": code},
     )
-    assert remaining == 0, "부모 쪽이 막혔다 — 막게 되었다면 §7.4와 seed 재적재를 함께 볼 것"
+    vessel_id = uuid.uuid4()
+    await conn.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, default_fuel_type, is_deleted) "
+            "VALUES (:id, :imo, 'DELETE REF TEST', 'BULK_CARRIER', :fuel, :deleted)"
+        ),
+        {
+            "id": vessel_id,
+            "imo": f"9{vessel_id.int % 1000000:06d}",
+            "fuel": code if reference == "vessel" else None,
+            "deleted": int(deleted) if reference == "vessel" else 0,
+        },
+    )
+    if reference == "voyage":
+        voyage_id = uuid.uuid4()
+        await conn.execute(
+            text(
+                "INSERT INTO voyage "
+                "(id, vessel_id, status, departure_port_name, arrival_port_name, "
+                "created_from, is_deleted, planned_distance_nm, planned_speed_kn, "
+                "annual_inclusion_policy) "
+                "VALUES (:id, :v, 'DRAFT', 'A', 'B', 'MANUAL', :deleted, 10, 10, 'EXCLUDE')"
+            ),
+            {"id": voyage_id, "v": vessel_id, "deleted": int(deleted)},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO voyage_fuel_use "
+                "(voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
+                "VALUES (:id, :code, 1, 1, 'USER_INPUT')"
+            ),
+            {"id": voyage_id, "code": code},
+        )
+    elif reference == "period":
+        period_id = uuid.uuid4()
+        await conn.execute(
+            text(
+                "INSERT INTO not_underway_period (id, vessel_id, period_type, started_at, "
+                "distance_nm, regulation_year, is_deleted) "
+                "VALUES (:id, :v, 'IN_PORT', :start, 0, 2026, :deleted)"
+            ),
+            {
+                "id": period_id,
+                "v": vessel_id,
+                "start": datetime(2026, 1, 1, tzinfo=UTC),
+                "deleted": int(deleted),
+            },
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO not_underway_fuel_use "
+                "(period_id, consumer_type, fuel_type, fuel_ton, cf_used) "
+                "VALUES (:id, 'OTHER', :code, 1, 1)"
+            ),
+            {"id": period_id, "code": code},
+        )
+    with pytest.raises(IntegrityError) as caught:
+        await conn.execute(text("DELETE FROM fuel_type WHERE code=:code"), {"code": code})
+    assert "trg_fuel_type_referenced_delete" in str(caught.value).lower()
+    # 거부 뒤 실제 부모도 남는다. 초기 고아 여부만 검사하는 가짜 성공을 피한다.
+    assert (
+        await conn.scalar(text("SELECT count(*) FROM fuel_type WHERE code=:code"), {"code": code})
+        == 1
+    )
+
+
+async def test_parent_side_delete_allows_unreferenced_code(conn):
+    """이력 참조가 없는 연료는 삭제한다. 부모 DELETE 전부를 막는 검사가 아니다."""
+    code = "RF" + uuid.uuid4().hex[:12].upper()
+    await conn.execute(
+        text(
+            "INSERT INTO fuel_type (code, display_name, cf, source_ref) "
+            "VALUES (:code, '미참조 검사', 1, 'TEST')"
+        ),
+        {"code": code},
+    )
+    await conn.execute(text("DELETE FROM fuel_type WHERE code=:code"), {"code": code})
+    assert (
+        await conn.scalar(text("SELECT count(*) FROM fuel_type WHERE code=:code"), {"code": code})
+        == 0
+    )
+
+
+async def test_parent_delete_trigger_roundtrip_is_idempotent(conn, monkeypatch):
+    """현재 격리 DB에서 DOWN/UP을 두 번씩 호출하고 트리거 존재를 복구한다."""
+    migration = _load_migration("069_fuel_type_referenced_delete.py")
+
+    def exercise(sync):
+        class BoundOp:
+            def get_bind(self):
+                return sync
+
+            def execute(self, statement):
+                return sync.execute(text(statement))
+
+        monkeypatch.setattr(migration, "op", BoundOp())
+
+        def exists():
+            return sync.scalar(
+                text("SELECT count(*) FROM db_trigger WHERE name=:name"),
+                {"name": migration.TRIGGER_NAME},
+            )
+
+        try:
+            migration.downgrade()
+            migration.downgrade()
+            assert exists() == 0
+            migration.upgrade()
+            migration.upgrade()
+            assert exists() == 1
+        finally:
+            migration.upgrade()
+
+    await conn.run_sync(exercise)
 
 
 async def _referenced_fuel_code(conn: AsyncConnection) -> str:
