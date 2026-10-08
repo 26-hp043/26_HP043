@@ -5,7 +5,7 @@ export const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 } as const
 
-export async function onRequest(context: { next: () => Promise<Response> }): Promise<Response> {
+export async function attachSecurityHeaders(context: { next: () => Promise<Response> }): Promise<Response> {
   const upstream = await context.next()
   // 본문 스트림·상태·쿠키·Range·캐시 헤더를 옮긴 뒤 세 헤더만 덮어쓴다.
   const response = new Response(upstream.body, upstream)

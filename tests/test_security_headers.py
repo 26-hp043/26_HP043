@@ -162,11 +162,13 @@ def test_static_and_function_policies_match_canonical_values():
     static_headers = dict(re.findall(r"^\s+([^:]+): (.+)$", global_rule[1], re.M))
     assert static_headers == _EXPECTED
     function = (_ROOT / "frontend/functions/_securityHeaders.ts").read_text()
+    # helper에서 onRequest를 내보내면 별도 공개 경로가 생긴다 (Wrangler 실제 번들 확인).
+    assert "export async function onRequest" not in function
     for name, value in _EXPECTED.items():
         assert f"'{name}': '{value}'" in function
     for area in ("api", "basemap"):
         assert (
-            "export { onRequest } from '../_securityHeaders'"
+            "export { attachSecurityHeaders as onRequest } from '../_securityHeaders'"
             in (_ROOT / f"frontend/functions/{area}/_middleware.ts").read_text()
         )
 
