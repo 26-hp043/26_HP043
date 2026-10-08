@@ -175,6 +175,7 @@ async def adopt_scenario(
         )
 
     updated_fields = list(UPDATED_FIELDS)
+    annual_input_changed = True
     if adopt_mode == MODE_CREATE:
         voyage = await _create_from_scenario(
             session,
@@ -191,6 +192,15 @@ async def adopt_scenario(
                 f"계획 단계 항차에만 반영할 수 있습니다 (현재 상태: {target.status}). "
                 f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
             )
+        before_plan = (
+            target.planned_distance_nm,
+            target.planned_speed_kn,
+            target.planned_arrival_at,
+            tuple(
+                (row.fuel_type, row.planned_fuel_ton)
+                for row in await voyage_repo.list_fuel_uses(session, target.id)
+            ),
+        )
         target.planned_distance_nm = scenario.distance_nm
         # 거리 출처는 「모른다」로 돌린다 (#1256). `voyage_scenario` 행은 직항 거리가 좌표
         # 대권거리였는지 입력값이었는지를 갖고 있지 않고(`scenario_compare._resolve_direct_distance`
@@ -210,6 +220,16 @@ async def adopt_scenario(
             # 넣을 연료 종류를 몰라 건너뛴 경우다. **바꾸지 않은 것을 바꿨다고 적지 않는다.**
             updated_fields.remove(FIELD_PLANNED_FUEL)
         voyage_id = target.id
+        after_plan = (
+            target.planned_distance_nm,
+            target.planned_speed_kn,
+            target.planned_arrival_at,
+            tuple(
+                (row.fuel_type, row.planned_fuel_ton)
+                for row in await voyage_repo.list_fuel_uses(session, target.id)
+            ),
+        )
+        annual_input_changed = before_plan != after_plan
 
     await _clear_previous_adoption(session, voyage_id)
     scenario.is_adopted = True
@@ -218,7 +238,8 @@ async def adopt_scenario(
     # `API_SPEC §5.2` — 계획이 바뀌었으므로 그 항차의 계산 결과는 더 이상 현행이 아니다.
     marked = await voyage_repo.mark_calculations_needing_recalc(session, voyage_id)
     # 응답의 invalidated_calculation_runs는 기존 항차 귀속 계산 건수다 (#2304).
-    await calc_run_repo.mark_annual_needs_recalc(session, scenario.vessel_id)
+    if annual_input_changed:
+        await calc_run_repo.mark_annual_needs_recalc(session, scenario.vessel_id)
 
     await session.commit()
     return {

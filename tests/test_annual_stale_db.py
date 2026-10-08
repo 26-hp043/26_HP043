@@ -235,7 +235,16 @@ async def test_saved_run_becomes_stale_on_input_changes(session, vessel_id, acti
 
 
 @pytest.mark.parametrize(
-    "action", ["same_plan", "same_actual", "same_fuel", "same_period", "metadata", "rejected"]
+    "action",
+    [
+        "same_plan",
+        "same_actual",
+        "same_fuel",
+        "same_period",
+        "same_scenario",
+        "metadata",
+        "rejected",
+    ],
 )
 async def test_no_change_or_rejected_request_keeps_run_current(session, vessel_id, action):
     planned = await _add_voyage(
@@ -271,6 +280,12 @@ async def test_no_change_or_rejected_request_keeps_run_current(session, vessel_i
         )
     elif action == "same_period":
         await nu.update_period(session, UUID(period["id"]), ended_at=END)
+    elif action == "same_scenario":
+        scenario_id = await _new_scenario(session, vessel_id, distance="3000", fuel="250")
+        await session.execute(
+            text("UPDATE voyage_scenario SET speed_kn=14 WHERE id=:id"), {"id": scenario_id}
+        )
+        await adopt_scenario(session, scenario_id, target_voyage_id=planned)
     elif action == "metadata":
         await voyage_svc.update_voyage(session, planned, notes="계산 입력이 아닌 메모")
         await nu.update_period(session, UUID(period["id"]), port_name="계산 입력이 아닌 항구명")
