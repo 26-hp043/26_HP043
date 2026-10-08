@@ -9,12 +9,18 @@ import { describe, expect, it } from 'vitest'
  *
  * 종전에는 `tokens.css`의 display 28 · 굵기 700/600 · label 500이 §3(display 32 ·
  * 굵기 400/500만)과 달랐는데 어느 검사도 둘을 잇지 않았다. 여기서는 §3 표를 읽어
- * 크기 · 굵기 · 행간(px)을 코드 토큰과 대조하고, CSS 어디에도 600 · 700이 없음을 본다.
+ * 크기 · 굵기 · 행간(px) · 자간을 코드 토큰과 대조하고, CSS 어디에도 600 · 700이 없음을 본다.
+ * 자간은 크기별 별칭 → Figma 생성 CSS → 내보내기 JSON까지 잇는다 (#2145).
+ * 이 검사는 타입 토큰의 대응을 확인하며 모든 화면의 computed 자간을 검사하지 않는다.
  */
 
 const SRC = fileURLToPath(new URL('..', import.meta.url))
 const DOC = readFileSync(join(SRC, '..', '..', 'DESIGN_SYSTEM.md'), 'utf-8')
 const TOKENS = readFileSync(join(SRC, 'styles', 'tokens.css'), 'utf-8')
+const GENERATED = readFileSync(join(SRC, 'styles', 'tokens.generated.css'), 'utf-8')
+const FIGMA = JSON.parse(readFileSync(join(SRC, 'design', 'tokens', 'BlueLog.tokens.json'), 'utf-8')) as {
+  letterSpacing: Record<string, { $value: number }>
+}
 
 /**
  * §3 이름 → 코드 토큰 접미사.
@@ -54,11 +60,15 @@ function section3(): string {
   return DOC.slice(start, end)
 }
 
-function specRows(): Map<string, { size: number; weight: number; lineHeight: number }> {
-  const rows = new Map<string, { size: number; weight: number; lineHeight: number }>()
-  const pattern = /^\|\s*`([a-z]+)`\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/gm
+function specRows(): Map<string, { size: number; weight: number; lineHeight: number; tracking: number }> {
+  const rows = new Map<string, { size: number; weight: number; lineHeight: number; tracking: number }>()
+  const pattern = /^\|\s*`([a-z]+)`\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(-?[\d.]+)(em)?\s*\|/gm
   for (const m of section3().matchAll(pattern)) {
-    rows.set(m[1], { size: Number(m[2]), weight: Number(m[3]), lineHeight: Number(m[4]) })
+    // 0은 단위 없이도 같은 값이다. 그 밖의 값은 §3이 확정한 em이어야 한다.
+    expect(m[6] === 'em' || Number(m[5]) === 0, `${m[1]} 자간 단위`).toBe(true)
+    rows.set(m[1], {
+      size: Number(m[2]), weight: Number(m[3]), lineHeight: Number(m[4]), tracking: Number(m[5]),
+    })
   }
   return rows
 }
@@ -83,6 +93,17 @@ describe('타입 토큰이 DESIGN_SYSTEM §3과 같다 (#1691)', () => {
       expect(size).toBe(row.size)
       // 행간은 단위 없는 비로 둔다 — 크기와 곱해 §3의 px(±0.5)와 같아야 한다.
       expect(Math.abs(token(`line-height-${code}`) * size - row.lineHeight)).toBeLessThanOrEqual(0.5)
+    })
+
+    it(`${spec} → 자간 별칭 · Figma 생성값 · 내보내기`, () => {
+      const alias = new RegExp(`--letterSpacing-${code}:\\s*var\\(--letterSpacing-([a-z]+)\\);`).exec(TOKENS)
+      expect(alias, `${spec} 크기별 자간 별칭`).not.toBeNull()
+      const name = alias![1]
+      const generated = new RegExp(`--letterSpacing-${name}:\\s*(-?[0-9.]+)em;`).exec(GENERATED)
+      expect(generated, `${name} 생성 자간은 em 단위`).not.toBeNull()
+      expect(Number(generated![1])).toBe(rows.get(spec)!.tracking)
+      expect(FIGMA.letterSpacing[name], `${name} Figma 원본`).toBeDefined()
+      expect(Number(generated![1])).toBe(FIGMA.letterSpacing[name].$value)
     })
   }
 
