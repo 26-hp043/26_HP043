@@ -427,6 +427,16 @@
    * ⚠️ **`micro`는 차트 축 라벨이 아니다.** `§9.1`(🔒)이 축 라벨을 12px로 정하므로 그쪽은
    * `caption`이다 — `§3` v2.31이 용도 칸을 그렇게 갈랐다.
    */
+  /* DESIGN_SYSTEM §3 — 크기별 자간 별칭. 값은 Figma 생성 토큰이 소유한다 (#2145). */
+  --letterSpacing-display: var(--letterSpacing-tight);
+  --letterSpacing-page: var(--letterSpacing-tight);
+  --letterSpacing-title: var(--letterSpacing-tight);
+  --letterSpacing-heading: var(--letterSpacing-snug);
+  --letterSpacing-body: var(--letterSpacing-snug);
+  --letterSpacing-label: var(--letterSpacing-snug);
+  --letterSpacing-caption: var(--letterSpacing-snug);
+  --letterSpacing-micro: var(--letterSpacing-none);
+
   --font-size-display: 32px;
   --font-size-title: 20px;
   --font-size-heading: 16px;
