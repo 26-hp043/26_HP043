@@ -25,7 +25,6 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import select
 
-from cii_platform.api.field_labels import field_label
 from cii_platform.calc.annual_simulation import backsolve_required_cut, project_deterministic
 from cii_platform.calc.fleet_reduction import (
     TARGET_NO_AT_RISK,
@@ -58,6 +57,7 @@ from cii_platform.services.pagination import normalize_limit
 from cii_platform.services.request_cache import enable as enable_request_cache
 from cii_platform.services.request_cache import put as cache_put
 from cii_platform.services.simulation_clock import resolve_as_of
+from cii_platform.validation.field_labels import field_label
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession

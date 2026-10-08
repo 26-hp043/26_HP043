@@ -45,7 +45,6 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 
-from cii_platform.api.schemas.bounds import VOYAGE_FUEL
 from cii_platform.calc.precision import layer1_context
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import parameters as param_repo
@@ -53,6 +52,7 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.voyage import PLANNING_STATUSES, create_voyage
+from cii_platform.validation.bounds import VOYAGE_FUEL
 
 if TYPE_CHECKING:
     from datetime import datetime

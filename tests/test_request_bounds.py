@@ -21,7 +21,6 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from cii_platform.api.schemas.bounds import MAX_SPEED_KN
 from cii_platform.api.schemas.not_underway import (
     NotUnderwayFuelUseCreateRequest,
     NotUnderwayPeriodCreateRequest,
@@ -43,6 +42,7 @@ from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.errors import ValidationError
 from cii_platform.services.scenario_compare import _db_rows
+from cii_platform.validation.bounds import MAX_SPEED_KN
 
 
 def _column_bounds(model: type, name: str) -> tuple[Decimal, Decimal]:

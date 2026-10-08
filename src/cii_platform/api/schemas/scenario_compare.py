@@ -21,9 +21,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import DAILY_FOC, DISTANCE, PORT_NAME_MAX_LENGTH, SPEED
 from cii_platform.api.schemas.instants import Instant
 from cii_platform.api.schemas.voyage_cii import WeatherModel
+from cii_platform.validation.bounds import DAILY_FOC, DISTANCE, PORT_NAME_MAX_LENGTH, SPEED
 
 
 class ScenarioCompareRequest(BaseModel):

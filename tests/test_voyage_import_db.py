@@ -29,7 +29,6 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cii_platform.api.schemas.bounds import DISTANCE
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services import voyage_import
@@ -41,6 +40,7 @@ from cii_platform.services.voyage_import import (
     import_voyages,
     read_rows,
 )
+from cii_platform.validation.bounds import DISTANCE
 
 FIXTURE = Path(__file__).parent / "fixtures" / "csv" / "voyage_import_sample.csv"
 

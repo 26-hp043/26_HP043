@@ -64,9 +64,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from cii_platform.api.field_labels import field_label
-from cii_platform.api.schemas.bounds import DISTANCE, SPEED, VOYAGE_FUEL
-from cii_platform.api.validation_messages import _MESSAGES
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -79,6 +76,9 @@ from cii_platform.services.voyage import (
     require_vessel,
     time_order_violation,
 )
+from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL
+from cii_platform.validation.field_labels import field_label
+from cii_platform.validation.messages import _MESSAGES
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -230,7 +230,7 @@ def _check_limits(content: bytes, content_type: str | None) -> None:
 
 #: 숫자 열마다 **그 열이 들어가는 컬럼의** 저장 범위를 쓴다 (`schemas/bounds.py` · #1190 ⑴).
 #:
-#: 종전에는 세 열 모두 :data:`~cii_platform.api.schemas.bounds.DISTANCE` 하나를 썼다
+#: 종전에는 세 열 모두 :data:`~cii_platform.validation.bounds.DISTANCE` 하나를 썼다
 #: (#1086 ⑥). 거리·연료는 그 안에 들지만 **속력은 아니다** — ``planned_speed_kn``은
 #: ``NUMERIC(6,2)``라 최대 ``9999.99``인데 거리 한도는 ``9999999999.99``다. 그래서
 #: ``10000``이 파서를 통과해 저장 단계에서 ``ProgrammingError(-494)``가 됐고, 행 단위

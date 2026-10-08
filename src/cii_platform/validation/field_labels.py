@@ -139,6 +139,8 @@ _FIELD_LABELS: dict[str, str] = {
     # 정박·묘박 구간 (§3.8)
     "period_id": "정박·묘박 구간",
     "period_type": "구간 유형",
+    # 정박 구간의 거리는 항차의 항해거리와 구분한다 (#2101).
+    "not_underway.distance_nm": "이동 거리",
     "started_at": "시작 시각",
     "ended_at": "종료 시각",
     "started_from": "시작 시각(부터)",

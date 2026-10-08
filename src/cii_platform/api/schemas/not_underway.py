@@ -23,12 +23,12 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from cii_platform.api.schemas.bounds import (
+from cii_platform.api.schemas.voyage import HumanTimeSource
+from cii_platform.validation.bounds import (
     NOT_UNDERWAY_DISTANCE,
     NOT_UNDERWAY_FUEL,
     REGULATION_YEAR,
 )
-from cii_platform.api.schemas.voyage import HumanTimeSource
 
 
 class NotUnderwayFuelUseCreateRequest(BaseModel):

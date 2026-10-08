@@ -7,7 +7,7 @@
 
 import pytest
 
-from cii_platform.api.field_labels import field_label
+from cii_platform.validation.field_labels import field_label
 
 
 def test_registered_field_returns_korean_label() -> None:
@@ -71,3 +71,15 @@ class TestArrayIndexPaths:
     def test_registered_exact_path_wins(self):
         """인덱스 없는 정확한 경로가 먼저 조회된다."""
         assert field_label("fuel_uses") == "연료 사용량"
+
+
+def test_not_underway_distance_uses_shared_context_label():
+    # 같은 이름의 항차 항해거리와 정박 이동 거리를 합치지 않는다 (#2101).
+    from cii_platform.services.not_underway import _field_label
+
+    for name in ("period_type", "started_at"):
+        assert _field_label(name) == field_label(name)
+    contextual = field_label("not_underway.distance_nm")
+    assert contextual != "not_underway.distance_nm"
+    assert contextual != field_label("distance_nm")
+    assert _field_label("distance_nm") == contextual

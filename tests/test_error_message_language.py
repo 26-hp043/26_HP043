@@ -101,7 +101,7 @@ def _label_words() -> frozenset[str]:
 
     실측상 지금 해당하는 것은 ``seed`` 하나다 — 라벨이 늘면 자동으로 따라간다.
     """
-    from cii_platform.api.field_labels import _FIELD_LABELS
+    from cii_platform.validation.field_labels import _FIELD_LABELS
 
     words: set[str] = set()
     for label in _FIELD_LABELS.values():

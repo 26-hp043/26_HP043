@@ -31,11 +31,11 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from cii_platform.api.field_labels import field_label
 from cii_platform.api.security_headers import SECURITY_HEADERS
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.api.validation_messages import korean_message
 from cii_platform.errors import ERROR_HTTP_STATUS, AppError
+from cii_platform.validation.field_labels import field_label
+from cii_platform.validation.messages import korean_message
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
@@ -144,12 +144,12 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
     ``rule``은 넣지 않는다. §1.3.2 예시에도 없다(#2100). **Pydantic 오류에서 VAL 번호를
     유도할 수 없고**, 임의로 붙이면 근거 없는 규칙 번호가 응답에 실린다.
 
-    ``field_label``은 :func:`~cii_platform.api.field_labels.field_label`이 채운다.
+    ``field_label``은 :func:`~cii_platform.validation.field_labels.field_label`이 채운다.
     미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약) — 요청 필드가 전부
     등록돼 있는지는 ``tests/test_validation_messages.py``가 OpenAPI로 대조한다(#900).
 
     ``message``는 **Pydantic 원문이 아니라** ``type``·``ctx``에서 새로 만든 한국어다
-    (``API_SPEC §1.3.2`` 언어 규정 · :mod:`~cii_platform.api.validation_messages`).
+    (``API_SPEC §1.3.2`` 언어 규정 · :mod:`~cii_platform.validation.messages`).
     """
     details: list[dict[str, object]] = []
     for error in exc.errors():

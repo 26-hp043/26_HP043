@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy
 from fastapi import APIRouter
 
-from cii_platform.calc.rng import validate_rng
 from cii_platform.reports import pdf as pdf_module
+from cii_platform.services.health import validate_rng
 
 router = APIRouter(tags=["health"])
 
