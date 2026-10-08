@@ -165,7 +165,8 @@ function NextStep({ vessel, action }: { vessel: FleetVessel; action: FleetAction
     return <Link to={`/vessels/${vessel.id}`}>제원 확인</Link>
   }
   if (action !== undefined) {
-    return <Link to={SCREEN_BY_ID.FLEET_REDUCTION.path}>감축 계획 세우기</Link>
+    // 정본 문구 (`UIFLOW 2-10` 진입 조건 · 9/22 확정 `#1052` ⑺) — 표 칸이라고 줄이지 않는다 (#2337).
+    return <Link to={SCREEN_BY_ID.FLEET_REDUCTION.path}>함대 감축 계획 세우기</Link>
   }
   if (vessel.dataAvailable && showsDaysToD(vessel.daysToD, vessel.daysToDReason)) {
     return (
