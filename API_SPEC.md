@@ -1195,7 +1195,38 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
         "vessel_name": "MV Hanla",
         "severity": "critical",
         "reason": "E_THIS_YEAR",
-        "message": "E등급 1년차 — SEEMP Part III 시정조치계획 대상"
+        "message": "E등급 1년차 — SEEMP Part III 시정조치계획 대상",
+        "vessel": {
+          "vessel_id": "uuid",
+          "name": "MV Hanla",
+          "ship_type": "BULK_CARRIER",
+          "imo_number": "9100011",
+          "underway_state": "UNDER_WAY",
+          "detail_status": "SAILING",
+          "current_lat": "35.100000",
+          "current_lon": "129.040000",
+          "position_updated_at": "2026-08-16T11:00:00+00:00",
+          "route": {
+            "departure_lat": "35.100000",
+            "departure_lon": "129.033300",
+            "arrival_lat": "1.283300",
+            "arrival_lon": "103.850000",
+            "departure_port_name": "Busan",
+            "arrival_port_name": "Singapore"
+          },
+          "course_deg": "216.4",
+          "is_cii_applicable_hint": true,
+          "gross_tonnage": 25000.0,
+          "data_available": true,
+          "unavailable_reason": null,
+          "ytd_attained_cii": "9.4200",
+          "ytd_required_cii": "5.0450",
+          "ytd_rating": "E",
+          "risk_level": "CRITICAL",
+          "risk_reasons": ["E_THIS_YEAR"],
+          "days_to_d": null,
+          "days_to_d_reason": "ALREADY_AT_OR_BELOW"
+        }
       }
     ]
   },
@@ -1205,6 +1236,8 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
   }
 }
 ```
+
+> **[#2350] `actions[].vessel`은 해당 조치 선박의 `vessels[]` 행과 필드·값이 같은 필수 객체다.** `vessels[]`는 페이지로 잘리지만 조치는 선대 전체이므로, 현재 페이지 밖 선박도 표에서 누적 등급·운항 상태·다음 작업을 정확히 보여 줄 근거가 필요하다. 두 값은 같은 `as_of`·규제연도로 계산한다. `actions[]`의 순서는 요청한 `sort`에 따른 선박 순서이며, 한 선박에 조치가 여럿이어도 표의 선박 행은 하나다. 화면의 「확인할 선박」 표는 접힘·페이지와 관계없이 조치 선박을 모두 먼저 보여 주고, 남은 선박을 받은 목록 순서대로 보여 준다.
 
 #### `route` — 진행 중 항차의 항로 (#763)
 
@@ -5290,3 +5323,4 @@ POST /api/v1/chat
 | 2026-10-08 | `#2343` | **§1.10 「기본 규제연도」 단락 신설 · 기본 연도 서술 여섯 곳 통일** (`#2131`) — 연도를 지정하지 않았을 때의 「올해」는 기준 시각 `as_of`의 **한국 달력(`Asia/Seoul`) 해**다. 서버가 `as_of.year`(UTC 달력)를 읽어 KST 1월 1일 0시~8시 59분에 전년도가 「올해」가 됐고, 내보내기(`§8.1`)만 한국 달력이라 같은 시각에 두 화면이 다른 해를 보였다. `PRD §12.7`·`DESIGN_SYSTEM §4.4`의 KST 기준과 맞췄다. `§2.7` `to` · `status` · `§2.8` `regulation_year` · `§2.14` · `§2.16` · `§2.18` · `§2.19` · `§8.4` `year`의 「기본 `as_of` 연도」 · 「올해」를 같은 문구로 바꿨다. 항차·정박 구간의 귀속 연도(UTC 고정, `#1333`)는 이 규칙의 대상이 아니다. `AGENTS §4.3`상 규약 보강이라 버전은 올리지 않는다 (#2131) |
 | 2026-10-08 | `#2349` | §6.5 서두 — 화면이 이 경로로 받은 마지막 결과를 **들어오자마자 올리지 않고** 「지난 결과 보기」를 누를 때 올린다는 한 줄 (`#2348` · `rlatnals4114` 2026-10-08 결정). 계약(요청·응답)은 바뀌지 않는다. `AGENTS §4.3`상 서술 정정이라 버전은 올리지 않는다 |
 | 2026-10-08 | `#2356` | §2.16 공적 기록 대조 범위 요약 4필드와 항차 단위 집계·사유 우선순위·마지막 수집 시각 계약 추가 (#2114) |
+| 2026-10-08 | `#2360` | §2.8 선대 전체 `actions[]`에 같은 시점의 선박 행 `vessel`을 싣고 요청 정렬 순서를 명시 — 접힌 선박과 미수신 페이지의 조치도 「확인할 선박」 표에서 등급·상태와 함께 보이게 한다 (#2350). 필드 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 |

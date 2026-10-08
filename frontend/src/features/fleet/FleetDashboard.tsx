@@ -383,7 +383,20 @@ export function FleetDashboard() {
   const hasActions = snapshot.actions.length > 0
   const missingGt = counts.missingGrossTonnage
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
-  const remaining = sorted.length - visible.length
+  // `actions[]`는 선대 전체지만 `vessels[]`는 페이지다 (#772). 조치 대상은 접힘·페이지에
+  // 관계없이 같은 시점의 선박 행으로 채운다. 받은 목록의 행이 있으면 그 행을 우선한다 (#2350).
+  const loadedById = new Map(vessels.map((vessel) => [vessel.id, vessel]))
+  const actionIds = new Set<string>()
+  const actionRows = snapshot.actions.flatMap((action) => {
+    if (actionIds.has(action.vesselId)) return []
+    const vessel = loadedById.get(action.vesselId) ?? action.vessel
+    if (!vessel) return []
+    actionIds.add(action.vesselId)
+    return [vessel]
+  })
+  const checkVessels = [...actionRows, ...visible.filter((vessel) => !actionIds.has(vessel.id))]
+  const shownIds = new Set(checkVessels.map((vessel) => vessel.id))
+  const remaining = sorted.filter((vessel) => !shownIds.has(vessel.id)).length
 
   return (
     <div className="fleet">
@@ -414,12 +427,6 @@ export function FleetDashboard() {
         맞추려면(떠 있는 면 4개 이하) 요약이 면을 하나 차지하고 있을 수 없다.
         요약은 **한 덩어리의 데이터가 아니라 서로 다른 여섯 값**이라 원래 카드가
         어울리는 내용도 아니었다 — `§5`가 말하는 「카드는 한 덩어리의 데이터에만」이다.
-      */}
-      {/*
-        요약 문장 한 줄 (#2199) — 숫자 칸들 **위에** 답을 먼저 문장으로 적는다. 값은 아래 칸들과
-        같은 `counts`에서 온다(`fleetSummaryParts`). 강조는 수치와 등급만 — 색은 글자용
-        파생색(`--color-link`)이다. 경고 줄(배너)과 문구가 겹치지 않게 규제 용어 대신 등급과
-        일수로 말한다.
       */}
       {/* 10/7 시안 01 — 결론 문장과 경고를 한 줄에. 경고는 면이 아니라 글자 · 아이콘으로. */}
       <div className="fleet__lead">
@@ -614,11 +621,11 @@ export function FleetDashboard() {
           ) : null}
 
           <CheckTable
-            vessels={visible}
+            vessels={checkVessels}
             actions={snapshot.actions}
             compact
             onLocate={(vessel) =>
-              basemap === true && vessel.lat !== null && vessel.lon !== null
+              basemap === true && loadedById.has(vessel.id) && vessel.lat !== null && vessel.lon !== null
                 ? () => setFocusRequest((f) => ({ id: vessel.id, nonce: f.nonce + 1 }))
                 : undefined
             }
@@ -661,11 +668,11 @@ export function FleetDashboard() {
                     ? SORT_CHANGING_TEXT
                     : moreFailure !== null
                       ? '다시 시도'
-                      : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
+                    : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${checkVessels.length}척 표시)`}
               </button>
             ) : (
               <p className="fleet__note">
-                전체 {counts.total}척 중 {vessels.length}척 표시
+                전체 {counts.total}척 중 {checkVessels.length}척 표시
               </p>
             )
           ) : null}

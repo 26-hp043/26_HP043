@@ -121,6 +121,22 @@ describe('정상 응답', () => {
     expect(snapshot.actions[0]).toMatchObject({ vesselId: 'v1', reason: 'E_THIS_YEAR' })
   })
 
+  it('페이지 밖 조치에 실린 선박 행을 목록과 같은 규칙으로 옮긴다 (#2350)', async () => {
+    const body = JSON.parse(JSON.stringify(OK_BODY))
+    body.data.actions[0].vessel = body.data.vessels[0]
+    body.data.vessels = []
+    const snapshot = await createApiFleetProvider(vi.fn().mockResolvedValue(jsonResponse(body))).load()
+
+    expect(snapshot.vessels).toEqual([])
+    expect(snapshot.actions[0].vessel).toMatchObject({
+      id: 'v1',
+      name: 'MV Risk',
+      ytdRating: 'E',
+      ytdAttainedCii: '9.4200',
+      isCiiApplicableHint: true,
+    })
+  })
+
   it('서버 집계를 그대로 쓴다 — 화면이 다시 세지 않는다', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
     const snapshot = await createApiFleetProvider(fetchImpl).load()
