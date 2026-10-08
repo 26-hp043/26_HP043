@@ -28,6 +28,7 @@ export const DATA_QUALITY_COPY = {
    */
   completenessHint: '누적 CO₂ 중 실측으로 계산된 비율',
   completenessNone: '계산할 배출 없음',
+  fuelNoRecordHint: (n: number) => `연료 기록 없음 ${n}건`,
   /* 판정 못 한 항차는 0건과 섞지 않는다 (`PRD §17.4.1`). */
   unjudgedHint: (n: number) => `판정하지 못한 항차 ${n}건 — 선박 제원 또는 운항 시각이 없습니다`,
 

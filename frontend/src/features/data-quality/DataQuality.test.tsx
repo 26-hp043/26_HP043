@@ -671,3 +671,26 @@ describe('연도 칸 상태 — 문구 없는 빈 상자가 아니다 (#2120)', 
     expect(failed).not.toBe(empty)
   })
 })
+
+describe('완결성 비율과 연료 행 부재 (#2096)', () => {
+  it('100%인 선박과 비율을 못 내는 선박 모두 누락 건수가 보인다', async () => {
+    renderWith({
+      ...SNAPSHOT,
+      completenessRatio: '1.0000',
+      fuelNoRecordCount: 3,
+      vessels: [
+        { ...SNAPSHOT.vessels[0], completenessRatio: '1.0000', fuelNoRecordCount: 2 },
+        { ...SNAPSHOT.vessels[1], voyageCount: 1, fuelNoRecordCount: 1 },
+      ],
+    })
+    await screen.findByRole('heading', { name: DATA_QUALITY_COPY.vesselsTitle })
+    const summary = screen.getByRole('region', { name: DATA_QUALITY_COPY.summaryTitle })
+    expect(within(summary).getByRole('note').textContent).toMatch(/3/)
+    const vessels = screen.getByRole('region', { name: DATA_QUALITY_COPY.vesselsTitle })
+    const measured = within(vessels).getByRole('row', { name: /MV One/ })
+    expect(within(measured).getByText('100.0%')).toBeTruthy()
+    expect(within(measured).getByRole('note').textContent).toMatch(/2/)
+    const unavailable = within(vessels).getByRole('row', { name: /MV Empty/ })
+    expect(within(unavailable).getByRole('note').textContent).toMatch(/1/)
+  })
+})

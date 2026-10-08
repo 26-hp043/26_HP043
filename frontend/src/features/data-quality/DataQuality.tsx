@@ -282,6 +282,11 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
               : `${formatPercent(snapshot.completenessRatio)}%`}
           </span>
           <span className="dq-hero__hint">{COPY.completenessHint}</span>
+          {(snapshot.fuelNoRecordCount ?? 0) > 0 ? (
+            <span className="dq-hero__note" role="note">
+              {COPY.fuelNoRecordHint(snapshot.fuelNoRecordCount ?? 0)}
+            </span>
+          ) : null}
         </div>
         <div className="dq-hero__chips" role="group" aria-label="심각도로 거르기">
           <button
@@ -457,6 +462,11 @@ function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: Fill
                         ? '—'
                         : `${formatPercent(vessel.completenessRatio)}%`}
                     </span>
+                    {(vessel.fuelNoRecordCount ?? 0) > 0 ? (
+                      <span className="dq__muted" role="note">
+                        {' · '}{COPY.fuelNoRecordHint(vessel.fuelNoRecordCount ?? 0)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}

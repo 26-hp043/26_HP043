@@ -1894,6 +1894,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       },
       "public_record_last_fetched_at": "2026-10-01T03:00:00+00:00",
       "anomaly_unjudged_count": 0,
+      "fuel_no_record_count": 0,
       "completeness_ratio": "0.9420",
       "completeness": {
         "total_co2_ton": "1868.40",
@@ -1912,6 +1913,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
         "ytd_attained_cii": "8.9799",
         "ytd_rating": "E",
         "voyage_count": 3,
+        "fuel_no_record_count": 0,
         "completeness_ratio": "0.9420",
         "completeness": {
           "total_co2_ton": "1868.40",
@@ -1968,6 +1970,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | `summary.public_record_unreconciled_count` · `summary.public_record_unreconciled_reasons` | **한 칸도 견주지 못한 항차 수와 사유별 내역**. 항차마다 사유 하나만 센다. 우선순위는 `NO_CALL_SIGN`(선박 호출부호 없음) → `NO_RECORD`(항만청에 이은 칸은 있으나 해당 기록이 없거나 48시간 밖) → `PORT_UNMAPPED`(넣은 모든 시각 칸의 항구를 항만청과 잇지 못함)이다. 세 사유의 합은 `public_record_unreconciled_count`와 같다. 세 키는 0건이어도 모두 싣는다. 시각 칸이 없는 항차는 세지 않는다(`#2114`) |
 | `summary.public_record_last_fetched_at` | 조회 대상 선박들의 저장된 공적 기록 `fetched_at` 최댓값(ISO 8601). 기록이 없으면 `null`. **가장 최근에 받은 기록의 시각**이며 개별 항차와 짝지은 기록의 시각은 아니다. 대조 불가 사유를 해석하는 보조 정보다(`#2114`) |
 | `summary.anomaly_unjudged_count` | 이상치를 **판정하지 못한** 항차 수 — 선박 제원·운항 시각이 없어 세 검사 중 하나도 돌릴 수 없었다. **이상치 0건과 섞지 않는다** |
+| `summary.fuel_no_record_count` · `vessels[].fuel_no_record_count` | **[#2096]** 조회 규제연도의 `INCLUDE_AS_ACTUAL` 항차 중 연료 행이 한 개도 없는 항차 수(0 이상 정수). 삭제된 항차·다른 해·집계 제외는 세지 않는다. 연료 행은 있으나 값이 빈 경우는 이 건수에 넣지 않는다. 선대 값은 선박별 건수의 합이며 완결성 비율이 `null`인 선박도 포함한다. CO₂ 가중 비율은 유지하고 이 건수를 함께 표시한다(`PRD §17.4.3`) |
 | `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
 | `summary.completeness` · `vessels[].completeness` | **[#1532]** 그 비율의 분자·분모와 제외 내역 — 비율만으로는 0%든 54.2%든 화면에서 검산할 수 없다. 모두 **CO₂ 톤 · 소수 2자리 문자열**(`§2.7` `co2_ton`과 같은 규약 · `§1.7` `[#1600]`의 절사 — 마지막 자리는 절사값이다). `total_co2_ton`(분모 · 누적 CO₂, not under way 포함) · `measured_co2_ton`(분자 · 실측으로 인정된 CO₂, not under way 포함) · `excluded_unavailable_co2_ton` · `excluded_substituted_co2_ton` · `excluded_anomaly_co2_ton`(각각 계산 불가 · 대체 계산 · 이상치로 빠진 CO₂). **`measured + Σexcluded = total`이 g 단위에서 정확히 성립한다** — 한 항차가 여러 심각도에 걸리면 빠진 CO₂를 **계산 불가 > 대체 계산 > 이상치** 순으로 앞선 한 축에만 더한다(두 축에 다 더하면 합이 맞지 않는다). 톤 문자열은 다섯 값이 **각각** 절사되므로 문자열끼리 더하면 누적보다 **최대 0.03 t** 작을 수 있다(가수 넷이 각각 0.01 t 미만을 버린다 · 예: 9,900 g씩 넷은 각 `"0.00"`으로 합 0.00인데 누적 39,600 g은 `"0.03"`). 더한 값이 누적보다 커지는 일은 없다. 정확한 검산은 g 단위다. `vessels[].completeness`는 `completeness_ratio`와 같은 조건에서 `null`(선박 누적을 낼 수 없을 때); `summary.completeness`는 낼 수 있는 선박들의 합이라 늘 있다 — 선박이 0척이면 전부 `"0.00"`이고 비율은 `null`이다. 실적 확정 전(`UNCONFIRMED`)은 어느 축에도 없다 — 완결성에서 빼지 않기 때문이다(`PRD §17.4.3`) |
 | `issues[].cii_impact` | 그 항차를 **뺀** 누적 CII와의 차이(`PRD §17.4.2`). `delta` = `attained_cii` − `attained_cii_without` — **양수면 이 항차가 누적 CII를 높이고(나쁘게) 있다** |
@@ -5329,3 +5332,4 @@ POST /api/v1/chat
 | 2026-10-08 | `#2360` | §2.8 선대 전체 `actions[]`에 같은 시점의 선박 행 `vessel`을 싣고 요청 정렬 순서를 명시 — 접힌 선박과 미수신 페이지의 조치도 「확인할 선박」 표에서 등급·상태와 함께 보이게 한다 (#2350). 필드 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 |
 | 2026-10-08 | `#2363` | §15.2 답 폐기 조건에 서버의 한국 달력 해와 다른 현재 연도 주장을 추가했다. 연도는 일반 수치 가드의 예외라 별도 의미 검증이 필요하며, 턴의 서버 확정 해는 허용 출처다. 과거 해 설명은 폐기하지 않는다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#2355) |
 | 2026-10-08 | `#2364` | §1.6 경고 표 아래에 `[#2295]` 각주 — `IN_PROGRESS_PAST_ETA`·`IN_PROGRESS_PLANNED_DISTANCE_REACHED`가 함께 서면 실시간 CII 경고 띠가 쓰는 **한 문장 원문**을 등재했다(결정 `rlatnals4114`). 응답 코드·정의는 그대로이고 합치는 것은 화면 표시뿐이다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#2295) |
+| 2026-10-08 | `#___` | §2.16 선박별·선대 fuel_no_record_count 추가. 연료 행 없는 실적 집계 항차를 CO₂ 완결성 비율과 함께 표시하고 연도·정책·삭제·행의 값 누락 경계를 명시 (#2096) |

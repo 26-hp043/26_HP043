@@ -94,6 +94,7 @@ from cii_platform.services.ytd_cii import (
     SUBSTITUTION_AXIS_FUEL,
     YtdCiiOutput,
     compute_ytd_cii,
+    has_no_fuel_record,
 )
 
 if TYPE_CHECKING:
@@ -498,6 +499,7 @@ async def get_fleet_data_quality(
     issues: list[dict[str, object]] = []
     vessel_rows: list[dict[str, object]] = []
     unjudged = 0
+    fleet_fuel_no_record = 0
     # 공적 기록 대조의 분모 (`#2114`) — 항차 단위. 「다름 0건」이 대조 못 한 항차를 덮지 않게.
     reconciled = 0
     unreconciled = dict.fromkeys(UNRECONCILED_REASONS, 0)
@@ -541,9 +543,14 @@ async def get_fleet_data_quality(
         total = Decimal(0)
         excluded = dict.fromkeys(_EXCLUSION_PRIORITY, Decimal(0))
 
+        fuel_no_record = 0
         vessel_records = records_by_sign.get(str(vessel.call_sign), []) if vessel.call_sign else []
         for voyage in voyages:
             rows = fuel_by_voyage.get(voyage.id, [])
+            # 연간 누적·연말 예상과 같은 판정이다. CO₂가 0이라 비율에서 보이지 않는
+            # 연료 행 부재를 별도 건수로 센다 (#2096).
+            if has_no_fuel_record(rows):
+                fuel_no_record += 1
             voyage_issues: list[tuple[str, list[str]]] = []
             public_record: dict[str, object] | None = None
 
@@ -661,6 +668,7 @@ async def get_fleet_data_quality(
             for severity in _EXCLUSION_PRIORITY:
                 fleet_excluded[severity] += excluded[severity]
 
+        fleet_fuel_no_record += fuel_no_record
         vessel_rows.append(
             {
                 "vessel_id": str(vessel.id),
@@ -670,6 +678,7 @@ async def get_fleet_data_quality(
                 "ytd_attained_cii": _publish_cii(ytd.attained_cii if ytd else None),
                 "ytd_rating": ytd.rating if ytd else None,
                 "voyage_count": len(voyages),
+                "fuel_no_record_count": fuel_no_record,
                 "completeness_ratio": _publish(ratio, _RATIO_DIGITS),
                 # 비율을 낼 수 없는 선박(누적 없음)은 내역도 없다 — 재료가 같다.
                 "completeness": completeness,
@@ -697,6 +706,7 @@ async def get_fleet_data_quality(
             "public_record_count": counts[SEVERITY_PUBLIC_RECORD],
             # 이상치 0건과 섞지 않는다 — 판정하지 못한 항차 수 (`PRD §17.4.1`).
             "anomaly_unjudged_count": unjudged,
+            "fuel_no_record_count": fleet_fuel_no_record,
             # 공적 기록과 **견준** 항차 수와 견주지 못한 항차 수 · 사유별 내역 (`#2114`).
             # 「다름 0건」을 「견줘 보니 맞았다」로 읽으려면 대조한 항차가 있어야 한다.
             "public_record_reconciled_count": reconciled,

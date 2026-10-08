@@ -372,3 +372,21 @@ describe('createApiDataQualityProvider — 이 값으로 채우기', () => {
     expect((failure as Error).message).not.toMatch(/JSON|token|<|SyntaxError/i)
   })
 })
+
+describe('연료 행 없는 실적 항차 수 (#2096)', () => {
+  it('선대와 선박의 건수를 옮기고 옛 서버의 미확인을 0으로 만들지 않는다', async () => {
+    const body = JSON.parse(JSON.stringify(BODY))
+    body.data.summary.fuel_no_record_count = 2
+    body.data.vessels[0].fuel_no_record_count = 2
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const snapshot = await createApiDataQualityProvider(fetchImpl).load()
+    expect(snapshot.fuelNoRecordCount).toBe(2)
+    expect(snapshot.vessels[0].fuelNoRecordCount).toBe(2)
+
+    const legacy = await createApiDataQualityProvider(
+      vi.fn().mockResolvedValue(jsonResponse(BODY)),
+    ).load()
+    expect(legacy.fuelNoRecordCount).toBeUndefined()
+    expect(legacy.vessels[0].fuelNoRecordCount).toBeUndefined()
+  })
+})
