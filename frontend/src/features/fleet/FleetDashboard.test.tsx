@@ -9,6 +9,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
 import { regulationParametersPath } from '../parameters/referenceRules'
+import { APPLICABILITY_SHORT_LABEL } from '../../components/applicability'
 
 /*
  * #1824 — 지도 위 패널은 **1100 이하에서 접힌 채로 시작한다**. jsdom의 기본 폭은
@@ -920,6 +921,26 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
     expect(row.className).not.toContain('check__row--action')
     expect(within(row).queryByText(/E등급 1년차/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('규제 대상이 아닌 E등급 선박의 「왜」는 「이상 없음」이 아니라 그 이유를 적는다 (#2359)', async () => {
+    const small = {
+      ...vessel('v1', '소형선'),
+      ytd_rating: 'E',
+      is_cii_applicable_hint: false,
+      gross_tonnage: 4559,
+      risk_reasons: [] as string[],
+      days_to_d: null,
+      days_to_d_reason: 'ALREADY_AT_OR_BELOW',
+    }
+    const normal = { ...vessel('v2', '정상선'), days_to_d: null, days_to_d_reason: 'ALREADY_AT_OR_BELOW' }
+    renderWith({ at_risk: 0 }, [small, normal])
+    const why = (name: string) =>
+      (screen.getAllByRole('link', { name }))[0].closest('tr')!.querySelector('.check__why-muted')!.textContent
+    await screen.findByRole('link', { name: '소형선' })
+    // 성질로 단언한다(`AGENTS §4.6`) — 규제 대상 배와 같은 말을 하지 않고, 배지와 같은 판정어를 쓴다.
+    expect(why('소형선')).not.toBe(why('정상선'))
+    expect(why('소형선')).toContain(APPLICABILITY_SHORT_LABEL.NOT_APPLICABLE)
   })
 
   it('GT 미입력 선박(E)의 행에는 「GT 미입력」 배지가 붙는다 — 「규제 대상 아님」으로 합치지 않는다 (#2132)', async () => {

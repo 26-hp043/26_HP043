@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NotUnderwayPanel } from './NotUnderwayPanel'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import type { NotUnderwayProvider, Period, PeriodList } from './types'
 
 /**
@@ -120,6 +121,28 @@ describe('구간 연료 편집 (#638)', () => {
 
     await waitFor(() => expect(removeFuelUse).toHaveBeenCalledWith('p-1', 'f-1'))
     expect(api.remove).not.toHaveBeenCalled()
+  })
+
+  it('연료 행과 삭제 버튼 이름에 코드가 아니라 연료 표시 이름을 쓴다 (#2359)', async () => {
+    render(<NotUnderwayPanel vesselId="v-1" provider={stub()} />)
+    const button = await screen.findByLabelText(/연료 기록 삭제$/)
+
+    expect(button.getAttribute('aria-label')).not.toContain('DIESEL_GAS_OIL')
+    expect(button.getAttribute('aria-label')).toContain(fuelTypeText('DIESEL_GAS_OIL'))
+    const row = button.closest('li') as HTMLElement
+    expect(row.textContent).not.toContain('DIESEL_GAS_OIL')
+    expect(within(row).getByText(fuelTypeText('DIESEL_GAS_OIL'))).toBeTruthy()
+  })
+
+  it('위험색은 실제로 지우는 「삭제하기」만 갖는다 — 확인 줄을 여는 버튼은 평범하다 (#2359)', async () => {
+    const user = userEvent.setup()
+    render(<NotUnderwayPanel vesselId="v-1" provider={stub()} />)
+    const opener = await screen.findByLabelText(/연료 기록 삭제$/)
+
+    expect(opener.className).not.toContain('nu__danger--confirm')
+    await user.click(opener)
+    expect(screen.getByTestId('nu-caution-confirm').className).toContain('nu__danger--confirm')
+    expect(screen.getByTestId('nu-remove').className).not.toContain('nu__danger--confirm')
   })
 
   it('0톤은 저장하지 않고 화면에서 막는다 — 서버까지 보내지 않는다', async () => {

@@ -94,6 +94,16 @@
   color: var(--color-danger-text);
 }
 
+/*
+ * 확인 줄의 실행 버튼(「삭제하기」)만 **처음부터** 위험색이다 (#2359). 실제로 지우는 것은 이
+ * 버튼 하나이고, 확인 줄을 여는 「삭제」들은 아직 아무것도 지우지 않는다 — 종전에는 반대로 여는
+ * 쪽(연료 한 줄)이 빨갛고 지우는 쪽이 평범했다. 특이도 `0-2-0`이라 `.nu__button`을 소스 순서로 이긴다.
+ */
+.nu__danger--confirm {
+  border-color: var(--semantic-danger);
+  color: var(--color-danger-text);
+}
+
 .nu__submit {
   align-self: flex-start;
   background: var(--semantic-primary);
@@ -343,15 +353,21 @@
  */
 .nu__fuel-remove {
   padding: 2px 8px;
-  border: 1px solid var(--color-danger-text);
+  /* 여는 버튼이라 평범하게 — 위험색은 확인 줄의 「삭제하기」가 갖는다 (#2359). hover에서만 위험색 */
+  border: 1px solid var(--color-border-control);
   border-radius: 4px;
   background: transparent;
-  color: var(--color-danger-text);
+  color: var(--text-secondary);
   font-family: var(--font-sans);
   /* `§3` `caption`(12 · 코드 토큰 이름은 `micro`) — 토큰으로 쓴다 (#1781). */
   font-size: var(--font-size-caption);
   line-height: 1.4;
   cursor: pointer;
+}
+
+.nu__fuel-remove:hover {
+  border-color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 /*

@@ -76,8 +76,14 @@
   font-size: var(--font-size-body);
 }
 
+/*
+ * 일일 용선료 — 여섯 자리(USD/일)까지 잘리지 않게 (#2359). 종전 `6.5rem`은 좌우 여백과
+ * `type="number"`의 증감 버튼을 빼면 네 자리 남짓이라 「10000」이 잘렸다(`#2357`).
+ * 글자 수(`ch`)에 여백·버튼 몫을 더해 정한다 — 글꼴이 바뀌어도 자릿수가 기준이다.
+ */
 .fr__charter {
-  width: 6.5rem;
+  width: calc(7ch + 2 * var(--space-12) + 1.5rem);
+  font-variant-numeric: tabular-nums;
 }
 
 .fr__control:focus-visible,

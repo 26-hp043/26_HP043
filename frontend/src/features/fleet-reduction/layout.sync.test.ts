@@ -50,4 +50,11 @@ describe('감축 계획은 분할하지 않는다 — DESIGN_SYSTEM §7.1 v2.25 
     expect(match, 'FleetReduction.css에서 표 최소 폭을 찾지 못했다').not.toBeNull()
     expect(Number(match![1])).toBeGreaterThanOrEqual(760)
   })
+
+  it('일일 용선료 칸은 글자 수(ch)로 폭을 정하고 다섯 자리 이상을 담는다 (#2359)', () => {
+    // 종전 `6.5rem`은 여백·증감 버튼을 빼면 네 자리 남짓이라 「10000」이 잘렸다(`#2357`).
+    const match = /\.fr__charter\s*\{[^}]*width:\s*calc\(\s*([0-9]+)ch/.exec(CSS)
+    expect(match, '.fr__charter 폭을 ch 기준으로 찾지 못했다').not.toBeNull()
+    expect(Number(match![1])).toBeGreaterThanOrEqual(5)
+  })
 })

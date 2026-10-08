@@ -1,6 +1,7 @@
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
+import { APPLICABILITY_SHORT_LABEL, applicabilityState } from '../../components/applicability'
 import { SCREEN_BY_ID } from '../../screens'
 import { VESSEL_QUERY_KEY } from '../../layout/globalContext'
 import { regulationParametersPath } from '../parameters/referenceRules'
@@ -156,6 +157,17 @@ function WhyText({ vessel, action }: { vessel: FleetVessel; action: FleetAction 
   }
   if (showsDaysToD(vessel.daysToD, vessel.daysToDReason)) {
     return <span className="check__why-main">{daysToDText(vessel.daysToD, vessel.daysToDReason)}</span>
+  }
+  /*
+   * 규제 대상이 아닌 배(GT를 알고 하한 미만)는 E여도 조치가 없다 — 「이상 없음」이라 적으면
+   * 같은 행의 E와 모순으로 읽힌다(`#2357` · `#2359`). 이유를 적는다. GT 미입력은 서버가 위험
+   * 판정에 남겨 조치 행으로 올라가므로 여기 오지 않는다(`PRD §3.3.7` 결정 1).
+   * 정본 문구 (`DESIGN_SYSTEM §8.2`) — 바꾸려면 정본 개정이 먼저다.
+   */
+  if (applicabilityState(vessel) === 'NOT_APPLICABLE') {
+    return (
+      <span className="check__why-muted">{`${APPLICABILITY_SHORT_LABEL.NOT_APPLICABLE} — 조치 없음`}</span>
+    )
   }
   return <span className="check__why-muted">이상 없음</span>
 }

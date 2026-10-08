@@ -970,7 +970,7 @@ function VoyageForm({
         <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
-      <VoyageField id="vy-no" label="항차 번호" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />
+      <VoyageField id="vy-no" label="항차 번호 (선택)" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />
       {/* 샘플 항만 선택지 (#760) — 자유 입력과 함께 쓴다(`PRD §20 O-11`). */}
       <datalist id="vy-ports">
         {ports.map((port) => (
@@ -1267,7 +1267,7 @@ function ActualsForm({
         <VoyageField
           key={use.fuelType}
           id={`ac-fuel-${voyage.id}-${use.fuelType}`}
-          label={`실제 ${use.fuelType} (${DISPLAY_UNITS.fuel})`}
+          label={`실제 ${fuelTypeText(use.fuelType)} (${DISPLAY_UNITS.fuel})`}
           value={draft.actualFuelTon[use.fuelType] ?? ''}
           onChange={(value) =>
             setDraft((prev) => ({
