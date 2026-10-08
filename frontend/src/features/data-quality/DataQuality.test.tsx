@@ -132,6 +132,9 @@ describe('데이터 점검 화면 (#513)', () => {
 
     expect(await screen.findAllByText('94.2%')).toHaveLength(2)
     expect(screen.getByText(DATA_QUALITY_COPY.completenessHint)).toBeTruthy()
+    // 연도 전체 점검임을 비율 가까이에 알린다 (PRD §17.4.3 · #2096).
+    const summary = screen.getByRole('region', { name: DATA_QUALITY_COPY.summaryTitle })
+    expect(within(summary).getByText(/연도 전체/)).toBeTruthy()
   })
 
   it('⚠️ 판정하지 못한 항차 수를 이상치 0건과 섞지 않고 보인다', async () => {
@@ -669,5 +672,28 @@ describe('연도 칸 상태 — 문구 없는 빈 상자가 아니다 (#2120)', 
     const failed = await yearTextFor(() => new Response('{}', { status: 500 }))
     const empty = await yearTextFor(() => new Response(JSON.stringify({ data: [] }), { status: 200 }))
     expect(failed).not.toBe(empty)
+  })
+})
+
+describe('완결성 비율과 연료 행 부재 (#2096)', () => {
+  it('100%인 선박과 비율을 못 내는 선박 모두 누락 건수가 보인다', async () => {
+    renderWith({
+      ...SNAPSHOT,
+      completenessRatio: '1.0000',
+      fuelNoRecordCount: 3,
+      vessels: [
+        { ...SNAPSHOT.vessels[0], completenessRatio: '1.0000', fuelNoRecordCount: 2 },
+        { ...SNAPSHOT.vessels[1], voyageCount: 1, fuelNoRecordCount: 1 },
+      ],
+    })
+    await screen.findByRole('heading', { name: DATA_QUALITY_COPY.vesselsTitle })
+    const summary = screen.getByRole('region', { name: DATA_QUALITY_COPY.summaryTitle })
+    expect(within(summary).getByRole('note').textContent).toMatch(/3/)
+    const vessels = screen.getByRole('region', { name: DATA_QUALITY_COPY.vesselsTitle })
+    const measured = within(vessels).getByRole('row', { name: /MV One/ })
+    expect(within(measured).getByText('100.0%')).toBeTruthy()
+    expect(within(measured).getByRole('note').textContent).toMatch(/2/)
+    const unavailable = within(vessels).getByRole('row', { name: /MV Empty/ })
+    expect(within(unavailable).getByRole('note').textContent).toMatch(/1/)
   })
 })

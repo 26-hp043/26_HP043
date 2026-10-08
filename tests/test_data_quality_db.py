@@ -340,6 +340,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "unconfirmed_count",
         "public_record_count",
         "anomaly_unjudged_count",
+        "fuel_no_record_count",
         "public_record_reconciled_count",
         "public_record_unreconciled_count",
         "public_record_unreconciled_reasons",
@@ -358,6 +359,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "ytd_attained_cii",
         "ytd_rating",
         "voyage_count",
+        "fuel_no_record_count",
         "completeness_ratio",
         "completeness",
     }
@@ -410,6 +412,7 @@ def test_the_route_answers_over_http(migrated_db, app_fresh_engine):
         summary = body["data"]["summary"]
         assert set(summary) >= {
             "anomaly_unjudged_count",
+            "fuel_no_record_count",
             "completeness_ratio",
             # 공적 기록 대조의 분모 (`#2114`) — 엔진만이 아니라 응답에 실려 나가는지
             "public_record_reconciled_count",
@@ -420,6 +423,10 @@ def test_the_route_answers_over_http(migrated_db, app_fresh_engine):
         assert set(summary["public_record_unreconciled_reasons"]) == _UNRECONCILED_KEYS
         assert summary["public_record_unreconciled_count"] == sum(
             summary["public_record_unreconciled_reasons"].values()
+        )
+        assert isinstance(summary["fuel_no_record_count"], int)
+        assert summary["fuel_no_record_count"] == sum(
+            row["fuel_no_record_count"] for row in body["data"]["vessels"]
         )
 
         out_of_range = client.get(f"{API_V1_PREFIX}/fleet/data-quality?regulation_year=1999")
@@ -442,7 +449,7 @@ async def test_a_voyage_with_no_fuel_row_is_pointed_at(session, vessel_id):
     """
     target = await _voyage(session, vessel_id, no="NF-ONLY", with_fuel_row=False)
 
-    _, issues, _ = await _mine(session, vessel_id)
+    vessel_row, issues, _ = await _mine(session, vessel_id)
 
     # 선박 단위 행(`voyage_id: null` · `NO_DATA`)은 그대로 남는다 — 이 선박은 실제로
     # 계산 불가다. 새로 생긴 것은 **어느 항차 때문인지**를 말하는 항차 행이다.
@@ -453,6 +460,8 @@ async def test_a_voyage_with_no_fuel_row_is_pointed_at(session, vessel_id):
     # 「행은 있는데 값이 빔」과 「행이 아예 없음」은 사용자가 할 일이 다르다.
     assert per_voyage[0]["codes"] == [UNAVAILABLE_FUEL_NO_RECORD]
     assert UNAVAILABLE_FUEL_UNFILLED not in per_voyage[0]["codes"]
+    assert vessel_row["fuel_no_record_count"] == 1
+    assert vessel_row["completeness_ratio"] is None
 
 
 @pytest.mark.asyncio
@@ -474,16 +483,56 @@ async def test_a_fuelless_voyage_is_pointed_at_even_when_mixed(session, vessel_i
     assert unavailable[0]["codes"] == [UNAVAILABLE_FUEL_NO_RECORD]
     # 등급은 여전히 나온다 — 그래서 조용했다. 드러나는가를 보는 검사다.
     assert vessel_row["data_available"] is True
-    # 🔴 **완결성 비율은 여전히 1.0000이다** — 잔여 결함으로 남긴다 (#1095 ⑵ 범위 밖).
-    #
-    # `completeness_ratio`는 **CO₂로 가중**한다(`data_quality.py`의 `measured`/`total`이
-    # 둘 다 CO₂ 합이다). 연료 행이 없는 항차는 CO₂가 0이라 분자·분모 어디에도 보이지
-    # 않아, 「계산 불가 항차는 실측에서 빼면 비율이 떨어진다」는 규칙이 이 경우에만
-    # 작동하지 않는다. 고치려면 가중치를 항차 수로 바꾸거나 별도 분모를 두어야 하고
-    # 그것은 `PRD §17.4.3` 개정이다 — 이번 결정(`가′` = 경고 + 항차별 목록)의 범위가
-    # 아니므로 **현행을 그대로 잠그고 사실을 적어 둔다.** 이 비율이 눈감는 자리를
-    # 위의 항차 행이 대신 가리키는 것이 이번 변경의 값이다.
+    # CO₂ 가중 비율은 유지하고 연료 행 부재를 별도 건수로 싣는다 (#2096).
     assert Decimal(vessel_row["completeness_ratio"]) == Decimal("1.0000")
+    assert vessel_row["fuel_no_record_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_fuel_no_record_count_uses_the_annual_inclusion_scope(session, vessel_id):
+    """연도 전체 점검과 시각 절단 실적을 구분하고 제외·행 부재 경계를 지킨다 (#2096)."""
+    await _voyage(session, vessel_id, no="OK", hours=48)
+    early = await _voyage(session, vessel_id, no="NO-ROW", hours=48, with_fuel_row=False)
+    late = await _voyage(
+        session, vessel_id, no="COMPLETED", status="COMPLETED", with_fuel_row=False
+    )
+    await _voyage(session, vessel_id, no="EMPTY-VALUE", planned_fuel=None, actual_fuel=None)
+    other_year = await _voyage(session, vessel_id, no="OTHER-YEAR", with_fuel_row=False)
+    deleted = await _voyage(session, vessel_id, no="DELETED", with_fuel_row=False)
+    excluded = await _voyage(session, vessel_id, no="EXCLUDED", with_fuel_row=False)
+    archived = await _voyage(session, vessel_id, no="ARCHIVED", with_fuel_row=False)
+    await session.execute(
+        text("UPDATE voyage SET regulation_year=:year WHERE id=:id"),
+        {"year": YEAR - 1, "id": other_year},
+    )
+    await session.execute(text("UPDATE voyage SET is_deleted=1 WHERE id=:id"), {"id": deleted})
+    await session.execute(
+        text("UPDATE voyage SET annual_inclusion_policy='EXCLUDE' WHERE id=:id"), {"id": excluded}
+    )
+    await session.execute(
+        text("UPDATE voyage SET status='ARCHIVED', annual_inclusion_policy='EXCLUDE' WHERE id=:id"),
+        {"id": archived},
+    )
+    result = await get_fleet_data_quality(session, regulation_year=YEAR)
+    mine = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
+    assert mine["fuel_no_record_count"] == 2
+    assert result["summary"]["fuel_no_record_count"] == sum(
+        row["fuel_no_record_count"] for row in result["vessels"]
+    )
+
+    # 3/3 도착은 포함하고 3/11 도착은 제외하는 과거 시점의 실적이다.
+    # 연도 전체 점검의 2건을 과거 계산의 1건으로 줄이지 않는다 (가안 결정).
+    historical = await compute_ytd_cii(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        as_of=datetime.fromisoformat("2026-03-05T00:00:00+00:00"),
+    )
+    historical_missing = {
+        uuid_canon(item.voyage_id) for item in historical.unfilled if item.fuel_type is None
+    }
+    assert historical_missing == {uuid_canon(early)}
+    assert uuid_canon(late) not in historical_missing
 
 
 # ─────────────────────────────────────────────────────────────────────────────

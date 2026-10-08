@@ -83,6 +83,7 @@ interface ServerBody {
       /** 옛 서버는 이 필드가 없다 — 그때는 0으로 읽는다. */
       public_record_count?: number
       anomaly_unjudged_count: number
+      fuel_no_record_count?: number
       /** #2114 — 옛 서버는 아래 넷이 없다. 그때는 대조 요약을 만들지 않는다 */
       public_record_reconciled_count?: number
       public_record_unreconciled_count?: number
@@ -99,6 +100,7 @@ interface ServerBody {
       ytd_attained_cii: string | null
       ytd_rating: string | null
       voyage_count: number
+      fuel_no_record_count?: number
       completeness_ratio: string | null
       completeness?: ServerCompleteness | null
     }>
@@ -252,6 +254,7 @@ export function createApiDataQualityProvider(
           PUBLIC_RECORD: s.public_record_count ?? 0,
         },
         anomalyUnjudged: s.anomaly_unjudged_count,
+        fuelNoRecordCount: s.fuel_no_record_count,
         publicRecordCoverage: toCoverage(s),
         completenessRatio: s.completeness_ratio,
         completeness: toCompleteness(s.completeness) ?? undefined,
@@ -263,6 +266,7 @@ export function createApiDataQualityProvider(
           ytdAttainedCii: v.ytd_attained_cii,
           ytdRating: v.ytd_rating as Rating | null,
           voyageCount: v.voyage_count,
+          fuelNoRecordCount: v.fuel_no_record_count,
           completenessRatio: v.completeness_ratio,
           completeness: toCompleteness(v.completeness),
         })),

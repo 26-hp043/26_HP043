@@ -111,6 +111,8 @@ interface DataQualityVessel {
   ytdAttainedCii: string | null
   ytdRating: Rating | null
   voyageCount: number
+  /** 연료 행 없는 실적 집계 항차 수. 옛 서버는 `undefined`. */
+  fuelNoRecordCount?: number
   /** 0~1 비율 문자열. 배출이 없거나 계산할 수 없으면 `null` */
   completenessRatio: string | null
   /** 비율의 내역 — `completenessRatio`와 같은 조건에서 `null`. 화면 표시는 아직 없다(#1532 후속) */
@@ -141,6 +143,8 @@ export interface DataQualitySnapshot {
   counts: Record<Severity, number>
   /** 이상치를 **판정하지 못한** 항차 수 — 0건과 섞지 않는다 */
   anomalyUnjudged: number
+  /** 선박별 연료 행 부재 건수의 합. 비율을 낼 수 없어도 센다 (#2096). */
+  fuelNoRecordCount?: number
   /** 공적 기록 대조의 분모 — 옛 서버는 없다(`undefined`). 그때는 요약 줄을 그리지 않는다 */
   publicRecordCoverage?: PublicRecordCoverage
   completenessRatio: string | null

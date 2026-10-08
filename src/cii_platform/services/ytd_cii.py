@@ -132,7 +132,8 @@ def has_no_fuel_record(fuel_rows: Sequence[object]) -> bool:
     """실적 확정 항차에 연료 기록이 **한 행도 없는가** (`#1095` ⑵ · `#2095`).
 
     ``COMPLETED_FUEL_UNFILLED``의 판정을 **이 한 곳**에 둔다. 연간 누적(:func:`_aggregate`)과
-    연말 예상의 확정분 조립(``annual_simulation._inputs_from_snapshot``)이 함께 부른다 —
+    연말 예상의 확정분 조립(``annual_simulation._inputs_from_snapshot``), 데이터 점검의
+    연료 행 부재 건수(``data_quality.get_fleet_data_quality``)가 함께 부른다 —
     종전에는 누적만 이 상태를 보았고, 같은 항차를 같은 방식(거리는 더하고 연료는 0)으로
     읽는 연말 예상은 경고 없이 지나갔다(`#2095`).
 
