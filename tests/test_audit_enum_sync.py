@@ -28,14 +28,16 @@
 from __future__ import annotations
 
 import re
+import runpy
 from pathlib import Path
 
 from cii_platform.db.migration_guard import BACKUP_ACTION
 from cii_platform.services.audit import AUDIT_ACTIONS, AUDIT_ENTITY_TYPES
-from scripts.purge_expired import PURGE_ACTION
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "cii_platform"
+# 호스트 스크립트는 설치 패키지가 아니므로 파일 경로로 상수를 읽는다.
+PURGE_ACTION = runpy.run_path(str(ROOT / "scripts" / "purge_expired.py"))["PURGE_ACTION"]
 
 #: ``action="LOGIN_SUCCESS"`` 꼴. 대문자·밑줄만 쓴다.
 _ACTION_LITERAL = re.compile(r'\baction\s*=\s*"([A-Z][A-Z_]*)"')
