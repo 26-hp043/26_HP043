@@ -120,6 +120,10 @@ class ReportTime(str):
         obj.csv = csv
         return obj
 
+    def __reduce__(self) -> tuple[type[ReportTime], tuple[str, str]]:
+        # ``str`` 하위 클래스의 기본 복사·피클은 인자 하나로 다시 만들려 해 실패한다 — 둘을 넘긴다.
+        return (ReportTime, (str(self), self.csv))
+
 
 @dataclass(frozen=True)
 class KeyValueSection:
