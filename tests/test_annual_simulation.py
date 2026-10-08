@@ -486,15 +486,34 @@ def test_no_remaining_plan_is_reported():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_bounds_are_reordered_when_the_profile_is_wrong():
+@pytest.mark.parametrize(
+    "min_factor,max_factor,expected_low,expected_high",
+    [
+        (1.5, 0.5, 100.0, 100.0),
+        (1.5, 2.0, 100.0, 200.0),
+        (0.5, 0.7, 50.0, 100.0),
+        (-0.5, 1.5, 0.0, 150.0),
+    ],
+)
+def test_bounds_are_reordered_when_the_profile_is_wrong(
+    min_factor, max_factor, expected_low, expected_high
+):
     """`min ≤ mode ≤ max`를 위반한 파라미터가 들어와도 계산을 죽이지 않는다.
 
     시뮬레이션 하나가 파라미터 오타로 통째로 실패하는 것보다, 물리적으로 성립하는
     범위로 좁히는 편이 낫다.
     """
-    broken = TriangularBand(min_factor=1.5, max_factor=0.5)  # 뒤집힘
-    left, mode, right = broken.bounds(100.0)
-    assert left <= mode <= right
+    import numpy as np
+
+    from cii_platform.calc.annual_simulation import _sample_band
+
+    band = TriangularBand(min_factor=min_factor, max_factor=max_factor)
+    rng = np.random.Generator(np.random.PCG64DXSM(963))
+    sampled = _sample_band(rng, band, np.array([100.0]), (256, 1))
+    assert sampled.shape == (256, 1)
+    assert np.all(sampled >= expected_low) and np.all(sampled <= expected_high)
+    if expected_low == expected_high:
+        assert np.all(sampled == expected_low)
 
 
 def test_simulation_survives_a_broken_profile():

@@ -4,7 +4,7 @@ TEST_PLAN §2.8 [ORACLE-S-6] — Layer 1 (Decimal) ↔ Layer 2 (float64) 경계�
 명시적 변환 지점을 검증한다.
 
 - UT-CONVERT-001: Layer 1 진입점(``calculate_attained_cii``) 반환값이 ``Decimal``.
-- UT-CONVERT-002: 정본값 30자리(#166)의 ``to_float64`` 변환이 IEEE 754 float64
+- UT-CONVERT-002: 정본값 30자리(#166)의 명시적 ``float()`` 변환이 IEEE 754 float64
   비트 패턴과 일치.
 - UT-CONVERT-003: Layer 1 계산 중 내장 ``float()`` 호출 0회 (monkey-patch 탐지).
 """
@@ -13,11 +13,6 @@ import struct
 from decimal import Decimal
 
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
-from cii_platform.calc.converter import (
-    convert_simulation_params,
-    estimate_precision_loss,
-    to_float64,
-)
 
 #: UT-CONVERT-002 — TEST_PLAN §2.8가 명시한 정본값 30자리 (#166).
 #:
@@ -56,13 +51,12 @@ def test_ut_convert_001_layer1_returns_decimal() -> None:
 def test_ut_convert_002_decimal_to_float64_matches_expected_bit_pattern() -> None:
     """UT-CONVERT-002 — 정본값 30자리 → IEEE 754 float64 변환 비트 패턴 (#44, #166).
 
-    float64는 약 15~17자리 유효숫자. ``to_float64``가 Python ``float(Decimal)``
-    동작을 그대로 따르는지 비트 단위로 잠근다. ``==``가 NaN/부호있는 0을 넘길 수
-    있어 ``struct.pack``으로 비교한다.
+    기대 비트는 30자리 Decimal을 정수 분수로 놓고 binary64의 53비트 유효숫자에
+    nearest-even 반올림해 독립 계산했다. 같은 float() 호출을 기대값에 쓰지 않는다.
     """
-    actual = to_float64(CANONICAL_30_DIGIT_VALUE)
-    expected = float(CANONICAL_30_DIGIT_VALUE)
-    assert struct.pack("<d", actual) == struct.pack("<d", expected)
+    actual = float(CANONICAL_30_DIGIT_VALUE)
+    # 정수 분수 N/10**29, 지수 2, 53비트 유효숫자의 nearest-even 독립 검산 (#2102).
+    assert struct.unpack("<Q", struct.pack("<d", actual))[0] == 0x4016ACA91C615B33
     # 변환 후 유효숫자는 15~17자리로 줄어든다 (정밀도 손실 관측).
     assert abs(actual - 5.668613856737283) < 1e-15
 
@@ -72,8 +66,7 @@ def test_ut_convert_003_layer1_does_not_invoke_builtin_float(monkeypatch) -> Non
 
     ``builtins.float``을 호출 추적용 trap으로 교체한 뒤 ``calculate_attained_cii``를
     실행한다. Layer 1은 Decimal로만 계산해야 하므로 (TECH_SPEC §1.1), float()가
-    불리면 버그다. ``convert_simulation_params``/``to_float64``는 Layer 1 **밖**에서만
-    불려야 한다.
+    불리면 버그다. 명시적인 Decimal→float 변환은 Layer 1 밖에서만 한다.
     """
 
     seen: list[tuple[object, ...]] = []
@@ -93,73 +86,3 @@ def test_ut_convert_003_layer1_does_not_invoke_builtin_float(monkeypatch) -> Non
     )
     assert seen == [], f"Layer 1 must not call float(): got {seen}"
     assert isinstance(result.attained_cii, Decimal)
-
-
-# --- converter.py 단위 (#44 본문 체크리스트) -----------------------------------------
-
-
-def test_to_float64_rejects_non_decimal() -> None:
-    """to_float64는 Decimal만 받는다 (TECH_SPEC §1.1 단일 변환 지점 계약)."""
-    import pytest
-
-    with pytest.raises(TypeError):
-        to_float64("5.0")  # type: ignore[arg-type]
-    with pytest.raises(TypeError):
-        to_float64(5.0)  # type: ignore[arg-type]
-
-
-def test_estimate_precision_loss_rejects_non_decimal_original() -> None:
-    """손실은 **Decimal 원값**에 대해서만 잰다 (#2144).
-
-    정수를 받아 주면 `5 − Decimal(5.0)`이 그대로 계산되어 「손실 0」이 나온다 — 원값이
-    이미 Layer 1 밖에서 만들어진 값인데 변환 손실이 없다고 적는다.
-    """
-    import pytest
-
-    with pytest.raises(TypeError, match="int"):
-        estimate_precision_loss(5, 5.0)  # type: ignore[arg-type]
-
-
-def test_convert_simulation_params_preserves_structure() -> None:
-    """convert_simulation_params는 Decimal leaf만 float로 바꾸고 구조는 보존한다."""
-    params = {
-        "attained_cii": Decimal("4.9824"),
-        "year": 2026,
-        "fuel_breakdown": {"HFO": Decimal("100"), "LNG": Decimal("50")},
-        "list_field": [Decimal("1"), Decimal("2"), "keep"],
-        "name": "voyage-1",
-        "nested": {"inner": Decimal("9.9")},
-    }
-    converted = convert_simulation_params(params)
-    assert converted["attained_cii"] == 4.9824
-    assert isinstance(converted["attained_cii"], float)
-    assert converted["year"] == 2026  # int 그대로
-    assert isinstance(converted["year"], int)
-    assert converted["fuel_breakdown"] == {"HFO": 100.0, "LNG": 50.0}
-    assert converted["list_field"] == [1.0, 2.0, "keep"]
-    assert converted["name"] == "voyage-1"
-    assert converted["nested"] == {"inner": 9.9}
-
-
-def test_estimate_precision_loss_reports_difference() -> None:
-    """estimate_precision_loss는 변환 전후 차이를 문자열로 돌려준다 (TECH_SPEC §5.4 4항)."""
-    original = CANONICAL_30_DIGIT_VALUE
-    converted = to_float64(original)
-    loss = estimate_precision_loss(original, converted)
-    assert loss.startswith("loss=")
-    # 30자리 정본값을 float64로 변환하면 1e-15 근처의 손실이 발생한다.
-    diff = Decimal(loss.removeprefix("loss="))
-    assert Decimal("1e-30") < diff < Decimal("1e-13")
-
-
-def test_loss_is_measured_against_the_binary_value_not_its_shortest_text():
-    """손실은 **float의 이진값**과 재야 한다 (`#1349`).
-
-    종전에는 `Decimal(str(converted))`로 재서, `str(float)`이 주는 **가장 짧은 십진
-    표기**와 비교했다 — 그 표기는 정의상 같은 float로 되돌아가므로 손실이 **0으로**
-    나온다. 「손실을 숨기지 않는다」는 이 모듈의 선언이 정확히 그 자리에서 깨져 있었다.
-    """
-    loss = estimate_precision_loss(Decimal("0.1"), to_float64(Decimal("0.1")))
-
-    assert loss != "loss=0", "짧은 표기와 비교하면 손실이 0으로 보인다"
-    assert loss.startswith("loss=5.5511151231257827")

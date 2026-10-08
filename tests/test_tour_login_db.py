@@ -140,10 +140,9 @@ async def _tour_token_count() -> int:
 
 
 async def _soft_delete_tour_user() -> None:
-    """둘러보기 세션이 스스로 탈퇴한 상황을 흉내 낸다 (#1486).
+    """외부 관리로 둘러보기 스텁이 삭제 상태가 된 상황을 흉내 낸다 (#1486).
 
-    이 세션은 **관리자**라 `DELETE /auth/me`를 누를 수 있다. 그러면 이 행에
-    ``is_deleted``가 선다.
+    API 탈퇴는 tour_policy의 403으로 막힌다. 이 fixture는 격리 DB 행을 직접 바꾼다.
     """
     from cii_platform.db.session import get_sessionmaker
 
@@ -337,7 +336,7 @@ async def test_soft_deleted_stub_account_is_revived_on_next_tour_login(client, m
 
     ## 무엇을 막는가
 
-    둘러보기 세션은 관리자라 `DELETE /auth/me`를 누를 수 있다. 그 뒤에도 라우트는
+    외부 관리로 스텁이 삭제 상태가 될 수 있다(API 탈퇴는 403이다). 라우트는
     **PK로 행을 직접 가져오므로** `is_deleted`를 보지 않는다 — 되살리지 않으면
     **탈퇴한 계정이 살아 있는 세션을 갖는다.**
 

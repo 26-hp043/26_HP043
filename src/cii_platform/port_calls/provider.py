@@ -96,15 +96,6 @@ class PortCall:
         times = [r.at for r in self._reports_of(KIND_DEPARTURE)]
         return max(times) if times else None
 
-    @property
-    def gross_tonnage(self) -> Decimal | None:
-        """GT — ``grtg``를 먼저 본다(내항선은 ``intrlGrtg``가 ``0`` · 09-23 실측)."""
-        for report in self._reports_of(KIND_ARRIVAL) + self._reports_of(KIND_DEPARTURE):
-            for value in (report.gross_tonnage, report.international_gross_tonnage):
-                if value is not None and value > 0:
-                    return value
-        return None
-
 
 class PortCallProvider(Protocol):
     """재항 기록을 주는 쪽.

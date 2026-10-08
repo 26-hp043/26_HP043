@@ -244,8 +244,13 @@ describe('함대 감축 계획 화면 (#513)', () => {
     const prices = screen.getByText(new RegExp(escapeRegExp(FLEET_REDUCTION_COPY.fuelPricesTitle)))
       .closest('details') as HTMLDetailsElement
     expect(prices.open).toBe(false)
+    // jsdom은 스크롤을 구현하지 않는다. 다음 프레임의 호출도 확인한 뒤 정리한다 (#2102).
+    const input = prices.querySelector('input') as HTMLInputElement
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(input, 'scrollIntoView', { value: scrollIntoView, configurable: true })
     fireEvent.click(within(hero).getByRole('button', { name: '연료 단가 입력' }))
     await waitFor(() => expect(prices.open).toBe(true))
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' }))
   })
 
   it('순손익은 부호를 붙여 크게 적고, 환율을 넣으면 원화를 곁에 적어 이 브라우저에 기억한다', async () => {

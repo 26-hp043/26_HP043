@@ -141,19 +141,6 @@ class TriangularBand:
     max_factor: float
     mode_factor: float = 1.0
 
-    def bounds(self, plan: float) -> tuple[float, float, float]:
-        """``(left, mode, right)``. **불변식 위반 시 mode를 중심으로 재조정한다.**
-
-        ``PRD §12.4.1`` [ORACLE 삼각분포 가드]가 요구하는 처리다. 파라미터가 잘못
-        들어와도 계산을 죽이지 않고 물리적으로 성립하는 범위로 좁힌다 — 시뮬레이션
-        하나가 파라미터 오타로 통째로 실패하는 것보다 낫다.
-        """
-        mode = plan * self.mode_factor
-        # `TECH_SPEC §2.3.1` 물리적 가드 — 거리·연료는 음수일 수 없다. 클램프가 먼저다.
-        left = min(max(plan * self.min_factor, 0.0), mode)
-        right = max(plan * self.max_factor, mode)
-        return left, mode, right
-
 
 @dataclass(frozen=True)
 class DistributionProfile:

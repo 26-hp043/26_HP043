@@ -497,7 +497,7 @@ async def build_voyage_report(
     ``StateTransitionError``를 쓴다(``API_SPEC §1.4``와 같은 축).
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
-    if voyage is None or voyage.is_deleted:
+    if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
     if voyage.status not in REPORTABLE_STATUSES:
         raise StateTransitionError(
@@ -935,7 +935,7 @@ async def build_annual_report(
     연중 언제든 생성 가능하다 — 생성 시점 기준 YTD와 확정 연도 이력을 함께 싣는다.
     """
     vessel = await vessel_repo.get_by_id(session, vessel_id)
-    if vessel is None or vessel.is_deleted:
+    if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
     resolved = resolve_as_of(as_of)

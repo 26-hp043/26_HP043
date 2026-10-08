@@ -319,18 +319,6 @@ P_DRYDOCK = "00000000-0000-4000-8000-000000000203"
 # 로로 여객선의 진행 중 접안 구간 (#650). `detail_status = IN_PORT`와 짝을 이룬다.
 P_IN_PORT = "00000000-0000-4000-8000-000000000204"
 
-SEED_VOYAGE_IDS = (
-    V1_2025,
-    V1_2026,
-    V2_2025,
-    V2_2026,
-    V2_IN_PROGRESS,
-    V3_2025,
-    V3_2026,
-    V4_2025,
-    V4_2026,
-)
-SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK, P_IN_PORT)
 
 #: 시연용 계정 (`#692`).
 #:

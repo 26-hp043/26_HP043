@@ -65,7 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
 from cii_platform.calc.hash import compute_parameter_hash
-from cii_platform.calc.imo_parser import parse_imo_scientific
+from cii_platform.calc.imo_parser import parse_imo_scientific, validate_a_value
 from cii_platform.db.models import CiiRatingBoundary, CiiReferenceLine, RegulationYear
 from cii_platform.db.models.fuel_type import FuelType
 
@@ -386,8 +386,8 @@ def validate_reference_lines() -> None:
     """
     mismatches = []
     for row in SEED_REFERENCE_LINES:
-        parsed = parse_imo_scientific(row.a_raw)
-        if parsed != row.a_decimal:
+        if not validate_a_value(row.a_raw, row.a_decimal):
+            parsed = parse_imo_scientific(row.a_raw)
             mismatches.append(
                 f"{row.ship_type} ({row.condition_expr}): {row.a_raw} → {parsed} != {row.a_decimal}"
             )
