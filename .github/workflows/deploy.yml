@@ -89,6 +89,9 @@ on:
       # `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
       - 'scripts/db_backup.py'
       - 'scripts/purge_expired.py'
+      # 러너의 SSH 전송과 DB 이미지 인증 helper도 배포 절차의 일부다 (#2117).
+      - 'scripts/ssh_stdin.sh'
+      - 'scripts/cubrid_auth_stdin.py'
       - 'frontend/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
@@ -313,6 +316,8 @@ jobs:
           # db-01 자신의 사설 IP — compose가 CUBRID 포트를 이 주소에만 붙인다 (#1641)
           OCI_DB_PRIVATE_IP: ${{ secrets.OCI_DB_PRIVATE_IP }}
           FORCE_DB_INIT: ${{ inputs.force_db_init }}
+          GH_REPO: ${{ github.repository }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
           # 시크릿은 **러너에서 base64로 싸서** 넘긴다 (#1634). 종전에는 `'${SECRET}'`을
@@ -331,8 +336,10 @@ jobs:
           DOTENV_B64="$(base64 -w0 < "${RUNNER_TEMP}/db.env")"
           echo "::add-mask::${DOTENV_B64}"
           rm -f "${RUNNER_TEMP}/db.env"
-          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
-            "CUBRID_PASSWORD_B64='${CUBRID_PASSWORD_B64}' DOTENV_B64='${DOTENV_B64}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' OCI_DB_PRIVATE_IP='${OCI_DB_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
+          source scripts/ssh_stdin.sh
+          ssh_stdin '${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }}' \
+            CUBRID_PASSWORD_B64 DOTENV_B64 OCI_APP_PRIVATE_IP OCI_DB_PRIVATE_IP \
+            FORCE_DB_INIT GH_REPO DEPLOY_SHA <<'ENDSSH'
           set -euo pipefail
           echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
           # 러너가 base64로 싸 보낸 값을 푼다 (#1634). csql이 이 값을 쓴다.
@@ -345,13 +352,14 @@ jobs:
 
           # 레포 클론 또는 업데이트
           if [ ! -d ~/bluelog ]; then
-            git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
+            GIT_TERMINAL_PROMPT=0 git clone "https://github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
           # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
           # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
           # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
-          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
+          git remote set-url origin "https://github.com/${GH_REPO}.git"
+          GIT_TERMINAL_PROMPT=0 git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
           # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
           # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.
@@ -417,18 +425,28 @@ jobs:
           fi
           echo "[db-01] CUBRID 게시 주소 ${bound} (사설 IP 전용)"
 
+          # 원시 비밀번호를 stdin으로 보내므로 docker/python/csql argv에 값이 없다 (#2117).
+          db_auth() {
+            builtin printf '%s' "${CUBRID_PASSWORD}" | \
+              docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+                python3 /opt/bluelog/cubrid_auth_stdin.py "$1" cii
+          }
+          db_auth_empty() {
+            docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+              python3 /opt/bluelog/cubrid_auth_stdin.py probe cii </dev/null
+          }
           # CUBRID 브로커 대기
           ready=""
-          echo "[db-01] CUBRID 브로커 대기 (최대 60회 x 2초 = 120초)"
+          echo "[db-01] CUBRID 브로커 대기 (약 120초, 진행 중 인증 최대 8초 추가)"
+          db_wait_until=$((SECONDS + 120))
           for i in $(seq 1 60); do
-            if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-                 csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+            [ "${SECONDS}" -lt "${db_wait_until}" ] || break
+            if db_auth probe >/dev/null 2>&1; then
               ready="with-password"
               echo "[db-01] 브로커 준비 완료 (비밀번호 인증, ${i}회차)"
               break
             fi
-            if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-                 csql -u dba cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+            if db_auth_empty >/dev/null 2>&1; then
               ready="no-password"
               echo "[db-01] 브로커 준비 완료 (비밀번호 없음, ${i}회차)"
               break
@@ -446,21 +464,20 @@ jobs:
           # 첫 부트: dba 비밀번호 설정
           if [ "${ready}" = "no-password" ]; then
             echo "[db-01] dba 비밀번호 설정 중..."
-            docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-              csql -u dba cii -c "ALTER USER dba PASSWORD '${CUBRID_PASSWORD}';" </dev/null >/dev/null
+            db_auth initialize >/dev/null
             # CAS 워커 캐시 갱신을 위해 컨테이너 재시작
             docker compose -f docker-compose.prod.db.yml restart cubrid </dev/null >/dev/null
-            # 재시작 후 대기
+            # 재시작 후에도 실제 시간으로 기다리는 한도를 유지한다 (#2117).
+            db_wait_until=$((SECONDS + 120))
             for i in $(seq 1 60); do
-              if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-                   csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+              [ "${SECONDS}" -lt "${db_wait_until}" ] || break
+              if db_auth probe >/dev/null 2>&1; then
                 break
               fi
               sleep 2
             done
             # 검증
-            if ! docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-                 csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+            if ! db_auth probe >/dev/null 2>&1; then
               echo "dba 비밀번호 적용 실패" >&2
               exit 1
             fi
@@ -530,6 +547,10 @@ jobs:
           # 되므로 **자동 배포에서는 켜지지 않는다** — 아래 셸이 `= "true"`로만 본다.
           SEED_DEMO: ${{ inputs.seed_demo }}
           CLEAR_DEMO: ${{ inputs.clear_demo }}
+          GH_REPO: ${{ github.repository }}
+          DEPLOY_SHA: ${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
           # `.env`를 **러너에서** 만들어 base64로 넘긴다 (#1634).
@@ -545,7 +566,7 @@ jobs:
           # 그대로 기본값을 쓴다.
           emit() { local v="$2"; v=${v//\\/\\\\}; v=${v//\"/\\\"}; v=${v//\$/\\\$}; v=${v//$'\n'/\\n}; printf '%s="%s"\n' "$1" "$v"; }
           # SQLAlchemy URL에 넣을 비밀번호는 URL 인코딩한다 — 종전에는 원격에서 했다.
-          CUBRID_PASSWORD_ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")"
+          CUBRID_PASSWORD_ENC="$(printf '%s' "${CUBRID_PASSWORD}" | python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.buffer.read().decode("utf-8"),safe=""))')"
           echo "::add-mask::${CUBRID_PASSWORD_ENC}"
           {
             emit APP_ENV "${APP_ENV}"
@@ -580,26 +601,25 @@ jobs:
           rm -f "${RUNNER_TEMP}/app.env"
           # 원격은 터널 토큰의 **값**이 아니라 있는지만 알면 된다.
           if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then TUNNEL_ENABLED=true; else TUNNEL_ENABLED=false; fi
-          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
-            "BACKEND_TAG='${BACKEND_TAG}' \
-             SEED_DEMO='${SEED_DEMO:-false}' CLEAR_DEMO='${CLEAR_DEMO:-false}' \
-             DOTENV_B64='${DOTENV_B64}' TUNNEL_ENABLED='${TUNNEL_ENABLED}' \
-             GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
-             GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
-             DEPLOY_SHA='${{ github.sha }}' \
-             bash -s" <<'ENDSSH'
+          SEED_DEMO="${SEED_DEMO:-false}"
+          CLEAR_DEMO="${CLEAR_DEMO:-false}"
+          source scripts/ssh_stdin.sh
+          ssh_stdin '${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }}' \
+            BACKEND_TAG SEED_DEMO CLEAR_DEMO DOTENV_B64 TUNNEL_ENABLED \
+            GHCR_USER GHCR_TOKEN GH_REPO DEPLOY_SHA <<'ENDSSH'
           set -euo pipefail
           echo "[app-01] connected at $(date -u +%FT%TZ); deploying sha=${BACKEND_TAG}"
 
           # 레포 클론 또는 업데이트
           if [ ! -d ~/bluelog ]; then
-            git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
+            GIT_TERMINAL_PROMPT=0 git clone "https://github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
           # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
           # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
           # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
-          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
+          git remote set-url origin "https://github.com/${GH_REPO}.git"
+          GIT_TERMINAL_PROMPT=0 git fetch "https://github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
           # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
           # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.

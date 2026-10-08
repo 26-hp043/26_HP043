@@ -195,48 +195,21 @@ def test_remote_password_keeps_trailing_newline(value: str):
     assert got.stdout == value.encode("utf-8"), f"{got.stdout!r} != {value!r}"
 
 
-def _ssh_env_strings() -> list[str]:
-    """ssh로 넘기는 `"… bash -s"` 문자열(두 호스트)."""
-    return re.findall(r'"([^"]*?bash -s)"', _workflow(), re.S)
-
-
-#: ssh 명령줄에 원문으로 실어도 되는 값 — 인용 문자가 들어갈 수 없거나 GitHub가 만든 값.
-_SSH_PLAIN_ALLOWED: frozenset[str] = frozenset(
-    {
-        "BACKEND_TAG",
-        "SEED_DEMO",
-        "CLEAR_DEMO",
-        "FORCE_DB_INIT",
-        "TUNNEL_ENABLED",
-        "OCI_APP_PRIVATE_IP",
-        "OCI_DB_PRIVATE_IP",
-        "CUBRID_PASSWORD_B64",
-        "DOTENV_B64",
-        "GHCR_USER",
-        "GHCR_TOKEN",
-        "GH_REPO",
-        "GH_TOKEN",
-        "DEPLOY_SHA",
-    }
-)
-
-
 def test_ssh_command_line_carries_no_raw_secret():
-    """🔴 ssh 명령줄에 **사람이 정한 시크릿의 원문**이 없다 (#1634).
-
-    허용 목록 밖의 이름이 `NAME='…'`로 실리면, 그 값에 `'`가 들어가는 날 배포가 선다.
-    """
-    strings = _ssh_env_strings()
-    assert len(strings) == 2, (
-        f"ssh `bash -s` 문자열을 {len(strings)}개 찾았다 — 두 호스트여야 한다."
-    )
-    for s in strings:
-        names = set(re.findall(r"([A-Z][A-Z0-9_]*)='", s))
-        extra = sorted(names - _SSH_PLAIN_ALLOWED)
-        assert not extra, (
-            f"ssh 명령줄에 원문으로 실린 값: {', '.join(extra)}. 러너의 `emit` 블록에 넣어 "
-            "`DOTENV_B64`로 보내거나, 원격에서 값이 필요하면 `*_B64`로 싸서 보낸다 (#1634)."
-        )
+    """실제 SSH argv에는 base64를 포함한 인증 값이 없어야 한다 (#2117)."""
+    workflow = _workflow()
+    assert workflow.count("ssh_stdin ") == 2
+    helper = (_ROOT / "scripts" / "ssh_stdin.sh").read_text()
+    assert '"$destination" bash -s' in helper
+    assert re.search(r"printf .+%q", helper)
+    for call in workflow.split("ssh_stdin ")[1:]:
+        arguments = call.split("<<'ENDSSH'", 1)[0]
+        assert "=" not in arguments
+        assert "${CUBRID_PASSWORD_B64}" not in arguments
+        assert "${DOTENV_B64}" not in arguments
+        assert "${GHCR_TOKEN}" not in arguments
+    assert "x-access-token" not in workflow
+    assert 'csql -u dba -p "${CUBRID_PASSWORD}"' not in workflow
 
 
 def test_every_base64_payload_is_masked():

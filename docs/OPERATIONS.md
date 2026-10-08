@@ -3,11 +3,11 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | OPERATIONS.md |
-| 버전 | v1.0 (이 변경부터 명시적 판본 추적) |
+| 버전 | v1.1 |
 | 상태 | 운영 중 |
-| 최종 수정일 | 2026-10-08 |
+| 최종 수정일 | 2026-10-09 |
 
-> 최종 갱신: 2026-10-08 (§3.7 스텁 API 삭제 불가와 외부 삭제 상태 복구 구분 · #2102 · §8.5 보안 헤더 세 종류의 운영 응답 검증 · #2111 · §10 체크리스트 「백업 절차」를 정기 백업 스크립트에서 **`ops.yml backup` 수동 실행**으로 — 주기 실행 없음 · #2329 · §3.7 둘러보기가 못 하는 것에 **AI 어시스턴트** — 질문 · 대화 삭제는 전용 문구의 403 · 화면은 `is_tour`로 입력을 닫는다 · #2110 · §3.3·§4.5·§5.1 시크릿 표·§10.4 남은 작업 최초 관리자는 이메일 인증을 마친 뒤에만 관리자 — 가입은 현장직 · 인증 확인이 토큰만 본다는 남은 위험 경고 · #2108 · §3.8 운영 워크플로에 **`purge`** — 만료 행 정리(`scripts/purge_expired.py`)를 수동 작업으로 · 기본 `--dry-run` · `confirm`에 `cii`를 적어야 지운다 · `inspect`가 마지막 `EXPIRED_PURGE` 감사 행을 보여 준다 · 주기 실행(cron)은 두지 않는다 · #2116 · §3.8 inspect가 챗봇 공급자 실패 줄도 고른다 · #2289 · §3.5.4·§4.6·§4.5·§8.1 따라 하면 실패하던 `:8001` curl 다섯 곳을 터널 주소 또는 app-01 안 루프백으로 · §4.4 「레포가 private」 정정 — 레포는 public, GHCR 패키지 공개 범위는 확인 못 함 · #2141 · §3.1 자동 배포 경로에 서버에서 도는 스크립트 둘 · preflight 필수 시크릿 9 → 10종(`INITIAL_ADMIN_EMAILS`) · §5.1 각주 개수 정정 · #2117 · §8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-10-09 (#2117 SSH/Git/DB 인증 값의 argv 제거·이미지 Python3.6/CCI stdin·DB healthcheck · §3.7 스텁 API 삭제 불가와 외부 삭제 상태 복구 구분 · #2102 · §8.5 보안 헤더 세 종류의 운영 응답 검증 · #2111 · §10 체크리스트 「백업 절차」를 정기 백업 스크립트에서 **`ops.yml backup` 수동 실행**으로 — 주기 실행 없음 · #2329 · §3.7 둘러보기가 못 하는 것에 **AI 어시스턴트** — 질문 · 대화 삭제는 전용 문구의 403 · 화면은 `is_tour`로 입력을 닫는다 · #2110 · §3.3·§4.5·§5.1 시크릿 표·§10.4 남은 작업 최초 관리자는 이메일 인증을 마친 뒤에만 관리자 — 가입은 현장직 · 인증 확인이 토큰만 본다는 남은 위험 경고 · #2108 · §3.8 운영 워크플로에 **`purge`** — 만료 행 정리(`scripts/purge_expired.py`)를 수동 작업으로 · 기본 `--dry-run` · `confirm`에 `cii`를 적어야 지운다 · `inspect`가 마지막 `EXPIRED_PURGE` 감사 행을 보여 준다 · 주기 실행(cron)은 두지 않는다 · #2116 · §3.8 inspect가 챗봇 공급자 실패 줄도 고른다 · #2289 · §3.5.4·§4.6·§4.5·§8.1 따라 하면 실패하던 `:8001` curl 다섯 곳을 터널 주소 또는 app-01 안 루프백으로 · §4.4 「레포가 private」 정정 — 레포는 public, GHCR 패키지 공개 범위는 확인 못 함 · #2141 · §3.1 자동 배포 경로에 서버에서 도는 스크립트 둘 · preflight 필수 시크릿 9 → 10종(`INITIAL_ADMIN_EMAILS`) · §5.1 각주 개수 정정 · #2117 · §8.4.1 배포가 옛 백엔드 이미지를 실행 중 + 최근 3개만 남기고 지운다 · §9.5 `docker image prune -a` 권고 삭제 — our-tax 이미지까지 지운다 · #2041 · §3.8 운영 워크플로에 **`bench`** — app-01 백엔드 컨테이너에서 계산 엔진 벤치마크 `PERF-001`·`003`·`004`를 `nice -n 10`으로 잰다 · DB를 쓰는 `PERF-002`·`005`는 제외 · #790 · §3.8 점검에 **챗봇 폐기 경로** — 폐기 여섯 종류를 고정 접두어로 골라 찍는다 · #1985 · §3.1.1 시연 동결을 **10/10 00:00~20:00 KST 구간 자동 판정**으로 — `freeze` 잡 · 수동 스위치 `DEPLOY_FROZEN`은 구간 밖용으로 유지 · #789 · §3.8 백업 전 `backups/` 소유자 되돌림 · 점검에 db 컨테이너 상태·챗봇 감사 흐름 · #788 · §3.1·§5.2 배포 시크릿을 러너에서 `.env`로 만들어 base64로 넘기고 `CUBRID_PASSWORD` 끝 줄바꿈을 보존 · #1634 · §3.8 운영 워크플로 `ops.yml` — 백업·리허설·수집·롤백 실습·복구 교체를 수동 실행으로 · #788 · §1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN`(09-28 구간 자동 판정으로 대체) · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -199,9 +199,18 @@ main 브랜치에 다음 경로가 변경되면 자동 실행:
 src/  alembic/  alembic.ini  pyproject.toml  Dockerfile
 docker-compose.prod.*.yml  ops/  frontend/  .github/workflows/deploy.yml
 scripts/db_backup.py  scripts/purge_expired.py
+scripts/ssh_stdin.sh  scripts/cubrid_auth_stdin.py
 ```
 
-`scripts/`는 **서버에서 도는 둘만** 들어 있다(`#2117`). 서버의 저장소 사본은 배포 때만 갱신되므로, 이 둘이 목록에 없으면 스크립트만 고친 머지가 서버에 닿지 않아 §3.8의 백업·복구·`purge`가 옛 판으로 돈다. 이 둘만 고친 머지도 배포 전체(이미지 빌드 · db-01 · app-01 · 화면)를 돌린다. 그 밖의 스크립트만 바꾼 머지는 배포를 돌리지 않는다. 서버에서 도는 스크립트가 늘면 `deploy.yml`의 `paths`와 `tests/test_ops_scripts_host_python.py`의 `HOST_SCRIPTS`를 함께 고친다.
+`scripts/`는 호스트에서 도는 `db_backup.py`·`purge_expired.py`와 배포 절차의 `ssh_stdin.sh`·`cubrid_auth_stdin.py`만 포함한다(`#2117`). 이 파일들만 고친 머지도 배포 전체를 실행한다. 서버 사본은 배포 SHA로 갱신되므로 백업·정리의 옛 판이 남지 않는다. 그 밖의 실행/CI 전용 스크립트는 자동 배포 대상이 아니다. 호스트 Python 스크립트는 `HOST_SCRIPTS`, 러너/이미지 인증 helper는 별도 실행 환경 검사로 구분한다.
+
+**인증 값은 명령줄에 넣지 않는다** (`#2117`). db/app 배포와 ops 롤백의 SSH는 `ssh_stdin`이 변수 이름을 받아 값의 `%q` 할당과 스크립트를 표준 입력으로 보낸다. 값과 base64도 SSH argv에 없다. xtrace를 끄고 `.env`의 077 권한·encoded 값 마스킹·호스트 키 고정은 유지한다.
+
+저장소는 public이므로 Git clone/fetch는 토큰 없는 GitHub URL을 쓰며 기존 origin도 그 URL로 맞춘다. 공개 범위를 바꾸면 이 전제를 다시 검토해야 한다. GHCR 인증은 별개이며 기존 password-stdin을 사용한다.
+
+DB 이미지의 Python3.6.8과 공개 CCI ABI를 쓰는 `cubrid_auth_stdin.py`는 비밀번호를 stdin의 원시 바이트로 읽고 끝 줄바꿈을 보존한다. `probe`는 loopback 브로커에서 SELECT1만 수행한다. `initialize`는 빈 암호로 로그인할 때만 최초 dba 암호를 설정하며 SQL 값은 CCI escape 규칙으로 인용한다. 기존 암호가 있으면 재설정하지 못한다. 이미지의 library/header·Python 판본이 바뀌면 실제 인증 시험을 다시 한다. helper는 읽기 전용 마운트로 DB healthcheck에서도 사용한다. ACL·공인 포트·데이터 볼륨은 넓히거나 초기화하지 않는다.
+
+probe는 4초에 종료하며 DB 기다림은 120초 deadline을 두고 진행 중 두 인증의 최대 8초를 더 허용한다. `.env`·프로세스 환경·메모리에 대한 같은 사용자/관리자 권한의 열람까지 없앤 것은 아니다. 이 절의 완료 범위는 배포/롤백 인증 값의 argv 제거다.
 
 워크플로 파일: `.github/workflows/deploy.yml`
 
@@ -221,8 +230,8 @@ GitHub Actions (deploy.yml)
   │   ├─ ACL 템플릿 치환 (REPLACE_ME_APP_PRIVATE_IP)
   │   ├─ .env 풀기 (CUBRID_PASSWORD — 러너가 만들어 base64로 넘긴다 · #1634)
   │   ├─ docker compose up -d (CUBRID)
-  │   ├─ 브로커 대기 (최대 120초)
-  │   └─ 첫 부트 시 ALTER USER dba PASSWORD + 재시작
+  │   ├─ CCI/stdin 브로커 대기 (120초 + 진행 중 인증 최대 8초)
+  │   └─ 첫 부트 시 CCI/stdin 암호 설정 + 재시작
   │
   ├─ deploy-app (SSH → app-01)
   │   ├─ 호스트 키 고정 검사 — ops/host/known_hosts 에 app-01이 없으면 여기서 멈춤 (§4.7 · #1637)
@@ -337,14 +346,16 @@ cp .env.db.example .env
 # 기동
 docker compose -f docker-compose.prod.db.yml up -d
 
-# 첫 부트 후 dba 비밀번호 설정
-docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-  csql -u dba cii -c "ALTER USER dba PASSWORD '<비밀번호>';"
+# CUBRID_PASSWORD는 안전한 입력/시크릿 저장소에서 현재 셸로 받은 값이다.
+# 실제 값을 명령줄·셸 기록에 적거나 출력하지 않는다. 끝 줄바꿈도 그대로 보낸다.
+# 첫 부트 때만 빈 암호로 로그인해 설정한다. 기존 암호의 재설정은 거부된다.
+printf '%s' "$CUBRID_PASSWORD" | docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+  python3 /opt/bluelog/cubrid_auth_stdin.py initialize cii
 docker compose -f docker-compose.prod.db.yml restart cubrid
 
 # 검증
-docker compose -f docker-compose.prod.db.yml exec -T cubrid \
-  csql -u dba -p '<비밀번호>' cii -c 'SELECT 1 FROM db_root'
+printf '%s' "$CUBRID_PASSWORD" | docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+  python3 /opt/bluelog/cubrid_auth_stdin.py probe cii
 ```
 
 ```bash
@@ -1646,3 +1657,4 @@ DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검
 |---|---|---|
 | 2026-10-08 | `#2369` | §8.5 세 보안 헤더·직접 API/Pages/지도·단일 호스트 검증 절차 신설 (#2111) |
 | 2026-10-08 | `#2371` | §3.7 둘러보기 스텁은 API로 삭제할 수 없고 외부 삭제 상태 복구와 구분됨을 명시 (#2102) |
+| 2026-10-09 | `#2378` | §3.1·§3.3 배포/롤백 SSH stdin·공개 Git 토큰 제거·Python3.6/CCI DB 인증/health·시간 한도·환경/메모리 접근과 범위 구분 (#2117) |

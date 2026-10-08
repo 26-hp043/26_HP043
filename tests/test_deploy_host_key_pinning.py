@@ -71,8 +71,11 @@ def test_no_host_key_is_collected_during_the_run():
 
 def test_every_ssh_connection_checks_the_host_key_strictly():
     """`ssh` 호출마다 `-o StrictHostKeyChecking=yes`가 붙는다 — 두 호스트 모두."""
-    calls = [line.strip() for line in _text().splitlines() if line.strip().startswith("ssh -i ")]
-    assert len(calls) == 2, f"ssh 호출이 둘이 아니다: {calls}"
+    calls = [line.strip() for line in _text().splitlines() if line.strip().startswith("ssh_stdin ")]
+    assert len(calls) == 2, f"stdin SSH 호출이 둘이 아니다: {calls}"
+    helper = (_ROOT / "scripts" / "ssh_stdin.sh").read_text()
+    calls = [line.strip() for line in helper.splitlines() if "command ssh -i " in line]
+    assert len(calls) == 1
     lax = [c for c in calls if "-o StrictHostKeyChecking=yes" not in c]
     assert lax == [], "엄격 검사 없이 접속한다:\n  " + "\n  ".join(lax)
 
@@ -101,7 +104,7 @@ def test_a_missing_host_stops_the_deploy_before_any_remote_command(job: str):
     assert gate, f"`{job}`에 호스트 키 존재 검사가 없다"
     after_gate = block[gate.end() :]
     assert "exit 1" in after_gate.split("cp ops/host/known_hosts")[0], "없어도 멈추지 않는다"
-    assert gate.start() < block.index("ssh -i "), "검사가 ssh 호출보다 뒤에 있다"
+    assert gate.start() < block.index("ssh_stdin "), "검사가 ssh 호출보다 뒤에 있다"
 
 
 @pytest.mark.parametrize("job", SSH_JOBS)
