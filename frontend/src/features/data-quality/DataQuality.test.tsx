@@ -132,6 +132,9 @@ describe('데이터 점검 화면 (#513)', () => {
 
     expect(await screen.findAllByText('94.2%')).toHaveLength(2)
     expect(screen.getByText(DATA_QUALITY_COPY.completenessHint)).toBeTruthy()
+    // 연도 전체 점검임을 비율 가까이에 알린다 (PRD §17.4.3 · #2096).
+    const summary = screen.getByRole('region', { name: DATA_QUALITY_COPY.summaryTitle })
+    expect(within(summary).getByText(/연도 전체/)).toBeTruthy()
   })
 
   it('⚠️ 판정하지 못한 항차 수를 이상치 0건과 섞지 않고 보인다', async () => {

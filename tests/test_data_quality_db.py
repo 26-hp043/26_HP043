@@ -490,10 +490,12 @@ async def test_a_fuelless_voyage_is_pointed_at_even_when_mixed(session, vessel_i
 
 @pytest.mark.asyncio
 async def test_fuel_no_record_count_uses_the_annual_inclusion_scope(session, vessel_id):
-    """다른 해·삭제·집계 제외는 빼고, 연료 행의 값 누락과 행 부재를 구분한다 (#2096)."""
-    await _voyage(session, vessel_id, no="OK")
-    await _voyage(session, vessel_id, no="NO-ROW", with_fuel_row=False)
-    await _voyage(session, vessel_id, no="COMPLETED", status="COMPLETED", with_fuel_row=False)
+    """연도 전체 점검과 시각 절단 실적을 구분하고 제외·행 부재 경계를 지킨다 (#2096)."""
+    await _voyage(session, vessel_id, no="OK", hours=48)
+    early = await _voyage(session, vessel_id, no="NO-ROW", hours=48, with_fuel_row=False)
+    late = await _voyage(
+        session, vessel_id, no="COMPLETED", status="COMPLETED", with_fuel_row=False
+    )
     await _voyage(session, vessel_id, no="EMPTY-VALUE", planned_fuel=None, actual_fuel=None)
     other_year = await _voyage(session, vessel_id, no="OTHER-YEAR", with_fuel_row=False)
     deleted = await _voyage(session, vessel_id, no="DELETED", with_fuel_row=False)
@@ -517,6 +519,20 @@ async def test_fuel_no_record_count_uses_the_annual_inclusion_scope(session, ves
     assert result["summary"]["fuel_no_record_count"] == sum(
         row["fuel_no_record_count"] for row in result["vessels"]
     )
+
+    # 3/3 도착은 포함하고 3/11 도착은 제외하는 과거 시점의 실적이다.
+    # 연도 전체 점검의 2건을 과거 계산의 1건으로 줄이지 않는다 (가안 결정).
+    historical = await compute_ytd_cii(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        as_of=datetime.fromisoformat("2026-03-05T00:00:00+00:00"),
+    )
+    historical_missing = {
+        uuid_canon(item.voyage_id) for item in historical.unfilled if item.fuel_type is None
+    }
+    assert historical_missing == {uuid_canon(early)}
+    assert uuid_canon(late) not in historical_missing
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -26,7 +26,7 @@ export const DATA_QUALITY_COPY = {
    * ⚠️ **무엇의 비율인지 말한다.** 「완결성 94%」만 적으면 항차 수의 비율로 읽힌다 —
    * 실제로는 CO₂ 비율이라 큰 항차 하나가 작은 항차 여럿보다 무겁다(`PRD §17.4.3`).
    */
-  completenessHint: '누적 CO₂ 중 실측으로 계산된 비율',
+  completenessHint: '선택 연도 전체 실적 · 누적 CO₂ 중 실측으로 계산된 비율',
   completenessNone: '계산할 배출 없음',
   fuelNoRecordHint: (n: number) => `연료 기록 없음 ${n}건`,
   /* 판정 못 한 항차는 0건과 섞지 않는다 (`PRD §17.4.1`). */
