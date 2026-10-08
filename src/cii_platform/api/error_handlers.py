@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cii_platform.api.field_labels import field_label
+from cii_platform.api.security_headers import SECURITY_HEADERS
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.api.validation_messages import korean_message
 from cii_platform.errors import ERROR_HTTP_STATUS, AppError
@@ -215,7 +216,10 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
         request_id=request_id,
         timestamp=getattr(state, "timestamp", None) or iso_utc_now(),
     )
-    return JSONResponse(status_code=ERROR_HTTP_STATUS["INTERNAL_ERROR"], content=body)
+    # 이 응답은 사용자 미들웨어 밖에서 생성된다 (Starlette ServerErrorMiddleware).
+    return JSONResponse(
+        status_code=ERROR_HTTP_STATUS["INTERNAL_ERROR"], content=body, headers=SECURITY_HEADERS
+    )
 
 
 # --- #183: HTTPException -----------------------------------------------------------

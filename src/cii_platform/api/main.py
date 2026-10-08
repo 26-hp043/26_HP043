@@ -43,6 +43,7 @@ from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.api.routes.weather import router as weather_router
+from cii_platform.api.security_headers import SecurityHeadersMiddleware
 from cii_platform.auth.middleware import auth_middleware
 from cii_platform.auth.role_bootstrap import validate_initial_admin
 from cii_platform.auth.signup_gate import validate_signup_gate
@@ -159,12 +160,12 @@ app = FastAPI(
 )
 
 # 미들웨어 스택 (#238 · #275 · #307) — 바깥 → 안쪽 순서:
-#   RequestContext → rate_limit → auth → 라우트
+#   SecurityHeaders → (CORS) → RequestContext → rate_limit → auth → 라우트
 # Starlette의 add_middleware는 user_middleware.insert(0, …)라 **나중에 등록한
 # 미들웨어가 바깥**에서 실행된다 (등록 방식과 무관 — middleware("http") 데코레이터도
 # 내부적으로 add_middleware를 쓴다). 따라서 아래는 안쪽 것부터 등록한다.
 #
-# - RequestContext가 가장 바깥: request_id/timestamp를 먼저 주입해야 401·429 응답의
+# - RequestContext가 rate_limit·auth보다 바깥: request_id/timestamp를 먼저 주입해야 401·429 응답의
 #   meta.request_id가 채워진다 (API_SPEC §1.3.2).
 # - rate_limit이 auth보다 바깥: 미인증 트래픽(로그인 무차별 대입 포함)도 한도에
 #   포함된다.
@@ -195,6 +196,10 @@ if _cors_origins:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+# 보안 헤더는 CORS·인증·한도의 조기 응답도 감싼다 (TECH_SPEC §20 · #2111).
+# ServerErrorMiddleware의 외곽 500은 unhandled_error_handler가 같은 값을 넣는다.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # AppError(및 하위 클래스) → API_SPEC §1.3.2 표준 오류 응답.
 # #116이 RequestValidationError(Pydantic 검증 실패)와 catch-all을 함께 등록한다.

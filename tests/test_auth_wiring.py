@@ -168,11 +168,19 @@ def test_public_mutating_routes_are_the_session_less_ones() -> None:
 
 
 def test_middleware_stack_order() -> None:
-    """스택 순서 — 바깥→안쪽: RequestContext → rate_limit → auth (#307)."""
+    """보안 헤더가 조기 오류를 감싸며 문맥→한도→인증 순서는 유지된다 (#2111)."""
     from cii_platform.api.middleware import RequestContextMiddleware
+    from cii_platform.api.security_headers import SecurityHeadersMiddleware
 
     stack = app.user_middleware  # 바깥 → 안쪽 순 저장(insert(0, …) 때문).
-    assert stack[0].cls is RequestContextMiddleware
+    assert stack[0].cls is SecurityHeadersMiddleware
+    context_index = next(i for i, m in enumerate(stack) if m.cls is RequestContextMiddleware)
+    rate_index = next(
+        i
+        for i, m in enumerate(stack)
+        if getattr(m.kwargs.get("dispatch"), "__name__", None) == "rate_limit_middleware"
+    )
+    assert 0 < context_index < rate_index
     dispatches = [m.kwargs.get("dispatch") for m in stack if m.cls is BaseHTTPMiddleware]
     names = [d.__name__ for d in dispatches if d is not None]
     assert names == ["rate_limit_middleware", "auth_middleware"]
