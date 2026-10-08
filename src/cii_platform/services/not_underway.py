@@ -31,6 +31,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import not_underway as nu_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -439,6 +440,7 @@ async def create_period(
             cf_used=cf_by_fuel[fu["fuel_type"]],
         )
 
+    await calc_run_repo.mark_annual_needs_recalc(session, vessel_id)
     await session.commit()
     return to_dict(period, await nu_repo.list_fuel_uses(session, period.id))
 
@@ -553,9 +555,15 @@ async def update_period(
         if period.regulation_year not in valid_years:
             fields["regulation_year"] = _utc_year(started_at)
 
+    input_fields = {"period_type", "started_at", "ended_at", "distance_nm", "regulation_year"}
+    input_changed = any(
+        getattr(period, key) != value for key, value in fields.items() if key in input_fields
+    )
     for key, value in fields.items():
         setattr(period, key, value)
 
+    if input_changed:
+        await calc_run_repo.mark_annual_needs_recalc(session, period.vessel_id)
     if commit:
         await session.commit()
         await session.refresh(period)
@@ -574,6 +582,7 @@ async def delete_period(session: AsyncSession, period_id: UUID) -> dict[str, obj
     """
     period = await _require_period(session, period_id)
     period.is_deleted = True
+    await calc_run_repo.mark_annual_needs_recalc(session, period.vessel_id)
     await session.commit()
     return {"id": str(period.id), "deleted": True}
 
@@ -612,6 +621,7 @@ async def add_fuel_use(
         fuel_ton=fuel_ton,
         cf_used=cf,
     )
+    await calc_run_repo.mark_annual_needs_recalc(session, period.vessel_id)
     await session.commit()
     return _fuel_use_to_dict(fuel_use)
 
@@ -624,12 +634,13 @@ async def delete_fuel_use(
     ``period_id``를 함께 받아 **다른 구간의 연료를 지우지 못하게** 한다. 자식 ID만
     받으면 URL을 바꿔 남의 구간을 건드릴 수 있고, 그 삭제는 CII 값을 조용히 바꾼다.
     """
-    await _require_period(session, period_id)
+    period = await _require_period(session, period_id)
 
     fuel_use = await nu_repo.get_fuel_use(session, fuel_use_id)
     if fuel_use is None or fuel_use.period_id != period_id:
         raise NotFoundError(f"연료 기록을 찾을 수 없습니다: {fuel_use_id}")
 
     await nu_repo.delete_fuel_use(session, fuel_use)
+    await calc_run_repo.mark_annual_needs_recalc(session, period.vessel_id)
     await session.commit()
     return {"id": str(fuel_use_id), "deleted": True}
