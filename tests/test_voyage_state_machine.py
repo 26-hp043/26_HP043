@@ -21,6 +21,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fakes import FakeSession
 
 from cii_platform.errors import NotFoundError, StateTransitionError
 from cii_platform.services import voyage as svc
@@ -99,10 +100,11 @@ class _StubFuelUse:
         self.source = "USER_INPUT"
 
 
-class _StubSession:
+class _StubSession(FakeSession):
     """``commit``·``delete``만 기록하는 세션 스텁."""
 
     def __init__(self) -> None:
+        super().__init__()
         self.commits = 0
         self.deleted: list = []
 

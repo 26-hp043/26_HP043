@@ -116,6 +116,24 @@ async def mark_needs_recalc(session: AsyncSession, vessel_id: UUID) -> int:
     return result.rowcount or 0
 
 
+async def mark_annual_needs_recalc(session: AsyncSession, vessel_id: UUID) -> int:
+    """선박의 저장 연간 실행에 입력 변경 표시를 누적한다 (PRD §8.4, #2304).
+
+    항차 귀속이 없는 연간 실행만 별도로 표시한다. 다른 항차의 기능①·② 계산과
+    결과/스냅샷은 보존하며, 원본 변경과 같은 트랜잭션에서 플래그만 올린다.
+    """
+    result = await session.execute(
+        sa.update(CalculationRun)
+        .where(
+            CalculationRun.vessel_id == vessel_id,
+            CalculationRun.calculation_type == "ANNUAL_MONTE_CARLO",
+            CalculationRun.needs_recalc == 0,
+        )
+        .values(needs_recalc=True)
+    )
+    return result.rowcount or 0
+
+
 async def insert_voyage_estimate(
     session: AsyncSession,
     *,

@@ -101,7 +101,7 @@ export const ANNUAL_COPY = {
   /** 빈 화면의 「지난 결과 보기」 버튼 (#2348) — 뒤에 「· 그 실행의 시각」이 붙는다. 누를 때만 결과를 올린다 */
   lastRunOpen: '지난 결과 보기',
   /** 마지막 실행 뒤 제원이 바뀌었다(`needs_recalc` · `API_SPEC §6.5`) (#1701) */
-  lastRunNeedsRecalc: '제원이 바뀌어 다시 실행이 필요합니다.',
+  lastRunNeedsRecalc: '선박 제원·항차·정박 기록이 바뀌었습니다. 현재 데이터로 다시 실행해 주세요.',
   targetRatingLabel: '목표 등급',
   runsLabel: '반복 횟수',
   runsHint: '1,000~10,000회. 많을수록 분포가 안정되고 오래 걸립니다.',

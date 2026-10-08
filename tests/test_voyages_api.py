@@ -8,6 +8,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fakes import FakeSession
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -64,8 +65,9 @@ class _FakeVoyage:
         self.created_at = kw.get("created_at", dt.datetime(2026, 8, 13, tzinfo=dt.UTC))
 
 
-class _FakeSession:
+class _FakeSession(FakeSession):
     def __init__(self) -> None:
+        super().__init__()
         self.deleted: list = []
         self.committed = 0
 

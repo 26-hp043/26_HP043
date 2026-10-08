@@ -1949,8 +1949,8 @@ async def list_annual_simulations(
     행에는 「이 결과의 조건」을 맞추는 값만 싣는다. 본문(`result_json`)은 싣지 않는다 —
     목록이 결과마다 수백 KB를 옮기게 된다.
 
-    ``needs_recalc``는 ``calculation_run``의 값이다 — 제원이 바뀐 뒤의 결과면 화면이
-    「다시 실행」을 안내한다.
+    ``needs_recalc``는 ``calculation_run``의 값이다 — 제원·항차·정박 계산 입력이
+    바뀐 뒤의 결과면 화면이 「다시 실행」을 안내한다.
     """
     await _load_vessel(session, vessel_id)
     page_size = normalize_limit(

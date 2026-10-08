@@ -47,6 +47,7 @@ from sqlalchemy import select, update
 
 from cii_platform.calc.precision import layer1_context
 from cii_platform.db.models.voyage_scenario import VoyageScenario
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -216,6 +217,8 @@ async def adopt_scenario(
 
     # `API_SPEC §5.2` — 계획이 바뀌었으므로 그 항차의 계산 결과는 더 이상 현행이 아니다.
     marked = await voyage_repo.mark_calculations_needing_recalc(session, voyage_id)
+    # 응답의 invalidated_calculation_runs는 기존 항차 귀속 계산 건수다 (#2304).
+    await calc_run_repo.mark_annual_needs_recalc(session, scenario.vessel_id)
 
     await session.commit()
     return {

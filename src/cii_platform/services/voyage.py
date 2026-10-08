@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -303,6 +304,7 @@ async def create_voyage(
             source=fu["source"],
         )
 
+    await calc_run_repo.mark_annual_needs_recalc(session, vessel_id)
     if commit:
         await session.commit()
     else:
@@ -524,13 +526,15 @@ async def update_voyage(
             fields.get("planned_arrival_at", voyage.planned_arrival_at),
         )
 
+    annual_input_changed = any(getattr(voyage, key) != fields[key] for key in changed_plan_fields)
     for key, value in fields.items():
         setattr(voyage, key, value)
 
+    if annual_input_changed:
+        await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
     if changed_plan_fields:
         # `PRD §8.4` — 항차 계획 변경 → 해당 항차 계산 결과 무효화 후 재계산.
-        # `calculation_run.voyage_id`가 항상 NULL인 #817 때문에 지금은 no-op이지만
-        # 호출 규약은 이 자리에 있고, #817 해소 시 함께 동작한다.
+        # 요청이 항차를 밝힌 기능①·②의 기존 범위는 유지한다 (#817).
         await voyage_repo.mark_calculations_needing_recalc(session, voyage.id)
 
     await session.commit()
@@ -621,6 +625,7 @@ async def transition_voyage(
 
     voyage.status = to_status
     voyage.annual_inclusion_policy = new_policy
+    await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
     if commit:
         await session.commit()
     else:
@@ -688,11 +693,13 @@ async def delete_voyage(
         if await voyage_repo.has_calculation_run_refs(session, voyage_id):
             raise ConflictError("이 항차를 참조하는 계산 이력이 있어 삭제할 수 없습니다.")
         await session.delete(voyage)
+        await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
         await session.commit()
         return {"id": str(voyage.id), "deleted": True, "hard_delete": True}
 
     if voyage.status in soft_delete_statuses:
         voyage.is_deleted = True
+        await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
         await session.commit()
         return {"id": str(voyage.id), "deleted": True, "hard_delete": False}
 
@@ -783,9 +790,8 @@ async def set_actuals(
     계획 대비 실적 차이가 `#363` 피드백 루프의 입력이라, 계획값을 잃으면 그 비교가
     영영 불가능해진다.
 
-    같은 이유로 **`calculation_run`을 무효화하지 않는다.** `§8.4`가 무효화를 규정한
-    것은 「항차 계획 변경」이지 실적 입력이 아니다. 실적은 다음 조회 때 값 우선순위가
-    자동으로 집어 간다.
+    항차 단위 기능①·② 계산은 그대로 보존한다. 저장 연간 실행은 현재 실적과
+    달라졌음을 ``needs_recalc``로 알린다 (PRD §8.4 · #2304). 저장 결과는 바꾸지 않는다.
 
     ## CF snapshot
 
@@ -813,13 +819,21 @@ async def set_actuals(
             fields.get("actual_departure_at", voyage.actual_departure_at),
             fields.get("actual_arrival_at", voyage.actual_arrival_at),
         )
+    annual_input_changed = any(
+        getattr(voyage, key) != value
+        for key, value in fields.items()
+        if key not in ACTUAL_TIME_SOURCE_FIELDS.values()
+    )
     reset_stale_sources(fields, ACTUAL_TIME_SOURCE_FIELDS, voyage)
     for key, value in fields.items():
         setattr(voyage, key, value)
 
     if fuel_uses:
-        await _apply_fuel_actuals(session, voyage_id=voyage.id, fuel_uses=fuel_uses)
+        fuel_changed = await _apply_fuel_actuals(session, voyage_id=voyage.id, fuel_uses=fuel_uses)
+        annual_input_changed = annual_input_changed or fuel_changed
 
+    if annual_input_changed:
+        await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
     await session.commit()
     fuel_use_rows = await voyage_repo.list_fuel_uses(session, voyage.id)
     return to_dict(voyage, fuel_use_rows)
@@ -830,7 +844,7 @@ async def _apply_fuel_actuals(
     *,
     voyage_id: UUID,
     fuel_uses: list[dict],
-) -> None:
+) -> bool:
     """유종별 실적을 기존 행에 얹거나 새 행으로 넣는다.
 
     ``idx_fuel_use_unique``가 (항차, 유종) 중복을 막는다(`DB_SCHEMA §2.3` [S-2]) —
@@ -841,6 +855,7 @@ async def _apply_fuel_actuals(
 
     fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
     existing = {row.fuel_type: row for row in await voyage_repo.list_fuel_uses(session, voyage_id)}
+    changed = False
 
     for item in fuel_uses:
         code = item["fuel_type"]
@@ -857,11 +872,13 @@ async def _apply_fuel_actuals(
             # **기록**이다(#832). 확정 실적은 그때 실제로 그 계수로 배출했고(#863),
             # 계획 항차의 예측은 계산 실행 시점의 활성 CF를 쓰므로 이 열을 덮어쓸
             # 필요가 없다. 덮으면 그때의 기록이 사라진다.
+            changed = changed or row.actual_fuel_ton != item["actual_fuel_ton"]
             row.actual_fuel_ton = item["actual_fuel_ton"]
             if item.get("source") is not None:
                 row.source = item["source"]
             continue
 
+        changed = True
         await voyage_repo.insert_fuel_use(
             session,
             voyage_id=voyage_id,
@@ -870,3 +887,4 @@ async def _apply_fuel_actuals(
             cf_used=Decimal(str(fuel_rows[code].cf)),
             source=item.get("source") or "USER_INPUT",
         )
+    return changed

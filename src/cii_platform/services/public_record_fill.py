@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import not_underway as nu_repo
 from cii_platform.db.repositories import port_call as port_call_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -191,6 +192,8 @@ async def fill_from_public_record(
         )
         setattr(voyage, value_key, current_recorded_at)
         setattr(voyage, source_key, SOURCE_PUBLIC_RECORD)
+        if before != current_recorded_at:
+            await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
         await session.flush()
     else:
         period = await nu_repo.get_period(session, period_id)  # type: ignore[arg-type]
