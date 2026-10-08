@@ -138,4 +138,5 @@ asyncio_mode = "auto"
 # 만드는 문구(`EMAIL_TAKEN_MESSAGE`)를 단언하므로 본문은 반드시 실행됐다. `#871`이
 # 「본문 미실행」으로 본 것이 이 계측 문제였다.
 [tool.coverage.run]
+branch = true
 concurrency = ["thread", "greenlet"]

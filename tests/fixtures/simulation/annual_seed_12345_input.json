@@ -1,17 +1,48 @@
 {
-  "description": "PRD §13.3 Fixture 3 — Monte Carlo seed 재현성",
+  "description": "TEST_PLAN §1.4 Fixture 3 — 확정 실적과 잔여 계획의 Monte Carlo 재현성",
   "input": {
-    "vessel_id": "test-vessel-uuid",
+    "vessel_id": "00000000-0000-0000-0000-00000000f301",
+    "ship_type": "BULK_CARRIER",
+    "deadweight": "50000",
+    "gross_tonnage": "30000",
+    "reference_speed_kn": "14",
+    "reference_daily_foc_ton": "30",
     "regulation_year": 2026,
     "target_rating": "B",
     "simulation_runs": 5000,
     "random_seed": 12345,
     "distribution_profile": "DEFAULT",
+    "as_of": "2026-09-30T00:00:00+00:00",
     "voyages": [
       {
+        "id": "00000000-0000-0000-0000-00000000f302",
+        "voyage_no": "FIXTURE-3-ACTUAL",
         "status": "CONFIRMED",
-        "distance_nm": 11000,
-        "fuel_uses": [{ "fuel_type": "HFO", "fuel_ton": 800.0 }]
+        "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+        "departure_at": "2026-09-01T00:00:00+00:00",
+        "arrival_at": "2026-09-20T00:00:00+00:00",
+        "distance_nm": "11000",
+        "fuel_uses": [
+          {
+            "fuel_type": "HFO",
+            "fuel_ton": "800.0000"
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-0000-0000-00000000f303",
+        "voyage_no": "FIXTURE-3-PLAN",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "departure_at": "2026-11-01T00:00:00+00:00",
+        "arrival_at": "2026-11-10T00:00:00+00:00",
+        "distance_nm": "6000",
+        "fuel_uses": [
+          {
+            "fuel_type": "HFO",
+            "fuel_ton": "500.0000"
+          }
+        ]
       }
     ]
   }
