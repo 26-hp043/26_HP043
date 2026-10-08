@@ -44,6 +44,8 @@ _PRD = Path(__file__).resolve().parents[1] / "PRD.md"
         "현재는 **2025년**입니다.",
         "현재는 `2025`년입니다.",
         "현재연도는 2025년입니다.",
+        "지금은 2025년입니다.",
+        "금년은 2025년입니다.",
     ],
 )
 def test_wrong_current_year_is_blocked_even_though_general_number_guard_ignores_years(answer):

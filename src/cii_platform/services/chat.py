@@ -170,7 +170,7 @@ _RULES = (
 #: 짧아 프롬프트에 두는 편이 싸다.
 SYSTEM_PROMPT = f"{_RULES}\n\n{glossary_prompt()}"
 
-_CURRENT_YEAR_WORD = re.compile(r"올해|금년|현재\s*연도")
+_CURRENT_YEAR_WORD = re.compile(r"올해|금년|현재\s*(?:연도|년도)")
 _OTHER_YEAR_WORD = re.compile(r"(?:19|20)\d{2}\s*년?|작년|지난해|전년|내년|다음\s*해|비교|대비")
 
 

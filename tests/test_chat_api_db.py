@@ -21,6 +21,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
@@ -366,8 +367,9 @@ async def test_discarded_answer_is_not_stored(migrated_db, app_fresh_engine):
         await _cleanup()
 
 
+@pytest.mark.parametrize("current_question", ["올해 규제값은?", "현재년도 규제값은?"])
 async def test_chat_rejects_wrong_current_year_at_kst_new_year_boundary(
-    migrated_db, app_fresh_engine, monkeypatch
+    migrated_db, app_fresh_engine, monkeypatch, current_question
 ):
     """IT-CHAT-084 — KST 연초에 틀린 현재 해는 폐기하고 과거 해 설명은 허용한다 (#2355)."""
     frozen = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)  # KST 2027-01-01 00:30
@@ -415,7 +417,7 @@ async def test_chat_rejects_wrong_current_year_at_kst_new_year_boundary(
             assert "2025년" not in first_data["answer"]
 
             second = client.post(
-                "/api/v1/chat", json={"message": "올해 규제값은?"}, headers=headers
+                "/api/v1/chat", json={"message": current_question}, headers=headers
             )
             assert second.status_code == 200, second.text
             second_data = second.json()["data"]
