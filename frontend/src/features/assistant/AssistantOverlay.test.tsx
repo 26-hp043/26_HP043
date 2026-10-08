@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AssistantOverlay, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
@@ -567,12 +567,35 @@ describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () =>
     expect(ask).not.toHaveBeenCalled()
   })
 
-  it('대화를 시작하면 예시 질문을 걷는다', async () => {
+  it('대화를 시작하면 첫 화면의 예시를 걷고, 답 뒤에 「이어서 물어보기」 접힘으로 다시 둔다 (#2344)', async () => {
     setup()
     open()
     await send('안녕하세요')
     await screen.findByText(ANSWER.answer)
-    expect(screen.queryByRole('group', { name: '예시 질문' })).toBeNull()
+    // 첫 화면의 펼친 예시(머리말 포함)는 걷힌다 — 대화가 자리를 쓴다
+    expect(screen.queryByText('무엇이 궁금하세요?')).toBeNull()
+
+    // 대신 한 줄 접힘이 있고, 펼치면 문의 유형 묶음이 전부 접힌 채 있다
+    const followup = document.querySelector('details.assistant__followup') as HTMLDetailsElement
+    expect(followup).not.toBeNull()
+    expect(followup.open).toBe(false)
+    const groups = within(followup).getByRole('group', { name: '예시 질문' })
+    const details = Array.from(groups.querySelectorAll('details'))
+    expect(details.length).toBeGreaterThan(1)
+    expect(details.every((d) => !d.open)).toBe(true)
+
+    // 답이 올 때마다 예시까지 낭독되지 않게 — 로그(`role="log"`) 밖에 있다
+    expect(followup.closest('[role="log"]')).toBeNull()
+
+    // 누르면 처음과 같이 입력칸에만 채운다 (화살표는 `aria-hidden`이라 질문 글자가 아니다)
+    const example = within(groups).getAllByRole('button', { hidden: true })[0]
+    const question = (button: Element) => {
+      const copy = button.cloneNode(true) as Element
+      copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove())
+      return copy.textContent?.trim() ?? ''
+    }
+    fireEvent.click(example)
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe(question(example))
   })
 
   it('안내 문구가 「화면의 계산 결과를 풀어 설명」한다고 말하지 않는다 — 새로 계산한다(R18)', () => {
