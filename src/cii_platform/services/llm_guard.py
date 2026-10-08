@@ -302,3 +302,24 @@ def verify_numbers(
             + " (No-Compute · PRD §20 O-12)",
             numbers=blocked,
         )
+
+
+_CURRENT_YEAR_CLAIM = re.compile(
+    r"(?:현재(?:의?\s*(?:연도|년도))?|올해|금년|지금)(?:는|가|의)?"
+    r"[\s:：(*_`]*([12]\d{3})[\s*_`]*년"
+)
+
+
+def verify_current_year_claim(answer: str, current_year: int) -> None:
+    """'현재/올해'라고 단정한 연도만 서버의 KST 해와 대조한다 (#2355).
+
+    과거 규제연도 설명의 ``2025년``은 현재 시점 주장으로 읽지 않는다. 연도 자체는
+    일반 수치 가드에서 무시되므로 그 가드와 별도로 확인해야 한다.
+    """
+    wrong = sorted(
+        {match.group(1) for match in _CURRENT_YEAR_CLAIM.finditer(answer)} - {str(current_year)}
+    )
+    if wrong:
+        raise NumberFabricationError(
+            "응답이 서버 기준 현재 연도와 다른 해를 현재라고 말했습니다.", numbers=wrong
+        )

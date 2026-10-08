@@ -29,6 +29,7 @@ from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.types import JSONText, UuidText
 from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse, ToolCall
 from cii_platform.services import chat as chat_service
+from cii_platform.services import chat_tools as chat_tools_service
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
     DISCLAIMER,
@@ -361,6 +362,81 @@ async def test_discarded_answer_is_not_stored(migrated_db, app_fresh_engine):
                 await s.execute(text('SELECT "role" FROM chat_message ORDER BY sent_at'))
             ).scalars()
             assert list(roles) == ["USER"]
+    finally:
+        await _cleanup()
+
+
+async def test_chat_rejects_wrong_current_year_at_kst_new_year_boundary(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-CHAT-084 — KST 연초에 틀린 현재 해는 폐기하고 과거 해 설명은 허용한다 (#2355)."""
+    frozen = datetime(2026, 12, 31, 15, 30, tzinfo=UTC)  # KST 2027-01-01 00:30
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen.astimezone(tz) if tz else frozen
+
+    monkeypatch.setattr(chat_service, "datetime", _FrozenDateTime)
+    tool_arguments: list[dict[str, object]] = []
+
+    async def _lookup(_session, arguments, _vessel_id):
+        tool_arguments.append(arguments)
+        return "{}"
+
+    monkeypatch.setattr(chat_tools_service, "_lookup_regulation", _lookup)
+    provider = FakeProvider(
+        [
+            LLMResponse(text="현재 **2025년**입니다. 선박을 선택해 주세요."),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(name="lookup_regulation", arguments={"regulation_year": 2025}),
+                )
+            ),
+            LLMResponse(text="현재는 2027년입니다. 2025년 규제값은 과거 자료입니다."),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(name="lookup_regulation", arguments={"regulation_year": 2025}),
+                )
+            ),
+            LLMResponse(text="2025년 규제값은 과거 자료입니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "올해 연말 예상 등급은?"}, headers=headers
+            )
+            assert first.status_code == 200, first.text
+            first_data = first.json()["data"]
+            assert first_data["discarded"] is True
+            assert "2025년" not in first_data["answer"]
+
+            second = client.post(
+                "/api/v1/chat", json={"message": "올해 규제값은?"}, headers=headers
+            )
+            assert second.status_code == 200, second.text
+            second_data = second.json()["data"]
+            assert second_data["discarded"] is False
+            assert "2027년" in second_data["answer"]
+            past = client.post(
+                "/api/v1/chat", json={"message": "2025년 규제값은?"}, headers=headers
+            )
+            assert past.status_code == 200, past.text
+            assert past.json()["data"]["discarded"] is False
+            assert tool_arguments == [{"regulation_year": 2027}, {"regulation_year": 2025}]
+            assert all(
+                "현재 한국 달력의 해는 2027년" in call[0]["content"] for call in provider.calls
+            )
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            roles = (await s.execute(text('SELECT "role" FROM chat_message'))).scalars().all()
+            assert roles.count("USER") == 3
+            assert roles.count("ASSISTANT") == 2, "틀린 연도 답은 이력에 남지 않아야 한다"
     finally:
         await _cleanup()
 

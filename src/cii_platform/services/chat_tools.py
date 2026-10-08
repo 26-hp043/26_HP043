@@ -71,6 +71,10 @@ TOOL_NAMES: tuple[str, ...] = (
     TOOL_LOOKUP_REGULATION,
 )
 
+_YEAR_DEFAULT_TOOLS = frozenset(
+    {TOOL_CALC_VOYAGE_CII, TOOL_COMPARE_SCENARIOS, TOOL_PROJECT_YEAR_END, TOOL_LOOKUP_REGULATION}
+)
+
 
 def tool_schemas() -> list[dict[str, object]]:
     """모델에게 주는 도구 목록.
@@ -466,6 +470,8 @@ async def run_tool(
     chat_session_id: UUID | None = None,
     vessel_locked: bool = False,
     screen_run_id: UUID | None = None,
+    current_year: int | None = None,
+    current_year_only: bool = False,
 ) -> ToolOutcome:
     """도구 하나를 실행하고 **봉투에 담은 문자열**을 돌려준다.
 
@@ -486,6 +492,15 @@ async def run_tool(
     """
     if name not in TOOL_NAMES:
         return ToolOutcome(envelope(name, error="알 수 없는 도구입니다."))
+
+    # 채팅 턴이 확정한 한국 달력 해를 연도 미지정 도구에도 전달한다. 모델 입력과 도구
+    # 실행 사이에 자정 경계를 넘어도 같은 '올해'를 쓴다 (#2355).
+    if (
+        current_year is not None
+        and name in _YEAR_DEFAULT_TOOLS
+        and (current_year_only or arguments.get("regulation_year") is None)
+    ):
+        arguments = {**arguments, "regulation_year": current_year}
 
     try:
         if name == TOOL_SEARCH_VESSEL:
