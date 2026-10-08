@@ -253,9 +253,35 @@
   accent-color: var(--color-primary-solid);
 }
 
-.fr__slider output {
-  min-width: 3rem;
+/*
+ * 감속률 숫자 칸 (#2345) — 종전 `<output>` 자리(행 오른쪽 고정 위치 · `§8` 🔒)를 그대로 쓴다.
+ * 높이는 같은 줄 컨트롤과 맞추는 `§8` 규칙대로 폼 줄 높이(`--target-row`)다.
+ */
+.fr__percent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.fr__percent-input {
+  width: 4.5rem;
+  height: var(--target-row);
+  padding: 0 var(--space-8);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-control-bg);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
   text-align: right;
+}
+
+.fr__percent-input:disabled {
+  opacity: 0.6;
+}
+
+.fr__percent-unit {
+  color: var(--color-text-muted);
 }
 
 .fr__transition {

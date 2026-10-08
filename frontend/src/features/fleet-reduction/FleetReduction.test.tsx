@@ -149,6 +149,66 @@ describe('함대 감축 계획 화면 (#513)', () => {
     })
   })
 
+  it('감속률을 숫자로도 넣는다 — 슬라이더와 같은 값을 쥐고, 범위 밖은 칸을 떠날 때 맞춘다 (#2345)', async () => {
+    const provider = renderWith()
+    const slider = (await screen.findByLabelText('MV One 감속률')) as HTMLInputElement
+    const field = screen.getByLabelText('MV One 감속률 (%)') as HTMLInputElement
+
+    fireEvent.change(field, { target: { value: '7.3' } })
+    await waitFor(() => {
+      const last = provider.evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.adjustments).toContainEqual({ vesselId: 'v1', percent: 7.3 })
+    })
+    expect(slider.value).toBe('7.3')
+
+    // 상한(50%)을 넘긴 값은 치는 동안 반영하지 않고, 칸을 떠날 때 상한으로 맞춘다
+    fireEvent.change(field, { target: { value: '80' } })
+    fireEvent.blur(field)
+    await waitFor(() => {
+      const last = provider.evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.adjustments).toContainEqual({ vesselId: 'v1', percent: 50 })
+    })
+    expect(field.value).toBe('50.0')
+
+    // 계산할 수 없는 선박은 숫자 칸도 잠긴다
+    expect((screen.getByLabelText('MV Empty 감속률 (%)') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('⚠️ 감속률을 올려 목표를 넘어도 그 줄이 아래로 뛰지 않는다 — 순서는 조건을 고를 때만 정한다 (#2345)', async () => {
+    const vessel = result().vessels[0]
+    const met = { ...vessel, vesselId: 'v3', vesselName: 'MV Met', meetsTarget: true }
+    // 서버 순서는 MV Met → MV One. MV One이 미달이라 처음에는 위로 올라간다
+    const before = result({ vessels: [met, { ...vessel, meetsTarget: false }] })
+    const after = result({ vessels: [met, { ...vessel, meetsTarget: true }] })
+    stubCatalogs()
+    const provider = {
+      evaluate: vi.fn(async (req: EvaluateRequest) =>
+        req.adjustments.some((a) => a.vesselId === 'v1' && a.percent > 0) ? after : before,
+      ),
+      save: vi.fn(),
+      list: vi.fn(async () => []),
+    } satisfies FleetReductionProvider
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={provider} />
+      </MemoryRouter>,
+    )
+    const names = () =>
+      Array.from(document.querySelectorAll('.fr__table-card tbody th')).map((th) => th.textContent ?? '')
+
+    await screen.findByText('MV One')
+    await waitFor(() => expect(names()[0]).toContain('MV One'))
+
+    fireEvent.change(screen.getByLabelText('MV One 감속률'), { target: { value: '10' } })
+    await waitFor(() => {
+      const last = provider.evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.adjustments).toContainEqual({ vesselId: 'v1', percent: 10 })
+    })
+    // 이제 MV One도 목표를 넘었지만 줄은 제자리다
+    await waitFor(() => expect(document.querySelector('.fr__row--missed')).toBeNull())
+    expect(names()[0]).toContain('MV One')
+  })
+
   /*
    * 10/7(#2314) — 「단가 입력 필요」 한 문장에서 **무엇이 빠졌는지**를 말하는 문장으로 바뀌었다.
    * 지키려던 것은 그대로다: 빈 비용은 0으로 보이지 않고, 입력이 필요하다고 말한다.
