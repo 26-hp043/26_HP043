@@ -1,3 +1,9 @@
+# TECH_SPEC §20 — 정적 응답 정책 (#2111). Function 응답은 별도 middleware가 붙인다.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+
 # Cloudflare Pages 응답 헤더.
 # SPA fallback을 위해 index.html은 캐시하지 않는다.
 /index.html

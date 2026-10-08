@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.15 |
+| 버전 | v1.16 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-10-07 |
+| 최종 수정일 | 2026-10-08 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -2218,6 +2218,40 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 
 ---
 
+## 20. 보안 응답 헤더 (#2111)
+
+[2026-10-07 D-8 결정](https://github.com/26-hp043/26_HP043/issues/2111#issuecomment-6032520950)에 따라 아래 세 헤더를 모든 앱 HTTP 응답에 적용한다. 성공뿐 아니라 인증·한도·CORS 사전 요청·검증·404/405·500·CSV/PDF·지도 부분 응답도 대상이다. 프록시 연결 전에 Cloudflare 자체가 만드는 장애 페이지는 앱의 응답과 구분한다.
+
+| 헤더 | 값·현재 정책 | 근거 |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` · 적용 | 선언한 MIME을 존중하게 한다. 특히 script/style의 잘못된 MIME 실행을 막는다. 모든 콘텐츠 주입을 막는 정책은 아니다 |
+| `X-Frame-Options` | `DENY` · 적용 | 다른 문서의 프레임 안에서 화면을 띄우는 것을 거부한다 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` · 적용 | 다른 출처에는 출처만 보내며 HTTPS→HTTP에는 Referrer를 보내지 않는다 |
+| `Content-Security-Policy` | **실측 대기 · 이번에 추가하지 않음** | 인라인 테마 스크립트·MapLibre 스타일·PMTiles worker/blob·자체 폰트의 실제 요청을 확인한 뒤 별도 결정한다. 후속 #2368에서 추적한다 |
+| `Strict-Transport-Security` · `Permissions-Policy` | 이번 변경으로 추가하지 않음 | D-8은 세 헤더와 CSP의 유예를 결정했다. 이 둘의 영구 불채택을 결정한 것은 아니며 TLS·사용 기능 정책을 따로 검토한다 |
+
+### 20.1 배포 경로와 적용 위치
+
+| 응답 경로 | 적용 위치 | 보존할 동작 |
+|---|---|---|
+| Cloudflare Pages 정적 HTML·JS/CSS·폰트 | `frontend/public/_headers`의 `/*` | 기존 index·assets·basemap 캐시 규칙 |
+| Pages API·지도 Function | 각 디렉터리 `_middleware.ts` → `_securityHeaders.ts` | 상류와 Function이 반환한 오류, 여러 `Set-Cookie`, 본문 스트림·Range(206/416)·캐시 헤더. 정적 응답 전체를 Function으로 바꾸지 않는다 |
+| 단일 호스트 nginx | `server`의 `add_header … always` 및 하위 `add_header`가 있는 `/assets/`·`= /index.html`에서 같은 세 줄 반복 | 오류 응답에도 적용. `/api/`는 백엔드의 같은 헤더를 `proxy_hide_header`로 숨겨 중복 값을 내보내지 않는다 |
+| 직접 백엔드 API | `SecurityHeadersMiddleware`를 CORS·요청 문맥·한도·인증 밖에 등록 | ASGI `http.response.start`만 수정하며 응답 본문·쿠키를 보존한다. 사용자 미들웨어 밖의 미처리 500은 `unhandled_error_handler`가 같은 상수로 적용한다 |
+
+nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 상속하지 않는다. `always`는 오류 상태도 포함한다. 최신 nginx의 별도 상속 확장에 의존하지 않는다. Pages `_headers`는 Function이 생성한 응답에 적용되지 않으므로 Function 경로에도 직접 적용한다. 동일 헤더는 추가로 쌓지 않고 세 정책 값으로 덮어쓴다.
+
+### 20.2 검증과 출처
+
+`tests/test_security_headers.py`는 정본 값과 정적·nginx·Function 배선, 실제 앱의 인증/한도 조기 오류와 미들웨어·외곽 500·다운로드를 검사한다. `functions/_securityHeaders.test.ts`는 API 설정 오류·상류 상태·쿠키·지도 부분 응답 보존을 검사한다. 운영 확인은 `docs/OPERATIONS.md §8.5`를 따른다. 헤더 존재 확인은 브라우저 공격 실험이나 CSP 적용의 완료를 뜻하지 않는다.
+
+- [Cloudflare 정적 헤더](https://developers.cloudflare.com/pages/configuration/headers/) · [Function middleware](https://developers.cloudflare.com/pages/functions/middleware/).
+- [nginx add_header](https://nginx.org/en/docs/http/ngx_http_headers_module.html) · [1.27.5 OSS 구현](https://github.com/nginx/nginx/blob/release-1.27.5/src/http/modules/ngx_http_headers_filter_module.c).
+- [Starlette middleware](https://starlette.dev/middleware/) · [OSS 스택 구성](https://github.com/Kludex/starlette/blob/main/starlette/applications.py).
+- MDN: [nosniff](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options) · [프레임 금지](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options) · [Referrer 정책](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy).
+
+---
+
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
@@ -2309,3 +2343,4 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 | 2026-10-07 | `#2279` | **「`PRD §9.1`」 범위 표기를 `VAL-001~010` → `VAL-001~011`로** (`#2268`) — 목차 표(오류 전파 및 검증)와 §12.1 `ValidationError` 행. `PRD §9.1`이 `VAL-011`(호출부호 형식 오류)을 싣게 되어 `API_SPEC §11`·`TEST_PLAN`이 쓰던 범위와 맞춘다. `AGENTS §4.3`상 표기 정정이라 버전은 올리지 않는다 (#2268) |
 | 2026-10-07 | `#2301` | **낡은 서술 정정** (`#2139`). ⑴ `§16.2` 트리의 「기능 단위 18종」 → **20종**(`map`·`notifications` 추가)과 트리에 없던 `log_config.py`·`port_calls/`·`i18n/` 행 추가 — `tests/test_doc_cross_refs.py`가 수·이름을 `frontend/src/features`와 대조한다. ⑵ `§13.1` `[#277]` 각주의 자격 증명 예 `id_token`·`code`(OIDC)를 자체 인증의 **비밀번호·세션 토큰·메일 인증·재설정 토큰**으로(`PRD §20 O-14` · `#413`). ⑶ `[#235]` 각주의 `asyncpg` → `pycubrid`(`pyproject.toml`이 `#1058`로 `asyncpg`를 뺐다). ⑷ 선택 키 규약의 「기능③에서는 세 번 적용됐다」 → **네 번**(`calc/hash.py` `ANNUAL_INPUT_FIELDS`의 `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`). ⑸ `CII = M / (W · Dt)` 표기를 `M / (transport_capacity × Dt)`로 — 식의 뜻은 그대로다 (#2139) |
 | 2026-10-08 | `#2343` | **§5.4.1 항목 6 신설 — 연도를 지정하지 않았을 때의 「올해」는 기준 시각의 한국 달력 해** (`#2131`). 구현은 `simulation_clock.current_regulation_year(as_of)` 하나이며 `zoneinfo`로 `Asia/Seoul`을 고정해 호스트 시간대와 무관하다. `as_of.year`를 서비스가 직접 읽던 자리(`cii_current`(`year` 미지정 기본값만) · `cii_ytd_series` · `data_quality` · `fleet_summary` · `cii_history` · `report` · `notifications` · `chat_tools`)가 이 함수를 쓴다. 항차·정박 구간의 귀속 연도(UTC 고정, `#1333`)와는 별개다. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#2131) |
+| 2026-10-08 | `#___` | **v1.16 — §20 보안 응답 헤더 신설**. 세 헤더의 값·배포 경로·오류/쿠키/Range 보존·CSP 실측 유예와 검증·출처 명시 (#2111) |
