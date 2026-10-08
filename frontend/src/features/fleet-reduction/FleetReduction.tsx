@@ -196,6 +196,37 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   }, [api, request, year, yearsLoading, pricesInvalid, retryKey])
 
   const shown = evaluation.result
+
+  /*
+   * 표의 줄 순서는 **연도 · 목표 · 선박 구성이 바뀔 때만** 다시 정한다 (#2345).
+   *
+   * 미달 선박을 위로 올리는 정렬(10/7 시안 04)을 계산이 돌 때마다 다시 하면, 감속률을 올려 그
+   * 배가 목표를 넘는 순간 줄이 **아래로 뛰어** 잡고 있던 슬라이더가 손에서 빠진다. 「손볼 배부터」는
+   * 조건을 처음 고른 시점의 판단으로 충분하고, 조정 중에는 줄이 제자리에 있어야 한다.
+   * 렌더 중 파생(`#1616`)이라 effect를 쓰지 않는다 — 키가 바뀐 렌더에서 한 번 상태를 고친다.
+   */
+  const orderKey =
+    shown === null ? null : `${year}|${target}|${shown.vessels.map((v) => v.vesselId).join(',')}`
+  const [rowOrder, setRowOrder] = useState<{ key: string | null; ids: readonly string[] }>({
+    key: null,
+    ids: [],
+  })
+  if (shown !== null && rowOrder.key !== orderKey) {
+    setRowOrder({
+      key: orderKey,
+      ids: [...shown.vessels]
+        .sort((a, b) => Number(b.meetsTarget === false) - Number(a.meetsTarget === false))
+        .map((v) => v.vesselId),
+    })
+  }
+  const orderedVessels =
+    shown === null
+      ? []
+      : rowOrder.key === orderKey
+        ? rowOrder.ids
+            .map((id) => shown.vessels.find((v) => v.vesselId === id))
+            .filter((v): v is VesselResult => v !== undefined)
+        : shown.vessels
   /**
    * 재계산 중 (#2120) — 지금 입력의 응답이 아직 오지 않았다. 이 동안 `shown`은 **이전 입력의 결과**다.
    * 응답을 받은 요청과 지금 요청을 대조한다(성공·실패 모두 `settledFor`를 채운다).
@@ -570,10 +601,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   </tr>
                 </thead>
                 <tbody>
-                  {/* 미달 선박을 위로 (10/7 시안 04) — 손볼 배부터. 그 밖의 순서는 서버 순서 그대로 */}
-                  {[...shown.vessels]
-                    .sort((a, b) => Number(b.meetsTarget === false) - Number(a.meetsTarget === false))
-                    .map((vessel) => (
+                  {/* 미달 선박을 위로 (10/7 시안 04) — 순서는 조건을 고를 때 정하고 조정 중에는 고정 (#2345) */}
+                  {orderedVessels.map((vessel) => (
                     <VesselRow
                       key={vessel.vesselId}
                       vessel={vessel}
@@ -858,9 +887,17 @@ function VesselRow({
             aria-valuetext={`${percent.toFixed(1)}%`}
             onChange={(e) => onPercent(Number(e.target.value))}
           />
-          <output htmlFor={sliderId} className="fr__num">
-            {percent.toFixed(1)}%
-          </output>
+          {/*
+            숫자로도 넣는다 (#2345) — 슬라이더만으로는 12.3%처럼 정한 값에 맞추기 어렵다. 값 자리는
+            종전 `<output>`이 있던 **행 오른쪽 고정 위치** 그대로다(`§8` 🔒). 두 컨트롤은 같은 값을 쥔다.
+          */}
+          <PercentField
+            id={`${sliderId}-number`}
+            value={percent}
+            disabled={unavailable}
+            label={`${vessel.vesselName} ${COPY.colReduction} (%)`}
+            onCommit={onPercent}
+          />
         </div>
         {vessel.skippedVoyages > 0 ? (
           <p className="fr__hint">{COPY.skippedHint(vessel.skippedVoyages)}</p>
@@ -925,6 +962,66 @@ function TargetLine({ vessel }: { vessel: VesselResult }) {
 /**
  * 등급 전이 — `DESIGN_SYSTEM §8.3` 🔒. `GradeBadge` 둘 + **중립 연결자**. 바뀌지 않으면 하나만.
  */
+/**
+ * 감속률 숫자 칸 (#2345). 치는 동안(「12.」처럼 덜 친 값)은 글자 그대로 두고, 범위 안의 수가 되는
+ * 순간 계산에 반영한다. 칸을 떠날 때 범위 밖이면 0 ~ `MAX_REDUCTION_PERCENT`로 맞추고 0.1 단위로
+ * 반올림한다(슬라이더 `step`과 같은 `§4.2` 자릿수).
+ */
+function PercentField({
+  id,
+  value,
+  disabled,
+  label,
+  onCommit,
+}: {
+  id: string
+  value: number
+  disabled: boolean
+  label: string
+  onCommit: (value: number) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const clampRound = (n: number) =>
+    Math.round(Math.min(MAX_REDUCTION_PERCENT, Math.max(0, n)) * 10) / 10
+  return (
+    <span className="fr__percent">
+      <input
+        id={id}
+        className="fr__percent-input fr__num"
+        type="number"
+        inputMode="decimal"
+        min={0}
+        max={MAX_REDUCTION_PERCENT}
+        step={0.1}
+        value={draft ?? value.toFixed(1)}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => {
+          const raw = e.target.value
+          setDraft(raw)
+          const n = Number(raw)
+          if (raw.trim() !== '' && Number.isFinite(n) && n >= 0 && n <= MAX_REDUCTION_PERCENT) {
+            onCommit(Math.round(n * 10) / 10)
+          }
+        }}
+        onBlur={() => {
+          if (draft !== null) {
+            const n = Number(draft)
+            if (draft.trim() !== '' && Number.isFinite(n)) onCommit(clampRound(n))
+          }
+          setDraft(null)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+        }}
+      />
+      <span className="fr__percent-unit" aria-hidden="true">
+        %
+      </span>
+    </span>
+  )
+}
+
 function Transition({ before, after }: { before: Rating; after: Rating }) {
   if (before === after) return <GradeBadge rating={after} size="sm" />
   return (
