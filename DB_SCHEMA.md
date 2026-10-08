@@ -896,13 +896,13 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_DISCARD`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_ACTUALS_FILL`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328 · #1923 · #1973]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_DISCARD`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `EXPIRED_PURGE`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_ACTUALS_FILL`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328 · #1923 · #1973 · #2328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
 | `ip_address` | VARCHAR(45) | NULL | 요청 IP |
 
-> **[#1343] 위 두 목록은 코드가 실제로 쓰는 값과 같다.** `tests/test_audit_enum_sync.py`가 잠근다 — `services/audit.AUDIT_ACTIONS`·`AUDIT_ENTITY_TYPES`(+ `migration_guard.BACKUP_ACTION`)와 이 두 행을 대조한다. 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) DB가 알려 주지 않으므로 검사가 그 자리를 대신한다(`#968`의 `weather_snapshot.source`와 같은 틀).
+> **[#1343] 위 두 목록은 코드가 실제로 쓰는 값과 같다.** `tests/test_audit_enum_sync.py`가 잠근다 — `services/audit.AUDIT_ACTIONS`·`AUDIT_ENTITY_TYPES`(+ `migration_guard.BACKUP_ACTION` · `scripts/purge_expired.py`의 `PURGE_ACTION`)와 이 두 행을 대조한다. 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) DB가 알려 주지 않으므로 검사가 그 자리를 대신한다(`#968`의 `weather_snapshot.source`와 같은 틀).
 >
 > **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
 >
@@ -925,6 +925,8 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 > **[#277] 인증 이벤트 (LOGIN_SUCCESS · LOGIN_FAILURE · LOGOUT).** `user_id`는 `app_user.id`(§2.15)다. 실패 시 주체를 알 수 없어 `NULL`이며, `details_json`은 사유 코드(`reason`)만 담는다 — **비밀번호 · 세션 토큰 · 메일 인증·재설정 토큰 등 자격 증명 값은 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 남기며 `details_json.dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화가 일어난 경우만 기록한다(멱등 재호출 제외).
 >
 > **[#827] 백업 기록 (DB_BACKUP).** 백업 스크립트(`scripts/db_backup.py backup`)가 덤프를 **읽히는지 확인한 뒤** 남긴다 — CUBRID 전환 뒤에는 `cubrid unloaddb`가 낸 네 파일을 묶은 tar를 열어 표마다 `%class` 머리가 있는지 본다(`#1058`). `user_id`는 `NULL`(운영자 작업)이고, `details_json`은 덤프 파일 이름 · sha256 · 덤프 시점의 alembic 리비전만 담는다 — **경로·자격 증명은 넣지 않는다.** 되돌릴 수 없는 downgrade의 해제 조건(`§8.1.2`)이 이 행을 읽는다.
+>
+> **[#2328] 만료 행 정리 기록 (EXPIRED_PURGE).** `scripts/purge_expired.py`의 실제 정리 실행이 남긴다. `user_id`는 `NULL`(운영 작업)이고, `details_json`은 표별 삭제 건수(`counts`) · 실패한 표 이름(`failed`) · 만료 후 유예 일수(`grace_days`) · 실행 시각(`at`)을 담는다. 지운 행이 0건이어도 실행 사실을 구별하기 위해 기록한다.
 >
 > **[#1973] 챗봇 폐기 (CHAT_DISCARD).** 챗봇이 답을 폐기한 턴 한 건이다(`services/audit.record_chat_discard`). `entity_type` = `chat_session` · `entity_id` = 대화 id · `details_json` = `kind`(폐기 종류 — `no-compute`·`provider-error`·`refusal`·`truncated`·`tool-budget`) · `tools`(그 턴에 부른 도구 이름) · `blocked_numbers`(수치 검증에 막힌 수 — **사용자가 친 수는 뺀다**: 이번 질문만이 아니라 그 턴이 모델에 보낸 이력 창의 **이전 턴 질문의 수**까지, 그 **반올림 표기**(「7.3456」→「7.35」)까지. 수치 검증은 이력의 질문 수를 허용하지 않아 모델이 되풀이하면 막히기 때문이다. 거르는 자리는 `services/chat._answer_turn`이고 **앱 로그 폐기 줄도 같은 목록**을 쓴다 — 둘 다 지우지 못하는 곳(이 표 · 공개 Actions 로그)으로 나간다) · `elapsed_ms`. **답 본문 · 질문 원문은 싣지 않는다** — 이 표는 지우지 않는 기록이고 대화는 90일 뒤 지워진다(`CHAT_MESSAGE`가 해시만 싣는 것과 같은 이유). 종전에는 폐기 사유가 앱 로그에만 있어 컨테이너를 바꾸면 사라졌다 — 운영 폐기(09-28 「벌크선 D등급 경계」)의 막힌 수치를 그렇게 잃었다. **턴 시간 초과(`turn-timeout`)는 남기지 않는다** — 취소가 DB 작업 한가운데서 떨어질 수 있어 같은 세션에 쓰는 것이 안전하지 않다(앱 로그 한 줄은 그대로 남는다).
 
@@ -2416,3 +2418,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-07 | `#2301` | **`SPEED` 행 각주의 `CII = M / (W · Dt)` 표기를 `M / (transport_capacity × Dt)`로** (`#2139`) — `PRD §3`에서 `W`가 이미 `transport_capacity × Distance_nm`이라 `W · Dt`는 거리가 두 번 들어간 것으로 읽혔다. 식의 뜻은 바꾸지 않았다. 같은 파일 `§2.14` `[#277]` 각주의 자격 증명 예 `id_token`·`code`·state(OIDC)도 자체 인증의 비밀번호·세션 토큰·메일 인증·재설정 토큰으로 고쳤다 (#2139) |
 | 2026-10-07 | `#2307` | **§7.2 파라미터 개정의 전환 단위와 시드의 범위** (`#2172` 결정 1 가 · `#2086` 결정). 표의 파라미터 행에 전환 단위(연도 표는 연도, 기준선·경계는 **선종** — 파일에 든 선종은 모든 구간을 담아야 한다)를 적고, 각주 `[#2086]`을 신설했다 — 시드는 시드 판본(`1.0`) 행만 갱신하고 개정 판본 활성 행이 있는 묶음은 갱신도 삽입도 하지 않는다. 종전 시드는 판본을 보지 않고 활성 행을 UPDATE해 「UPDATE로 덮어쓰면 개정 이력이 사라진다」는 바로 위 문장과 어긋났다. `fuel_type` 시드가 `REPLACE`에서 활성 행 UPDATE + `content_hash` 계산으로 바뀐 것을 `§7.4`(068 행 · 2항 · 부모 쪽 삭제 금지의 제외 사유)와 `§8.1.1`에 반영했다. `AGENTS §4.3`상 각주 보강·서술 정정이라 버전은 올리지 않는다 (#2172 · #2086) |
 | 2026-10-08 | `#2341` | `§8.1.2` 「24시간은 하루 한 번 정기 백업의 간격」을 **「24시간 창은 그대로 · 백업은 주기 실행 없이 `ops.yml backup`을 손으로」**로 정정 (`#2329`). 정기 백업은 없다 — `#788` 결정(2026-09-17 「10/10까지 수동 + 시연 전날 1회」 · 2026-09-26 실행 경로 `ops.yml`). 24시간 창 규칙 자체(`migration_guard`)는 바꾸지 않았다. `AGENTS §4.3`상 오기 정정이라 버전은 올리지 않는다 (#2329) |
+| 2026-10-08 | `#2362` | §2.14 `audit_log.action`에 실제 운영 만료 행 정리 액션 `EXPIRED_PURGE`와 기록 형식 각주를 추가했다. 운영에서 2026-10-07부터 생성된 값이며 `tests/test_audit_enum_sync.py`가 스크립트 상수·실제 INSERT·문서 값을 대조한다. `AGENTS §4.3`상 값·각주 보강이므로 버전은 올리지 않는다 (#2328) |
