@@ -263,7 +263,11 @@
   gap: var(--space-4);
 }
 
-.fr__percent-input {
+/*
+ * 선택자를 `.fr__table` 아래로 둔다 — 같은 파일의 `.fr__table td { text-align: left }`(0,1,1)가
+ * 단일 클래스(0,1,0)의 오른쪽 정렬을 이긴다(`textAlign.sync.test.ts` · #2015).
+ */
+.fr__table .fr__percent-input {
   width: 4.5rem;
   height: var(--target-row);
   padding: 0 var(--space-8);
@@ -276,7 +280,7 @@
   text-align: right;
 }
 
-.fr__percent-input:disabled {
+.fr__table .fr__percent-input:disabled {
   opacity: 0.6;
 }
 
