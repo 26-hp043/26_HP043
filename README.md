@@ -774,4 +774,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-08 | `#2370` | 문서 구조 표의 TECH_SPEC.md **v1.17**(§16 공용 검증·라우트 예외·경계 가드)으로 갱신 (#2101) |
 | 2026-10-09 | `#2375` | TEST_PLAN v1.33 · 실제 표본과 고정 기대값이 있는 Fixture 3·전체 분기 계측 정의 (#2144) |
 | 2026-10-09 | `#2378` | 운영 배포 정본을 OPERATIONS v1.1로 명시 — SSH/DB stdin 인증·공개 Git 토큰 제거 (#2117) |
-| 2026-10-09 | `#___` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.38**(§3 서체 Pretendard #2382) |
+| 2026-10-09 | `#2384` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.38**(§3 서체 Pretendard #2382) |
