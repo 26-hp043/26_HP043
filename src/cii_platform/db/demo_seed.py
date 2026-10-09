@@ -124,7 +124,7 @@ SEED_VESSELS: list[dict[str, object]] = [
         # 실존 2·3번 선박은 실제 선박명을 그대로 쓴다.
         "id": VESSEL_ID_BULK,
         "imo_number": SYNTHETIC_IMO_BULK,
-        "name": "TAEHWA BREEZE",
+        "name": "CHEOYONG GRACE",
         "ship_type": "BULK_CARRIER",
         # tests/fixtures/cii/bulk_50000_hfo_2026.json 의 input.gross_tonnage 와 같다.
         # 정본 픽스처가 이 배의 제원을 이미 정의하고 있으므로 새로 만들지 않는다.
@@ -376,7 +376,7 @@ SEED_VESSEL_WATCH: list[dict[str, object]] = [
     {
         "id": VESSEL_ID_WATCH,
         "imo_number": SYNTHETIC_IMO_WATCH,
-        "name": "CHEOYONG GRACE",
+        "name": "TAEHWA BREEZE",
         "ship_type": "BULK_CARRIER",
         "gross_tonnage": Decimal("18000.00"),
         "deadweight": Decimal("30000.00"),
