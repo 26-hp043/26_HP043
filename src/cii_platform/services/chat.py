@@ -563,7 +563,7 @@ DIRECT_MODEL_TIMEOUT_SECONDS = 20.0
 _DIRECT_RESULT_PROMPT = (
     "아래는 BlueLog 계산 도구 project_year_end가 화면에서 고른 선박으로 낸 결과입니다 "
     "(ytd는 올해 지금까지의 누적, year_end_projection은 연말 예상). "
-    "이 결과만 근거로 위 질문에 3~5문장으로 답해 주세요. 순서는 다음과 같습니다.\n"
+    "이 결과만 근거로 위 질문에 10문장 이내로 답하되, 아래 네 가지를 모두 이 순서로 담아 주세요.\n"
     "1. 결론 — 연말 예상 등급\n"
     "2. 근거 — 올해 누적 CII와 그 등급, 연말 예상 CII와 기준(required) CII\n"
     "3. 연말 예상은 남은 계획 항차를 계획대로 운항한다는 가정에 따른 추정값이라는 점\n"

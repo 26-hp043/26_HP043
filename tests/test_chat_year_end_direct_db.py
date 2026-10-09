@@ -131,7 +131,7 @@ async def test_the_model_is_called_once_without_tools_and_writes_the_answer(
         sent = " ".join(str(m["content"]) for m in provider.calls[0])
         assert "project_year_end" in sent, "도구 결과가 모델에게 가지 않았다"
         # 결과만 건네면 모델이 결론 한 줄로 끝낸다(10-09 운영) — 근거·가정을 쓰라고 지시한다.
-        assert "근거" in sent and "가정" in sent and "3~5문장" in sent
+        assert "근거" in sent and "가정" in sent and "10문장 이내" in sent
         assert data["answer"] == _MODEL_TEXT
         assert data["discarded"] is False
         assert data["tool_calls"] == ["project_year_end"]
