@@ -822,13 +822,16 @@ async def test_search_resolution_carries_into_the_next_tool_and_response(
 ):
     """#1242 — 고유 일치 검색 → 같은 턴의 계산 도구가 그 선박으로 돈다 + 응답 표시.
 
-    데모 선박 이름은 전부 「샘플」을 포함한다 — 고유 키워드로 쓴다. 계산 도구는
+    로로 여객선의 데모 선명 「GANJEOL SUNRISE」에서 다른 선박과 겹치지 않는 「GANJEOL」을
+    고유 키워드로 쓴다(#2291 선명 변경 전에는 「로로」였다). 계산 도구는
     귀속이 없으면 「어느 선박인지 먼저 정해야 합니다」 error를 내므로, 결과가 나왔다는
     것 자체가 귀속이 흘렀다는 증거다.
     """
     provider = FakeProvider(
         [
-            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "GANJEOL"}),)
+            ),
             LLMResponse(
                 tool_calls=(
                     ToolCall(
@@ -881,7 +884,9 @@ async def test_the_compare_tool_leaves_no_scenario_rows_after_the_route_commits(
 
     provider = FakeProvider(
         [
-            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "GANJEOL"}),)
+            ),
             LLMResponse(
                 tool_calls=(
                     ToolCall(
@@ -989,13 +994,13 @@ async def test_screen_vessel_wins_over_session_vessel(migrated_db, app_fresh_eng
                         await db.execute(
                             text(
                                 "SELECT name, CAST(id AS CHAR(32)) FROM vessel "
-                                "WHERE name LIKE '%로로%' OR name LIKE '%30,000 DWT)%'"
+                                "WHERE name LIKE '%GANJEOL%' OR name LIKE '%CHEOYONG%'"
                             )
                         )
                     ).all()
                 )
-                roro_name = next(n for n in ids if "로로" in n)
-                bulk_name = next(n for n in ids if "30,000" in n)
+                roro_name = next(n for n in ids if "GANJEOL" in n)
+                bulk_name = next(n for n in ids if "CHEOYONG" in n)
                 await chat_repo.set_vessel(
                     db, session_id=UUID(session_id), vessel_id=UUID(ids[roro_name])
                 )
@@ -1028,7 +1033,9 @@ async def test_found_vessel_survives_to_the_next_turn(migrated_db, app_fresh_eng
     """IT-CHAT-063 (#1243) — 1턴에서 찾은 선박이 2턴에서 vessel_id 없이도 계산된다."""
     provider = FakeProvider(
         [
-            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "GANJEOL"}),)
+            ),
             LLMResponse(text="찾았습니다."),
         ]
     )
@@ -1081,7 +1088,9 @@ async def test_follow_up_question_can_cite_the_previous_answer(migrated_db, app_
     provider = FakeProvider(
         [
             # 1턴 — 검색으로 선박을 정하고(#1243) 계산한다(로로 여객선 실측: 12.456).
-            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "GANJEOL"}),)
+            ),
             LLMResponse(
                 tool_calls=(
                     ToolCall(
