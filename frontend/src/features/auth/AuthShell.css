@@ -91,7 +91,8 @@
 
 /* 장면 위에 글자가 온다. 겹침 순서를 여기 한 줄로 못 박는다. */
 .auth-brand,
-.auth-intro {
+.auth-intro,
+.auth-preview-wrap {
   position: relative;
   z-index: 1;
 }
@@ -185,38 +186,81 @@
 }
 
 /*
- * 세 계층 — `UIFLOW §2.1` 구조도 그대로다.
+ * 화면 예시 — 대시보드 「확인할 선박」을 줄인 것 — 첫 화면에 제품 화면이 없던 문제.
  *
- * 목록이지 표가 아니다. 값이 아니라 **이 서비스가 무엇을 보여 주는지**를
- * 적는 자리라 정렬을 맞추지 않는다.
+ * 어두운 판 위에 **제품의 카드 면**을 그대로 놓는다 — 판의 남색 위에서 밝은 카드가 「이것이
+ * 화면이다」를 말한다. 카드는 제품과 같은 토큰(`--surface-card` · `--radius-card` ·
+ * `--border-default` · `--shadow-lv1`)을 쓴다 — 따로 그림자를 더하지 않는다(라이트 Lv1은 `none` · `§5`).
+ * 캡션은 판 위 보조 글자(`--auth-brand-muted`)라 대비 가드가 이미 잰다.
  */
-.auth-tiers {
+.auth-preview {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm);
+  max-inline-size: 440px;
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
-.auth-tier {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-md);
+.auth-preview-cap {
+  font-size: var(--font-size-caption);
+  color: var(--auth-brand-muted);
   word-break: keep-all;
 }
 
-.auth-tier-name {
-  flex: none;
-  min-inline-size: 3.5em;
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-heading);
+.auth-preview-card {
+  margin: 0;
+  padding: 0 var(--spacing-lg);
+  list-style: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  /* 카드 규격 그대로(`§5`) — 라이트에서 Lv1은 `none`이다. */
+  box-shadow: var(--shadow-lv1);
+  color: var(--text-primary);
 }
 
-.auth-tier-detail {
+/* 한 행 — 선박명과 등급이 윗줄, 이유와 다음 작업이 아랫줄. 대시보드 표의 좁은 배치와 같다. */
+.auth-preview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--spacing-xs) var(--spacing-md);
+  padding-block: var(--spacing-md);
+  word-break: keep-all;
+}
+
+.auth-preview-row + .auth-preview-row {
+  border-block-start: 1px solid var(--border-default);
+}
+
+.auth-preview-vessel {
   font-size: var(--font-size-label);
-  line-height: var(--line-height-body);
-  color: var(--auth-brand-muted);
+  font-weight: var(--font-weight-strong);
+}
+
+.auth-preview-grade {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  justify-self: end;
+}
+
+.auth-preview-value {
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-preview-why {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+}
+
+/* 「다음 작업」 — 예시라 누를 수 없으므로 링크색을 쓰지 않는다(누를 수 있어 보이면 안 된다). */
+.auth-preview-next {
+  justify-self: end;
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .auth-title {
@@ -407,6 +451,26 @@
   border-radius: var(--radius-badge);
 }
 
+.auth-legal {
+  display: flex;
+  gap: var(--spacing-lg);
+  font-size: var(--font-size-label);
+}
+
+.auth-legal a {
+  color: var(--text-secondary);
+}
+
+.auth-legal a:hover {
+  color: var(--text-primary);
+}
+
+.auth-legal a:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-badge);
+}
+
 .auth-footer {
   margin: 0;
   font-size: var(--font-size-label);
@@ -452,6 +516,11 @@
    * 빠진다 — 화면에 없는 문장을 스크린 리더가 읽으면 위치를 짐작할 수 없다.
    */
   .auth-intro {
+    display: none;
+  }
+
+  /* 소개가 없는 화면의 화면 예시도 같은 자리에서 접는다 (#2380) — 띠에는 로고만 남는다. */
+  .auth-preview-wrap {
     display: none;
   }
 

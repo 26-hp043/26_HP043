@@ -10,6 +10,7 @@ import {
 import { PasswordResetPage } from './pages/PasswordResetPage'
 import { SignupPage } from './pages/SignupPage'
 import { VerifyEmailPage } from './pages/VerifyEmailPage'
+import { PrivacyPage, TermsPage } from './pages/LegalPage'
 import { DEFAULT_PATH, SCREEN_BY_ID } from './screens'
 import { LoginFailurePage, LoginPage } from './pages/LoginPage'
 import { MainboardPage } from './pages/MainboardPage'
@@ -54,6 +55,9 @@ export default function App() {
         <Route path={SIGNUP_PATH} element={<SignupPage />} />
         <Route path={PASSWORD_RESET_PATH} element={<PasswordResetPage />} />
         <Route path={VERIFY_EMAIL_PATH} element={<VerifyEmailPage />} />
+        {/* 0-5 · 0-6 — 가입 전에 읽어야 하므로 공개 경로다 */}
+        <Route path={SCREEN_BY_ID.TERMS.path} element={<TermsPage />} />
+        <Route path={SCREEN_BY_ID.PRIVACY.path} element={<PrivacyPage />} />
 
         <Route
           element={

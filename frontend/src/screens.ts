@@ -91,6 +91,8 @@ export type ScreenId =
   | 'SIGNUP'
   | 'PASSWORD_RESET'
   | 'VERIFY_EMAIL'
+  | 'TERMS'
+  | 'PRIVACY'
   | 'MAINBOARD'
   | 'VESSEL_REGISTRATION'
   | 'VESSEL_MANAGEMENT'
@@ -150,6 +152,28 @@ export const SCREEN_BY_ID = {
     purpose: '가입 확인 메일 링크의 토큰 검증',
     width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
+  },
+  /*
+   * 이용약관 · 개인정보처리방침 (`UIFLOW 0-5` · `0-6` · `PRD §5.1`). 가입을 받는 서비스인데 두
+   * 문서가 열리는 경로가 없었다. 셸 밖 · 가드 밖 공개 경로다 — 가입 전에 읽을 수 있어야 한다.
+   */
+  TERMS: {
+    path: '/terms',
+    label: '이용약관',
+    labelEn: 'Terms',
+    uiflowRef: '0-5',
+    purpose: '서비스 이용 조건 — 확정되지 않은 사업 정보는 「입력 필요」로 표시',
+    width: 'form',
+    implemented: true,
+  },
+  PRIVACY: {
+    path: '/privacy',
+    label: '개인정보처리방침',
+    labelEn: 'Privacy',
+    uiflowRef: '0-6',
+    purpose: '처리하는 개인정보 · 보관 · 위탁 — 코드·정본에 있는 사실만, 나머지는 「입력 필요」',
+    width: 'form',
+    implemented: true,
   },
   MAINBOARD: {
     path: '/dashboard',
@@ -332,6 +356,8 @@ export const OFF_NAV_ORDER = [
   'SIGNUP',
   'PASSWORD_RESET',
   'VERIFY_EMAIL',
+  'TERMS',
+  'PRIVACY',
   'VESSEL_REGISTRATION',
   'VESSEL_DETAIL',
   'REALTIME_CII',

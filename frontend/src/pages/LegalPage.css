@@ -1,0 +1,163 @@
+/*
+ * 이용약관 · 개인정보처리방침 (`UIFLOW 0-5` · `0-6`).
+ *
+ * 읽는 문서라 **카드에 담지 않는다** — 긴 글을 상자에 넣으면 상자가 글보다 먼저 보인다.
+ * 페이지 면 위에 읽기 폭(68자 안팎)으로 바로 놓고, 위계는 크기 · 굵기 · 간격으로만 만든다.
+ */
+.legal {
+  min-block-size: 100vh;
+  background: var(--surface-page);
+  color: var(--text-primary);
+}
+
+.legal__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  max-inline-size: 760px;
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+}
+
+.legal__brand {
+  display: inline-flex;
+  border-radius: var(--radius-badge);
+}
+
+.legal__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-lg);
+  font-size: var(--font-size-label);
+}
+
+.legal__nav a,
+.legal__doc a {
+  color: var(--color-link);
+}
+
+.legal__brand:focus-visible,
+.legal__nav a:focus-visible,
+.legal__doc a:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-badge);
+}
+
+.legal__main {
+  max-inline-size: 760px;
+  margin: 0 auto;
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-2xl);
+}
+
+.legal__doc {
+  max-inline-size: 68ch;
+  font-size: var(--font-size-body);
+  line-height: 1.7;
+}
+
+.legal__title {
+  margin: 0 0 var(--spacing-lg);
+  font-size: var(--font-size-page);
+  font-weight: var(--font-weight-title);
+  line-height: 1.3;
+}
+
+.legal__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-2xl);
+  margin: 0 0 var(--spacing-lg);
+  font-size: var(--font-size-label);
+}
+
+.legal__meta div {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.legal__meta dt {
+  color: var(--text-secondary);
+}
+
+.legal__meta dd {
+  margin: 0;
+}
+
+.legal__doc .legal__draft {
+  margin: 0 0 var(--spacing-2xl);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.legal__doc section + section {
+  margin-block-start: var(--spacing-2xl);
+}
+
+.legal__doc h2 {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
+}
+
+.legal__doc p,
+.legal__doc ul {
+  margin: 0 0 var(--spacing-sm);
+}
+
+.legal__doc ul {
+  padding-inline-start: 1.2em;
+}
+
+.legal__doc li + li {
+  margin-block-start: var(--spacing-xs);
+}
+
+/* 표 — 좁은 폭에서는 가로로 스크롤한다(열을 숨기지 않는다). */
+.legal__table {
+  display: block;
+  inline-size: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--font-size-label);
+  line-height: 1.6;
+}
+
+.legal__table th,
+.legal__table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-block-end: 1px solid var(--border-default);
+  text-align: start;
+  vertical-align: top;
+}
+
+.legal__table thead th {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-label);
+  white-space: nowrap;
+}
+
+.legal__table tbody th {
+  font-weight: var(--font-weight-strong);
+  white-space: nowrap;
+}
+
+/*
+ * 「입력 필요」 — 운영 주체가 채울 칸. **빈칸이 보여야** 채울 사람이 찾는다.
+ * 색 하나에 맡기지 않는다(`DESIGN_SYSTEM §14`) — 「입력 필요」 글자와 점선 테두리가 함께 말한다.
+ */
+.legal__todo {
+  display: inline;
+  padding: 1px var(--spacing-xs);
+  border: 1px dashed var(--color-warning-text);
+  border-radius: var(--radius-badge);
+  color: var(--text-primary);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.legal__todo-tag {
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-strong);
+}
