@@ -64,7 +64,23 @@ const css = readFileSync(
   'utf8',
 )
 
-const parse = (raw: string) => flatten(JSON.parse(raw) as Record<string, unknown>)
+/**
+ * 별칭(`{gray.12}`)을 그 단계의 값으로 푼다 — 생성기(`build-tokens.mjs`)와 같은 규칙이다
+ * (`#2383`). 의미 토큰이 단계의 이름을 갖게 된 뒤에도 아래 대비 검사는 **값**으로 잰다.
+ */
+function resolveAliases(flat: Record<string, FlatToken>): Record<string, FlatToken> {
+  const resolve = (key: string, depth = 0): FlatToken => {
+    const token = flat[key]
+    if (!token) throw new Error(`별칭이 가리키는 토큰이 없다: ${key}`)
+    const ref = typeof token.value === 'string' ? /^\{(.+)\}$/.exec(token.value) : null
+    if (!ref) return token
+    if (depth > 5) throw new Error(`별칭이 돈다: ${key}`)
+    return { ...resolve(ref[1], depth + 1), type: token.type }
+  }
+  return Object.fromEntries(Object.keys(flat).map((key) => [key, resolve(key)]))
+}
+
+const parse = (raw: string) => resolveAliases(flatten(JSON.parse(raw) as Record<string, unknown>))
 
 const primitives = parse(blueLogRaw)
 const light = parse(lightRaw)

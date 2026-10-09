@@ -168,8 +168,28 @@ for (const [label, prefix] of primitiveGroups) {
   }
 }
 
+/**
+ * 별칭 `{gray.12}`를 그 단계의 값으로 푼다 (`#2383` · `DESIGN_SYSTEM §2.2` 단계 체계).
+ *
+ * 의미 토큰(`surface.page` · `text.primary` …)은 값이 아니라 **단계의 이름**을 갖는다 —
+ * 「본문 글자는 12단」처럼. 그러면 어느 의미 토큰이 어느 단계인지가 원본에 남고, 단계 사이의
+ * 대비 보장(`grayScale.sync.test.ts`)이 의미 토큰에도 그대로 걸린다.
+ *
+ * **출력은 여전히 hex다** — `var(--gray-12)`로 내지 않는다. 대비 가드 여럿이 생성 파일에서
+ * hex를 읽어 계산하므로, 출력 모양을 바꾸면 그 검사들이 조용히 값을 잃는다.
+ */
+function resolve(theme, key, seen = new Set()) {
+  const token = theme[key]
+  if (token === undefined) throw new Error(`별칭이 가리키는 토큰이 없습니다: ${key}`)
+  const ref = typeof token.value === 'string' ? /^\{(.+)\}$/.exec(token.value) : null
+  if (!ref) return token
+  if (seen.has(key)) throw new Error(`별칭이 돌고 있습니다: ${[...seen, key].join(' → ')}`)
+  seen.add(key)
+  return { ...resolve(theme, ref[1], seen), description: token.description }
+}
+
 const colorLines = (theme) =>
-  Object.keys(theme).map((k) => `${cssName(k)}: ${cssValue(theme[k])};`)
+  Object.keys(theme).map((k) => `${cssName(k)}: ${cssValue(resolve(theme, k))};`)
 
 const generated = `/*
  * ⚠️ 이 파일은 생성물이다. 직접 고치지 않는다.

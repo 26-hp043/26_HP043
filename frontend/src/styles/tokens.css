@@ -159,6 +159,13 @@
   --color-on-primary: var(--surface-card);
 
   /* ── 호환 별칭 · 중립 ─────────────────────────────────────────────── */
+  /*
+   * 중립 생성 토큰(`--surface-*` · `--text-*` · `--border-*`)은 **회색 12단의 별칭**이다
+   * (`DESIGN_SYSTEM §2.2.1` · `#2383`). 새 자리에 색이 필요하면 의미 토큰을 고르고, 없으면
+   * 단계(`--gray-1`~`--gray-12` · `--gray-panel`)를 용도대로 고른다 — 글자는 11 · 12단만이다.
+   * 단계의 대비 보장은 `grayScale.sync.test.ts`가 규칙으로 검사한다. 아래 주석의 대비 수치들은
+   * 그 체계 전의 기록이다.
+   */
   --color-bg: var(--surface-page);
   --color-surface: var(--surface-card);
   --color-surface-2: var(--surface-inset);
