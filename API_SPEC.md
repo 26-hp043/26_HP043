@@ -1838,7 +1838,7 @@ GET /api/v1/vessels/samples
   "data": [
     {
       "sample_id": "bulk-50000-dwt",
-      "label": "샘플 벌크선 (50,000 DWT)",
+      "label": "TAEHWA BREEZE",
       "ship_type": "BULK_CARRIER",
       "gross_tonnage": 30000.0,
       "deadweight": 50000.0,
@@ -1909,7 +1909,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
     "vessels": [
       {
         "vessel_id": "…",
-        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "vessel_name": "TAEHWA BREEZE",
         "data_available": true,
         "unavailable_reason": null,
         "ytd_attained_cii": "8.9799",
@@ -1930,7 +1930,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       {
         "severity": "SUBSTITUTED",
         "vessel_id": "…",
-        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "vessel_name": "TAEHWA BREEZE",
         "voyage_id": "…",
         "voyage_no": "2026-03",
         "codes": ["FUEL:HFO"],
@@ -2033,7 +2033,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
     "vessels": [
       {
         "vessel_id": "00000000-0000-4000-8000-000000000001",
-        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "vessel_name": "TAEHWA BREEZE",
         "speed_reduction_percent": "10.0",
         "is_cii_applicable_hint": true,
         "gross_tonnage": 30000.0,
@@ -2161,7 +2161,7 @@ GET /api/v1/vessels/{vessel_id}/cii/ytd-series?year=2026&as_of=2026-09-26T00:00:
 {
   "data": {
     "vessel_id": "00000000-0000-4000-8000-000000000001",
-    "vessel_name": "샘플 벌크선 (50,000 DWT)",
+    "vessel_name": "TAEHWA BREEZE",
     "regulation_year": 2026,
     "transport_capacity_basis": "DWT",
     "required_cii": "5.045066",
@@ -2282,7 +2282,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "CORRECTIVE_ACTION",
         "level": "RISK",
         "vessel_id": "…",
-        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "vessel_name": "TAEHWA BREEZE",
         "reason": "E_THIS_YEAR",
         "days": null,
         "voyage_id": null,
@@ -2293,7 +2293,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "D_ENTRY_SOON",
         "level": "RISK",
         "vessel_id": "…",
-        "vessel_name": "샘플 벌크선 (30,000 DWT)",
+        "vessel_name": "CHEOYONG GRACE",
         "reason": null,
         "days": 39,
         "voyage_id": null,
@@ -2304,7 +2304,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "UNCONFIRMED_VOYAGE",
         "level": "CHECK",
         "vessel_id": "…",
-        "vessel_name": "샘플 벌크선 (30,000 DWT)",
+        "vessel_name": "CHEOYONG GRACE",
         "reason": null,
         "days": null,
         "voyage_id": "…",
@@ -3158,7 +3158,7 @@ POST /api/v1/scenarios/compare
 >
 > | 가정 | 값 | 출처 |
 > |---|---|---|
-> | 대상 선박 | 샘플 벌크선 (50,000 DWT) | `db/demo_seed.py` 고정 UUID `…0001` |
+> | 대상 선박 | TAEHWA BREEZE | `db/demo_seed.py` 고정 UUID `…0001` |
 > | `reference_speed_kn` | **12.00** | 같은 곳 (`#639`가 정본 픽스처에서 역산) |
 > | `fuel_type` CF | 3.114 | `DB_SCHEMA §3.2` |
 > | 규제연도 | 2026 (`z = 11.0%`) | `DB_SCHEMA §3.3` |
@@ -5355,3 +5355,4 @@ POST /api/v1/chat
 | 2026-10-08 | `#2367` | **v1.53 — §8.2 항차 번호 묶음 규칙 신설**. 혼합 연료 합침·공통 정보/행 오류의 묶음 거부·저장된 번호 재업로드 거부·dry_run 일치·행 단위 건수·상한에서 잘린 묶음·정본 오류 문구 명시 (#2094) |
 | 2026-10-08 | `#2370` | §1.3.2 공용 라벨·검증 문구와 §8.2 입력 범위의 소스 경로를 validation으로 맞춤(값·계약 변화 없음) (#2101) |
 | 2026-10-09 | `#2372` | §1.9·§6.5 저장 연간 실행의 항차/정박 입력 변경 표시에 기존 needs_recalc 활용·동일값/메모/출처 제외·원자 커밋과 보수적 선박 범위 명시. §2.14 동일 연말 예상의 시각·연도·입력·파라미터·보정 끔 조건과 저장 조회 차이를 설명 (#2304) |
+| 2026-10-09 | `#2386` | §2 선박 응답·선택 예시와 §5.1 대상 선박 예시의 합성 선명을 TAEHWA BREEZE·CHEOYONG GRACE·GANJEOL SUNRISE로 변경. 선박 ID·가상 IMO·제원·API 계약은 유지 (#2291) |
