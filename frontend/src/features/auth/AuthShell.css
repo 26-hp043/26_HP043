@@ -489,7 +489,11 @@
  */
 @media (width <= 1100px) {
   .auth-page {
-    grid-template-columns: 1fr;
+    /*
+     * `1fr`이 아니라 `minmax(0, 1fr)` — `1fr`의 최소는 내용의 최소 폭이고, 입력칸의 고유 폭은
+     * 서체의 글자 폭으로 정해진다. Pretendard로 바꾸자(`#2382`) 375px에서 카드가 28px 넘쳤다.
+     */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr;
   }
 

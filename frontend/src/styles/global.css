@@ -58,7 +58,7 @@ body {
  * ## 무엇이 문제였나
  *
  * 위 `body` 선언만으로는 `input`·`select`·`button`·`textarea`에 닿지 않는다.
- * 브라우저가 이들에 자체 기본값을 넣기 때문이다. 그 결과 **제품이 정한 Noto Sans KR이
+ * 브라우저가 이들에 자체 기본값을 넣기 때문이다. 그 결과 **제품이 정한 서체가
  * 폼 안에서만 다른 서체로 그려지고 있었다.** 같은 이유로 `body`의
  * `font-variant-numeric: tabular-nums`도 입력칸의 숫자에 닿지 않았다.
  *
