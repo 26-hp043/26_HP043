@@ -1,10 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 import { Icon } from '../../components/Icon'
+import { GradeBadge } from '../../components/GradeBadge'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
 import { Field } from '../../components/Field'
 import { BeomiFigure, BeomiSea } from './BeomiScene'
+import { SCREEN_BY_ID } from '../../screens'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -39,24 +41,61 @@ interface AuthShellProps {
   description?: string
   /** `PRD §0.3` 면책 문구 노출 여부. 로그인·회원가입 화면이 `true`(`UIFLOW §0`). */
   disclaimer?: boolean
-  /** 브랜드 판의 서비스 소개 블록 노출 여부(`UIFLOW §0`). 로그인 화면만 `true`. */
+  /** 브랜드 판의 서비스 소개 문구 · 범이 노출 여부(`UIFLOW §0`). 로그인 화면만 `true`. 화면 예시는 넷 모두에 있다. */
   intro?: boolean
   children: ReactNode
   /** 카드 아래 보조 링크 줄. */
   footer?: ReactNode
 }
 
-/**
- * 브랜드 판이 소개하는 세 계층.
+/*
+ * 화면 예시 — 대시보드 「확인할 선박」 두 행 (`UIFLOW 2-4` · 시연 데이터의 샘플 선박).
  *
- * 문구는 **`UIFLOW §2.1` 계층 구조도에서 그대로 가져왔다**(`AGENTS §3`).
- * 여기서 새로 쓰면 사이드바·대시보드가 설명하는 것과 어긋난다.
+ * 첫 화면에 **제품이 실제로 내놓는 것**을 보인다. 종전에는 이 자리가 「선대 · 선박 · 항차」
+ * 계층 세 줄이었는데, 무엇을 보여 주는 서비스인지가 글로만 남았다. 대시보드의 같은 행 —
+ * 누적 등급 · 이유 · 다음 작업 — 을 그대로 줄여 둔다. 등급 배지는 제품의 그 컴포넌트다.
+ *
+ * ⚠️ **실측이 아니라 예시다.** 그래서 캡션에 「화면 예시」를 적는다 — 판매 수치나 고객 수처럼
+ * 읽히면 안 된다. 값은 시연 시드의 샘플 선박에서 왔고, 바뀌어도 예시라는 성질은 같다.
  */
-const TIERS = [
-  { tier: '선대', detail: '내 배 전체 · 위험 선박 경고' },
-  { tier: '선박', detail: '연도별 CII 이력 · 올해 누적(YTD) · 현재 위치·상태' },
-  { tier: '항차', detail: '항해 중 누적값 · 연말 예상 등급 · 정박 반영' },
+const PREVIEW_ROWS = [
+  {
+    vessel: '샘플 벌크선 (50,000 DWT)',
+    rating: 'E',
+    value: '8.214',
+    why: 'E등급 1년차 · 시정조치계획 대상',
+    next: '함대 감축 계획 세우기',
+  },
+  {
+    vessel: '샘플 벌크선 (30,000 DWT)',
+    rating: 'C',
+    value: '7.146',
+    why: 'D등급까지 39일',
+    next: '연말 등급 보기',
+  },
 ] as const
+
+function EntryPreview() {
+  return (
+    <figure className="auth-preview">
+      <figcaption className="auth-preview-cap">화면 예시 · 대시보드 「확인할 선박」</figcaption>
+      {/* 예시라 누를 수 없다 — 「다음 작업」도 링크가 아니라 글자다. */}
+      <ul className="auth-preview-card">
+        {PREVIEW_ROWS.map((row) => (
+          <li className="auth-preview-row" key={row.vessel}>
+            <span className="auth-preview-vessel">{row.vessel}</span>
+            <span className="auth-preview-grade">
+              <GradeBadge rating={row.rating} size="sm" />
+              <span className="auth-preview-value">{row.value}</span>
+            </span>
+            <span className="auth-preview-why">{row.why}</span>
+            <span className="auth-preview-next">{row.next}</span>
+          </li>
+        ))}
+      </ul>
+    </figure>
+  )
+}
 
 /*
  * 언어 선택 칸을 두지 않는다 (2026-09-22 결정 · `#1525` · `rlatnals4114`).
@@ -116,16 +155,17 @@ export function AuthShell({
                 예측합니다. 속도와 항로를 고르기 전에 그 결과를 견줘 봅니다.
               </p>
             </div>
-            <ul className="auth-tiers">
-              {TIERS.map(({ tier, detail }) => (
-                <li className="auth-tier" key={tier}>
-                  <span className="auth-tier-name">{tier}</span>
-                  <span className="auth-tier-detail">{detail}</span>
-                </li>
-              ))}
-            </ul>
+            <EntryPreview />
           </div>
-        ) : null}
+        ) : (
+          /*
+            소개가 없는 화면(가입 · 재설정 · 인증)도 판이 비지 않게 같은 화면 예시를 둔다 — 종전에는
+            남색 판 가운데 로고 한 줄이라 화면의 절반이 비어 있었다. 좁은 폭에서 소개와 함께 접힌다.
+          */
+          <div className="auth-preview-wrap">
+            <EntryPreview />
+          </div>
+        )}
 
         {/*
           범이는 **소개 뒤**에 온다 (`#2157`). 판의 flex 항목이라 남은 높이를 받아
@@ -174,6 +214,16 @@ export function AuthShell({
         </section>
 
         {footer ? <p className="auth-footer">{footer}</p> : null}
+
+        {/*
+          0-5 · 0-6 — 인증 화면 넷 모두에서 가입 전에 열 수 있어야 한다. 라우터 링크가 아니라
+          보통 링크다 — 이 셸은 라우터 밖에서도 그려지고(검사), 문서로 가는 길은 화면 상태를
+          이어 갈 이유가 없다.
+        */}
+        <nav className="auth-legal" aria-label="약관 문서">
+          <a href={SCREEN_BY_ID.TERMS.path}>{SCREEN_BY_ID.TERMS.label}</a>
+          <a href={SCREEN_BY_ID.PRIVACY.path}>{SCREEN_BY_ID.PRIVACY.label}</a>
+        </nav>
       </div>
     </main>
   )

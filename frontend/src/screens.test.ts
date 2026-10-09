@@ -201,6 +201,8 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     SIGNUP: 'SignupPage',
     PASSWORD_RESET: 'PasswordResetPage',
     VERIFY_EMAIL: 'VerifyEmailPage',
+    TERMS: 'LegalPage', // 같은 파일이 `TermsPage` · `PrivacyPage`를 함께 export한다
+    PRIVACY: 'LegalPage',
     VESSEL_REGISTRATION: 'VesselRegistrationPage',
     VESSEL_DETAIL: 'VesselDetailPage',
     REALTIME_CII: 'RealtimeCiiPage',

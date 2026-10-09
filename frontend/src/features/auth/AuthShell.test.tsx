@@ -6,6 +6,7 @@ import { render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { AuthShell } from './AuthShell'
+import { SCREEN_BY_ID } from '../../screens'
 
 /*
  * `jsdom` 환경에서는 `import.meta.url`이 file 스킴이 아니라 `fileURLToPath`가 던진다.
@@ -40,26 +41,10 @@ describe('AuthShell 브랜드 판 — #608', () => {
     expect(container.querySelector('.auth-intro')).not.toBeNull()
   })
 
-  it('세 계층 문구가 UIFLOW §2.1 구조도 그대로다', () => {
-    /*
-     * 여기서 새로 쓰면 사이드바·대시보드가 설명하는 것과 어긋난다.
-     * 값이 아니라 **상위 문서에서 복사한 문장**임을 고정한다 (`AGENTS §3`).
-     */
-    render(
-      <AuthShell title="로그인" intro>
-        폼
-      </AuthShell>,
-    )
-    for (const [tier, detail] of [
-      ['선대', '내 배 전체 · 위험 선박 경고'],
-      ['선박', '연도별 CII 이력 · 올해 누적(YTD) · 현재 위치·상태'],
-      ['항차', '항해 중 누적값 · 연말 예상 등급 · 정박 반영'],
-    ]) {
-      expect(screen.getByText(tier)).not.toBeNull()
-      expect(screen.getByText(detail)).not.toBeNull()
-    }
-  })
-
+  /*
+   * 종전의 「세 계층 문구가 UIFLOW §2.1 구조도 그대로다」는 지웠다 (#2380) — 계층 세 줄 자리가
+   * 대시보드 행을 줄인 화면 예시로 바뀌었다. 예시의 성질은 파일 끝 「첫 화면」 묶음이 본다.
+   */
   it('면책 문구는 intro와 별개로 켜진다 — PRD §0.3', () => {
     /*
      * 깃발 하나로 묶으면 「소개만 빼고 면책은 남기는」 화면을 만들 수 없다.
@@ -152,7 +137,7 @@ describe('AuthShell 브랜드 판 — #608', () => {
 
   it('한국어 문장에 word-break: keep-all이 걸려 있다', () => {
     // 어절 안에서 끊으면 읽기 어렵다 (`DESIGN_SYSTEM §3`).
-    for (const selector of ['.auth-intro-lead', '.auth-tier']) {
+    for (const selector of ['.auth-intro-lead', '.auth-preview-row']) {
       const rule = rules.slice(rules.indexOf(`${selector} {`))
       expect(rule.slice(0, rule.indexOf('}'))).toContain('word-break: keep-all')
     }
@@ -197,5 +182,40 @@ describe('언어 선택 칸 — 인증 화면에는 두지 않는다 (#1525)', (
      */
     render(<AuthShell title="로그인">폼</AuthShell>)
     expect(screen.queryByRole('radiogroup')).toBeNull()
+  })
+})
+
+/**
+ * 첫 화면의 제품 예시와 약관 링크 (`UIFLOW 0` · `0-5` · `0-6`).
+ *
+ * 첫 화면이 글과 그림만으로 서비스를 설명하고 있었다 — 제품이 무엇을 내놓는지가 화면으로
+ * 보이지 않았다. 또 가입을 받는 화면에 이용약관 · 개인정보처리방침으로 가는 길이 없었다.
+ */
+describe('첫 화면 — 제품 화면 예시와 약관 링크', () => {
+  it('화면 예시는 「예시」라고 밝히고, 제품의 등급 배지를 쓴다', () => {
+    const { container } = render(
+      <AuthShell title="로그인" intro>
+        폼
+      </AuthShell>,
+    )
+    const preview = container.querySelector('.auth-preview') as HTMLElement
+    expect(preview).not.toBeNull()
+    // 실측이나 실적 수치로 읽히지 않게 — 캡션이 예시임을 말한다.
+    expect(preview.querySelector('figcaption')?.textContent).toContain('예시')
+    expect(preview.querySelectorAll('.grade-badge').length).toBeGreaterThan(0)
+    // 예시라 누를 수 있는 것이 없다.
+    expect(preview.querySelectorAll('a, button').length).toBe(0)
+  })
+
+  it('소개가 없는 화면(가입 · 재설정 · 인증)도 판이 비지 않는다', () => {
+    const { container } = render(<AuthShell title="회원가입">폼</AuthShell>)
+    expect(container.querySelector('.auth-brand-panel .auth-preview')).not.toBeNull()
+  })
+
+  it('이용약관 · 개인정보처리방침 링크가 실제 경로를 가리킨다', () => {
+    render(<AuthShell title="회원가입">폼</AuthShell>)
+    const nav = screen.getByRole('navigation', { name: '약관 문서' })
+    const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'))
+    expect(hrefs).toEqual([SCREEN_BY_ID.TERMS.path, SCREEN_BY_ID.PRIVACY.path])
   })
 })
