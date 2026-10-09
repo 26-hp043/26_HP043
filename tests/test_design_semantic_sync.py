@@ -97,7 +97,7 @@ def _doc_neutral_table() -> list[tuple[str, str, str, str]]:
     별칭 열이 ``—``인 행(`--surface-popover`)도 받는다 — 그 면은 `§0.2` 제약 6이
     문자 대비를 재는 **네 면**의 하나라서, 별칭이 없어도 값이 맞아야 한다.
     """
-    section = _DOC[_DOC.index("### 2.2 중립") : _DOC.index("### 2.3")]
+    section = _section_2_2()
     rows = re.findall(
         r"^\| (?:`(--[\w-]+)`|—) \| `(--[\w-]+)` \| `(#[0-9a-fA-F]{6})` \| `(#[0-9a-fA-F]{6})` \|",
         section,
@@ -107,7 +107,13 @@ def _doc_neutral_table() -> list[tuple[str, str, str, str]]:
 
 
 def _section_2_2() -> str:
-    return _DOC[_DOC.index("### 2.2 중립") : _DOC.index("### 2.3")]
+    """`§2.2` 의미 토큰 표가 든 부분 — `§2.2.2`부터 `§2.3` 앞까지.
+
+    `#2383`이 `§2.2.1` 단계 표를 앞에 두었다. 그 표는 열 모양이 달라 아래 행 수 대조에
+    섞이면 「읽지 못한 행」으로 세어진다 — 단계 표는 `grayScale.sync.test.ts`가 원본 JSON과
+    대조한다.
+    """
+    return _DOC[_DOC.index("#### 2.2.2 의미 토큰") : _DOC.index("### 2.3")]
 
 
 def test_section_2_2_table_was_actually_read():

@@ -587,19 +587,194 @@
       }
     }
   },
-  "surface": {
-    "page": {
+  "gray": {
+    "1": {
       "$type": "color",
       "$value": {
         "colorSpace": "srgb",
         "components": [
-          0.95686274766922,
-          0.9647058844566345,
-          0.9764705896377563
+          0.9568627450980393,
+          0.9647058823529412,
+          0.9764705882352941
         ],
         "alpha": 1,
         "hex": "#F4F6F9"
       },
+      "$description": "1 바탕 — 페이지"
+    },
+    "2": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.9333333333333333,
+          0.9490196078431372,
+          0.9647058823529412
+        ],
+        "alpha": 1,
+        "hex": "#EEF2F6"
+      },
+      "$description": "2 움푹한 면 — 서브 영역"
+    },
+    "3": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.9137254901960784,
+          0.9333333333333333,
+          0.9529411764705882
+        ],
+        "alpha": 1,
+        "hex": "#E9EEF3"
+      },
+      "$description": "3 요소 면"
+    },
+    "4": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.8980392156862745,
+          0.9176470588235294,
+          0.9411764705882353
+        ],
+        "alpha": 1,
+        "hex": "#E5EAF0"
+      },
+      "$description": "4 요소 면 hover · 오버레이 면(다크)"
+    },
+    "5": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.8784313725490196,
+          0.9058823529411765,
+          0.9294117647058824
+        ],
+        "alpha": 1,
+        "hex": "#E0E7ED"
+      },
+      "$description": "5 요소 면 눌림 · 선택"
+    },
+    "6": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.8627450980392157,
+          0.8901960784313725,
+          0.9176470588235294
+        ],
+        "alpha": 1,
+        "hex": "#DCE3EA"
+      },
+      "$description": "6 약한 경계 — 장식(대비 보장 없음)"
+    },
+    "7": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.7647058823529411,
+          0.807843137254902,
+          0.8509803921568627
+        ],
+        "alpha": 1,
+        "hex": "#C3CED9"
+      },
+      "$description": "7 경계 — 장식 · 차트 축(대비 보장 없음)"
+    },
+    "8": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.6039215686274509,
+          0.6509803921568628,
+          0.7098039215686275
+        ],
+        "alpha": 1,
+        "hex": "#9AA6B5"
+      },
+      "$description": "8 강한 경계 — hover 경계"
+    },
+    "9": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.43529411764705883,
+          0.48627450980392156,
+          0.5607843137254902
+        ],
+        "alpha": 1,
+        "hex": "#6F7C8F"
+      },
+      "$description": "9 컨트롤 경계 — 바탕 면 위 3:1 보장"
+    },
+    "10": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.4196078431372549,
+          0.4627450980392157,
+          0.5254901960784314
+        ],
+        "alpha": 1,
+        "hex": "#6B7686"
+      },
+      "$description": "10 비활성 글자 · 아이콘 · 면적 — 바탕 면 위 3:1 보장"
+    },
+    "11": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.3058823529411765,
+          0.3607843137254902,
+          0.43137254901960786
+        ],
+        "alpha": 1,
+        "hex": "#4E5C6E"
+      },
+      "$description": "11 보조 글자 — 바탕 면 위 4.5:1 보장"
+    },
+    "12": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.08627450980392157,
+          0.12549019607843137,
+          0.1803921568627451
+        ],
+        "alpha": 1,
+        "hex": "#16202E"
+      },
+      "$description": "12 본문 글자 — 바탕 면 위 4.5:1 보장"
+    },
+    "panel": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "alpha": 1,
+        "hex": "#FFFFFF"
+      },
+      "$description": "카드 · 패널 면 — 라이트는 바탕보다 밝은 흰색, 다크는 3단과 같다"
+    }
+  },
+  "surface": {
+    "page": {
+      "$type": "color",
+      "$value": "{gray.1}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:325",
         "com.figma.scopes": [
@@ -609,16 +784,7 @@
     },
     "inset": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.9333333373069763,
-          0.9490196108818054,
-          0.9647058844566345
-        ],
-        "alpha": 1,
-        "hex": "#EEF2F6"
-      },
+      "$value": "{gray.2}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:326",
         "com.figma.scopes": [
@@ -628,16 +794,7 @@
     },
     "card": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          1,
-          1,
-          1
-        ],
-        "alpha": 1,
-        "hex": "#FFFFFF"
-      },
+      "$value": "{gray.panel}",
       "$description": "shadow-sm 병행",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:327",
@@ -648,16 +805,7 @@
     },
     "popover": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          1,
-          1,
-          1
-        ],
-        "alpha": 1,
-        "hex": "#FFFFFF"
-      },
+      "$value": "{gray.panel}",
       "$description": "shadow-md 병행",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:328",
@@ -670,16 +818,7 @@
   "text": {
     "primary": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.08627450980392157,
-          0.12549019607843137,
-          0.1803921568627451
-        ],
-        "alpha": 1,
-        "hex": "#16202E"
-      },
+      "$value": "{gray.12}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:329",
         "com.figma.scopes": [
@@ -689,16 +828,7 @@
     },
     "secondary": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.3058823529411765,
-          0.3607843137254902,
-          0.43137254901960786
-        ],
-        "alpha": 1,
-        "hex": "#4E5C6E"
-      },
+      "$value": "{gray.11}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:330",
         "com.figma.scopes": [
@@ -708,16 +838,7 @@
     },
     "muted": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.4196078431372549,
-          0.4627450980392157,
-          0.5254901960784314
-        ],
-        "alpha": 1,
-        "hex": "#6B7686"
-      },
+      "$value": "{gray.10}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:331",
         "com.figma.scopes": [
@@ -729,16 +850,7 @@
   "border": {
     "default": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.8627451062202454,
-          0.8901960849761963,
-          0.9176470637321472
-        ],
-        "alpha": 1,
-        "hex": "#DCE3EA"
-      },
+      "$value": "{gray.6}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:332",
         "com.figma.scopes": [
@@ -748,16 +860,7 @@
     },
     "strong": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.7647058963775635,
-          0.8078431487083435,
-          0.8509804010391235
-        ],
-        "alpha": 1,
-        "hex": "#C3CED9"
-      },
+      "$value": "{gray.7}",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:333",
         "com.figma.scopes": [
@@ -767,16 +870,7 @@
     },
     "control": {
       "$type": "color",
-      "$value": {
-        "colorSpace": "srgb",
-        "components": [
-          0.43529412150382996,
-          0.48627451062202454,
-          0.5607843399047852
-        ],
-        "alpha": 1,
-        "hex": "#6F7C8F"
-      },
+      "$value": "{gray.9}",
       "$extensions": {
         "com.figma.variableId": "VariableID:31:2",
         "com.figma.scopes": [
