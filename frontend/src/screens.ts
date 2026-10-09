@@ -17,14 +17,11 @@
  * `UIFLOW §0`(인증) 화면(LOGIN · LOGIN_FAILURE)은 #278에서 추가됐다 — 사이드바
  * 밖(온보딩 흐름)이므로 OFF_NAV 로 둔다.
  *
- * `width`는 `DESIGN_SYSTEM.md` §7.1 폭 정책이다.
- *   - `wide`: 대시보드·차트·비교 화면 → full-bleed(max 1920), 좌우 여백 24 (`§6`)
- *   - `form`: 폼·설정·상세 조회 → max 1440, 좌우 패딩 24
+ * 화면별 폭(`width: 'wide' | 'form'`)은 두지 않는다 — 셸 본문 열은 하나다(`DESIGN_SYSTEM §7.1` ·
+ * `#2401`). 넓어지면 안 되는 내용은 그 화면 안에서 자기 폭을 지킨다.
  */
 
 import { matchPath } from 'react-router'
-
-export type ScreenWidth = 'wide' | 'form'
 
 export interface ScreenMeta {
   /** 라우트 경로. 계층 드릴다운 화면은 `:vesselId` 같은 경로 파라미터를 포함한다. */
@@ -37,7 +34,6 @@ export interface ScreenMeta {
   uiflowRef: string
   /** UIFLOW가 기술한 핵심 기능 */
   purpose: string
-  width: ScreenWidth
   /**
    * 이 화면을 채우는 구현이 지금 존재하는가.
    *
@@ -113,7 +109,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Login',
     uiflowRef: '0',
     purpose: '이메일·비밀번호 로그인 — 서비스 소개·면책 문구 · 회원가입·비밀번호 찾기 링크',
-    width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   LOGIN_FAILURE: {
@@ -123,7 +118,6 @@ export const SCREEN_BY_ID = {
     // v2.1에서 0-1 → 0-2로 되돌렸다 — 회원가입이 복원되며 번호가 제자리를 찾았다.
     uiflowRef: '0-2',
     purpose: '로그인 실패 사유 안내 및 재시도',
-    width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   SIGNUP: {
@@ -132,7 +126,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Sign Up',
     uiflowRef: '0-1',
     purpose: '이메일·비밀번호로 계정 생성',
-    width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   PASSWORD_RESET: {
@@ -141,7 +134,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Password Reset',
     uiflowRef: '0-3',
     purpose: '재설정 메일 요청 및 새 비밀번호 설정',
-    width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   VERIFY_EMAIL: {
@@ -150,7 +142,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Verify Email',
     uiflowRef: '0-4',
     purpose: '가입 확인 메일 링크의 토큰 검증',
-    width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   /*
@@ -163,7 +154,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Terms',
     uiflowRef: '0-5',
     purpose: '서비스 이용 조건 — 확정되지 않은 사업 정보는 「입력 필요」로 표시',
-    width: 'form',
     implemented: true,
   },
   PRIVACY: {
@@ -172,7 +162,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Privacy',
     uiflowRef: '0-6',
     purpose: '처리하는 개인정보 · 보관 · 위탁 — 코드·정본에 있는 사실만, 나머지는 「입력 필요」',
-    width: 'form',
     implemented: true,
   },
   MAINBOARD: {
@@ -181,7 +170,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Dashboard',
     uiflowRef: '1-3 · 2-4',
     purpose: '보유 선박 전체 현황 조망 · 위험 선박 경고 — 선대 계층 중심 화면',
-    width: 'wide',
     implemented: true,   // 기본 진입 경로. 실제 데이터 그리드는 #351이 채운다
   },
   VESSEL_REGISTRATION: {
@@ -190,7 +178,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Vessel Registration',
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
-    width: 'form',
     // 선박 등록은 사무직 전용이다 — 제원은 기준값이다 (`API_SPEC §1.2` · #672).
     officeOnly: true,
     // 온보딩 흐름 — 사이드바 밖(`OFF_NAV_ORDER`)이라 이 값이 표시에 영향을 주지 않는다.
@@ -209,7 +196,6 @@ export const SCREEN_BY_ID = {
     // (「(계층 밖) 선박 등록」)·`§6.2 SCR-002`이며, UIFLOW 보강은 디자인 담당 소관이다.
     uiflowRef: '1-2',
     purpose: '보유 선박 목록 조회 · 제원 수정 · 삭제 — 등록은 1-2로 이어진다',
-    width: 'wide',
     //
     // **실 API로 돈다** — `GET`·`PATCH`·`DELETE /vessels`를 실제로 부른다 (#510).
     //
@@ -229,7 +215,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Vessel Detail',
     uiflowRef: '2-8',
     purpose: '연도별 CII 이력 · 올해 누적(YTD) 등급 · 현재 위치·운항 상태',
-    width: 'wide',
     implemented: true,  // #356 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   REALTIME_CII: {
@@ -238,7 +223,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Realtime CII',
     uiflowRef: '2-9',
     purpose: '항해 중 누적값 · 연말 예상 등급 · 정박(정류) 반영',
-    width: 'wide',
     implemented: true,  // #357 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   CII_FORECAST: {
@@ -247,7 +231,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'CII Forecast',
     uiflowRef: '2-1',
     purpose: '항해 전 항차 조건으로 CII 추정 — 실시간 산출(2-9)의 계획 단계',
-    width: 'form',
     implemented: true,   // #135 입력 폼 · #136 결과 화면
   },
   ROUTE_COMPARISON: {
@@ -256,7 +239,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Route Comparison',
     uiflowRef: '2-2',
     purpose: '직항·우회·감속 시나리오의 중립 비교 — 사후 설명·보고 근거',
-    width: 'wide',
     implemented: true,   // #156 기능② 비교 UI
   },
   ANNUAL_GRADE: {
@@ -265,7 +247,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Annual Grade',
     uiflowRef: '2-3',
     purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
-    width: 'wide',
     // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
     implemented: true,
   },
@@ -276,7 +257,6 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-10',
     purpose: '선박별 감속을 정해 목표 등급 달성 여부와 비용(추가 항해일 · 용선료 손실 · 연료비 절감)을 함께 본다',
     // 분할하지 않는다 — 결론 띠 아래 선박별 조정 표가 전폭이다(`UIFLOW 2-10` · `DESIGN_SYSTEM §7.1` · #1757).
-    width: 'wide',
     implemented: true, // #513 — `POST /fleet/reduction-plans/evaluate` 실 API
     officeOnly: true, // 선대 단위 경영 판단 — 화면 전체가 사무직 (`UIFLOW §2.2` · #672)
   },
@@ -287,7 +267,6 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-11',
     purpose: 'CII 계산에 실측이 아닌 값이 쓰인 항차를 선대 단위로 — 대체 계산 · 계산 불가 · 이상치 · 실적 확정 전',
     // 선대 계층 · 전폭(`UIFLOW 2-11` — 목록이 전부라 좌우 분할은 한 행 정보만 줄인다).
-    width: 'wide',
     implemented: true, // #513 — `GET /fleet/data-quality` 실 API
   },
   REPORTS: {
@@ -296,7 +275,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Reports',
     uiflowRef: '2-5',
     purpose: '항차 완료 리포트 · 연간 실적 리포트 생성·내보내기 (PDF · CSV)',
-    width: 'form',
     implemented: true,  // #362 구현 완료 (API는 #361)
     officeOnly: true, // 대외 산출물 — 사무직 (`UIFLOW §2.2` · #672)
   },
@@ -306,7 +284,6 @@ export const SCREEN_BY_ID = {
     labelEn: 'Settings',
     uiflowRef: '2-6',
     purpose: '사용자 및 시스템 환경 설정',
-    width: 'form',
     // 계정 관리(#506) + 「규제 기준값」 절(#1516 · `#1239` 결정 B). 조직·세부 권한
     // 설정은 여전히 없다(`PRD §5.2`). 규제 기준값은 새 화면이 아니라 이 화면 안의
     // 절이라 화면 ID를 늘리지 않는다 — 링크는 설정 경로 + 앵커다.
