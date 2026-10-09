@@ -10,12 +10,15 @@
  *
  * ## 왜 그 전에는 아무도 몰랐나
  *
- * 토큰은 `Noto Sans KR`을 가리키고 있었는데 **가리키는 파일이 없었다.**
+ * 토큰은 서체 이름(당시 `Noto Sans KR`)을 가리키고 있었는데 **가리키는 파일이 없었다.**
  * 폰트가 깔린 PC에서는 OS가 대신 그려 주므로 정상으로 보인다 — 개발자 PC에는
  * 대개 깔려 있어 아무도 알아채지 못했다. 드러나는 자리는 **외부로 나가는 화면**
  * (시연 영상·캡처·심사 화면)이고, 그때는 이미 늦다.
  *
  * ## 파일
+ *
+ * 본문 서체는 **Pretendard**다 (`#2382` · 2026-10-09). Noto Sans KR로 바꿨던 이유(「팀 환경
+ * 확보」)는 이 파일이 생기며 사라졌고, Noto의 넓은 자간이 밀도 높은 화면을 헐겁게 했다.
  *
  * `scripts/build_fonts.py`가 만든다. 한글 전체(11,172음절) 서브셋이며 굵기는
  * `§3`이 쓰는 **400·500** 두 벌이다. mono는 **IMO 번호·좌표 전용**이라(`§3`)
@@ -26,19 +29,19 @@
  */
 
 @font-face {
-  font-family: 'Noto Sans KR';
+  font-family: 'Pretendard';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/noto-sans-kr-400.woff2') format('woff2');
+  src: url('/fonts/pretendard-400.woff2') format('woff2');
 }
 
 @font-face {
-  font-family: 'Noto Sans KR';
+  font-family: 'Pretendard';
   font-style: normal;
   font-weight: 500;
   font-display: swap;
-  src: url('/fonts/noto-sans-kr-500.woff2') format('woff2');
+  src: url('/fonts/pretendard-500.woff2') format('woff2');
 }
 
 @font-face {

@@ -330,7 +330,7 @@
   "fontFamilies": {
     "sans": {
       "$type": "string",
-      "$value": "Noto Sans KR",
+      "$value": "Pretendard",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:290",
         "com.figma.scopes": [

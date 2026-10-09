@@ -12,8 +12,8 @@ const rules = css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 /** `§3`이 쓰는 두 서체 × 두 굵기. */
 const EXPECTED = [
-  ['Noto Sans KR', 400, 'noto-sans-kr-400.woff2'],
-  ['Noto Sans KR', 500, 'noto-sans-kr-500.woff2'],
+  ['Pretendard', 400, 'pretendard-400.woff2'],
+  ['Pretendard', 500, 'pretendard-500.woff2'],
   ['Noto Sans Mono', 400, 'noto-sans-mono-400.woff2'],
   ['Noto Sans Mono', 500, 'noto-sans-mono-500.woff2'],
 ] as const

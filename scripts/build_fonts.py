@@ -3,7 +3,7 @@
 
 ## 왜 스크립트인가
 
-`DESIGN_SYSTEM §3`이 정한 서체(**Noto Sans KR** · **Noto Sans Mono**)가 저장소에
+`DESIGN_SYSTEM §3`이 정한 서체(**Pretendard** · **Noto Sans Mono**)가 저장소에
 없었고 CDN도 쓸 수 없다 — `#791`이 **「인터넷이 없다고 가정한 경로가 반드시 함께
 있어야 한다」**로 못 박는다. 그래서 파일을 저장소에 넣는데, **넣은 파일이 어떻게
 만들어졌는지 적어 두지 않으면 다시 만들 수 없다.**
@@ -24,6 +24,14 @@
 ## 쓰는 법
 
     uv run --with "fonttools[woff]" --with brotli python scripts/build_fonts.py
+    uv run --with "fonttools[woff]" --with brotli python scripts/build_fonts.py pretendard
+
+인자로 패밀리 이름을 주면 그것만 만든다(원본 하나만 받아 다시 만들 때).
+
+원본
+- Pretendard — npm `pretendard@1.3.9`의 ``dist/public/variable/PretendardVariable.ttf``
+  (OFL-1.1 · `#2382`에서 Noto Sans KR을 대체)
+- Noto Sans Mono — Google Fonts 가변 TTF
 
 원본은 내려받아 ``build/fonts/`` 에 두고, 결과만 ``frontend/public/fonts/`` 로 옮긴다.
 """
@@ -123,11 +131,14 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     plan = [
-        (src_dir / "NotoSansKR.ttf", "noto-sans-kr", KOREAN_RANGES),
+        (src_dir / "PretendardVariable.ttf", "pretendard", KOREAN_RANGES),
         (src_dir / "NotoSansMono.ttf", "noto-sans-mono", MONO_RANGES),
     ]
 
+    only = set(sys.argv[1:])
     for src, family, ranges in plan:
+        if only and family not in only:
+            continue
         if not src.exists():
             print(f"원본이 없습니다: {src}", file=sys.stderr)
             print("  내려받는 곳은 이 파일 머리의 주석을 보세요.", file=sys.stderr)

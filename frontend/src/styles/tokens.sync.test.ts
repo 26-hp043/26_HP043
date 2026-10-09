@@ -605,13 +605,13 @@ describe('테마 규칙 — 3-상태', () => {
 
 describe('폰트 fallback — DESIGN_SYSTEM §3 (#485)', () => {
   it('지정 폰트는 생성 토큰에서 온다 — 별칭이 이름을 다시 적지 않는다', () => {
-    expect(css).toContain("--fontFamilies-sans: 'Noto Sans KR'")
+    expect(css).toContain("--fontFamilies-sans: 'Pretendard'")
     expect(aliasCss).toContain('--font-sans: var(--fontFamilies-sans)')
   })
 
   it('fallback 체인이 §3이 정한 그대로다', () => {
     /*
-     * §3 원문 — 「**Noto Sans KR** (한글 우선) → fallback
+     * §3 원문 — 「**Pretendard** (한글 우선) → fallback
      * `system-ui, "Malgun Gothic", sans-serif`」.
      */
     expect(aliasCss).toContain(
@@ -619,17 +619,16 @@ describe('폰트 fallback — DESIGN_SYSTEM §3 (#485)', () => {
     )
   })
 
-  it('선언부에 Pretendard가 남아 있지 않다', () => {
+  it('선언부에 옛 지정 서체(Noto Sans KR)가 남아 있지 않다 (#2382)', () => {
     /*
-     * v1.2까지의 지정 폰트다. §3이 「팀 환경 확보 문제로 교체했다」로 적으며
-     * v2.0에서 걷어냈는데 체인에 남아 있으면, **Noto Sans KR이 없고 Pretendard가
-     * 설치된 장비에서 구 폰트로 렌더된다** — 교체 자체가 무효가 된다.
+     * 2026-10-09에 Pretendard로 되돌렸다. 체인에 옛 이름이 남아 있으면 **그 서체가 설치된
+     * 장비에서 옛 서체로 렌더된다** — 교체 자체가 무효가 된다. v2.0이 Pretendard를 걷어낼 때
+     * 같은 이유로 둔 검사를 방향만 바꿔 남긴다. mono(`Noto Sans Mono`)는 대상이 아니다.
      *
-     * **주석은 보지 않는다.** 왜 걷어냈는지를 파일에 적어 두는 것이 이 규칙을
-     * 되돌리지 않게 하는 근거인데, 원문 전체를 훑으면 그 설명 자체가 실패가 된다.
+     * **주석은 보지 않는다.** 왜 바꿨는지를 파일에 적어 두는 것이 되돌리지 않게 하는 근거다.
      */
     const declarations = stripComments(aliasCss) + stripComments(css)
-    expect(declarations).not.toContain('Pretendard')
+    expect(declarations).not.toContain('Noto Sans KR')
   })
 })
 
