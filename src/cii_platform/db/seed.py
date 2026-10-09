@@ -157,7 +157,7 @@ SEED_Z_FACTORS: tuple[ZFactorRow, ...] = (
 #     import pypdf; print(pypdf.PdfReader('/w/mepc353.pdf').pages[4].extract_text())\""
 #
 #   대조 결과 요약과 특기 사항은 DB_SCHEMA §3.3 각주에 있다.
-#   ⚠️ 이 대조는 개발이 수행했다. AGENTS §2.1이 요구하는 팀원 원문 확인은 아직 없다.
+#   팀원 원문 대조 확인: 신하늘(sky01170851), 2026-10-09 — 20/20행 불일치 0건 (#773).
 SEED_REFERENCE_LINES: tuple[ReferenceLineRow, ...] = (
     ReferenceLineRow(
         "BULK_CARRIER",
