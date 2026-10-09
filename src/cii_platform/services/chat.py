@@ -358,19 +358,7 @@ async def _answer_turn(
     # 서로 다른 해를 쓰지 않게 한다 (#2355 · #2131).
     turn_year = current_regulation_year(datetime.now(UTC))
     current_year_only = _asks_only_current_year(question)
-    messages: list[dict[str, object]] = [
-        {
-            "role": "system",
-            "content": (
-                f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
-                "'올해'와 '현재 연도'는 이 해를 뜻합니다."
-            ),
-        }
-    ]
-    messages += [
-        {"role": "user" if row.role == ROLE_USER else "assistant", "content": row.content}
-        for row in _from_a_question(history)
-    ]
+    messages = _conversation(history, turn_year)
 
     tool_outputs: list[str] = []
     used_tools: list[str] = []
@@ -553,24 +541,16 @@ YEAR_END_EXAMPLE_QUESTION = "올해 연말 예상 등급은 어떻게 되나요?
 #: 턴 상한(``TURN_TIMEOUT_SECONDS``)보다 짧아야 대체 답을 낼 시간이 남는다.
 DIRECT_MODEL_TIMEOUT_SECONDS = 20.0
 
-#: 모델에게 도구 결과를 건네는 말. 도구 정의를 보내지 않으므로(호출할 도구가 없다)
-#: 결과는 ``tool_result`` 블록이 아니라 평문으로 준다 — ``tool_use`` 블록 없이 ``tool_result``만
-#: 보낼 수는 없다(Messages API 규격).
+#: 바로 경로가 지어 넣는 ``tool_use`` 블록의 id. 모델이 낸 id가 아니므로 이름으로 구분해 둔다.
 #:
-#: `#2289` 후속 — 결과만 건네자 모델이 「연말 예상 등급은 E입니다」 한 줄로 끝냈다(10-09 운영
-#: 실측 · 시스템 지시의 「간결하게」). 결론 · 근거 · 가정 · 안내의 순서와 길이를 적는다. 차이 ·
-#: 비율을 새로 계산하면 수치 검증에 걸려 대체 답으로 넘어가므로 그것도 막는다.
-_DIRECT_RESULT_PROMPT = (
-    "아래는 BlueLog 계산 도구 project_year_end가 화면에서 고른 선박으로 낸 결과입니다 "
-    "(ytd는 올해 지금까지의 누적, year_end_projection은 연말 예상). "
-    "이 결과만 근거로 위 질문에 10문장 이내로 답하되, 아래 네 가지를 모두 이 순서로 담아 주세요.\n"
-    "1. 결론 — 연말 예상 등급\n"
-    "2. 근거 — 올해 누적 CII와 그 등급, 연말 예상 CII와 기준(required) CII\n"
-    "3. 연말 예상은 남은 계획 항차를 계획대로 운항한다는 가정에 따른 추정값이라는 점\n"
-    "4. 근거와 가정은 실시간 CII 화면에서 자세히 볼 수 있다는 안내\n"
-    "수치는 결과에 있는 값을 소수 셋째 자리까지 그대로 옮기고, 차이나 비율을 새로 계산하지 "
-    "마세요. 결과에 없는 항목은 말하지 마세요.\n\n{envelope}"
-)
+#: `#2289` 후속 — 마지막 호출은 **종전 모델 경로의 두 번째 호출과 같은 모양**으로 보낸다
+#: (시스템 지시 · 대화 · 모델의 ``tool_use`` · 서버의 ``tool_result`` · 도구 정의). #2388은
+#: 결과를 평문 한 덩어리로 · 도구 정의 없이 보냈고, 그러자 답이 「연말 예상 등급은 E입니다」
+#: 한 줄로 끝났다. #2389가 순서·분량 지시를 덧붙였지만 종전(10-09 14시대 운영) 답의 형식은
+#: 돌아오지 않았다 — 사용자가 원한 것은 **그때의 답 형식**이다. 입력을 종전과 같게 두면 답을
+#: 정하는 것도 종전과 같다(시스템 지시 ``SYSTEM_PROMPT``). 빠지는 것은 「어느 도구를 부를지」의
+#: 첫 왕복 하나뿐이다.
+_DIRECT_TOOL_USE_ID = "toolu_direct_project_year_end"
 
 #: 대체 답의 마지막 줄 — 모델이 쓰지 않은 답이라는 것을 숨기지 않는다.
 DIRECT_FALLBACK_NOTE = "(응답이 늦어 AI 해설 없이 계산 결과로 바로 답했습니다.)"
@@ -583,6 +563,28 @@ DIRECT_ANSWER_NOTE = (
 
 #: 화면의 CII 표시 자릿수(``DISPLAY_DIGITS.cii`` · ``DESIGN_SYSTEM §4.2``)와 같게 쓴다.
 _CII_DISPLAY_PLACES = Decimal("0.001")
+
+
+def _conversation(history: Sequence[ChatMessage], turn_year: int) -> list[dict[str, object]]:
+    """모델 경로의 첫 호출에 보내는 메시지 — 시스템 지시와 대화.
+
+    바로 경로(:func:`_model_writes_year_end`)도 이것을 그대로 쓴다. 두 경로가 따로 조립하면
+    한쪽만 바뀌어 답 형식이 갈린다(`#2289` — #2388이 그 형태였다).
+    """
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": (
+                f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
+                "'올해'와 '현재 연도'는 이 해를 뜻합니다."
+            ),
+        }
+    ]
+    messages += [
+        {"role": "user" if row.role == ROLE_USER else "assistant", "content": row.content}
+        for row in _from_a_question(history)
+    ]
+    return messages
 
 
 def is_year_end_example(question: str) -> bool:
@@ -629,36 +631,48 @@ def _year_end_text(result: dict[str, object]) -> str | None:
 
 
 async def _model_writes_year_end(
-    provider: LLMProvider, *, question: str, envelope: str, turn_year: int
+    provider: LLMProvider,
+    *,
+    conversation: list[dict[str, object]],
+    envelope: str,
+    turn_year: int,
 ) -> str | None:
     """모델에게 **한 번만** 묻는다. 늦거나 규율을 어기면 ``None``.
 
-    도구 정의를 보내지 않는다 — 부를 도구가 없고, 보내는 양이 줄어든다. 답은 모델 경로와
-    같은 검증(올해 주장 · 도구에 없는 수치)을 지나야 한다.
+    :param conversation: 종전 경로가 첫 호출에 보내는 것 그대로 — 시스템 지시와 대화.
+        여기에 모델이 ``project_year_end``를 부른 것처럼 ``tool_use``를 잇고 그 결과를
+        ``tool_result``로 붙인다(:data:`_DIRECT_TOOL_USE_ID` 참조). 답은 모델 경로와 같은
+        검증(올해 주장 · 도구에 없는 수치)을 지나야 한다.
     """
     messages: list[dict[str, object]] = [
+        *conversation,
         {
-            "role": "system",
-            "content": (
-                f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
-                "'올해'와 '현재 연도'는 이 해를 뜻합니다."
-            ),
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": _DIRECT_TOOL_USE_ID,
+                    "name": TOOL_PROJECT_YEAR_END,
+                    "input": {},
+                }
+            ],
         },
-        # 질문과 도구 결과를 **한 user 메시지**로 보낸다 — 같은 역할을 연달아 보내는 것을
-        # 공급자마다 다르게 다룰 수 있다(Anthropic 형식을 내는 다른 공급자 · `LLM_BASE_URL`).
         {
             "role": "user",
-            "content": f"{question}\n\n{_DIRECT_RESULT_PROMPT.format(envelope=envelope)}",
+            "content": [
+                {"type": "tool_result", "tool_use_id": _DIRECT_TOOL_USE_ID, "content": envelope}
+            ],
         },
     ]
     try:
         async with asyncio.timeout(DIRECT_MODEL_TIMEOUT_SECONDS):
-            response = await provider.complete(messages=messages, tools=None)
+            response = await provider.complete(messages=messages, tools=tool_schemas())
     except (TimeoutError, LLMError):
         return None
     if response.stop_reason == STOP_REFUSAL or response.stop_reason in STOP_TRUNCATED:
         return None
     reply = (response.text or "").strip()
+    # 도구를 한 번 더 부르려 하면 이 경로에서는 답이 없다 — 대체 답으로 넘긴다.
     if not reply or response.tool_calls:
         return None
     try:
@@ -690,6 +704,8 @@ async def _answer_year_end_directly(
     :returns: 답 봉투. 연말 예상을 낼 수 없으면 ``None`` — 호출부가 종전 모델 경로로 넘긴다.
         이때 도구 호출은 감사 로그에 남기지 않는다(응답의 ``tool_calls``와 어긋나지 않게).
     """
+    # 종전 경로와 같은 해·같은 인자로 돌린다 — 도구 결과가 같아야 답도 같다.
+    turn_year = current_regulation_year(datetime.now(UTC))
     outcome = await run_tool(
         session,
         name=TOOL_PROJECT_YEAR_END,
@@ -698,6 +714,8 @@ async def _answer_year_end_directly(
         chat_session_id=chat_session_id,
         vessel_locked=vessel_locked,
         screen_run_id=calculation_run_id,
+        current_year=turn_year,
+        current_year_only=_asks_only_current_year(question),
     )
     try:
         body = json.loads(outcome.envelope)
@@ -722,9 +740,14 @@ async def _answer_year_end_directly(
         calculation_run_id=outcome.calculation_run_id,
         ip_address=ip_address,
     )
-    turn_year = current_regulation_year(datetime.now(UTC))
+    history = await chat_repo.list_messages(
+        session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
+    )
     reply = await _model_writes_year_end(
-        provider, question=question, envelope=outcome.envelope, turn_year=turn_year
+        provider,
+        conversation=_conversation(history, turn_year),
+        envelope=outcome.envelope,
+        turn_year=turn_year,
     )
     if reply is None:
         # 질문·답 본문은 싣지 않는다(``PRD §16.3.1``) — 세션만.
