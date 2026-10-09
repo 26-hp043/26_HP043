@@ -68,6 +68,8 @@ interface CostSummary {
   charterLoss: string | null
   fuelSaving: string | null
   net: string | null
+  /** 유종별 절감 톤 — 감속한 선박이 없으면 빈 객체다. 0보다 큰 유종만 단가가 필요하다 */
+  fuelSavedTonByType: Record<string, string>
   missingCharterRates: string[]
   missingFuelPrices: string[]
 }
@@ -97,4 +99,12 @@ export interface FleetReductionProvider {
   evaluate(request: EvaluateRequest): Promise<EvaluateResult>
   save(request: EvaluateRequest & { planName: string }): Promise<SavedPlanSummary>
   list(): Promise<SavedPlanSummary[]>
+  /** 오늘 환율(원/USD) — 없으면 화면은 사용자가 넣은 값만 쓴다 */
+  krwPerUsd?(): Promise<KrwRate>
+}
+
+export interface KrwRate {
+  rate: number
+  /** 시세 기준일 (YYYY-MM-DD) */
+  date: string
 }

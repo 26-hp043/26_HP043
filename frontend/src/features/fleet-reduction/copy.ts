@@ -67,6 +67,8 @@ export const FLEET_REDUCTION_COPY = {
   fuelPricesBeforeRun: '계산이 끝나면 이 계획에 필요한 연료의 단가 칸이 열립니다.',
   /** 계산은 됐는데 필요한 단가가 없다. */
   fuelPricesNone: '이 계획에는 연료 단가가 필요하지 않습니다.',
+  /** 감속한 선박이 이 연료를 아끼지 않을 때 — 칸은 남기고 잠근다 (10/9) */
+  fuelPriceNotNeeded: '지금 계획에서는 이 연료의 절감이 없어 단가가 쓰이지 않습니다.',
   fuelPricesTitle: '연료 단가 (USD/t) · 환율',
   pricesNote: '단가는 이 계획의 가정값이며 계획과 함께 저장됩니다.',
   /*
