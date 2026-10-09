@@ -4,7 +4,9 @@
 7~45초를 오가고 턴 시간 초과로 폐기되기도 했다. 이 예시 질문은 서버가 ``project_year_end``를
 먼저 돌리고 **문장 쓰기 한 번만** 모델에게 묻는다. 여기서 보는 것은 넷이다.
 
-1. 선박이 정해져 있으면 모델을 **정확히 한 번** 부르고 **도구 정의를 보내지 않는다**.
+1. 선박이 정해져 있으면 모델을 **정확히 한 번** 부르고, 그 호출은 **종전 경로의 두 번째
+   호출과 같은 메시지**다(`#2289` 후속 — 답 형식을 종전과 같게. #2388의 평문 한 덩어리 ·
+   도구 정의 없음은 답을 결론 한 줄로 만들었다).
 2. 답은 모델이 쓴 문장 그대로다 — 서버가 문장을 바꾸지 않는다.
 3. 모델이 늦거나 · 실패하거나 · 도구에 없는 수치를 쓰면 **계산 결과 문장으로 대신 답하고**
    마지막 줄에 그 사실을 적는다. 오류로 끝나지 않는다.
@@ -23,7 +25,7 @@ from sqlalchemy import text
 from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
-from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse
+from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse, ToolCall
 from cii_platform.services import chat as chat_service
 from cii_platform.services.chat import (
     DIRECT_ANSWER_NOTE,
@@ -38,7 +40,7 @@ _MODEL_TEXT = "선택하신 선박의 올해 연말 예상은 화면의 실시�
 
 
 class _RecordingProvider(FakeProvider):
-    """받은 ``tools``까지 남긴다 — 바로 경로가 도구 정의를 보내지 않는지 본다."""
+    """받은 ``tools``까지 남긴다 — 바로 경로가 종전 경로와 같은 도구 정의를 보내는지 본다."""
 
     def __init__(self, responses: list[LLMResponse]) -> None:
         super().__init__(responses)
@@ -119,19 +121,21 @@ async def _tool_call_rows() -> int:
         ).scalar_one()
 
 
-async def test_the_model_is_called_once_without_tools_and_writes_the_answer(
-    migrated_db, app_fresh_engine
-):
-    """모델 호출 1회 · 도구 정의 없음 · 도구 결과가 메시지에 실림 · 답은 모델 문장 그대로."""
+async def test_the_model_is_called_once_and_writes_the_answer(migrated_db, app_fresh_engine):
+    """모델 호출 1회 · 도구 결과는 ``tool_result`` 블록으로 · 답은 모델 문장 그대로."""
     provider = _RecordingProvider([LLMResponse(text=_MODEL_TEXT)])
     try:
         data = _ask_example(provider)
         assert len(provider.calls) == 1, "모델을 두 번 이상 불렀다"
-        assert provider.tools_sent == [None], "도구 정의를 보냈다 — 보내는 양이 줄지 않는다"
-        sent = " ".join(str(m["content"]) for m in provider.calls[0])
-        assert "project_year_end" in sent, "도구 결과가 모델에게 가지 않았다"
-        # 결과만 건네면 모델이 결론 한 줄로 끝낸다(10-09 운영) — 근거·가정을 쓰라고 지시한다.
-        assert "근거" in sent and "가정" in sent and "10문장 이내" in sent
+        assert provider.tools_sent[0], "종전 경로와 달리 도구 정의를 보내지 않았다"
+        tool_use, tool_result = provider.calls[0][-2:]
+        assert tool_use["role"] == "assistant"
+        assert tool_use["content"][0]["type"] == "tool_use"
+        assert tool_use["content"][0]["name"] == "project_year_end"
+        assert tool_result["content"][0]["type"] == "tool_result"
+        assert tool_result["content"][0]["tool_use_id"] == tool_use["content"][0]["id"]
+        # 서버가 덧붙인 지시문이 없다 — 답을 정하는 것은 종전과 같은 시스템 지시뿐이다.
+        assert "10문장 이내" not in " ".join(str(m["content"]) for m in provider.calls[0])
         assert data["answer"] == _MODEL_TEXT
         assert data["discarded"] is False
         assert data["tool_calls"] == ["project_year_end"]
@@ -139,6 +143,56 @@ async def test_the_model_is_called_once_without_tools_and_writes_the_answer(
         assert await _tool_call_rows() == 1
     finally:
         await _cleanup()
+
+
+def _without_tool_use_id(messages: list[dict[str, object]]) -> list[object]:
+    """``tool_use`` id만 지운 사본 — 모델이 붙인 id와 서버가 붙인 id는 다를 수밖에 없다."""
+    out: list[object] = []
+    for m in messages:
+        content = m["content"]
+        if isinstance(content, list):
+            content = [
+                {k: v for k, v in block.items() if k not in ("id", "tool_use_id")}
+                for block in content
+            ]
+        out.append({"role": m["role"], "content": content})
+    return out
+
+
+async def test_the_one_call_is_the_same_as_the_second_call_of_the_model_path(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """🔴 바로 경로의 한 번 호출 = 종전 경로가 도구 결과를 받은 뒤의 호출 (`#2289` 후속).
+
+    사용자가 원한 것은 10-09 14시대(종전 경로) 답의 **형식**이다. 형식은 모델이 받는 입력이
+    정한다 — 그 입력이 메시지 하나·도구 정의 하나까지 같은지 본다. 빠지는 것은 「어느 도구를
+    부를지」의 첫 왕복뿐이어야 한다.
+    """
+    direct = _RecordingProvider([LLMResponse(text=_MODEL_TEXT)])
+    try:
+        _ask_example(direct)
+    finally:
+        await _cleanup()
+
+    monkeypatch.setattr(chat_service, "is_year_end_example", lambda _q: False)
+    model_path = _RecordingProvider(
+        [
+            LLMResponse(
+                tool_calls=(ToolCall(name="project_year_end", arguments={}, id="toolu_m1"),),
+                stop_reason="tool_use",
+            ),
+            LLMResponse(text=_MODEL_TEXT),
+        ]
+    )
+    try:
+        data = _ask_example(model_path)
+        assert data["answer"] == _MODEL_TEXT
+    finally:
+        await _cleanup()
+
+    assert len(model_path.calls) == 2
+    assert _without_tool_use_id(direct.calls[0]) == _without_tool_use_id(model_path.calls[1])
+    assert direct.tools_sent[0] == model_path.tools_sent[1]
 
 
 async def test_a_fabricated_number_falls_back_to_the_calculated_sentence(
