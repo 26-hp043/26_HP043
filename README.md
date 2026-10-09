@@ -776,4 +776,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-09 | `#2378` | 운영 배포 정본을 OPERATIONS v1.1로 명시 — SSH/DB stdin 인증·공개 Git 토큰 제거 (#2117) |
 | 2026-10-09 | `#2384` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.38**(§3 서체 Pretendard #2382) |
 | 2026-10-09 | `#2385` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.39**(§2.2.1 중립 단계 체계 #2383) |
-| 2026-10-09 | `#___` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.40**(§7.1 본문 최대 폭 1920 하나 #2401) |
+| 2026-10-09 | `#2402` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.40**(§7.1 본문 최대 폭 1920 하나 #2401) |
