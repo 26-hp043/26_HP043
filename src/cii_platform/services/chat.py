@@ -31,6 +31,7 @@ import logging
 import re
 import time
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
@@ -46,7 +47,7 @@ from cii_platform.llm.provider import (
 )
 from cii_platform.services import audit
 from cii_platform.services.chat_explain import glossary_prompt
-from cii_platform.services.chat_tools import run_tool, tool_schemas
+from cii_platform.services.chat_tools import TOOL_PROJECT_YEAR_END, run_tool, tool_schemas
 from cii_platform.services.llm_guard import (
     NumberFabricationError,
     user_number_forms,
@@ -333,6 +334,21 @@ async def _answer_turn(
     # 조용히 덮어쓰지 않게 한다(요청이 오지 않은 다음 턴의 대답이 달라지면 안 된다).
     effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
 
+    # `#2289` — 예시 질문 「올해 연말 예상 등급」은 외부 모델을 거치지 않고 계산 결과로 바로 답한다.
+    # 선박이 정해지지 않았거나 연말 예상을 낼 수 없으면 종전처럼 모델 경로로 간다.
+    if effective_vessel is not None and is_year_end_example(question):
+        direct = await _answer_year_end_directly(
+            session,
+            chat_session_id=chat_session_id,
+            user_id=user_id,
+            vessel_id=effective_vessel,
+            vessel_locked=vessel_id is not None,
+            calculation_run_id=calculation_run_id,
+            ip_address=ip_address,
+        )
+        if direct is not None:
+            return direct
+
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
     )
@@ -517,6 +533,129 @@ async def _answer_turn(
         discarded=False,
         vessel_resolved=effective_vessel is not None,
     )
+
+
+#: `#2289` — 외부 모델 없이 계산 결과로 바로 답하는 예시 질문 (2026-10-09 사용자 결정).
+#:
+#: 같은 질문의 응답이 공급자 사정으로 7~45초 사이를 오갔고 턴 시간 초과로 폐기되기도 했다
+#: (운영 감사 로그 10-09). 계산 자체는 1초 안에 끝나므로, 화면 예시 질문
+#: (``AssistantOverlay.tsx`` ``EXAMPLE_GROUPS``)과 **같은 문장**이면 도구를 바로 부른다.
+#: 띄어쓰기만 무시한다 — 뜻이 같은 다른 문장까지 넓히지 않는다(넓히면 모델이 할 판단을
+#: 서버가 문자열로 흉내 내게 된다).
+YEAR_END_EXAMPLE_QUESTION = "올해 연말 예상 등급은 어떻게 되나요?"
+
+#: 바로 답의 첫 줄 — **AI가 쓴 해설이 아니라는 것**을 먼저 말한다.
+DIRECT_ANSWER_LEAD = "계산 결과를 그대로 보여 드립니다. AI가 쓴 해설이 아닙니다."
+
+#: 연말 예상은 가정이 든 추정값이다(``PRD §3.3`` ⑶) — 단독으로 단정하지 않는다.
+DIRECT_ANSWER_NOTE = (
+    "연말 예상은 남은 계획 항차를 계획대로 운항한다고 가정한 추정값입니다. "
+    "근거와 가정은 실시간 CII 화면에서 볼 수 있습니다."
+)
+
+#: 화면의 CII 표시 자릿수(``DISPLAY_DIGITS.cii`` · ``DESIGN_SYSTEM §4.2``)와 같게 쓴다.
+_CII_DISPLAY_PLACES = Decimal("0.001")
+
+
+def is_year_end_example(question: str) -> bool:
+    """질문이 :data:`YEAR_END_EXAMPLE_QUESTION`과 띄어쓰기만 다른가."""
+    return re.sub(r"\s+", "", question) == re.sub(r"\s+", "", YEAR_END_EXAMPLE_QUESTION)
+
+
+def _cii_text(value: object) -> str | None:
+    """도구가 낸 CII 문자열을 화면 자릿수로. 읽을 수 없으면 ``None``."""
+    try:
+        return str(Decimal(str(value)).quantize(_CII_DISPLAY_PLACES, rounding=ROUND_HALF_UP))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _year_end_text(result: dict[str, object]) -> str | None:
+    """도구 결과로 답 문장을 만든다. 연말 예상의 CII·등급이 없으면 ``None``."""
+    projection = result.get("year_end_projection")
+    if not isinstance(projection, dict):
+        return None
+    projected = _cii_text(projection.get("attained_cii"))
+    rating = projection.get("rating")
+    if projected is None or not rating:
+        return None
+    lines = [DIRECT_ANSWER_LEAD]
+    # `PRD §3.3` — 연말 예상만 단독으로 보이지 않는다. 올해 누적이 있으면 먼저 싣는다.
+    ytd = result.get("ytd")
+    if isinstance(ytd, dict):
+        ytd_cii = _cii_text(ytd.get("attained_cii"))
+        if ytd_cii is not None and ytd.get("rating"):
+            lines.append(f"· 올해 누적: CII {ytd_cii} · {ytd['rating']}등급")
+    required = _cii_text(projection.get("required_cii"))
+    basis = f" (기준 CII {required})" if required is not None else ""
+    lines.append(f"· 연말 예상: CII {projected} · {rating}등급{basis}")
+    lines.append(DIRECT_ANSWER_NOTE)
+    return "\n".join(lines)
+
+
+async def _answer_year_end_directly(
+    session: AsyncSession,
+    *,
+    chat_session_id: UUID,
+    user_id: str | None,
+    vessel_id: UUID,
+    vessel_locked: bool,
+    calculation_run_id: UUID | None,
+    ip_address: str | None,
+) -> dict[str, object] | None:
+    """연말 예상 도구를 바로 부르고 정해진 문장으로 답한다 (`#2289`).
+
+    모델 경로와 같은 도구(:func:`run_tool`)·같은 감사 기록·같은 수치 검증을 지난다.
+    다른 것은 **문장을 모델이 아니라 서버가 쓴다**는 것 하나다. 그래서 첫 줄에 그 사실을
+    적는다 — 계산 결과를 AI의 답처럼 꾸미지 않는다.
+
+    :returns: 답 봉투. 연말 예상을 낼 수 없으면 ``None`` — 호출부가 모델 경로로 넘긴다.
+        이때 도구 호출은 감사 로그에 남기지 않는다(응답의 ``tool_calls``와 어긋나지 않게).
+    """
+    outcome = await run_tool(
+        session,
+        name=TOOL_PROJECT_YEAR_END,
+        arguments={},
+        vessel_id=vessel_id,
+        chat_session_id=chat_session_id,
+        vessel_locked=vessel_locked,
+        screen_run_id=calculation_run_id,
+    )
+    try:
+        body = json.loads(outcome.envelope)
+    except ValueError:
+        return None
+    result = body.get("result") if isinstance(body, dict) and body.get("ok") else None
+    reply = _year_end_text(result) if isinstance(result, dict) else None
+    if reply is None:
+        return None
+    try:
+        # 서버가 쓴 문장이라도 **도구가 낸 수만** 들어갔는지 같은 가드로 확인한다.
+        verify_numbers(reply, [outcome.envelope], prior_answers=[])
+    except NumberFabricationError:
+        return None
+
+    await audit.record_chat_tool_call(
+        session,
+        user_id=user_id,
+        session_id=chat_session_id,
+        tool_name=TOOL_PROJECT_YEAR_END,
+        arguments_digest=_digest({}),
+        calculation_run_id=outcome.calculation_run_id,
+        ip_address=ip_address,
+    )
+    await chat_repo.add_message(
+        session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
+    )
+    await audit.record_chat_message(
+        session,
+        user_id=user_id,
+        session_id=chat_session_id,
+        role=ROLE_ASSISTANT,
+        content=reply,
+        ip_address=ip_address,
+    )
+    return _result(reply, [TOOL_PROJECT_YEAR_END], discarded=False, vessel_resolved=True)
 
 
 #: 폐기 기록 한 줄의 **고정 접두어** (`#1985`).
