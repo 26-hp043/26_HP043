@@ -72,6 +72,28 @@ type EvalState = {
 
 const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 
+/**
+ * 시연 기본값 (10/9 사용자 지시 · 10/10 평가 시연).
+ *
+ * 선대에 이 이름의 선박이 있을 때만 채운다 — 첫 계산 결과에서 선박을 찾아 감속률과 일일
+ * 용선료를 넣고, 중유 단가를 함께 넣는다. 저장한 계획에서 단가를 이어받아도 이 값이 앞선다.
+ * 칸은 그대로 열려 있어 사용자가 고칠 수 있다.
+ */
+const DEMO_DEFAULTS = {
+  vesselName: 'TAEHWA BREEZE',
+  percent: 8,
+  charterUsdPerDay: '15500',
+  fuelUsdPerTon: { HFO: '778' } as Record<string, string>,
+}
+
+function withDemoPrices(prices: Prices, demoVesselId: string | null): Prices {
+  if (demoVesselId === null) return prices
+  return {
+    charterUsdPerDay: { ...prices.charterUsdPerDay, [demoVesselId]: DEMO_DEFAULTS.charterUsdPerDay },
+    fuelUsdPerTon: { ...prices.fuelUsdPerTon, ...DEMO_DEFAULTS.fuelUsdPerTon },
+  }
+}
+
 export function FleetReduction({ provider }: { provider?: FleetReductionProvider }) {
   const api = useMemo(() => provider ?? createApiFleetReductionProvider(), [provider])
   const yearOptions = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
@@ -85,8 +107,9 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const [prices, setPrices] = useState<Prices>(EMPTY_PRICES)
   /*
    * 원화 환산 환율 (10/7) — 비용은 서버가 USD로 계산한다. 한국 사용자가 읽기 쉽게 원화를 곁에
-   * 적되, 환율은 **사용자가 넣은 값**만 쓴다(화면이 시세를 지어내지 않는다). 계획 저장 계약에는
-   * 없는 값이라 이 브라우저에만 기억한다.
+   * 적는다. 화면을 열면 **오늘 시세를 받아 칸을 채운다**(10/9 · `provider.krwPerUsd`). 받지 못하면
+   * 사용자가 넣은 값만 쓴다 — 화면이 시세를 지어내지 않는다. 계획 저장 계약에는 없는 값이라
+   * 손으로 넣은 값은 이 브라우저에만 기억한다.
    */
   const [krwPerUsd, setKrwPerUsd] = useState(() => {
     try {
@@ -95,6 +118,30 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       return ''
     }
   })
+  /** 자동으로 채운 환율의 기준일 — 사용자가 칸을 고치면 `null`이다 */
+  const [krwDate, setKrwDate] = useState<string | null>(null)
+  const krwEdited = useRef(false)
+  useEffect(() => {
+    if (!api.krwPerUsd) return
+    let cancelled = false
+    api
+      .krwPerUsd()
+      .then(({ rate, date }) => {
+        // 응답 전에 사용자가 칸을 고쳤으면 그 값을 덮지 않는다.
+        if (cancelled || krwEdited.current) return
+        setKrwPerUsd(String(Math.round(rate * 100) / 100))
+        setKrwDate(date)
+      })
+      .catch(() => {
+        // 시세를 못 받으면 기억한 값(또는 빈칸)을 그대로 쓴다.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api])
+  /** 시연 선박의 ID — 첫 계산 결과에서 찾는다. 선대에 없으면 `null`로 남는다 */
+  const demoVesselId = useRef<string | null>(null)
+  const demoSeeded = useRef(false)
   const [evaluation, setEvaluation] = useState<EvalState>({ result: null, error: null, settledFor: null })
   const [retryKey, setRetryKey] = useState(0)
   const [plans, setPlans] = useState<SavedPlanSummary[]>([])
@@ -132,7 +179,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         setPlansFailed(false)
         if (!pricesSeeded.current && rows.length > 0) {
           pricesSeeded.current = true
-          setPrices(rows[0].prices)
+          setPrices(withDemoPrices(rows[0].prices, demoVesselId.current))
           // 단가 없이 저장한 계획이면 이어받은 값이 없다 — 「이어받았습니다」를 적지 않는다.
           if (hasAnyPrice(rows[0].prices)) setInheritedFrom(rows[0])
         }
@@ -197,6 +244,18 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
 
   const shown = evaluation.result
 
+  // 시연 기본값 — 첫 결과에서 시연 선박을 찾으면 한 번만 채운다.
+  useEffect(() => {
+    if (shown === null || demoSeeded.current) return
+    demoSeeded.current = true
+    const vessel = shown.vessels.find((v) => v.vesselName === DEMO_DEFAULTS.vesselName)
+    if (!vessel) return
+    demoVesselId.current = vessel.vesselId
+    // oxlint-disable-next-line react/set-state-in-effect -- 첫 결과가 온 시점에 한 번 채우는 시연 기본값 — 그 뒤 값은 사용자 몫이다
+    setPercents((prev) => ({ ...prev, [vessel.vesselId]: prev[vessel.vesselId] ?? DEMO_DEFAULTS.percent }))
+    setPrices((prev) => withDemoPrices(prev, vessel.vesselId))
+  }, [shown])
+
   /*
    * 표의 줄 순서는 **연도 · 목표 · 선박 구성이 바뀔 때만** 다시 정한다 (#2345).
    *
@@ -252,14 +311,31 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
    * 이어받은 단가(`plans[0].prices`)도 이 합집합으로 남는다 — 요청에 실려 나가는 값이라
    * 화면에서 감추면 고칠 수단이 없어진다.
    */
+  /*
+   * 한 번 나타난 연료 칸은 **지우지 않는다** (10/9 사용자 지시). 종전에는 감속률을 0으로 되돌리면
+   * 그 연료의 절감이 0이 되어 `missingFuelPrices`에서 빠지고 칸이 사라졌다. 지금 필요 없는 칸은
+   * 남겨 두고 비활성으로 그린다(아래 `fuelNeeded`).
+   */
+  const [seenFuelCodes, setSeenFuelCodes] = useState<readonly string[]>([])
+  const currentFuelCodes = shown
+    ? [...shown.costs.missingFuelPrices, ...Object.keys(shown.costs.fuelSavedTonByType)]
+    : []
+  if (currentFuelCodes.some((code) => !seenFuelCodes.includes(code))) {
+    setSeenFuelCodes([...new Set([...seenFuelCodes, ...currentFuelCodes])])
+  }
   const fuelCodes = useMemo(() => {
     if (!shown) return []
-    const codes = new Set(shown.costs.missingFuelPrices)
+    const codes = new Set([...seenFuelCodes, ...shown.costs.missingFuelPrices])
     for (const [code, value] of Object.entries(prices.fuelUsdPerTon)) {
       if (value.trim() !== '') codes.add(code)
     }
     return [...codes].sort()
-  }, [shown, prices.fuelUsdPerTon])
+  }, [shown, seenFuelCodes, prices.fuelUsdPerTon])
+  /** 이 계획에서 그 연료의 절감이 있는가 — 없으면 단가를 곱할 것이 없어 칸을 비활성으로 둔다 */
+  const fuelNeeded = (code: string) =>
+    shown !== null &&
+    (shown.costs.missingFuelPrices.includes(code) ||
+      Number(shown.costs.fuelSavedTonByType[code] ?? '0') > 0)
 
   const save = async () => {
     const name = planName.trim()
@@ -374,6 +450,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
             <div className="fr__prices">
               {fuelCodes.map((code) => {
                 const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
+                const needed = fuelNeeded(code)
                 return (
                   <Field
                     key={code}
@@ -382,6 +459,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                        화면에 내는 이름은 `fuelTypes.ts`가 갖는다 (`#598` · `AGENTS §4.6`). */
                     label={fuelTypeText(code)}
                     error={invalid ? COPY.priceInvalid : undefined}
+                    hint={needed || invalid ? undefined : COPY.fuelPriceNotNeeded}
                   >
                     {(control) => (
                       <input
@@ -390,6 +468,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                         type="number"
                         min={0}
                         inputMode="decimal"
+                        // 잘못된 값은 고칠 수 있어야 한다 — 그때는 잠그지 않는다.
+                        disabled={!needed && !invalid}
                         value={prices.fuelUsdPerTon[code] ?? ''}
                         onChange={(e) =>
                           editPrices((prev) => ({
@@ -402,7 +482,11 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   </Field>
                 )
               })}
-              <Field id="fr-krw-rate" label="환율 (원/USD)">
+              <Field
+                id="fr-krw-rate"
+                label="환율 (원/USD)"
+                hint={krwDate === null ? undefined : `${krwDate} 시세를 자동으로 넣었습니다.`}
+              >
                 {(control) => (
                   <input
                     {...control}
@@ -412,6 +496,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                     inputMode="decimal"
                     value={krwPerUsd}
                     onChange={(e) => {
+                      krwEdited.current = true
+                      setKrwDate(null)
                       setKrwPerUsd(e.target.value)
                       try {
                         window.localStorage.setItem(KRW_RATE_KEY, e.target.value)

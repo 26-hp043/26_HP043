@@ -236,3 +236,39 @@ describe('list — 커서 페이지네이션 (#1395)', () => {
     expect(plans).toHaveLength(1)
   })
 })
+
+describe('오늘 환율 (10/9)', () => {
+  it('첫 출처가 실패하면 ECB 기준율로 넘어가고, 우리 서버로는 보내지 않는다', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes('open.er-api.com')
+        ? new Response('{}', { status: 503 })
+        : jsonResponse({ date: '2026-10-09', rates: { KRW: 1343.46 } }),
+    )
+    const provider = createApiFleetReductionProvider(fetchMock as typeof fetch, 'http://api.test')
+
+    await expect(provider.krwPerUsd!()).resolves.toEqual({ rate: 1343.46, date: '2026-10-09' })
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).startsWith('http://api.test'))).toBe(true)
+  })
+
+  it('둘 다 실패하면 거절한다 — 값을 지어내지 않는다', async () => {
+    const provider = createApiFleetReductionProvider(
+      vi.fn(async () => new Response('{}', { status: 500 })) as typeof fetch,
+      'http://api.test',
+    )
+    await expect(provider.krwPerUsd!()).rejects.toBeInstanceOf(FleetReductionError)
+  })
+
+  it('응답의 유종별 절감 톤을 넘긴다 — 단가 칸 잠금의 근거다', async () => {
+    const provider = createApiFleetReductionProvider(
+      vi.fn(async () => jsonResponse(RESULT)) as typeof fetch,
+      'http://api.test',
+    )
+    const res = await provider.evaluate({
+      regulationYear: 2026,
+      target: 'NO_AT_RISK',
+      adjustments: [],
+      prices: { charterUsdPerDay: {}, fuelUsdPerTon: {} },
+    })
+    expect(res.costs.fuelSavedTonByType).toEqual(RESULT.data.costs.fuel_saved_ton_by_type)
+  })
+})

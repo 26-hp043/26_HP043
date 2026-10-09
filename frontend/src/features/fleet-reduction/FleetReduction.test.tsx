@@ -69,6 +69,7 @@ function result(overrides: Partial<EvaluateResult> = {}): EvaluateResult {
       charterLoss: null,
       fuelSaving: '75468.00',
       net: null,
+      fuelSavedTonByType: {},
       missingCharterRates: ['v1'],
       missingFuelPrices: [],
     },
@@ -574,6 +575,84 @@ describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)',
     })
     expect(screen.getByLabelText('중유 (HFO)')).toBeTruthy()
     expect(screen.queryByText(FLEET_REDUCTION_COPY.fuelPricesNone)).toBeNull()
+  })
+
+  it('⚠️ 감속을 되돌려 절감이 없어져도 칸은 지우지 않고 잠근다 (10/9)', async () => {
+    let costs: Partial<EvaluateResult['costs']> = { missingFuelPrices: ['LFO'], fuelSavedTonByType: { LFO: '12.00' } }
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => {
+      const base = result()
+      return { ...base, costs: { ...base.costs, ...costs } }
+    })
+    stubCatalogs()
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={{ evaluate, save: vi.fn(), list: vi.fn(async () => []) }} />
+      </MemoryRouter>,
+    )
+
+    const field = (await screen.findByLabelText('경질중유 (LFO)')) as HTMLInputElement
+    expect(field.disabled).toBe(false)
+
+    // 다음 계산부터는 감속률을 0으로 되돌린 것과 같은 응답 — 절감도, 빈 단가도 없다.
+    // (가짜 서버라 응답만 바꾸고, 다시 묻게 하려고 슬라이더를 움직인다.)
+    costs = { missingFuelPrices: [], fuelSavedTonByType: {} }
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('MV One 감속률'), { target: { value: '10' } })
+    })
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('경질중유 (LFO)') as HTMLInputElement).disabled).toBe(true),
+    )
+    expect(screen.getByText(FLEET_REDUCTION_COPY.fuelPriceNotNeeded)).toBeTruthy()
+  })
+})
+
+describe('시연 기본값 · 오늘 환율 (10/9)', () => {
+  it('TAEHWA BREEZE가 있으면 감속률 8% · 일일 용선료 15500 · 중유 778을 채워 묻는다', async () => {
+    const base = result()
+    const demo = { ...base.vessels[0], vesselId: 'tb', vesselName: 'TAEHWA BREEZE' }
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => ({ ...base, vessels: [demo, ...base.vessels] }))
+    stubCatalogs()
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={{ evaluate, save: vi.fn(), list: vi.fn(async () => []) }} />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      const last = evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.adjustments).toContainEqual({ vesselId: 'tb', percent: 8 })
+      expect(last?.prices.charterUsdPerDay.tb).toBe('15500')
+      expect(last?.prices.fuelUsdPerTon.HFO).toBe('778')
+    })
+  })
+
+  it('시연 선박이 없으면 아무것도 채우지 않는다', async () => {
+    const provider = renderWith()
+    await screen.findByText('MV One')
+    await waitFor(() => expect(provider.evaluate).toHaveBeenCalled())
+    const last = provider.evaluate.mock.calls.at(-1)?.[0]
+    expect(last?.adjustments).toEqual([])
+    expect(last?.prices.fuelUsdPerTon).toEqual({})
+  })
+
+  it('오늘 환율을 받아 칸을 채우고 기준일을 적는다', async () => {
+    stubCatalogs()
+    render(
+      <MemoryRouter>
+        <FleetReduction
+          provider={{
+            evaluate: vi.fn(async () => result()),
+            save: vi.fn(),
+            list: vi.fn(async () => []),
+            krwPerUsd: vi.fn(async () => ({ rate: 1343.456, date: '2026-10-09' })),
+          }}
+        />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect((screen.getByLabelText('환율 (원/USD)') as HTMLInputElement).value).toBe('1343.46'))
+    expect(screen.getByText(/2026-10-09 시세/)).toBeTruthy()
   })
 })
 

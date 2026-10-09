@@ -2,6 +2,7 @@ import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../aut
 import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import type {
   Adjustment,
+  KrwRate,
   EvaluateRequest,
   EvaluateResult,
   FleetReductionProvider,
@@ -88,6 +89,7 @@ function toResult(data: Json): EvaluateResult {
       charterLoss: (costs.charter_loss as string | null) ?? null,
       fuelSaving: (costs.fuel_saving as string | null) ?? null,
       net: (costs.net as string | null) ?? null,
+      fuelSavedTonByType: (costs.fuel_saved_ton_by_type as Record<string, string>) ?? {},
       missingCharterRates: (costs.missing_charter_rates as string[]) ?? [],
       missingFuelPrices: (costs.missing_fuel_prices as string[]) ?? [],
     },
@@ -218,5 +220,44 @@ export function createApiFleetReductionProvider(
 
       return rows.map(toPlan)
     },
+    /**
+     * 오늘 환율 (원/USD) — 시연 요청(10/9)으로 칸을 자동으로 채운다.
+     *
+     * 우리 서버가 아니라 공개 시세 API를 직접 부른다(키 없음 · CORS 허용 확인). 첫 출처는 매일
+     * 갱신되는 `open.er-api.com`, 실패하면 ECB 기준율(`frankfurter`)로 넘어간다 — ECB는 주말에
+     * 고시하지 않아 직전 영업일 값이다. 둘 다 실패하면 거절하고, 화면은 사용자가 넣은 값만 쓴다.
+     */
+    async krwPerUsd() {
+      for (const source of KRW_SOURCES) {
+        try {
+          const response = await fetchImpl(source.url, { headers: { Accept: 'application/json' } })
+          if (!response.ok) continue
+          const parsed = source.parse((await response.json()) as Json)
+          if (parsed !== null) return parsed
+        } catch {
+          // 다음 출처로 넘어간다.
+        }
+      }
+      throw new FleetReductionError('환율을 받아 오지 못했습니다.')
+    },
   }
 }
+
+const KRW_SOURCES: { url: string; parse: (body: Json) => KrwRate | null }[] = [
+  {
+    url: 'https://open.er-api.com/v6/latest/USD',
+    parse: (body) => {
+      const rate = Number((body.rates as Json | undefined)?.KRW)
+      const unix = Number(body.time_last_update_unix)
+      if (!(rate > 0) || !Number.isFinite(unix)) return null
+      return { rate, date: new Date(unix * 1000).toISOString().slice(0, 10) }
+    },
+  },
+  {
+    url: 'https://api.frankfurter.dev/v1/latest?base=USD&symbols=KRW',
+    parse: (body) => {
+      const rate = Number((body.rates as Json | undefined)?.KRW)
+      return rate > 0 && typeof body.date === 'string' ? { rate, date: body.date } : null
+    },
+  },
+]
