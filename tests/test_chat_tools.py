@@ -450,3 +450,20 @@ def test_number_check_is_unmoved_by_markdown_symbols() -> None:
         except NumberFabricationError:
             continue
         raise AssertionError(f"지어낸 수가 통과했다: {text}")
+
+
+def test_ratio_to_required_is_published_with_the_screen_percent() -> None:
+    """`#2392` — 화면 제안 질문 「연말 예상 값은 기준 CII 대비 몇 %인가요?」에 답할 값.
+
+    도구가 비율을 넘기지 않으면 모델이 실적 ÷ 기준을 직접 나누고, 그 답은 No-Compute
+    가드에 폐기된다(10-09 운영). 화면 표기(``177.6%``)로 답해도 가드를 지나야 한다.
+    """
+    from cii_platform.services.llm_guard import verify_numbers
+
+    published = chat_tools._publishable(
+        {"attained_cii": "8.970000", "required_cii": "5.050000", "ratio_to_required": "1.77623"},
+        chat_tools._RESULT_KEYS,
+    )
+    assert published["ratio_to_required"] == "1.77623 (177.6%)"
+    tool_output = json.dumps(published, ensure_ascii=False)
+    verify_numbers("연말 예상 CII는 기준 CII의 177.6%입니다.", [tool_output])

@@ -247,6 +247,9 @@ _PUBLISH_MAP: dict[str, str] = {
     "estimated_rating": "rating",
     "risk_level": "risk_level",
     "next_worse_boundary_margin_ratio": "next_boundary_gap",
+    # `#2392` — 실적 ÷ 기준. 화면 제안 질문 「기준 CII 대비 몇 %」가 이 값을 묻는다. 없으면
+    # 모델이 직접 나누고, 그 답은 No-Compute 가드에 폐기된다(10-09 운영).
+    "ratio_to_required": "ratio_to_required",
     # `#1533` — 연간 시뮬레이션 저장 결과. ``projected_*``는 연말 예상이라 화면이 같은
     # 자리에 「연말 예상」으로 보여 준다 — 모델에게는 ``kind``가 그 맥락을 준다.
     "projected_attained_cii": "attained_cii",
@@ -268,8 +271,12 @@ _RESULT_KEYS: tuple[str, ...] = (
     "estimated_rating",
     "risk_level",
     "next_worse_boundary_margin_ratio",
+    "ratio_to_required",
 )
 
+
+#: `#2392` — 기준 대비 비율. 화면은 백분율로 보여 준다(``_with_screen_percent``).
+_RATIO_KEY = "ratio_to_required"
 
 #: 비율로 내려가는 값 — 화면은 **백분율로 보여 준다**.
 _GAP_KEY = "next_boundary_gap"
@@ -341,9 +348,10 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
         for key in keys
         if key in _PUBLISH_MAP and payload.get(key) is not None
     }
-    gap = picked.get(_GAP_KEY)
-    if gap is not None:
-        picked[_GAP_KEY] = _with_screen_percent(gap)
+    for ratio_key in (_GAP_KEY, _RATIO_KEY):
+        ratio = picked.get(ratio_key)
+        if ratio is not None:
+            picked[ratio_key] = _with_screen_percent(ratio)
     # `#1533` — 확률도 화면은 백분율로 보여 준다(``_with_screen_percent`` 머리말과 같은 이유).
     probability = picked.get(_PROBABILITY_KEY)
     if probability is not None:
