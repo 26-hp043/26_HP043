@@ -75,13 +75,12 @@ const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 /**
  * 시연 기본값 (10/9 사용자 지시 · 10/10 평가 시연).
  *
- * 선대에 이 이름의 선박이 있을 때만 채운다 — 첫 계산 결과에서 선박을 찾아 감속률과 일일
- * 용선료를 넣고, 중유 단가를 함께 넣는다. 저장한 계획에서 단가를 이어받아도 이 값이 앞선다.
- * 칸은 그대로 열려 있어 사용자가 고칠 수 있다.
+ * 선대에 이 이름의 선박이 있을 때만 채운다 — 첫 계산 결과에서 선박을 찾아 일일 용선료를
+ * 넣고, 중유 단가를 함께 넣는다. 저장한 계획에서 단가를 이어받아도 이 값이 앞선다.
+ * **감속률은 채우지 않는다**(10/9 22시대 사용자 지시) — 시연에서 사람이 직접 넣는다.
  */
 const DEMO_DEFAULTS = {
   vesselName: 'TAEHWA BREEZE',
-  percent: 8,
   charterUsdPerDay: '15500',
   fuelUsdPerTon: { HFO: '778' } as Record<string, string>,
 }
@@ -252,7 +251,6 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     if (!vessel) return
     demoVesselId.current = vessel.vesselId
     // oxlint-disable-next-line react/set-state-in-effect -- 첫 결과가 온 시점에 한 번 채우는 시연 기본값 — 그 뒤 값은 사용자 몫이다
-    setPercents((prev) => ({ ...prev, [vessel.vesselId]: prev[vessel.vesselId] ?? DEMO_DEFAULTS.percent }))
     setPrices((prev) => withDemoPrices(prev, vessel.vesselId))
   }, [shown])
 

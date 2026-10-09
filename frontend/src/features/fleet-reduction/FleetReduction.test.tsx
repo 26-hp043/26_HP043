@@ -608,7 +608,7 @@ describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)',
 })
 
 describe('시연 기본값 · 오늘 환율 (10/9)', () => {
-  it('TAEHWA BREEZE가 있으면 감속률 8% · 일일 용선료 15500 · 중유 778을 채워 묻는다', async () => {
+  it('TAEHWA BREEZE가 있으면 일일 용선료 15500 · 중유 778을 채워 묻고, 감속률은 비워 둔다', async () => {
     const base = result()
     const demo = { ...base.vessels[0], vesselId: 'tb', vesselName: 'TAEHWA BREEZE' }
     const evaluate = vi.fn(async (_req: EvaluateRequest) => ({ ...base, vessels: [demo, ...base.vessels] }))
@@ -621,9 +621,10 @@ describe('시연 기본값 · 오늘 환율 (10/9)', () => {
 
     await waitFor(() => {
       const last = evaluate.mock.calls.at(-1)?.[0]
-      expect(last?.adjustments).toContainEqual({ vesselId: 'tb', percent: 8 })
       expect(last?.prices.charterUsdPerDay.tb).toBe('15500')
       expect(last?.prices.fuelUsdPerTon.HFO).toBe('778')
+      // 감속률은 시연에서 사람이 넣는다 — 채우지 않는다.
+      expect(last?.adjustments).toEqual([])
     })
   })
 
