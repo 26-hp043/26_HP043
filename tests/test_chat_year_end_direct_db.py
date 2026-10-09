@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -27,6 +28,7 @@ from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
 from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse, ToolCall
 from cii_platform.services import chat as chat_service
+from cii_platform.services import cii_current
 from cii_platform.services.chat import (
     DIRECT_ANSWER_NOTE,
     DIRECT_FALLBACK_NOTE,
@@ -167,7 +169,20 @@ async def test_the_one_call_is_the_same_as_the_second_call_of_the_model_path(
     사용자가 원한 것은 10-09 14시대(종전 경로) 답의 **형식**이다. 형식은 모델이 받는 입력이
     정한다 — 그 입력이 메시지 하나·도구 정의 하나까지 같은지 본다. 빠지는 것은 「어느 도구를
     부를지」의 첫 왕복뿐이어야 한다.
+
+    ## 두 경로가 같은 시각을 본다
+
+    진행 중 항차가 있으면 올해 누적(``ytd``)이 **기준 시각에 따라 움직인다.** 두 경로를
+    차례로 부르면 그 사이 몇 초가 흘러 마지막 자리가 갈린다(`8.328928` 대 `8.328929` ·
+    `#2403`). 이 테스트가 보는 것은 입력의 **형식**이지 시각이 아니므로, 기준 시각을 한 값으로
+    고정해 두 호출이 같은 값을 받게 한다.
     """
+    frozen = datetime.now(UTC)
+    resolve = cii_current.resolve_as_of
+    monkeypatch.setattr(
+        cii_current, "resolve_as_of", lambda as_of: resolve(frozen if as_of is None else as_of)
+    )
+
     direct = _RecordingProvider([LLMResponse(text=_MODEL_TEXT)])
     try:
         _ask_example(direct)
