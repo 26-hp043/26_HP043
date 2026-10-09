@@ -43,7 +43,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     (
         VESSEL_ID_BULK,
         "0000012",
-        "TAEHWA BREEZE",
+        "CHEOYONG GRACE",
         "BULK_CARRIER",
         Decimal("30000.00"),
         Decimal("50000.00"),
@@ -80,7 +80,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     (
         VESSEL_ID_WATCH,
         "0000036",
-        "CHEOYONG GRACE",
+        "TAEHWA BREEZE",
         "BULK_CARRIER",
         Decimal("18000.00"),
         Decimal("30000.00"),

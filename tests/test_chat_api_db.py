@@ -994,13 +994,13 @@ async def test_screen_vessel_wins_over_session_vessel(migrated_db, app_fresh_eng
                         await db.execute(
                             text(
                                 "SELECT name, CAST(id AS CHAR(32)) FROM vessel "
-                                "WHERE name LIKE '%GANJEOL%' OR name LIKE '%CHEOYONG%'"
+                                "WHERE name LIKE '%GANJEOL%' OR name LIKE '%TAEHWA%'"
                             )
                         )
                     ).all()
                 )
                 roro_name = next(n for n in ids if "GANJEOL" in n)
-                bulk_name = next(n for n in ids if "CHEOYONG" in n)
+                bulk_name = next(n for n in ids if "TAEHWA" in n)
                 await chat_repo.set_vessel(
                     db, session_id=UUID(session_id), vessel_id=UUID(ids[roro_name])
                 )

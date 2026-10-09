@@ -60,14 +60,14 @@ interface AuthShellProps {
  */
 const PREVIEW_ROWS = [
   {
-    vessel: 'TAEHWA BREEZE',
+    vessel: 'CHEOYONG GRACE',
     rating: 'E',
     value: '8.214',
     why: 'E등급 1년차 · 시정조치계획 대상',
     next: '함대 감축 계획 세우기',
   },
   {
-    vessel: 'CHEOYONG GRACE',
+    vessel: 'TAEHWA BREEZE',
     rating: 'C',
     value: '7.146',
     why: 'D등급까지 39일',

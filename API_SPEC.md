@@ -1838,7 +1838,7 @@ GET /api/v1/vessels/samples
   "data": [
     {
       "sample_id": "bulk-50000-dwt",
-      "label": "TAEHWA BREEZE",
+      "label": "CHEOYONG GRACE",
       "ship_type": "BULK_CARRIER",
       "gross_tonnage": 30000.0,
       "deadweight": 50000.0,
@@ -1909,7 +1909,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
     "vessels": [
       {
         "vessel_id": "…",
-        "vessel_name": "TAEHWA BREEZE",
+        "vessel_name": "CHEOYONG GRACE",
         "data_available": true,
         "unavailable_reason": null,
         "ytd_attained_cii": "8.9799",
@@ -1930,7 +1930,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       {
         "severity": "SUBSTITUTED",
         "vessel_id": "…",
-        "vessel_name": "TAEHWA BREEZE",
+        "vessel_name": "CHEOYONG GRACE",
         "voyage_id": "…",
         "voyage_no": "2026-03",
         "codes": ["FUEL:HFO"],
@@ -2033,7 +2033,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
     "vessels": [
       {
         "vessel_id": "00000000-0000-4000-8000-000000000001",
-        "vessel_name": "TAEHWA BREEZE",
+        "vessel_name": "CHEOYONG GRACE",
         "speed_reduction_percent": "10.0",
         "is_cii_applicable_hint": true,
         "gross_tonnage": 30000.0,
@@ -2161,7 +2161,7 @@ GET /api/v1/vessels/{vessel_id}/cii/ytd-series?year=2026&as_of=2026-09-26T00:00:
 {
   "data": {
     "vessel_id": "00000000-0000-4000-8000-000000000001",
-    "vessel_name": "TAEHWA BREEZE",
+    "vessel_name": "CHEOYONG GRACE",
     "regulation_year": 2026,
     "transport_capacity_basis": "DWT",
     "required_cii": "5.045066",
@@ -2282,7 +2282,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "CORRECTIVE_ACTION",
         "level": "RISK",
         "vessel_id": "…",
-        "vessel_name": "TAEHWA BREEZE",
+        "vessel_name": "CHEOYONG GRACE",
         "reason": "E_THIS_YEAR",
         "days": null,
         "voyage_id": null,
@@ -2293,7 +2293,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "D_ENTRY_SOON",
         "level": "RISK",
         "vessel_id": "…",
-        "vessel_name": "CHEOYONG GRACE",
+        "vessel_name": "TAEHWA BREEZE",
         "reason": null,
         "days": 39,
         "voyage_id": null,
@@ -2304,7 +2304,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
         "kind": "UNCONFIRMED_VOYAGE",
         "level": "CHECK",
         "vessel_id": "…",
-        "vessel_name": "CHEOYONG GRACE",
+        "vessel_name": "TAEHWA BREEZE",
         "reason": null,
         "days": null,
         "voyage_id": "…",
@@ -3158,7 +3158,7 @@ POST /api/v1/scenarios/compare
 >
 > | 가정 | 값 | 출처 |
 > |---|---|---|
-> | 대상 선박 | TAEHWA BREEZE | `db/demo_seed.py` 고정 UUID `…0001` |
+> | 대상 선박 | CHEOYONG GRACE | `db/demo_seed.py` 고정 UUID `…0001` |
 > | `reference_speed_kn` | **12.00** | 같은 곳 (`#639`가 정본 픽스처에서 역산) |
 > | `fuel_type` CF | 3.114 | `DB_SCHEMA §3.2` |
 > | 규제연도 | 2026 (`z = 11.0%`) | `DB_SCHEMA §3.3` |
@@ -5371,3 +5371,4 @@ POST /api/v1/chat
 | 2026-10-09 | `#2387` | §15.1에 「예시 질문의 바로 답」 항목 추가 — 화면 예시 질문 「올해 연말 예상 등급은 어떻게 되나요?」(띄어쓰기만 무시)이고 선박이 정해져 있으면 외부 모델을 부르지 않고 `project_year_end`를 바로 실행해 정해진 문장으로 답한다. 첫 줄은 「계산 결과를 그대로 보여 드립니다. AI가 쓴 해설이 아닙니다.」 · 응답 모양·감사·수치 검증은 모델 경로와 같다. 근거: 같은 질문이 7~45초를 오가고 턴 시간 초과로 폐기되기도 했다(운영 감사 로그 10-09). `§4.3`상 항목 추가라 버전은 올리지 않는다 (#2289) |
 | 2026-10-09 | `#2388` | §15.1 「예시 질문의 바로 답」을 **「도구를 먼저, 모델은 한 번」**으로 고침 — 계산 결과 문장 대신 **모델이 도구 결과로 답을 쓴다**(도구 정의 미전송 · 첫 번째 기다림 제거). 20초 초과·공급자 실패·검증 실패일 때만 계산 결과 문장으로 대신 답하고 마지막 줄에 그 사실을 적는다. 사용자 결정(10-09): 시연에서 AI가 답하는 모습을 보이되 실패로 끝나지 않게. `§4.3`상 항목 수정이라 버전은 올리지 않는다 (#2289) |
 | 2026-10-09 | `#2391` | §15.1 「예시 질문 — 도구를 먼저, 모델은 한 번」의 그 한 번을 **종전 경로의 두 번째 호출과 같은 메시지**로 고침 — 시스템 지시 · 대화 · `tool_use` · `tool_result` · 도구 정의. `#2388`의 평문 한 덩어리 · 도구 정의 없음과 `#2389`의 순서·분량 지시문을 걷었다. 사용자 지적(10-09): 14시대 종전 경로의 답 형식을 원했는데 그 뒤로 그런 답이 나오지 않았다. `§4.3`상 항목 수정이라 버전은 올리지 않는다 (#2289) |
+| 2026-10-09 | `#___` | §2 · §5.1 예시의 벌크선 두 선명을 **맞바꿈** — 30,000 DWT가 TAEHWA BREEZE, 50,000 DWT(`…0001`)가 CHEOYONG GRACE다(사용자 지정 표). `#2386`이 「기존 정리 순서」로 추정해 거꾸로 대응시켰다. 값·ID는 그대로 두고 이름만 바꿨다. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2396) |
