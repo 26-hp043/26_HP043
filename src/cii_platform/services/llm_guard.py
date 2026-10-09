@@ -32,6 +32,8 @@ OUTBOUND_WHITELIST: frozenset[str] = frozenset(
         "rating",
         "risk_level",
         "next_boundary_gap",
+        # #2392 — 실적 ÷ 기준. 화면이 「기준 대비」 백분율로 보여 주는 값이다
+        "ratio_to_required",
         # 연간 시뮬레이션 확률 (#1533) — 화면에 이미 보이는 값을 저장된 실행에서 읽는다
         "target_success_probability",
         "rating_probabilities",
