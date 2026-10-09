@@ -120,12 +120,11 @@ SYNTHETIC_IMO_WATCH = "0000036"
 SEED_VESSELS: list[dict[str, object]] = [
     {
         # PRD §13.1 Fixture 1 — Bulk carrier 50,000 DWT. 실존 선박이 아니다.
-        # name에 제원을 함께 적는 이유: 이 배는 실선명이 없고 "무엇을 위한 배인가"가
-        # 곧 이름이다. 프론트엔드 고정표가 쓰던 표시 문자열과 같아 전환 시 화면이
-        # 바뀌지 않는다. 2·3번은 실선이라 실제 선박명만 넣는다.
+        # #2291 사용자 지정 가상 선명. 선종·용량은 별도 속성으로 두고 가상 IMO는 유지한다.
+        # 실존 2·3번 선박은 실제 선박명을 그대로 쓴다.
         "id": VESSEL_ID_BULK,
         "imo_number": SYNTHETIC_IMO_BULK,
-        "name": "샘플 벌크선 (50,000 DWT)",
+        "name": "TAEHWA BREEZE",
         "ship_type": "BULK_CARRIER",
         # tests/fixtures/cii/bulk_50000_hfo_2026.json 의 input.gross_tonnage 와 같다.
         # 정본 픽스처가 이 배의 제원을 이미 정의하고 있으므로 새로 만들지 않는다.
@@ -377,7 +376,7 @@ SEED_VESSEL_WATCH: list[dict[str, object]] = [
     {
         "id": VESSEL_ID_WATCH,
         "imo_number": SYNTHETIC_IMO_WATCH,
-        "name": "샘플 벌크선 (30,000 DWT)",
+        "name": "CHEOYONG GRACE",
         "ship_type": "BULK_CARRIER",
         "gross_tonnage": Decimal("18000.00"),
         "deadweight": Decimal("30000.00"),
@@ -405,7 +404,7 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
         "id": VESSEL_ID_RO_RO,
         # 합성 IMO — 실선 대역(5,000,000~)과 겹치지 않는 0 시작(018 규칙).
         "imo_number": "0000024",
-        "name": "샘플 로로 여객선 (25,000 GT)",
+        "name": "GANJEOL SUNRISE",
         "ship_type": "RO_RO_PASSENGER",
         "gross_tonnage": Decimal("25000.00"),
         "deadweight": None,

@@ -43,7 +43,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     (
         VESSEL_ID_BULK,
         "0000012",
-        "샘플 벌크선 (50,000 DWT)",
+        "TAEHWA BREEZE",
         "BULK_CARRIER",
         Decimal("30000.00"),
         Decimal("50000.00"),
@@ -70,7 +70,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     (
         VESSEL_ID_RO_RO,
         "0000024",
-        "샘플 로로 여객선 (25,000 GT)",
+        "GANJEOL SUNRISE",
         "RO_RO_PASSENGER",
         Decimal("25000.00"),
         None,
@@ -80,7 +80,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     (
         VESSEL_ID_WATCH,
         "0000036",
-        "샘플 벌크선 (30,000 DWT)",
+        "CHEOYONG GRACE",
         "BULK_CARRIER",
         Decimal("18000.00"),
         Decimal("30000.00"),
@@ -433,7 +433,7 @@ async def test_missing_spec_detector_actually_detects(conn):
 
     drifted = await missing_seeded_specs(conn)
 
-    assert ("샘플 로로 여객선 (25,000 GT)", "reference_daily_foc_ton") in drifted
+    assert ("GANJEOL SUNRISE", "reference_daily_foc_ton") in drifted
 
 
 async def test_detector_ignores_specs_the_seed_leaves_empty(conn):

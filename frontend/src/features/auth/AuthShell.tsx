@@ -60,14 +60,14 @@ interface AuthShellProps {
  */
 const PREVIEW_ROWS = [
   {
-    vessel: '샘플 벌크선 (50,000 DWT)',
+    vessel: 'TAEHWA BREEZE',
     rating: 'E',
     value: '8.214',
     why: 'E등급 1년차 · 시정조치계획 대상',
     next: '함대 감축 계획 세우기',
   },
   {
-    vessel: '샘플 벌크선 (30,000 DWT)',
+    vessel: 'CHEOYONG GRACE',
     rating: 'C',
     value: '7.146',
     why: 'D등급까지 39일',
