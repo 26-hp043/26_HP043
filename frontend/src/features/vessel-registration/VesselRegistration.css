@@ -8,11 +8,12 @@
  * §14 — 한국어 라벨 + 영문 병기 · 색만으로 의미 전달 금지 · 오류는 컨트롤 아래
  * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
  *
- * 폼 폭은 §7.1 정책상 페이지(`screens.ts`의 `width: 'form'`)가 정하므로 여기서는
- * 열 수만 다룬다 — 기능① 폼과 같은 규칙이다.
+ * 폼 폭은 **이 화면이 지킨다** — 셸 본문 열이 1920 하나로 합쳐져(`§7.1` · `#2401`)
+ * 2열 입력칸이 칸마다 900px 가까이 늘어나지 않게 `--layout-max-form`(1440)을 건다.
  */
 
 .vessel-registration {
+  max-inline-size: var(--layout-max-form);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);

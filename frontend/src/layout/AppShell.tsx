@@ -77,7 +77,6 @@ export function AppShell() {
   const { pathname, search } = useLocation()
   const navigate = useNavigate()
   const screen = findScreenByPath(pathname)
-  const width = screen?.width ?? 'form'
   const user = useAuthUser()
   const { language, t } = useI18n()
   // 영어로 바뀌는 자리에만 붙인다 — 루트는 늘 `ko`다 (`#1652` · `useTextLang` 주석).
@@ -436,7 +435,7 @@ export function AppShell() {
         </nav>
       </div>
 
-      <div className={`app-shell__stack app-shell__stack--${width}`}>
+      <div className="app-shell__stack">
         {/* 이메일 미인증 안내 — 인증 전에도 이용은 허용한다(PRD §7.10). */}
         <VerifyBanner />
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}

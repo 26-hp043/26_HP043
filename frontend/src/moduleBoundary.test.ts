@@ -266,7 +266,6 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/voyage-cii/resultRules.ts::MarginDisplay': 'marginDisplay()의 반환 형태',
   'features/vessel-registration/shipTypes.ts::ShipTypeOption': 'SHIP_TYPES 항목 형태',
   'features/vessel-registration/shipTypes.ts::CapacityAxis': 'capacityAxisOf()의 반환 형태',
-  'screens.ts::ScreenWidth': 'SCREEN_BY_ID의 width 필드 형태 (DESIGN_SYSTEM §7.1)',
   'theme/theme.ts::ThemeMatchMedia': '테마 훅이 주입받는 matchMedia 형태 (테스트 대역용)',
 }
 
