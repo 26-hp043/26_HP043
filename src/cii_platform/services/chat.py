@@ -334,11 +334,13 @@ async def _answer_turn(
     # 조용히 덮어쓰지 않게 한다(요청이 오지 않은 다음 턴의 대답이 달라지면 안 된다).
     effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
 
-    # `#2289` — 예시 질문 「올해 연말 예상 등급」은 외부 모델을 거치지 않고 계산 결과로 바로 답한다.
+    # `#2289` — 예시 질문 「올해 연말 예상 등급」은 도구를 먼저 돌리고 모델을 한 번만 부른다.
     # 선박이 정해지지 않았거나 연말 예상을 낼 수 없으면 종전처럼 모델 경로로 간다.
     if effective_vessel is not None and is_year_end_example(question):
         direct = await _answer_year_end_directly(
             session,
+            provider=provider,
+            question=question,
             chat_session_id=chat_session_id,
             user_id=user_id,
             vessel_id=effective_vessel,
@@ -535,22 +537,37 @@ async def _answer_turn(
     )
 
 
-#: `#2289` — 외부 모델 없이 계산 결과로 바로 답하는 예시 질문 (2026-10-09 사용자 결정).
+#: `#2289` — 모델을 **한 번만** 불러 답하는 예시 질문 (2026-10-09 사용자 결정).
 #:
-#: 같은 질문의 응답이 공급자 사정으로 7~45초 사이를 오갔고 턴 시간 초과로 폐기되기도 했다
-#: (운영 감사 로그 10-09). 계산 자체는 1초 안에 끝나므로, 화면 예시 질문
-#: (``AssistantOverlay.tsx`` ``EXAMPLE_GROUPS``)과 **같은 문장**이면 도구를 바로 부른다.
+#: 종전 경로는 모델을 두 번 기다린다 — ① 어느 도구를 부를지 ② 도구 결과로 문장 쓰기.
+#: 같은 질문의 응답이 공급자 사정으로 7~45초를 오갔고(①이 6~37초 · ②가 6~29초) 턴 시간
+#: 초과로 폐기되기도 했다(운영 감사 로그 10-09). 이 예시 질문은 부를 도구가 정해져 있으므로
+#: 서버가 ``project_year_end``를 먼저 돌리고 **②만** 묻는다. 답 문장은 여전히 모델이 쓴다.
+#:
+#: 화면 예시 질문(``AssistantOverlay.tsx`` ``EXAMPLES``)과 **같은 문장**일 때만 탄다.
 #: 띄어쓰기만 무시한다 — 뜻이 같은 다른 문장까지 넓히지 않는다(넓히면 모델이 할 판단을
 #: 서버가 문자열로 흉내 내게 된다).
 YEAR_END_EXAMPLE_QUESTION = "올해 연말 예상 등급은 어떻게 되나요?"
 
-#: 바로 답의 첫 줄 — **AI가 쓴 해설이 아니라는 것**을 먼저 말한다.
-DIRECT_ANSWER_LEAD = "계산 결과를 그대로 보여 드립니다. AI가 쓴 해설이 아닙니다."
+#: 한 번의 모델 호출에 주는 시간(초). 넘기면 계산 결과 문장으로 대신 답한다.
+#: 턴 상한(``TURN_TIMEOUT_SECONDS``)보다 짧아야 대체 답을 낼 시간이 남는다.
+DIRECT_MODEL_TIMEOUT_SECONDS = 20.0
+
+#: 모델에게 도구 결과를 건네는 말. 도구 정의를 보내지 않으므로(호출할 도구가 없다)
+#: 결과는 ``tool_result`` 블록이 아니라 평문으로 준다 — ``tool_use`` 블록 없이 ``tool_result``만
+#: 보낼 수는 없다(Messages API 규격).
+_DIRECT_RESULT_PROMPT = (
+    "아래는 BlueLog 계산 도구 project_year_end가 화면에서 고른 선박으로 낸 결과입니다. "
+    "이 결과만 근거로 위 질문에 답해 주세요. 결과에 없는 수치는 쓰지 마세요.\n\n{envelope}"
+)
+
+#: 대체 답의 마지막 줄 — 모델이 쓰지 않은 답이라는 것을 숨기지 않는다.
+DIRECT_FALLBACK_NOTE = "(응답이 늦어 AI 해설 없이 계산 결과로 바로 답했습니다.)"
 
 #: 연말 예상은 가정이 든 추정값이다(``PRD §3.3`` ⑶) — 단독으로 단정하지 않는다.
 DIRECT_ANSWER_NOTE = (
-    "연말 예상은 남은 계획 항차를 계획대로 운항한다고 가정한 추정값입니다. "
-    "근거와 가정은 실시간 CII 화면에서 볼 수 있습니다."
+    "이 예상은 남은 계획 항차를 그대로 운항한다는 가정에 따른 추정값이며, "
+    "근거와 가정은 실시간 CII 화면에서 확인하실 수 있습니다."
 )
 
 #: 화면의 CII 표시 자릿수(``DISPLAY_DIGITS.cii`` · ``DESIGN_SYSTEM §4.2``)와 같게 쓴다.
@@ -571,7 +588,10 @@ def _cii_text(value: object) -> str | None:
 
 
 def _year_end_text(result: dict[str, object]) -> str | None:
-    """도구 결과로 답 문장을 만든다. 연말 예상의 CII·등급이 없으면 ``None``."""
+    """대체 답 문장. 연말 예상의 CII·등급이 없으면 ``None``.
+
+    모델이 늦을 때만 나간다. 마지막 줄이 :data:`DIRECT_FALLBACK_NOTE`다.
+    """
     projection = result.get("year_end_projection")
     if not isinstance(projection, dict):
         return None
@@ -579,23 +599,70 @@ def _year_end_text(result: dict[str, object]) -> str | None:
     rating = projection.get("rating")
     if projected is None or not rating:
         return None
-    lines = [DIRECT_ANSWER_LEAD]
+    lines = [f"선택하신 선박의 올해 연말 예상 등급은 {rating}등급입니다."]
     # `PRD §3.3` — 연말 예상만 단독으로 보이지 않는다. 올해 누적이 있으면 먼저 싣는다.
     ytd = result.get("ytd")
+    ytd_part = ""
     if isinstance(ytd, dict):
         ytd_cii = _cii_text(ytd.get("attained_cii"))
         if ytd_cii is not None and ytd.get("rating"):
-            lines.append(f"· 올해 누적: CII {ytd_cii} · {ytd['rating']}등급")
+            ytd_part = f"올해 지금까지의 누적 CII는 {ytd_cii}로 {ytd['rating']}등급이며, "
     required = _cii_text(projection.get("required_cii"))
-    basis = f" (기준 CII {required})" if required is not None else ""
-    lines.append(f"· 연말 예상: CII {projected} · {rating}등급{basis}")
+    basis = f" 연말 기준 CII는 {required}입니다." if required is not None else ""
+    lines.append(
+        f"{ytd_part}남은 계획 항차를 계획대로 운항하면 연말 CII는 {projected}로 예상됩니다.{basis}"
+    )
     lines.append(DIRECT_ANSWER_NOTE)
+    lines.append(DIRECT_FALLBACK_NOTE)
     return "\n".join(lines)
+
+
+async def _model_writes_year_end(
+    provider: LLMProvider, *, question: str, envelope: str, turn_year: int
+) -> str | None:
+    """모델에게 **한 번만** 묻는다. 늦거나 규율을 어기면 ``None``.
+
+    도구 정의를 보내지 않는다 — 부를 도구가 없고, 보내는 양이 줄어든다. 답은 모델 경로와
+    같은 검증(올해 주장 · 도구에 없는 수치)을 지나야 한다.
+    """
+    messages: list[dict[str, object]] = [
+        {
+            "role": "system",
+            "content": (
+                f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
+                "'올해'와 '현재 연도'는 이 해를 뜻합니다."
+            ),
+        },
+        # 질문과 도구 결과를 **한 user 메시지**로 보낸다 — 같은 역할을 연달아 보내는 것을
+        # 공급자마다 다르게 다룰 수 있다(Anthropic 형식을 내는 다른 공급자 · `LLM_BASE_URL`).
+        {
+            "role": "user",
+            "content": f"{question}\n\n{_DIRECT_RESULT_PROMPT.format(envelope=envelope)}",
+        },
+    ]
+    try:
+        async with asyncio.timeout(DIRECT_MODEL_TIMEOUT_SECONDS):
+            response = await provider.complete(messages=messages, tools=None)
+    except (TimeoutError, LLMError):
+        return None
+    if response.stop_reason == STOP_REFUSAL or response.stop_reason in STOP_TRUNCATED:
+        return None
+    reply = (response.text or "").strip()
+    if not reply or response.tool_calls:
+        return None
+    try:
+        verify_current_year_claim(reply, turn_year)
+        verify_numbers(reply, [envelope, str(turn_year)], prior_answers=[])
+    except NumberFabricationError:
+        return None
+    return reply
 
 
 async def _answer_year_end_directly(
     session: AsyncSession,
     *,
+    provider: LLMProvider,
+    question: str,
     chat_session_id: UUID,
     user_id: str | None,
     vessel_id: UUID,
@@ -603,13 +670,13 @@ async def _answer_year_end_directly(
     calculation_run_id: UUID | None,
     ip_address: str | None,
 ) -> dict[str, object] | None:
-    """연말 예상 도구를 바로 부르고 정해진 문장으로 답한다 (`#2289`).
+    """연말 예상 도구를 먼저 돌리고 **모델에게 한 번만** 묻는다 (`#2289`).
 
     모델 경로와 같은 도구(:func:`run_tool`)·같은 감사 기록·같은 수치 검증을 지난다.
-    다른 것은 **문장을 모델이 아니라 서버가 쓴다**는 것 하나다. 그래서 첫 줄에 그 사실을
-    적는다 — 계산 결과를 AI의 답처럼 꾸미지 않는다.
+    모델이 :data:`DIRECT_MODEL_TIMEOUT_SECONDS` 안에 답하지 못하거나 검증에 걸리면 계산
+    결과로 만든 문장으로 대신 답하고, 그 사실을 마지막 줄에 적는다(:data:`DIRECT_FALLBACK_NOTE`).
 
-    :returns: 답 봉투. 연말 예상을 낼 수 없으면 ``None`` — 호출부가 모델 경로로 넘긴다.
+    :returns: 답 봉투. 연말 예상을 낼 수 없으면 ``None`` — 호출부가 종전 모델 경로로 넘긴다.
         이때 도구 호출은 감사 로그에 남기지 않는다(응답의 ``tool_calls``와 어긋나지 않게).
     """
     outcome = await run_tool(
@@ -626,12 +693,12 @@ async def _answer_year_end_directly(
     except ValueError:
         return None
     result = body.get("result") if isinstance(body, dict) and body.get("ok") else None
-    reply = _year_end_text(result) if isinstance(result, dict) else None
-    if reply is None:
+    fallback = _year_end_text(result) if isinstance(result, dict) else None
+    if fallback is None:
         return None
     try:
         # 서버가 쓴 문장이라도 **도구가 낸 수만** 들어갔는지 같은 가드로 확인한다.
-        verify_numbers(reply, [outcome.envelope], prior_answers=[])
+        verify_numbers(fallback, [outcome.envelope], prior_answers=[])
     except NumberFabricationError:
         return None
 
@@ -644,6 +711,14 @@ async def _answer_year_end_directly(
         calculation_run_id=outcome.calculation_run_id,
         ip_address=ip_address,
     )
+    turn_year = current_regulation_year(datetime.now(UTC))
+    reply = await _model_writes_year_end(
+        provider, question=question, envelope=outcome.envelope, turn_year=turn_year
+    )
+    if reply is None:
+        # 질문·답 본문은 싣지 않는다(``PRD §16.3.1``) — 세션만.
+        _log.warning("챗봇 예시 질문 대체 답 — 세션 %s", chat_session_id)
+        reply = fallback
     await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
     )
