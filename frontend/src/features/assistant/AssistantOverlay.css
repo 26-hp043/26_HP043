@@ -215,6 +215,18 @@
   font-weight: var(--font-weight-body);
 }
 
+/* 머리의 오른쪽 묶음 — 「대화 지우기」(#1981)와 닫기. */
+.assistant__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/*
+ * 「대화 지우기」(#1981)는 닫기와 같은 텍스트 버튼 모양을 쓴다 — 새 토큰을 만들지 않는다
+ * (`UIFLOW 2-7` — 확정 전에는 기존 값만 조합한다). 문구가 곧 뜻이라 아이콘을 두지 않는다.
+ */
+.assistant__clear,
 .assistant__close {
   /* 아이콘만 있는 버튼이라 중앙에 놓는다 (`#935`). */
   display: inline-flex;
@@ -230,6 +242,7 @@
   cursor: pointer;
 }
 
+.assistant__clear:hover,
 .assistant__close:hover {
   border-color: var(--color-border);
   color: var(--color-text);
@@ -257,6 +270,15 @@
   width: auto;
   margin: 0 auto var(--space-8);
   object-fit: contain;
+}
+
+.assistant__clear {
+  font-size: var(--font-size-caption);
+}
+
+.assistant__clear:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
 }
 
 .assistant__intro {

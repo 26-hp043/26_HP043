@@ -56,6 +56,18 @@ export interface ChatAnswer {
   readonly vesselResolved?: boolean
 }
 
+/**
+ * 서버에 저장된 대화 하나 — `GET /chat/sessions/{id}/messages` (`API_SPEC §15.8` · `#1981`).
+ *
+ * `turns`는 화면이 처음 그렸던 말풍선과 같은 성질을 갖는다 — 버린 답은 `discarded`,
+ * 답을 낸 도구는 `toolCalls`. `id`는 provider가 붙이지 않는다(화면의 목록 key는 화면이 만든다).
+ */
+export interface ChatHistory {
+  readonly sessionId: string
+  readonly turns: readonly Omit<ChatTurn, 'id'>[]
+  readonly disclaimer: string
+}
+
 export interface AssistantProvider {
   /**
    * 챗봇을 지금 쓸 수 있는가 — `GET /chat/status` (`API_SPEC §15.7` · `#1535`).
@@ -71,4 +83,16 @@ export interface AssistantProvider {
     /** #1533 — 화면이 방금 낸 계산 결과의 실행 id. 서버 도구가 저장된 결과를 읽는다. */
     calculationRunId?: string
   }): Promise<ChatAnswer>
+  /**
+   * 저장된 대화를 다시 불러온다 (`#1981`). 선택 항목이다 — 없으면 오버레이는 복원하지 않는다.
+   *
+   * **없는·남의·만료된 대화는 `null`이다**(서버 404 · `API_SPEC §15.4`와 같은 코드).
+   * 그 밖의 실패는 던진다 — 오버레이는 어느 쪽이든 새 대화로 시작하고 기억한 번호를 지운다.
+   */
+  history?(sessionId: string): Promise<ChatHistory | null>
+  /**
+   * 대화를 지운다 — `DELETE /chat/sessions/{id}` (`API_SPEC §15.6` · `#1330`). 선택 항목이다.
+   * 이미 없는 대화(404)도 **성공으로 본다** — 지우려던 것이 없는 상태가 곧 원하던 상태다.
+   */
+  forget?(sessionId: string): Promise<void>
 }

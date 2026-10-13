@@ -235,6 +235,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     'exporting',
     'pending',
     'stopped',
+    // #1981 — 탭이 기억한 대화를 되살리는 몇 초. 로그에 「이전 대화를 불러오고 있습니다…」가 뜬다.
+    'restoring',
     "lookup.current.status === 'loading'",
     "lookup.destination.status === 'loading'",
     "reproduce.status === 'running'",
@@ -253,7 +255,7 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     "features/annual-simulation/AnnualSimulation.tsx :: state.status === 'running' || !office":
       'annual-sim-office-only',
     // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
-    'features/assistant/AssistantOverlay.tsx :: pending || stopped || draft.trim().length === 0':
+    'features/assistant/AssistantOverlay.tsx :: pending || stopped || restoring || draft.trim().length === 0':
       null,
     // #2120 — 재계산 중(`pending`)이거나 연도를 못 골랐으면(`year === ''`)도 잠긴다. 앞의 것은 일시적이고, 뒤의 것은 연도 칸이 사유를 글자로 말한다.
     "features/fleet-reduction/FleetReduction.tsx :: saving || pending || year === '' || planName.trim() === '' || pricesInvalid":

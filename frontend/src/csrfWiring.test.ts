@@ -62,7 +62,8 @@ const MUTATING = /method:\s*['"](POST|PUT|PATCH|DELETE)['"]/g
 const EXPECTED: Record<string, number> = {
   'auth/session.ts': 8,
   'features/annual-simulation/apiProvider.ts': 1,
-  'features/assistant/apiProvider.ts': 1,
+  // `ask`(POST)와 「대화 지우기」(DELETE · #1981) 둘이다.
+  'features/assistant/apiProvider.ts': 2,
   'features/data-quality/apiProvider.ts': 1,
   'features/fleet-reduction/apiProvider.ts': 2,
   'features/not-underway/apiProvider.ts': 5,

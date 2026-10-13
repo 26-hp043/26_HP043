@@ -97,6 +97,23 @@ async def insert_event(
     await session.flush()
 
 
+async def list_chat_message_events(session: AsyncSession, *, session_id: UUID) -> list[AuditLog]:
+    """대화 하나의 ``CHAT_MESSAGE`` 감사 행 (`#1981`).
+
+    답 행의 ``details_json.tool_names``가 그 답이 쓴 도구이고 ``details_json.message_id``가
+    ``chat_message.id``다(``services/audit.record_chat_message``). 대화를 다시 불러올 때
+    답마다 근거를 되살리는 재료가 이 목록이며 **짝은 id로 짓는다** — ``timestamp``는 초
+    단위라 순서의 근거로 쓰지 않는다. **주인 확인은 호출부가 한다**
+    (``repositories/chat.get_session_row``와 같은 규약).
+    """
+    stmt = select(AuditLog).where(
+        AuditLog.entity_type == "chat_session",
+        AuditLog.entity_id == session_id,
+        AuditLog.action == "CHAT_MESSAGE",
+    )
+    return list((await session.execute(stmt)).scalars())
+
+
 async def list_events(
     session: AsyncSession,
     *,

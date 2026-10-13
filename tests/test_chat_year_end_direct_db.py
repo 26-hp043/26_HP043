@@ -147,6 +147,32 @@ async def test_the_model_is_called_once_and_writes_the_answer(migrated_db, app_f
         await _cleanup()
 
 
+async def test_the_restored_answer_keeps_the_year_end_tool_as_its_basis(
+    migrated_db, app_fresh_engine
+):
+    """`#1981` — 바로 답하는 경로의 답도 대화를 다시 불러올 때 근거 도구 이름이 붙는다."""
+    provider = _RecordingProvider([LLMResponse(text=_MODEL_TEXT)])
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat",
+                json={"message": YEAR_END_EXAMPLE_QUESTION, "vessel_id": str(VESSEL_ID_BULK)},
+                headers=headers,
+            )
+            assert first.status_code == 200, first.text
+            session_id = first.json()["data"]["session_id"]
+            restored = client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+            assert restored.status_code == 200, restored.text
+            messages = restored.json()["data"]["messages"]
+        assert [m["role"] for m in messages] == ["USER", "ASSISTANT"]
+        assert messages[1]["content"] == _MODEL_TEXT
+        assert messages[1]["tool_calls"] == ["project_year_end"]
+    finally:
+        await _cleanup()
+
+
 def _without_tool_use_id(messages: list[dict[str, object]]) -> list[object]:
     """``tool_use`` id만 지운 사본 — 모델이 붙인 id와 서버가 붙인 id는 다를 수밖에 없다."""
     out: list[object] = []

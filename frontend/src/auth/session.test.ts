@@ -31,6 +31,7 @@ import {
 } from './session'
 import { safeNext } from './safeNext'
 import { STORAGE_KEY } from '../layout/globalContext'
+import { SESSION_KEY } from '../features/assistant/sessionMemory'
 
 /**
  * 인증 세션 클라이언트 검증 (#278).
@@ -1117,3 +1118,58 @@ describe('세션이 필요한 상태 변경 요청은 X-CSRF-Token을 싣는다 
   })
 })
 
+
+describe('로그인 성공은 탭이 기억한 챗봇 대화 번호를 버린다 (#1981)', () => {
+  function storageWith(entries: [string, string][]) {
+    const store = new Map(entries)
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    })
+    return store
+  }
+
+  it('login() — 앞 계정의 번호가 다음 계정으로 넘어가지 않는다', async () => {
+    const store = storageWith([[SESSION_KEY, 'someone-elses-chat']])
+    try {
+      const fetchImpl = vi.fn(async () => ME_OK)
+      await login('captain@example.com', 'pw', fetchImpl as unknown as typeof fetch)
+      expect(store.has(SESSION_KEY)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('tourLogin() — 공유 계정이라 더욱 남의 번호를 들고 들어가지 않는다', async () => {
+    const store = storageWith([[SESSION_KEY, 'someone-elses-chat']])
+    try {
+      const fetchImpl = vi.fn(async () => ME_OK)
+      await tourLogin('code', fetchImpl as unknown as typeof fetch)
+      expect(store.has(SESSION_KEY)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('실패한 로그인은 번호를 건드리지 않는다', async () => {
+    const store = storageWith([[SESSION_KEY, 'my-chat']])
+    try {
+      const fetchImpl = vi.fn(async () => jsonResponse({ error: { message: '틀렸습니다.' } }, 401))
+      await expect(login('a@b.c', 'wrong', fetchImpl as unknown as typeof fetch)).rejects.toThrow()
+      expect(store.get(SESSION_KEY)).toBe('my-chat')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('logout() — 로그아웃한 탭에 대화 번호가 남지 않는다', async () => {
+    const store = storageWith([[SESSION_KEY, 'my-chat']])
+    try {
+      await logout((async () => jsonResponse({}, 204)) as unknown as typeof fetch)
+      expect(store.has(SESSION_KEY)).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+})

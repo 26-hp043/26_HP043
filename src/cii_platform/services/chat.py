@@ -35,6 +35,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
+from cii_platform.db.repositories import audit_log as audit_repo
 from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.errors import NotFoundError
 from cii_platform.llm.provider import (
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from cii_platform.db.models.audit_log import AuditLog
     from cii_platform.db.models.chat import ChatMessage
     from cii_platform.llm.provider import LLMProvider
 
@@ -80,6 +82,14 @@ _log = logging.getLogger(__name__)
 DISCARDED_MESSAGE = (
     "답변에서 근거로 설명되지 않는 수치가 나와 답변을 보내지 않았습니다. 질문을 다시 물어봐 주세요."
 )
+
+#: 다시 불러온 대화에서 **답이 저장되지 않은 질문** 뒤에 서는 문구 (`#1981`).
+#:
+#: 버린 답은 저장하지 않으므로(``answer`` 참조 · `IT-CHAT-029`) 다시 불러올 때는 질문만
+#: 남아 있다. 그때 화면이 그 질문을 **답을 기다리는 것처럼** 두면 사용자는 답이 오는 줄
+#: 안다. 무엇 때문에 버렸는지는 남아 있지 않으므로(폐기 종류는 감사 로그 ``CHAT_DISCARD``에
+#: 있고 사용자에게 열려 있지 않다) **사유를 지어내지 않고** 답이 없다는 사실만 말한다.
+DISCARDED_RESTORED_MESSAGE = "이 질문에는 답을 보내지 않았습니다. 다시 물어봐 주세요."
 
 #: 도구 호출 상한에 걸렸을 때.
 TOOL_BUDGET_MESSAGE = "한 번에 처리하기에 너무 많은 조회가 필요합니다. 질문을 나눠서 물어봐 주세요."
@@ -316,7 +326,7 @@ async def _answer_turn(
     if session_row is None or chat_repo.is_expired(session_row):
         raise NotFoundError("대화를 찾을 수 없습니다.")
 
-    await chat_repo.add_message(
+    question_row = await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_USER, content=question
     )
     await audit.record_chat_message(
@@ -326,6 +336,7 @@ async def _answer_turn(
         role=ROLE_USER,
         content=question,
         ip_address=ip_address,
+        message_id=question_row.id,
     )
 
     # #1243 — 선박 결정 규칙: 요청 vessel_id(화면) > 세션 귀속(검색이 정한 것).
@@ -506,9 +517,11 @@ async def _answer_turn(
             vessel_resolved=effective_vessel is not None,
         )
 
-    await chat_repo.add_message(
+    answer_row = await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
     )
+    # `#1981` — 답 행에 이 턴이 쓴 도구를 동봉한다. 대화를 다시 불러올 때 근거를 되살리는
+    # 유일한 출처다 — `CHAT_TOOL_CALL` 행은 어느 답의 것인지 말하지 않는다.
     await audit.record_chat_message(
         session,
         user_id=user_id,
@@ -516,6 +529,8 @@ async def _answer_turn(
         role=ROLE_ASSISTANT,
         content=reply,
         ip_address=ip_address,
+        message_id=answer_row.id,
+        tool_names=used_tools,
     )
     return _result(
         reply,
@@ -753,9 +768,11 @@ async def _answer_year_end_directly(
         # 질문·답 본문은 싣지 않는다(``PRD §16.3.1``) — 세션만.
         _log.warning("챗봇 예시 질문 대체 답 — 세션 %s", chat_session_id)
         reply = fallback
-    await chat_repo.add_message(
+    answer_row = await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
     )
+    # `#1981` — 이 경로의 답도 근거(연말 예상 도구)를 감사 행에 동봉한다. 빠지면 대화를 다시
+    # 불러올 때 이 답만 근거 표시 없이 되살아난다.
     await audit.record_chat_message(
         session,
         user_id=user_id,
@@ -763,6 +780,8 @@ async def _answer_year_end_directly(
         role=ROLE_ASSISTANT,
         content=reply,
         ip_address=ip_address,
+        message_id=answer_row.id,
+        tool_names=[TOOL_PROJECT_YEAR_END],
     )
     return _result(reply, [TOOL_PROJECT_YEAR_END], discarded=False, vessel_resolved=True)
 
@@ -850,4 +869,79 @@ def _result(
         # #1242 — 서버가 이 대화의 선박을 알고 있는가. **식별자 자체는 안 싣는다**
         # (`PRD §16.3.1` — 모델에게 가는 값이 아니라 화면에게 가는 값이다).
         "vessel_resolved": vessel_resolved,
+    }
+
+
+def _tools_by_message(events: Sequence[AuditLog]) -> dict[str, list[str]]:
+    """``chat_message.id`` → 그 답이 쓴 도구 이름 (`#1981`).
+
+    ``CHAT_MESSAGE`` 감사 행의 ``details_json.message_id``·``tool_names``만 읽는다
+    (``services/audit.record_chat_message``). **시간으로 짝짓지 않는다** — 감사 ``timestamp``는
+    초 단위라 같은 초에 끝난 두 턴은 순서를 가를 수 없고, 정렬로 나누면 뒤 턴의 도구가 앞
+    답에 붙었다(리뷰 재현). 이 기능 이전의 행에는 두 키가 없으므로 그 답은 빈 목록이다.
+    빈 이름은 건너뛴다.
+    """
+    by_message: dict[str, list[str]] = {}
+    for row in events:
+        details = row.details_json if isinstance(row.details_json, dict) else {}
+        message_id = details.get("message_id")
+        names = details.get("tool_names")
+        if not isinstance(message_id, str) or not isinstance(names, list):
+            continue
+        by_message[message_id] = [str(name) for name in names if name]
+    return by_message
+
+
+async def history(session: AsyncSession, *, chat_session_id: UUID) -> list[dict[str, object]]:
+    """저장된 대화를 **화면이 그렸던 모양대로** 되돌린다 (`#1981` · ``API_SPEC §15.8``).
+
+    :returns: ``[{"role", "content", "discarded", "tool_calls"}, …]`` — 시간순. 키는 모든
+        항목에 같다(``POST /chat`` 봉투와 같은 규약 · `#1365`).
+
+    ## 저장된 것과 화면이 본 것은 다르다
+
+    ``chat_message``에는 **통과한 답만** 있다. 버린 답은 저장하지 않으므로(`IT-CHAT-029`)
+    답 없이 남은 질문이 곧 「버린 턴」이다 — 그 자리에 :data:`DISCARDED_RESTORED_MESSAGE`를
+    ``discarded=True``로 세운다. 화면이 처음 받았던 폐기 안내(`§15.2`)의 원문은 남아 있지
+    않고, 그것을 되살리려고 감사 로그의 폐기 종류를 문장으로 옮기면 서버가 **저장하지 않기로
+    한 것을 다른 경로로 내보내는** 셈이 된다.
+
+    도구 이름은 답을 남긴 ``CHAT_MESSAGE`` 감사 행에 동봉된 ``tool_names``에서 되짚고
+    ``message_id``로 답과 1:1로 짝짓는다(:func:`_tools_by_message`). 표를 늘리지 않기로
+    했으므로(`#1981` 결정) 이것이 유일한 출처이며, 이 기능 이전 대화는 근거 이름 없이
+    복원된다.
+
+    ## 주인·만료는 여기서 보지 않는다
+
+    라우트가 ``POST /chat``과 같은 규칙으로 먼저 끊는다 — 남의 대화·만료 대화는 404다.
+    """
+    messages = await chat_repo.list_messages(session, session_id=chat_session_id)
+    tools = _tools_by_message(
+        await audit_repo.list_chat_message_events(session, session_id=chat_session_id)
+    )
+
+    entries: list[dict[str, object]] = []
+    for index, row in enumerate(messages):
+        if row.role == ROLE_USER:
+            entries.append(_history_entry(ROLE_USER, row.content))
+            following = messages[index + 1] if index + 1 < len(messages) else None
+            if following is None or following.role != ROLE_ASSISTANT:
+                entries.append(
+                    _history_entry(ROLE_ASSISTANT, DISCARDED_RESTORED_MESSAGE, discarded=True)
+                )
+            continue
+        entries.append(
+            _history_entry(ROLE_ASSISTANT, row.content, tool_calls=tools.get(str(row.id), []))
+        )
+    return entries
+
+
+def _history_entry(
+    role: str, content: str, *, discarded: bool = False, tool_calls: list[str] | None = None
+) -> dict[str, object]:
+    return {
+        "role": role,
+        "content": content,
+        "discarded": discarded,
+        "tool_calls": list(tool_calls or ()),
     }

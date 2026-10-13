@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } fr
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import { currentScreenResult } from './screenResult'
+import { forgetSession, recallSession, rememberSession } from './sessionMemory'
 import { CITE_LABEL, citeLabels } from './toolLabels'
 import { needsVesselNote } from './vesselNote'
 import type { AssistantProvider, ChatTurn } from './types'
@@ -205,6 +206,19 @@ const EMPTY_LOG = '예시를 누르거나 직접 물어보세요. 답과 그 근
 const PENDING_TEXT = '답변을 준비하고 있습니다…'
 
 /**
+ * #1981 — 탭이 기억한 대화를 서버에서 다시 불러오는 동안. 빈 로그 문구를 그대로 두면
+ * 「아직 아무것도 없다」로 읽히는데, 잠시 뒤 말풍선이 채워진다.
+ */
+const RESTORING_TEXT = '이전 대화를 불러오고 있습니다…'
+
+/**
+ * 「대화 지우기」(#1981 · `API_SPEC §15.6`). 서버의 대화를 지우고 탭의 기억도 함께 지운다 —
+ * 기억만 지우면 서버에 남고, 서버만 지우면 다음 새로고침이 404를 만난다.
+ * 대화가 있을 때만 보인다. 모양은 개발 임시안이다(`UIFLOW 2-7` 주요 UI 각주).
+ */
+const CLEAR_LABEL = '대화 지우기'
+
+/**
  * 버린 답의 접두 문구 — 2026-09-17 확정 ⓐ (`#1051` 3절).
  *
  * `§14`가 **색 단독 구분을 금지**하는데, 종전에는 줄무늬 하나로 나누려 했고
@@ -278,7 +292,16 @@ export function AssistantOverlay({
    * 않는 것이 규정이다(`avatarMood.ts` 머리주석).
    */
   const headMood: AvatarMood = avatarMood(turns, { stopped })
-  const sessionRef = useRef<string | undefined>(undefined)
+  /**
+   * 이 탭의 대화 번호 (#1981). 상태로 두는 이유는 「대화 지우기」 버튼이 **대화가 있을 때만**
+   * 보여야 하기 때문이다 — ref면 번호가 생겨도 다시 그리지 않는다. 값은 `sessionStorage`에도
+   * 같이 둔다(`sessionMemory.ts`) — 새로고침 뒤 그 번호로 서버의 대화를 되살린다.
+   */
+  const [sessionId, setSessionId] = useState<string | undefined>(undefined)
+  /** #1981 — 기억한 번호로 서버의 대화를 불러오는 중이다. */
+  const [restoring, setRestoring] = useState(false)
+  /** 복원은 **한 번만** 시도한다 — 실패했으면 번호를 지웠으니 다시 열어도 할 일이 없다. */
+  const restoreTriedRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
   const launcherRef = useRef<HTMLButtonElement | null>(null)
@@ -365,6 +388,43 @@ export function AssistantOverlay({
     }
   }, [open, client, tour, askStatus])
 
+  const restore = useCallback(() => {
+    /*
+     * #1981 — 패널을 처음 열 때 탭이 기억한 대화를 되살린다. 결정(2026-09-28)은 **탭마다**다 —
+     * 같은 탭의 새로고침은 이어지고, 새 탭·닫았다 켠 브라우저는 새 대화다.
+     *
+     * 서버가 모르는 번호(404 → `null`)든 조회 실패든 **새 대화로 시작하고 번호를 지운다** —
+     * 남의 것·만료된 것·사라진 것을 화면이 가를 수 없고, 가른다 해도 할 일이 같다. 조회 실패로
+     * 잃는 것은 이전 말풍선뿐이고 서버의 대화는 그대로다.
+     *
+     * 여는 버튼의 이벤트에서 부른다 — 효과 안에서 동기로 상태를 바꾸면 렌더가 한 번 더 돈다
+     * (lint `set-state-in-effect`). 닫았다 다시 열어도 결과를 버리지 않는다 — 패널을 닫는 것은
+     * 이 컴포넌트를 내리는 것이 아니라 여는 버튼으로 바꿔 그리는 것이라, 도착한 대화는 다음에
+     * 열 때 그대로 보인다.
+     */
+    if (restoreTriedRef.current || !client.history || tour) return
+    restoreTriedRef.current = true
+    const remembered = recallSession()
+    if (!remembered) return
+    setRestoring(true)
+    client.history(remembered).then(
+      (history) => {
+        setRestoring(false)
+        if (history === null) {
+          forgetSession()
+          return
+        }
+        setSessionId(history.sessionId)
+        setDisclaimer(history.turns.some((turn) => turn.role === 'assistant') ? history.disclaimer : null)
+        setTurns(history.turns.map((turn) => ({ ...turn, id: nextId() })))
+      },
+      () => {
+        setRestoring(false)
+        forgetSession()
+      },
+    )
+  }, [client, tour])
+
   useEffect(() => {
     onOpenChange?.(open)
   }, [open, onOpenChange])
@@ -420,7 +480,8 @@ export function AssistantOverlay({
 
   const send = useCallback(async () => {
     const message = draft.trim()
-    if (!message || pending || stopped) return
+    // #1981 — 복원이 끝나기 전에 보내면 도착한 이전 대화가 새 말풍선을 덮어쓴다. 그동안은 받지 않는다.
+    if (!message || pending || stopped || restoring) return
 
     setTurns((prev) => [...prev, { id: nextId(), role: 'user', text: message }])
     setDraft('')
@@ -428,12 +489,14 @@ export function AssistantOverlay({
     try {
       const answer = await client.ask({
         message,
-        sessionId: sessionRef.current,
+        sessionId,
         vesselId,
         // #1533 — 보내는 순간 **지금 화면**의 결과만 싣는다(다른 화면의 결과는 넘기지 않는다).
         calculationRunId: currentScreenResult(),
       })
-      sessionRef.current = answer.sessionId
+      setSessionId(answer.sessionId)
+      // #1981 — 새로고침이 이 번호로 대화를 되살린다. 저장 실패는 조용히 지나간다.
+      rememberSession(answer.sessionId)
       setDisclaimer(answer.disclaimer)
       setTurns((prev) => [
         ...prev,
@@ -471,7 +534,36 @@ export function AssistantOverlay({
     } finally {
       setPending(false)
     }
-  }, [client, draft, pending, stopped, vesselId])
+  }, [client, draft, pending, restoring, sessionId, stopped, vesselId])
+
+  const clear = useCallback(async () => {
+    /*
+     * #1981 — 「대화 지우기」. 서버의 대화(`DELETE` · `API_SPEC §15.6`)와 탭의 기억을 **함께**
+     * 지운다. 실패하면 말풍선으로 알리고 대화는 그대로 둔다 — 지워지지 않은 것을 지운 것처럼
+     * 비우면 다음 새로고침이 그것을 되살려 사용자가 「안 지워졌다」로 읽는다.
+     */
+    if (!sessionId || pending || !client.forget) return
+    setPending(true)
+    try {
+      await client.forget(sessionId)
+      forgetSession()
+      setSessionId(undefined)
+      setTurns([])
+      setDisclaimer(null)
+    } catch (error) {
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'assistant',
+          text: error instanceof Error ? error.message : '대화를 지우지 못했습니다.',
+          failed: true,
+        },
+      ])
+    } finally {
+      setPending(false)
+    }
+  }, [client, pending, sessionId])
 
   if (!open) {
     /*
@@ -530,6 +622,7 @@ export function AssistantOverlay({
             dismissIntroHint()
             setIntroHint(false)
             setOpen(true)
+            restore()
           }}
         >
           {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
@@ -629,16 +722,29 @@ export function AssistantOverlay({
             )}
           </p>
         </div>
-        <button
-          type="button"
-          className="assistant__close"
-          aria-label="AI 어시스턴트 닫기"
-          onClick={() => setOpen(false)}
-        >
-          <Icon glyph={X} size="inline" />
-        </button>
+        <span className="assistant__actions">
+          {sessionId && client.forget ? (
+            <button
+              type="button"
+              className="assistant__clear"
+              disabled={pending}
+              onClick={() => {
+                void clear()
+              }}
+            >
+              {CLEAR_LABEL}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="assistant__close"
+            aria-label="AI 어시스턴트 닫기"
+            onClick={() => setOpen(false)}
+          >
+            <Icon glyph={X} size="inline" />
+          </button>
+        </span>
       </header>
-
 
       {/*
         #2158 — 머리줄과 입력 줄 **사이**를 한 스크롤 영역으로 묶는다. 화면이 낮아
@@ -694,7 +800,8 @@ export function AssistantOverlay({
         쓰지 않는 이유는 사용자가 읽던 것을 끊기 때문이다.
       */}
       <div className="assistant__log" ref={logRef} aria-live="polite" role="log">
-        {turns.length === 0 && !pending ? (
+        {restoring ? <p className="assistant__turn assistant__turn--pending">{RESTORING_TEXT}</p> : null}
+        {turns.length === 0 && !pending && !restoring ? (
           <p className="assistant__empty">{EMPTY_LOG}</p>
         ) : null}
         {turns.map((turn) => {
@@ -812,7 +919,7 @@ export function AssistantOverlay({
               maxLength={2000}
               placeholder={PLACEHOLDER}
               value={draft}
-              disabled={stopped}
+              disabled={stopped || restoring}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 /*
@@ -837,7 +944,7 @@ export function AssistantOverlay({
           type="submit"
           className="assistant__send"
           aria-label="보내기"
-          disabled={pending || stopped || draft.trim().length === 0}
+          disabled={pending || stopped || restoring || draft.trim().length === 0}
         >
           <Icon glyph={ArrowUp} size="inline" />
         </button>

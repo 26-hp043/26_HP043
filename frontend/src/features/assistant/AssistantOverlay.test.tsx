@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AssistantOverlay, STATUS_RECHECK_MS, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
-import type { AssistantProvider, ChatAnswer } from './types'
+import type { AssistantProvider, ChatAnswer, ChatHistory } from './types'
 import { publishScreenResult, resetScreenResult } from './screenResult'
+import { forgetSession, recallSession, rememberSession } from './sessionMemory'
 
 /**
  * AI 어시스턴트 오버레이 (`UIFLOW 2-7` · `#121`).
@@ -1195,5 +1196,203 @@ describe('쓸 수 없는 상태의 초점 (#2128)', () => {
     open()
     await waitFor(() => expect(status).toHaveBeenCalled())
     expect(document.activeElement).toBe(screen.getByLabelText('질문'))
+  })
+})
+
+describe('새로고침 뒤 대화 복원 (`#1981` · `API_SPEC §15.8`)', () => {
+  beforeEach(() => {
+    forgetSession()
+  })
+
+  const RESTORED: ChatHistory = {
+    sessionId: 'session-9',
+    disclaimer: '복원된 답의 면책',
+    turns: [
+      { role: 'user', text: '전에 물은 것' },
+      { role: 'assistant', text: '전의 답', toolCalls: ['calc_voyage_cii'] },
+      { role: 'user', text: '버린 질문' },
+      { role: 'assistant', text: '이 질문에는 답을 보내지 않았습니다.', discarded: true },
+    ],
+  }
+
+  it('답을 받으면 대화 번호를 **탭에** 기억한다', async () => {
+    setup()
+    open()
+    await send('등급 알려줘')
+    await screen.findByText(ANSWER.answer)
+    expect(recallSession()).toBe(ANSWER.sessionId)
+  })
+
+  it('기억한 번호가 있으면 열 때 되살리고, 다음 질문이 **그 대화로** 간다', async () => {
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => RESTORED)
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ANSWER)
+    render(<AssistantOverlay provider={{ ask, history }} />)
+    open()
+
+    expect(await screen.findByText('전의 답')).toBeTruthy()
+    expect(history).toHaveBeenCalledWith('session-9')
+    expect(screen.getByText('전에 물은 것')).toBeTruthy()
+    // 되살린 답 아래에도 면책이 선다.
+    expect(screen.getByText(RESTORED.disclaimer)).toBeTruthy()
+
+    await send('이어서')
+    await waitFor(() => expect(ask).toHaveBeenCalled())
+    expect(ask.mock.calls[0][0].sessionId).toBe('session-9')
+  })
+
+  it('버린 답·근거가 **처음과 같게** 보인다 (`DESIGN_SYSTEM §8.5` · #1818)', async () => {
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => RESTORED)
+    render(<AssistantOverlay provider={{ ask: vi.fn(), history }} />)
+    open()
+
+    // 버린 답 — 접두 문구(자기 요소)와 줄무늬 클래스, 채널 둘.
+    const prefix = await screen.findByText(/^답을 드리지 못했습니다/)
+    const bubble = prefix.closest('p')!
+    expect(bubble.className).toContain('assistant__turn--discarded')
+    expect(bubble.textContent).toContain('이 질문에는 답을 보내지 않았습니다.')
+    // 근거 칩 — 되살린 답에도 한국어 라벨로 붙고, 버린 답에는 붙지 않는다(칩은 하나뿐).
+    const cites = screen.getAllByText(/항차 CII 계산/)
+    expect(cites).toHaveLength(1)
+    expect(document.body.textContent).not.toContain('calc_voyage_cii')
+  })
+
+  it('서버가 그 번호를 모르면(null) 기억을 지우고 **새 대화로** 시작한다', async () => {
+    rememberSession('someone-elses')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => null)
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ANSWER)
+    render(<AssistantOverlay provider={{ ask, history }} />)
+    open()
+
+    await waitFor(() => expect(history).toHaveBeenCalled())
+    await waitFor(() => expect(recallSession()).toBeUndefined())
+    await send('새 질문')
+    await waitFor(() => expect(ask).toHaveBeenCalled())
+    expect(ask.mock.calls[0][0].sessionId).toBeUndefined()
+  })
+
+  it('조회가 실패해도 **던지지 않고** 새 대화로 시작한다 (`PRD §16.2` 격리)', async () => {
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => {
+      throw new AssistantError('서버에 연결하지 못했습니다.')
+    })
+    render(<AssistantOverlay provider={{ ask: vi.fn(), history }} />)
+    open()
+
+    await waitFor(() => expect(recallSession()).toBeUndefined())
+    expect(screen.getByLabelText('질문')).toBeTruthy()
+  })
+
+  it('provider에 history가 없으면 기억이 있어도 조회하지 않는다', () => {
+    rememberSession('session-9')
+    setup()
+    open()
+    expect(screen.queryByText('이전 대화를 불러오고 있습니다…')).toBeNull()
+  })
+
+  it('「대화 지우기」는 서버 삭제를 부르고 말풍선·번호·기억을 **함께** 비운다', async () => {
+    const forget = vi.fn<NonNullable<AssistantProvider['forget']>>(async () => {})
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ANSWER)
+    render(<AssistantOverlay provider={{ ask, forget }} />)
+    open()
+    // 대화가 없을 때는 지울 것이 없다 — 버튼도 없다.
+    expect(screen.queryByRole('button', { name: '대화 지우기' })).toBeNull()
+    await send('등급 알려줘')
+    await screen.findByText(ANSWER.answer)
+
+    fireEvent.click(screen.getByRole('button', { name: '대화 지우기' }))
+    await waitFor(() => expect(forget).toHaveBeenCalledWith(ANSWER.sessionId))
+    await waitFor(() => expect(screen.queryByText(ANSWER.answer)).toBeNull())
+    expect(recallSession()).toBeUndefined()
+    expect(screen.queryByRole('button', { name: '대화 지우기' })).toBeNull()
+
+    // 다음 질문은 새 대화다.
+    await send('다시')
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(2))
+    expect(ask.mock.calls[1][0].sessionId).toBeUndefined()
+  })
+
+  it('지우기가 실패하면 대화를 **그대로 두고** 알린다', async () => {
+    const forget = vi.fn<NonNullable<AssistantProvider['forget']>>(async () => {
+      throw new AssistantError('대화를 지우지 못했습니다.')
+    })
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ANSWER)
+    render(<AssistantOverlay provider={{ ask, forget }} />)
+    open()
+    await send('등급 알려줘')
+    await screen.findByText(ANSWER.answer)
+
+    fireEvent.click(screen.getByRole('button', { name: '대화 지우기' }))
+    expect(await screen.findByText('대화를 지우지 못했습니다.')).toBeTruthy()
+    expect(screen.getByText(ANSWER.answer)).toBeTruthy()
+    expect(recallSession()).toBe(ANSWER.sessionId)
+  })
+
+  it('복원한 답에도 마크다운 기호 걷기가 걸린다 (`#2064`)', async () => {
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => ({
+      ...RESTORED,
+      turns: [
+        { role: 'user', text: '**내가 친 별표**' },
+        { role: 'assistant', text: '기준 CII의 **1.0600배** 초과입니다' },
+      ],
+    }))
+    render(<AssistantOverlay provider={{ ask: vi.fn(), history }} />)
+    open()
+
+    expect(await screen.findByText('기준 CII의 1.0600배 초과입니다')).toBeTruthy()
+    expect(screen.getByText('**내가 친 별표**')).toBeTruthy()
+  })
+
+  it('둘러보기 계정은 조회하지 않는다 — 서버가 404로 막는 길을 부르지 않는다', () => {
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => RESTORED)
+    render(<AssistantOverlay provider={{ ask: vi.fn(), history }} tour />)
+    open()
+    expect(history).not.toHaveBeenCalled()
+  })
+})
+
+describe('차단 중에는 복원하지 않고, 풀리면 같은 탭의 대화가 돌아온다 (#1981 · #2289)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('런처가 숨은 동안 조회도 없고 기억도 남는다 — 풀린 뒤 열면 그 대화가 복원된다', async () => {
+    forgetSession()
+    rememberSession('session-9')
+    vi.useFakeTimers()
+    let available = false
+    const status = vi.fn(async () => ({ available }))
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => ({
+      sessionId: 'session-9',
+      disclaimer: '복원된 답의 면책',
+      turns: [
+        { role: 'user', text: '전에 물은 것' },
+        { role: 'assistant', text: '전의 답' },
+      ],
+    }))
+    render(<AssistantOverlay provider={{ ask: vi.fn(), status, history }} />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    // 차단 — 런처가 없으니 패널을 열 수 없고, 조회도 일어나지 않았다. 기억은 그대로다.
+    expect(screen.queryByRole('button', { name: /AI 어시스턴트 열기/ })).toBeNull()
+    expect(history).not.toHaveBeenCalled()
+    expect(recallSession()).toBe('session-9')
+
+    available = true
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STATUS_RECHECK_MS)
+    })
+    open()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(history).toHaveBeenCalledWith('session-9')
+    expect(screen.getByText('전의 답')).toBeTruthy()
   })
 })

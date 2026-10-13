@@ -1917,6 +1917,11 @@ ROUTE_COVERAGE: dict[str, str] = {
     # `API_SPEC §15.7` (#1535) — 값이 **서버 환경변수**(`LLM_API_KEY`)에 달려 데모 시드로는
     # 고정할 수 없다. 그 파일이 401·`{"available": false}`·`{"available": true}`와 키 비노출을 본다.
     "GET /chat/status": "tests/test_chat_api_db.py::test_status_needs_login_and_answers_a_boolean",
+    # `API_SPEC §15.8` (#1981) — 응답이 **그 대화에 쌓인 질문·답**이라 데모 시드로는 볼 수
+    # 없다. 그 파일이 `FakeProvider`로 세 턴을 쌓고 `data` 키 셋과 항목 키 넷을 통째로 단언한다.
+    "GET /chat/sessions/{}/messages": (
+        "tests/test_chat_api_db.py::test_a_conversation_is_restored_as_the_screen_drew_it"
+    ),
     # 조회 계약과 같은 모양 — 새 계약을 쓰지 않고 조회 계약과 대조한다
     "POST /vessels": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
     "PATCH /vessels/{}": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
