@@ -53,4 +53,19 @@ describe('이용약관 · 개인정보처리방침', () => {
     const text = document.body.textContent ?? ''
     for (const kept of ['선박명', 'IMO 번호', '항구', '연료량']) expect(text).toContain(kept)
   })
+
+  it('처리방침의 쿠키 서술은 서버가 거는 쿠키 둘을 모두 적는다 (#2424)', () => {
+    // 서버는 로그인할 때 세션 쿠키와 CSRF 쿠키를 건다(`api/routes/auth.py` `_attach_session_cookies`).
+    // CSRF 쿠키는 HttpOnly가 아니므로 「쿠키 하나 · 스크립트가 읽을 수 없다」로 뭉뚱그리면 거짓이 된다.
+    renderAt('privacy')
+    const section = screen.getByRole('heading', { level: 2, name: /쿠키/ }).closest('section')
+    const text = section?.textContent ?? ''
+    expect(text).toContain('세션 쿠키')
+    expect(text).toContain('CSRF 쿠키')
+    expect(text).not.toContain('쿠키 하나')
+    // 1항 표의 「이용하는 동안」 칸도 같은 둘을 적는다.
+    const row = screen.getByRole('rowheader', { name: '이용하는 동안' }).closest('tr')
+    expect(row?.textContent).toContain('세션 쿠키')
+    expect(row?.textContent).toContain('CSRF')
+  })
 })
