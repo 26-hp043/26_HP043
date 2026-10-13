@@ -38,10 +38,14 @@ export interface CalculationRow {
   needsRecalc: boolean
   /**
    * 기상 보정을 적용하는 계산(`SCENARIO`)의 기상 블록 (`API_SPEC §1.9` `weather` · `#2135`).
-   * `null`이면 기상을 적용하지 않는 종류라 화면이 기상 줄을 내지 않는다. 객체의 `fetchedAt`이
-   * `null`이면 보정에 쓴 기상이 없다(보정 없이 계산).
+   * `null`이면 기상을 적용하지 않는 종류라 화면이 기상 줄을 내지 않는다.
+   *
+   * ⚠️ **`fetchedAt`이 `null`이라고 「보정 없이 계산」이 아니다** (#2461). 스냅샷 행을 찾지
+   * 못했거나 `#904` 이전 계산이면 보정했어도 시각이 없다(`API_SPEC §1.9`). 보정하지 않았다는
+   * 것은 `notApplied`가 말한다 — 실제로 쓴 모델이 `NONE`이거나 `WEATHER_NONE_FALLBACK`
+   * 경고가 있을 때만 `true`다.
    */
-  weather: { fetchedAt: string | null } | null
+  weather: { fetchedAt: string | null; notApplied: boolean } | null
 }
 
 interface CalculationPage {
@@ -65,9 +69,13 @@ interface ServerRun {
   voyage_id: string | null
   result_summary?: { attained_cii?: string; estimated_rating?: string }
   needs_recalc: boolean
-  weather?: { fetched_at?: string | null } | null
+  weather?: { fetched_at?: string | null; model_used?: string | null; warnings?: string[] | null } | null
   created_at: string
 }
+
+/** 보정 없이 계산했음을 말하는 두 값 — 실제 모델 코드와 경고 코드 (`API_SPEC §1.9` · `§1.6`). */
+const WEATHER_MODEL_NONE = 'NONE'
+const WEATHER_NONE_FALLBACK = 'WEATHER_NONE_FALLBACK'
 
 /** 서버 행 → 화면 행. 요약은 기능① 계산만 싣는다(`API_SPEC §1.9` `result_summary`). */
 export function toCalculationRow(raw: ServerRun): CalculationRow {
@@ -84,7 +92,12 @@ export function toCalculationRow(raw: ServerRun): CalculationRow {
     weather:
       raw.weather === null || raw.weather === undefined
         ? null
-        : { fetchedAt: typeof raw.weather.fetched_at === 'string' ? raw.weather.fetched_at : null },
+        : {
+            fetchedAt: typeof raw.weather.fetched_at === 'string' ? raw.weather.fetched_at : null,
+            notApplied:
+              raw.weather.model_used === WEATHER_MODEL_NONE ||
+              (Array.isArray(raw.weather.warnings) && raw.weather.warnings.includes(WEATHER_NONE_FALLBACK)),
+          },
   }
 }
 

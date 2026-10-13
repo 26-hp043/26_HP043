@@ -26,3 +26,13 @@ export function weatherAsOfText(fetchedAt: string | null | undefined): string | 
   const time = formatTimestamp(fetchedAt)
   return time === null ? null : `${WEATHER_AS_OF_LABEL}: ${time}`
 }
+
+/**
+ * 계산 이력 한 행의 기상 줄 (#2461). 보정하지 않은 계산에만 「기상 보정 없이 계산했습니다.」를
+ * 적는다 — 받은 시각이 없다는 것만으로는 적지 않는다. 보정했지만 시각을 모르는 행
+ * (스냅샷 행을 찾지 못했거나 `#904` 이전 계산 · `API_SPEC §1.9`)은 줄을 통째로 뺀다(`null`).
+ */
+export function historyWeatherText(weather: { fetchedAt: string | null; notApplied: boolean }): string | null {
+  if (weather.notApplied) return WEATHER_NOT_APPLIED_TEXT
+  return weather.fetchedAt === null ? null : weatherAsOfText(weather.fetchedAt)
+}
