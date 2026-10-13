@@ -20,7 +20,7 @@
  *
  * ## 폭은 이 파일이 정하지 않는다
  *
- * `ANNUAL_GRADE`가 `width: 'wide'`라 셸이 최대 폭을 건다(§7.1 폭 정책 표).
+ * 셸의 본문 열 하나(최대 1920)가 폭을 건다(`DESIGN_SYSTEM §7.1`). 화면별 폭 설정은 없다.
  */
 .annual-sim {
   display: grid;
