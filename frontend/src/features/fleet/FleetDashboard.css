@@ -244,9 +244,10 @@
  */
 .kpi__states {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: center;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-xs) var(--spacing-xl);
   margin: 0;
 }
 
@@ -267,6 +268,12 @@
 .kpi__state-label {
   font-size: var(--font-size-label);
   color: var(--text-secondary);
+  /*
+   * 「운항 중」·「정박 중」은 한 덩어리로 읽는 말이다 (#2433). 카드가 좁은 1000~1440 폭에서
+   * 「운항 / 중」으로 꺾여 숫자 옆에 두 줄이 섰다. 자리가 모자라면 낱말이 아니라 쌍이 넘어간다
+   * (`.kpi__states`의 `flex-wrap`).
+   */
+  white-space: nowrap;
 }
 
 .kpi__foot {
