@@ -2,10 +2,11 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { AuthShell } from './AuthShell'
+import { AuthField, AuthShell } from './AuthShell'
 import { SCREEN_BY_ID } from '../../screens'
 
 /*
@@ -217,5 +218,63 @@ describe('첫 화면 — 제품 화면 예시와 약관 링크', () => {
     const nav = screen.getByRole('navigation', { name: '약관 문서' })
     const hrefs = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('href'))
     expect(hrefs).toEqual([SCREEN_BY_ID.TERMS.path, SCREEN_BY_ID.PRIVACY.path])
+  })
+})
+
+describe('비밀번호 보기 단추 (#2323)', () => {
+  function Password({ revealable }: { revealable: boolean }) {
+    const [value, setValue] = useState('s3cret-pw')
+    return (
+      <AuthField
+        id="pw"
+        label="비밀번호"
+        type="password"
+        value={value}
+        onChange={setValue}
+        autoComplete="current-password"
+        revealable={revealable}
+      />
+    )
+  }
+  const input = () => document.getElementById('pw') as HTMLInputElement
+  const toggle = () => screen.getByRole('button') as HTMLButtonElement
+
+  it('누를 때마다 보이기와 숨기기가 바뀐다 — 값은 그대로다', () => {
+    render(<Password revealable />)
+    expect(input().type).toBe('password')
+
+    fireEvent.click(toggle())
+    expect(input().type).toBe('text')
+    expect(input().value).toBe('s3cret-pw')
+
+    fireEvent.click(toggle())
+    expect(input().type).toBe('password')
+    expect(input().value).toBe('s3cret-pw')
+  })
+
+  it('상태는 aria-pressed 하나가 나른다 — 이름은 바뀌지 않는다', () => {
+    /*
+     * 이름까지 바꾸면 낭독이 상태를 두 번 말한다(「비밀번호 숨기기, 눌림」). 이름이 고정이고
+     * 눌림만 바뀌는지를 본다 — 문구 자체는 단언하지 않는다(`AGENTS §4.6` 표시 문구).
+     */
+    render(<Password revealable />)
+    const before = toggle().getAttribute('aria-label')
+    expect(before).toBeTruthy()
+    expect(toggle().getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(toggle())
+    expect(toggle().getAttribute('aria-pressed')).toBe('true')
+    expect(toggle().getAttribute('aria-label')).toBe(before)
+  })
+
+  it('폼을 제출하지 않는다 — type이 button이다', () => {
+    render(<Password revealable />)
+    expect(toggle().type).toBe('button')
+  })
+
+  it('켜지 않은 칸에는 단추가 없다', () => {
+    render(<Password revealable={false} />)
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(input().type).toBe('password')
   })
 })
