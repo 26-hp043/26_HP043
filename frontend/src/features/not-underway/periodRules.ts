@@ -8,6 +8,9 @@ import {
   toKstInput,
 } from '../../display/format'
 import { fuelTypeText } from '../parameters/fuelTypes'
+import { storableRange } from '../vessel-registration/formRules'
+import { inRange, outOfRange } from '../voyage-cii/formRules'
+import { STORED_YEAR_MAX, STORED_YEAR_MIN } from '../voyage-management/voyageRules'
 import type { FuelUse, FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
@@ -166,6 +169,31 @@ export function fuelUseDeleteCaution(fuelUse: FuelUse): DeleteCaution {
   }
 }
 
+/**
+ * 정박 구간의 저장 범위 — 서버 `validation/bounds.py`의 `NOT_UNDERWAY_FUEL`(0.01 ~
+ * 9,999,999,999.99)·`NOT_UNDERWAY_DISTANCE`(0 ~ 9,999,999,999.99)와 같다 (#2457). 거리는
+ * 0을 허용한다(접안·묘박). `serverBounds.sync.test.ts`가 서버 값과 대조한다.
+ */
+export const NOT_UNDERWAY_FUEL_RANGE = storableRange(12, 2)
+export const NOT_UNDERWAY_DISTANCE_RANGE = { min: 0, max: storableRange(12, 2).max }
+
+const FUEL_RANGE_MESSAGE = outOfRange('연료량은', NOT_UNDERWAY_FUEL_RANGE, 2)
+
+/**
+ * 시작 시각(KST 입력값)이 **서버가 채울 연도**의 저장 범위에 드는가 (#2457). 화면은
+ * `regulation_year`를 보내지 않아 서버가 `started_at`의 **UTC 연도**로 채우고 그 해가
+ * 2019~2050이어야 한다(`services/not_underway.py`의 `require_storable_year`). 서버로 보내는
+ * 값(`toIso`)과 같은 순간의 UTC 해를 본다 — KST 연초 새벽은 UTC로 전년도다.
+ * 읽을 수 없는 시각은 여기서 판정하지 않는다(null).
+ */
+function startedYearError(startedAt: string): string | null {
+  const iso = kstInputToIso(startedAt)
+  if (iso === null) return null
+  const year = new Date(iso).getUTCFullYear()
+  if (year >= STORED_YEAR_MIN && year <= STORED_YEAR_MAX) return null
+  return `시작 시각의 연도는 ${STORED_YEAR_MIN}~${STORED_YEAR_MAX} 범위여야 합니다.`
+}
+
 export interface DraftErrors {
   startedAt?: string
   endedAt?: string
@@ -185,6 +213,9 @@ export function validateDraft(draft: PeriodDraft): DraftErrors {
 
   if (!draft.startedAt) {
     errors.startedAt = '시작 시각을 입력해 주세요.'
+  } else {
+    const yearError = startedYearError(draft.startedAt)
+    if (yearError !== null) errors.startedAt = yearError
   }
   if (draft.endedAt && draft.startedAt && draft.endedAt <= draft.startedAt) {
     errors.endedAt = '종료 시각은 시작 시각보다 뒤여야 합니다.'
@@ -198,6 +229,8 @@ export function validateDraft(draft: PeriodDraft): DraftErrors {
     // 폼은 칸을 잠가 이 갈래에 닿지 않게 한다. 그래도 두는 것은 **판정이 서버와 같은
     // 함수 모양**이어야 하기 때문이다 — 잠금이 풀리는 날 서버 422를 받기 전에 여기서 말한다.
     errors.distanceNm = STATIONARY_DISTANCE_MESSAGE
+  } else if (!inRange(distance, NOT_UNDERWAY_DISTANCE_RANGE)) {
+    errors.distanceNm = outOfRange('이동 거리는', NOT_UNDERWAY_DISTANCE_RANGE, 2)
   }
 
   for (const fu of draft.fuelUses) {
@@ -205,6 +238,10 @@ export function validateDraft(draft: PeriodDraft): DraftErrors {
     if (fu.fuelTon === '' || Number.isNaN(ton) || ton <= 0) {
       // 0톤 기록은 「안 썼다」가 아니라 오타다 — 안 썼으면 줄을 지우면 된다.
       errors.fuelUses = '연료량은 0보다 커야 합니다. 사용하지 않았다면 줄을 지워 주세요.'
+      break
+    }
+    if (!inRange(ton, NOT_UNDERWAY_FUEL_RANGE)) {
+      errors.fuelUses = FUEL_RANGE_MESSAGE
       break
     }
   }
@@ -246,6 +283,7 @@ export function validateFuelDraft(draft: FuelUseDraft): string | null {
     // 0톤 기록은 「안 썼다」가 아니라 오타다 — 안 썼으면 줄을 넣지 않으면 된다.
     return '연료량은 0보다 커야 합니다. 사용하지 않았다면 줄을 지워 주세요.'
   }
+  if (!inRange(ton, NOT_UNDERWAY_FUEL_RANGE)) return FUEL_RANGE_MESSAGE
   return null
 }
 

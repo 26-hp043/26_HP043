@@ -332,3 +332,36 @@ describe('삭제 확인 줄 문구 (#2130 · 전수검수 D-11)', () => {
     expect(caution.message).not.toBe(fuelUseDeleteCaution(PERIOD.fuelUses[0]).message)
   })
 })
+
+describe('저장 범위 경계 (#2457)', () => {
+  it.each([
+    ['0.005', true],
+    ['0.01', false],
+    ['9999999999.99', false],
+    ['10000000000', true],
+  ] as const)('연료 %s — 거절 %s (생성 폼 · 연료 줄 추가 모두)', (value, rejected) => {
+    const row = { consumerType: 'OIL_FIRED_BOILER', fuelType: 'HFO', fuelTon: value }
+    expect(validateDraft({ ...DRAFT, fuelUses: [row] }).fuelUses !== undefined).toBe(rejected)
+    expect(validateFuelDraft(row) !== null).toBe(rejected)
+  })
+
+  it.each([
+    ['-0.01', true],
+    ['0', false],
+    ['9999999999.99', false],
+    ['10000000000', true],
+  ] as const)('거리 %s — 거절 %s (0은 허용한다)', (value, rejected) => {
+    const errors = validateDraft({ ...DRAFT, periodType: 'DRIFTING', distanceNm: value })
+    expect(errors.distanceNm !== undefined).toBe(rejected)
+  })
+
+  it('시작 시각은 서버로 보내는 순간의 UTC 해로 본다 — KST 2051-01-01 03:00은 UTC 2050이라 통과한다', () => {
+    expect(validateDraft({ ...DRAFT, startedAt: '2051-01-01T03:00', endedAt: null }).startedAt).toBeUndefined()
+    expect(validateDraft({ ...DRAFT, startedAt: '2051-01-01T09:00', endedAt: null }).startedAt).toBeDefined()
+  })
+
+  it('시작 시각 — KST 2019-01-01 03:00은 UTC 2018이라 막힌다', () => {
+    expect(validateDraft({ ...DRAFT, startedAt: '2019-01-01T03:00', endedAt: null }).startedAt).toBeDefined()
+    expect(validateDraft({ ...DRAFT, startedAt: '2019-01-01T09:00', endedAt: null }).startedAt).toBeUndefined()
+  })
+})

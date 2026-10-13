@@ -8,6 +8,7 @@ import type {
 import { kstInputToIso, toKstInput } from '../../display/format'
 import { readNumberInput } from '../../display/numberInput'
 import { MAX_SPEED_KN } from '../vessel-registration/formRules'
+import { DISTANCE_RANGE, FUEL_RANGE, inRange, outOfRange } from '../voyage-cii/formRules'
 
 /**
  * 항차 상태·전환·실적 입력 규칙 — `API_SPEC §3.5`·`§3.6` (`#610`).
@@ -169,12 +170,35 @@ export function regulationYearEdit(
  * 기준연도 한 칸의 입력 검증. 빈 칸은 오류다(이 경로는 값을 **넣는** 일뿐이다).
  * 형식 문구는 `validateDraft`와 같은 것을 쓴다.
  */
+/**
+ * 항차가 **저장하는** 기준연도의 범위 — 서버 `validation/bounds.py`의 `STORED_REGULATION_YEAR`
+ * (2019~2050 · DB CHECK)와 같다 (#2457). 내보내기의 조회 범위(`EXPORT_YEAR_MAX` 2100)와
+ * 다른 범위이니 섞지 않는다. `serverBounds.sync.test.ts`가 서버 값과 대조한다.
+ */
+export const STORED_YEAR_MIN = 2019
+export const STORED_YEAR_MAX = 2050
+
+/**
+ * 기준연도 문자열의 검사 — 형식 오류와 범위 밖의 문구를 가른다 (#2457). 네 자리로 넣은 2051에
+ * 「네 자리」라고 하면 틀린 안내이기 때문이다(`exportRules.validateExport`와 같은 방식).
+ */
+function regulationYearError(raw: string): string | null {
+  const year = readNumber(raw)
+  if (year === null) return null
+  if (Number.isNaN(year) || !Number.isInteger(year) || !/^\d{4}$/.test(raw.trim())) {
+    return '기준연도는 연도 네 자리입니다.'
+  }
+  if (year < STORED_YEAR_MIN || year > STORED_YEAR_MAX) {
+    return `기준연도는 ${STORED_YEAR_MIN}~${STORED_YEAR_MAX} 범위로 입력해 주세요.`
+  }
+  return null
+}
+
 export function validateRegulationYearInput(raw: string): { year: number | null; error?: string } {
   const year = readNumber(raw)
   if (year === null) return { year: null, error: '기준연도를 입력해 주세요.' }
-  if (Number.isNaN(year) || !Number.isInteger(year)) {
-    return { year: null, error: '기준연도는 연도 네 자리입니다.' }
-  }
+  const error = regulationYearError(raw)
+  if (error !== null) return { year: null, error }
   return { year }
 }
 
@@ -403,6 +427,10 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
   // 「못 읽었다」와 「범위 밖이다」는 고칠 것이 달라 문구를 가른다 (#2124).
   else if (Number.isNaN(distance)) errors.plannedDistanceNm = '계획 거리를 숫자로 입력해 주세요.'
   else if (distance <= 0) errors.plannedDistanceNm = '계획 거리는 0보다 커야 합니다.'
+  // 서버 저장 범위와 같다 — 하한·상한 모두 (#2457)
+  else if (!inRange(distance, DISTANCE_RANGE)) {
+    errors.plannedDistanceNm = outOfRange('계획 거리는', DISTANCE_RANGE, 2)
+  }
 
   const speed = readNumber(draft.plannedSpeedKn)
   if (speed === null) errors.plannedSpeedKn = '계획 속력을 입력해 주세요.'
@@ -432,6 +460,9 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
     if (fuel === null) errors[`plannedFuelTon.${index}`] = '계획 연료를 입력해 주세요.'
     else if (Number.isNaN(fuel)) errors[`plannedFuelTon.${index}`] = '계획 연료를 숫자로 입력해 주세요.'
     else if (fuel <= 0) errors[`plannedFuelTon.${index}`] = '계획 연료는 0보다 커야 합니다.'
+    else if (!inRange(fuel, FUEL_RANGE)) {
+      errors[`plannedFuelTon.${index}`] = outOfRange('계획 연료는', FUEL_RANGE, 4)
+    }
     if (fu.fuelType.trim() === '') {
       errors[`fuelType.${index}`] = '연료 종류를 선택해 주세요.'
     }
@@ -453,10 +484,8 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
     seen.set(code, index)
   })
 
-  const year = readNumber(draft.regulationYear)
-  if (year !== null && (Number.isNaN(year) || !Number.isInteger(year))) {
-    errors.regulationYear = '기준연도는 연도 네 자리입니다.'
-  }
+  const yearError = regulationYearError(draft.regulationYear)
+  if (yearError !== null) errors.regulationYear = yearError
 
   /*
    * 시각 두 칸은 **필수가 아니다** (`#873`). `API_SPEC §3.3`이 optional로 규정하고,
@@ -491,6 +520,8 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
     errors.actualDistanceNm = '실제 거리를 숫자로 입력해 주세요.'
   } else if (distance !== null && distance <= 0) {
     errors.actualDistanceNm = '실제 거리는 0보다 커야 합니다.'
+  } else if (distance !== null && !inRange(distance, DISTANCE_RANGE)) {
+    errors.actualDistanceNm = outOfRange('실제 거리는', DISTANCE_RANGE, 2)
   }
 
   const speed = readNumber(draft.actualAvgSpeedKn)
@@ -509,6 +540,8 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
       errors[`actualFuelTon.${fuelType}`] = '실적 연료를 숫자로 입력해 주세요.'
     } else if (ton !== null && ton <= 0) {
       errors[`actualFuelTon.${fuelType}`] = '실적 연료는 0보다 커야 합니다.'
+    } else if (ton !== null && !inRange(ton, FUEL_RANGE)) {
+      errors[`actualFuelTon.${fuelType}`] = outOfRange('실적 연료는', FUEL_RANGE, 4)
     }
   }
 
