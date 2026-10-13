@@ -7,6 +7,7 @@ import type { MapRenderer, MapRendererEvent } from './renderer'
 import { routeStyle } from './routeStyles'
 import { mergePortMarkers, portLabelPlacement, portMarkerElement, type PortMarkerModel } from './portMarkers'
 import './MapMarkers.css'
+import './mapControls.css'
 import { ensureMapLibreWorker } from './mapLibreWorker'
 import { mapQualityPolicy, type MapQualityTier } from './quality'
 import {

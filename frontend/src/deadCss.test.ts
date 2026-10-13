@@ -33,6 +33,9 @@ const KEPT: Readonly<Record<string, string>> = {
   // 폭 전환 규칙으로 남겨 둔 것이고, 그 사실을 `AppShell.tsx` 머리 주석이 적는다.
   // (아래 값의 「MVP 범위 밖」은 `#1885` 이전 문구다 — 접힘 자체는 이제 범위 안이다.)
   'app-shell--collapsed': 'AppShell.tsx:40-42 — MVP 범위 밖, 준비된 자리',
+  // MapLibre가 확대·축소·나침반 버튼 안에 넣는 그림의 클래스다. 우리 마크업에는 없고
+  // 라이브러리가 만든 DOM에만 있다 — 다크에서 그 그림을 뒤집는 규칙이 이 이름을 쓴다(#2430).
+  'maplibregl-ctrl-icon': 'mapControls.css — MapLibre가 만든 DOM의 클래스(우리 마크업에 없다)',
 }
 
 /** 블록·줄 주석을 걷어낸다. 문자열 안의 `//`까지 지우지만, 여기서는 이름만 세므로 무해하다. */
