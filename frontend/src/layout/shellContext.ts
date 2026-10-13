@@ -29,6 +29,16 @@ export interface ShellContext {
   vesselId: string | null
   /** 지금 선택된 항차. 선박이 없으면 항상 `null`. */
   voyageId: string | null
+  /**
+   * 지금 선택된 항차가 **셸이 받아 온 그 선박의 항차 목록에 있을 때만** 그 id (`#2217`).
+   * 목록을 아직 못 받았거나, 받지 못했거나, 목록에 없는 id면 `null`이다.
+   *
+   * `voyageId`는 주소·기억에서 온 값을 그대로 들고 있어 **낡았을 수 있다** — 지워진 항차,
+   * 선박과 항차가 엇갈려 든 링크, 형식이 깨진 id. 그때 상단 선택기는 「항차 선택 안 함」으로
+   * 보인다. 그 값을 요청에 실으면 서버가 404·422로 거부하고, 사용자는 고른 적 없는 항차
+   * 때문에 실패한 것을 알 길이 없다. **서버에 항차를 실어 보내는 화면은 이 값을 쓴다.**
+   */
+  listedVoyageId: string | null
   /** 셸이 조회한 선박 목록. 아직 안 왔거나 실패했으면 빈 배열. */
   vessels: readonly VesselOption[]
   /**
@@ -77,6 +87,7 @@ export function useShellContext(): ShellContext {
 export const EMPTY_SHELL_CONTEXT: ShellContext = {
   vesselId: null,
   voyageId: null,
+  listedVoyageId: null,
   vessels: [],
   vesselsState: 'loading',
   selectVesselId: () => {},

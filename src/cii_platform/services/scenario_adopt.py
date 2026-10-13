@@ -35,6 +35,19 @@
 `API_SPEC §5.2`가 「채택 시 해당 Voyage의 계산 결과는 무효화되고 재계산 필요 표시가
 설정된다(`PRD §8.4`)」고 규정한다. 표시는 `calculation_run.needs_recalc`이며
 false→true 플립만 허용된다(마이그레이션 024 가드).
+
+**그 항차의 시나리오 비교 이력은 표시하지 않는다** (`#2217` · 2026-10-08 결정 2). 채택은
+비교 결과를 계획으로 옮기는 조작이라, 비교는 새 계획의 근거이지 낡아진 결과가 아니다.
+항차 CII 추정처럼 옛 계획값으로 계산한 이력은 종전대로 표시한다. 계획값을 직접 고치는
+`PATCH /voyages/{id}`는 비교 이력에도 표시한다 — 그때는 비교의 전제가 바뀐 것이다.
+
+## 항차를 두고 한 비교는 그 항차에만 반영한다
+
+비교 요청이 대상 항차를 밝혀 계산 이력이 그 항차에 붙었으면(`API_SPEC §5.1`
+`data.voyage_id`), 그 비교의 시나리오는 **그 항차에만** 채택할 수 있다 (`#2217` ·
+2026-10-08 결정 3). 다른 항차에 반영되면 한 비교가 두 항차의 리포트에 — 한쪽에는 「가장
+최근 비교」로, 다른 쪽에는 「채택한 비교」로 — 실린다. 붙지 않은 비교는 종전대로 그 선박의
+계획 단계 항차 어디에나 채택할 수 있다.
 """
 
 from __future__ import annotations
@@ -116,6 +129,19 @@ def _arrival_at(voyage, scenario) -> datetime | None:
     return voyage.planned_departure_at + timedelta(hours=float(scenario.duration_hours))
 
 
+async def _compared_voyage_id(session: AsyncSession, scenario: VoyageScenario) -> UUID | None:
+    """이 시나리오를 만든 비교가 **두고 한 항차** (`#2217`). 붙지 않았으면 ``None``.
+
+    시나리오 행에는 그 값이 없다 — 행의 ``voyage_id``는 채택이 적는 값이다. 비교의 계산
+    이력(``calculation_run.voyage_id``)에서 읽는다. 이력이 없는 행(저장하지 않는 경로가 남긴
+    것 · `#2088` 이전)은 붙은 항차도 없다.
+    """
+    run = await calc_run_repo.find_scenario_run(
+        session, vessel_id=scenario.vessel_id, scenario_id=scenario.id
+    )
+    return None if run is None else run.voyage_id
+
+
 async def _clear_previous_adoption(session: AsyncSession, voyage_id: UUID) -> None:
     """그 항차의 이전 채택을 내린다 (모듈 docstring 참조)."""
     await session.execute(
@@ -170,6 +196,24 @@ async def adopt_scenario(
         # 다른 배의 시나리오를 반영하면 그 계획은 이 배의 제원으로 계산된 것이 아니다.
         raise ValidationError(
             "시나리오와 항차의 선박이 다릅니다.",
+            field="target_voyage_id",
+            field_label="대상 항차",
+        )
+
+    # 항차를 두고 한 비교는 그 항차에만 반영한다 (`#2217` · 모듈 docstring). 계획값을 바꾸기
+    # **전에** 본다. `CREATE_NEW_VOYAGE`는 채택이 새 항차에 이어지므로 붙은 비교로는 늘
+    # 어긋난다 — 원본이 그 항차여도 받지 않는다.
+    compared_voyage_id = await _compared_voyage_id(session, scenario)
+    if compared_voyage_id is not None and adopt_mode == MODE_CREATE:
+        # 원본이 비교한 그 항차여도 받지 않는다 — 「다른 항차」라고 말하면 거짓이라 문구를 가른다.
+        raise ValidationError(
+            "항차를 두고 한 비교로는 새 항차를 만들 수 없습니다. 비교한 항차에 반영해 주세요.",
+            field="target_voyage_id",
+            field_label="대상 항차",
+        )
+    if compared_voyage_id is not None and compared_voyage_id != target.id:
+        raise ValidationError(
+            "이 비교는 다른 항차를 두고 한 것입니다. 비교한 항차에만 반영할 수 있습니다.",
             field="target_voyage_id",
             field_label="대상 항차",
         )
@@ -236,7 +280,11 @@ async def adopt_scenario(
     scenario.voyage_id = voyage_id
 
     # `API_SPEC §5.2` — 계획이 바뀌었으므로 그 항차의 계산 결과는 더 이상 현행이 아니다.
-    marked = await voyage_repo.mark_calculations_needing_recalc(session, voyage_id)
+    # 시나리오 비교 이력은 뺀다 (`#2217` · 모듈 docstring) — 채택한 비교도, 채택 전에 견줘 본
+    # 비교도 새 계획의 근거다.
+    marked = await voyage_repo.mark_calculations_needing_recalc(
+        session, voyage_id, include_scenario_runs=False
+    )
     # 응답의 invalidated_calculation_runs는 기존 항차 귀속 계산 건수다 (#2304).
     if annual_input_changed:
         await calc_run_repo.mark_annual_needs_recalc(session, scenario.vessel_id)

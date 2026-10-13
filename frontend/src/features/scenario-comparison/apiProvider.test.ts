@@ -469,3 +469,21 @@ describe('실행 id (#1533)', () => {
     expect('calculation_run_id' in result).toBe(false)
   })
 })
+
+describe('비교가 붙은 항차 (#2217)', () => {
+  const withVoyage = (voyageId: unknown) => ({ ...OK_BODY, data: { ...OK_BODY.data, voyage_id: voyageId } })
+
+  it('data.voyage_id를 넘긴다 — 화면이 채택 대상을 그 항차로 좁힌다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(withVoyage('v-1')))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.voyage_id).toBe('v-1')
+  })
+
+  it('null이거나 키가 없으면 「붙지 않았다」다', async () => {
+    for (const body of [withVoyage(null), OK_BODY]) {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+      const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+      expect(result.voyage_id).toBeNull()
+    }
+  })
+})

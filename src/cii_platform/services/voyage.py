@@ -689,7 +689,9 @@ async def update_voyage(
         await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
     if changed_plan_fields:
         # `PRD §8.4` — 항차 계획 변경 → 해당 항차 계산 결과 무효화 후 재계산.
-        # 요청이 항차를 밝힌 기능①·②의 기존 범위는 유지한다 (#817).
+        # 요청이 항차를 밝힌 계산(`#817`)이 대상이고, **그 항차를 두고 한 시나리오 비교도
+        # 든다**(`#2217`) — 계획값을 손으로 고치면 비교의 전제가 바뀐 것이다. 시나리오
+        # 채택은 다르다: 비교 이력을 빼고 표시한다(`services/scenario_adopt.py`).
         await voyage_repo.mark_calculations_needing_recalc(session, voyage.id)
 
     await session.commit()

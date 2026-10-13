@@ -280,10 +280,15 @@ export function AppShell() {
    * `createContext`를 쓰지 않고 `Outlet context`를 쓴다 — 라우터가 이미 부모·자식
    * 관계를 알고 있고, 이 값이 필요한 화면은 전부 이 셸의 라우트 자식이다.
    */
+  // 목록에 있는 항차 선택만 따로 내린다 (`#2217` · `ShellContext.listedVoyageId`).
+  const listedVoyageId = voyages.some((option) => option.id === context.voyageId)
+    ? context.voyageId
+    : null
   const outletContext: ShellContext = useMemo(
     () => ({
       vesselId: context.vesselId,
       voyageId: context.voyageId,
+      listedVoyageId,
       vessels,
       vesselsState,
       selectVesselId: (vesselId: string | null) =>
@@ -294,7 +299,7 @@ export function AppShell() {
     }),
     // `selectVesselId`·`selectVoyageId`는 ref를 거쳐 최신 값을 읽으므로 여기 넣지 않는다. 넣으면
     // 매 렌더 새 객체가 되고, 이 값을 의존성에 둔 화면의 효과가 무한히 돈다.
-    [context.vesselId, context.voyageId, vessels, vesselsState, refreshVessels],
+    [context.vesselId, context.voyageId, listedVoyageId, vessels, vesselsState, refreshVessels],
   )
 
   return (

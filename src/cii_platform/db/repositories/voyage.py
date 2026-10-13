@@ -533,7 +533,9 @@ async def find_in_progress_for_vessels(
     return found
 
 
-async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUID) -> int:
+async def mark_calculations_needing_recalc(
+    session: AsyncSession, voyage_id: UUID, *, include_scenario_runs: bool = True
+) -> int:
     """이 항차의 계산 결과에 **재계산 필요 표시**를 남긴다 (`PRD §8.4`, #58).
 
     선박 단위 함수(``calculation_run.mark_needs_recalc``)와 나눠 두는 이유는 **범위가
@@ -543,17 +545,26 @@ async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUI
 
     ``needs_recalc = false``인 행만 갱신한다 — true→false 되돌림은 가드 트리거(024)가
     거부하고, 이미 표시된 행은 누적 전용이다.
+
+    ``include_scenario_runs=False``면 **시나리오 비교 이력(``SCENARIO``)을 빼고** 표시한다
+    (`#2217` · 2026-10-08 결정 2). 시나리오 채택이 쓴다 — 채택은 비교 결과를 계획으로 옮기는
+    조작이라 그 항차의 비교는 새 계획의 근거이지 낡아진 결과가 아니다. 표시는 지울 수 없으므로
+    「방금 채택한 한 건만」 빼면 앞서 돌린 비교로 되돌아가 채택할 때 채택된 비교에 표시가 남는다.
+    그래서 종류 전체를 뺀다. 계획값을 직접 고치는 경로(``services/voyage.update_voyage``)는
+    기본값(``True``)으로 부른다 — 그때는 비교의 전제가 바뀐 것이다.
     """
     from sqlalchemy import update
 
     from cii_platform.db.models.calculation_run import CalculationRun
+    from cii_platform.db.repositories.calculation_run import CALCULATION_TYPE_SCENARIO
 
+    conditions = [
+        CalculationRun.voyage_id == voyage_id,
+        CalculationRun.needs_recalc == 0,
+    ]
+    if not include_scenario_runs:
+        conditions.append(CalculationRun.calculation_type != CALCULATION_TYPE_SCENARIO)
     result = await session.execute(
-        update(CalculationRun)
-        .where(
-            CalculationRun.voyage_id == voyage_id,
-            CalculationRun.needs_recalc == 0,
-        )
-        .values(needs_recalc=True)
+        update(CalculationRun).where(*conditions).values(needs_recalc=True)
     )
     return result.rowcount or 0

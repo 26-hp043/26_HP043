@@ -345,3 +345,140 @@ async def test_옛_모양의_이력은_그_행만_내려가고_리포트는_산�
             async with sessionmaker() as s:
                 await _cleanup(s, vessel_id)
         await get_engine().dispose()
+
+
+async def test_비교만_하고_채택하지_않은_완료_항차도_3종과_실적을_싣는다(
+    migrated_db, app_fresh_engine
+):
+    """채택 없이 끝난 항차 (`#2217`) — 종전에는 비교를 했어도 절이 통째로 빠졌다.
+
+    비교 요청이 대상 항차(`voyage_id`)를 밝히면 계산 이력이 그 항차에 붙고, 리포트는 채택이
+    없을 때 그 이력을 인용한다. 같은 선박의 **항차를 밝히지 않은 비교**는 앞뒤에 있어도
+    끌려오지 않는다.
+    """
+    from cii_platform.db.session import get_engine, get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    vessel_id = None
+    try:
+        async with sessionmaker() as s:
+            vessel_id, voyage_id = await _seed(s)
+
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = {"X-CSRF-Token": client.cookies.get("csrf") or ""}
+
+            def compare(**extra):
+                response = client.post(
+                    "/api/v1/scenarios/compare",
+                    json={"vessel_id": vessel_id, **PAYLOAD, **extra},
+                    headers=headers,
+                )
+                assert response.status_code == 200, response.text
+                return response.json()["data"]
+
+            # 항차를 밝히지 않은 비교 — 응답이 「귀속 없음」을 값으로 말한다.
+            assert compare(direct_distance_nm=9000.0)["voyage_id"] is None
+            # 이 항차의 비교 — 응답이 귀속된 항차를 되돌려 준다.
+            compared = compare(voyage_id=voyage_id)
+            assert UUID(compared["voyage_id"]) == UUID(voyage_id)
+            scenarios = compared["scenarios"]
+            assert compare(direct_distance_nm=9500.0)["voyage_id"] is None
+
+            async with sessionmaker() as s:
+                await _complete(s, voyage_id)
+
+            html = client.get(f"/api/v1/voyages/{voyage_id}/report", params={"format": "html"})
+            csv_response = client.get(
+                f"/api/v1/voyages/{voyage_id}/report", params={"format": "csv"}
+            )
+            assert html.status_code == 200, html.text
+            assert csv_response.status_code == 200, csv_response.text
+            assert "시나리오 사후 비교" in html.text
+
+            rows = _table(csv_response.text)
+            assert len(rows) == 4, rows
+            # 3종 — 이 항차로 돌린 비교의 값이다(11,000 nm). 채택 표지는 어느 행에도 없다.
+            for row, scenario in zip(rows[:3], scenarios, strict=True):
+                assert row[0] == scenario["scenario_name"]
+                assert row[1] == _display(str(scenario["distance_nm"]), "distance_nm")
+                assert row[3] == _display(scenario["duration_hours"], "hours")
+                assert row[4] == _display(scenario["fuel_ton"], "fuel_ton")
+                assert row[5] == _display(scenario["attained_cii"], "cii")
+                assert row[6] == scenario["estimated_rating"]
+
+            # 실적 — 분모 용량은 인용한 비교가 쓴 값이다(채택한 항차와 같은 식).
+            actual = rows[3]
+            assert actual[1:5] == ["11,200", "13.2", "848.0", "1,180.5"]
+            assert actual[5] == _display(Decimal("3676077000") / Decimal("560000000"), "cii")
+            assert "50,000 DWT" in html.text
+    finally:
+        if vessel_id:
+            async with sessionmaker() as s:
+                await _cleanup(s, vessel_id)
+        await get_engine().dispose()
+
+
+async def test_착수한_항차로_돌린_비교는_귀속되지_않고_절은_생략된다(migrated_db, app_fresh_engine):
+    """「비교 이력」은 착수 전의 것이다 (`PRD §25.2.1`) — 끝난 항차를 골라 돌린 비교는 붙지 않는다.
+
+    요청을 거부하지는 않는다(비교 자체는 선박 단위로 성립한다). 대신 응답의 `voyage_id`가
+    `null`이라 **붙지 않았다는 것이 값으로 드러난다.** 없는 항차는 404, 다른 선박의 항차는
+    422다(기능①의 `voyage_id`와 같은 검사).
+    """
+    from cii_platform.db.session import get_engine, get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    vessel_id = None
+    other_vessel_id = None
+    try:
+        async with sessionmaker() as s:
+            vessel_id, voyage_id = await _seed(s)
+            await _complete(s, voyage_id)
+            other_vessel_id = await insert_returning_id(
+                s,
+                "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+                "reference_speed_kn, default_fuel_type) "
+                "VALUES (:imo, 'POSTMORTEM OTHER', 'BULK_CARRIER', 30000, 50000, 14.0, 'HFO') "
+                "RETURNING id",
+                {"imo": "7200591"},
+            )
+            await s.commit()
+
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = {"X-CSRF-Token": client.cookies.get("csrf") or ""}
+
+            late = client.post(
+                "/api/v1/scenarios/compare",
+                json={"vessel_id": vessel_id, **PAYLOAD, "voyage_id": voyage_id},
+                headers=headers,
+            )
+            assert late.status_code == 200, late.text
+            assert late.json()["data"]["voyage_id"] is None
+
+            html = client.get(f"/api/v1/voyages/{voyage_id}/report", params={"format": "html"})
+            assert html.status_code == 200, html.text
+            assert "시나리오 사후 비교" not in html.text
+
+            missing = client.post(
+                "/api/v1/scenarios/compare",
+                json={"vessel_id": vessel_id, **PAYLOAD, "voyage_id": str(uuid4())},
+                headers=headers,
+            )
+            assert missing.status_code == 404, missing.text
+
+            foreign = client.post(
+                "/api/v1/scenarios/compare",
+                json={"vessel_id": other_vessel_id, **PAYLOAD, "voyage_id": voyage_id},
+                headers=headers,
+            )
+            assert foreign.status_code == 422, foreign.text
+            assert foreign.json()["error"]["details"][0]["field"] == "voyage_id"
+    finally:
+        async with sessionmaker() as s:
+            if vessel_id:
+                await _cleanup(s, vessel_id)
+            if other_vessel_id:
+                await _cleanup(s, other_vessel_id)
+        await get_engine().dispose()

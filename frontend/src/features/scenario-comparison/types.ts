@@ -117,6 +117,13 @@ export interface ScenarioComparisonRequest {
    * 추가할 때 두 화면 중 하나만 따라간다. `§4.1`과 `§5.1`의 enum이 같은 집합이다.
    */
   weather_model?: WeatherModel
+  /**
+   * 이 비교가 **어느 항차를 두고 한 것인가** (`#2217` · `API_SPEC §5.1`). 상단바에 고른 항차다.
+   *
+   * 계획 단계 항차면 서버가 계산 이력을 그 항차에 붙이고, 채택 없이 끝난 항차의 리포트가 이
+   * 비교를 싣는다. 폼의 입력이 아니라 **화면의 문맥**이라 `toRequest`가 아니라 화면이 싣는다.
+   */
+  voyage_id?: string
 }
 
 /** 시나리오 비교 응답. */
@@ -141,6 +148,13 @@ export interface ScenarioComparisonResponse {
    * 결과를 읽는다. 선택 필드 — 가짜 provider·옛 응답에는 없을 수 있다.
    */
   calculation_run_id?: string
+  /**
+   * 이 비교의 계산 이력이 **붙은** 항차 (`API_SPEC §5.1` `data.voyage_id` · `#2217`).
+   * 붙지 않았으면 `null`이다 — 요청이 항차를 밝히지 않았거나, 밝혔어도 그 항차가 계획
+   * 단계가 아니었다. 화면은 이 값으로 「어느 항차의 비교로 남았는가」를 알리고, 채택 대상을
+   * 그 항차로 좁힌다(`§5.2`). 선택 필드 — 가짜 provider에는 없을 수 있고 `null`과 같게 읽는다.
+   */
+  voyage_id?: string | null
 }
 
 /**

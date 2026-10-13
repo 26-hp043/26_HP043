@@ -73,6 +73,7 @@ type AdoptState =
 export function ScenarioAdoptPanel({
   provider,
   vesselId,
+  comparedVoyageId,
   scenarios,
   stale,
   preferredVoyageId,
@@ -81,6 +82,14 @@ export function ScenarioAdoptPanel({
   provider: ScenarioComparisonProvider
   /** 비교를 **실행한** 선박 — 폼의 현재 값이 아니다. */
   vesselId: string
+  /**
+   * 이 비교가 **붙은** 항차 (`API_SPEC §5.1` `data.voyage_id` · `#2217`). 붙지 않았으면 `null`.
+   *
+   * 붙었으면 반영 대상은 그 항차 하나다 (`API_SPEC §5.2`) — 다른 항차에 반영되면 한 비교가
+   * 두 항차의 리포트에 실린다. 서버도 같은 검증을 한다. 붙지 않은 비교는 종전대로 계획 단계
+   * 항차 어디에나 반영할 수 있다.
+   */
+  comparedVoyageId: string | null
   scenarios: readonly ScenarioResult[]
   /** 입력이 바뀌어 결과가 이전 조건인가. 그때는 반영하지 않는다. */
   stale: boolean
@@ -99,7 +108,29 @@ export function ScenarioAdoptPanel({
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
   // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
-  const [voyages, setVoyages] = useState<VoyagesState>('loading')
+  const [planningVoyages, setVoyages] = useState<VoyagesState>('loading')
+  /*
+   * 반영 대상 후보 (`#2217`). 항차를 두고 한 비교면 **그 항차 하나**다 — 렌더 중에 좁힌다.
+   * 조회 효과에서 좁히면 같은 배로 다른 항차를 두고 다시 비교했을 때 앞 비교의 후보가 남는다.
+   */
+  const voyages: VoyagesState =
+    Array.isArray(planningVoyages) && comparedVoyageId !== null
+      ? planningVoyages.filter((item) => item.id === comparedVoyageId)
+      : planningVoyages
+  /*
+   * 「어느 항차의 비교로 남았는가」에 쓰는 이름. 붙은 항차는 비교 시점에 계획 단계였으므로
+   * 보통 목록에 있다. 그 사이 출항해 목록에서 빠졌거나 목록을 못 받았으면 id 앞자리를
+   * 보인다 — `voyageOptionLabel`이 이름 없는 항차에 하는 것과 같다.
+   */
+  const comparedVoyage = Array.isArray(planningVoyages)
+    ? planningVoyages.find((item) => item.id === comparedVoyageId)
+    : undefined
+  const comparedVoyageName =
+    comparedVoyageId === null
+      ? null
+      : comparedVoyage
+        ? voyageOptionLabel(comparedVoyage, samplePorts)
+        : comparedVoyageId.slice(0, 8)
   const [scenarioId, setScenarioId] = useState('')
   const [voyageId, setVoyageId] = useState('')
   const [adopt, setAdopt] = useState<AdoptState>({ status: 'idle' })
@@ -215,6 +246,18 @@ export function ScenarioAdoptPanel({
         시간을 더해 다시 정해집니다 — 출발 예정 시각이 없으면 비워집니다.
       </p>
 
+      {/*
+        붙었는지를 화면이 말한다 (`#2217`) — 서버는 「붙지 않았다」를 조용히 넘기지 않으려고
+        값을 되돌려 주는데(`API_SPEC §5.1`), 종전에는 화면이 그 값을 읽지 않았다. 문구는
+        개발 임시안이다(표시 문구 · `AGENTS §4.6`).
+      */}
+      {comparedVoyageName !== null ? (
+        <p className="scenario-adopt__note" data-testid="scenario-compared-voyage">
+          이 비교는 <strong>「{comparedVoyageName}」</strong> 항차의 비교로 남았습니다. 그 항차에만
+          반영할 수 있습니다.
+        </p>
+      ) : null}
+
       <div className="scenario-adopt__fields">
         <div className="scenario-adopt__field">
           <label htmlFor="scenario-adopt-scenario">시나리오</label>
@@ -241,7 +284,9 @@ export function ScenarioAdoptPanel({
             <ErrorState level="region" size="compact" message="항차 목록을 불러오지 못했습니다." />
           ) : voyages.length === 0 ? (
             <span className="scenario-adopt__note">
-              반영할 수 있는 항차가 없습니다. 작성 중이거나 계획 확정 상태인 항차만 바꿀 수 있습니다.
+              {comparedVoyageId !== null
+                ? '이 비교를 남긴 항차가 계획 단계를 벗어나 반영할 수 없습니다.'
+                : '반영할 수 있는 항차가 없습니다. 작성 중이거나 계획 확정 상태인 항차만 바꿀 수 있습니다.'}
             </span>
           ) : (
             <select

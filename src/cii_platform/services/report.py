@@ -11,8 +11,9 @@
 ``PRD §25.2.1``이 *"저장된 이력을 그대로 인용한다 — 리포트 생성 시점에 재계산하지
 않는다. 재계산하면 파라미터 개정·기상 갱신으로 과거 비교 근거가 바뀐다"* 를 요구한다.
 채택된 ``voyage_scenario`` 행이 속한 비교(``calculation_run(SCENARIO)``)의 3종을 그대로
-읽고, **이력이 없으면 그 섹션을 생략한다** — 없는 비교를 만들지 않는다. 실적 행은 항차에
-기록된 값을 옮긴다 (`#2092`).
+읽고 — 채택이 없으면 그 항차를 두고 한 가장 최근 비교를 읽는다(`#2217`) — **이력이 없으면
+그 섹션을 생략한다.** 없는 비교를 만들지 않는다. 실적 행은 항차에 기록된 값을 옮긴다
+(`#2092`).
 """
 
 from __future__ import annotations
@@ -372,14 +373,20 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
 
     ## 어느 비교를 싣는가
 
-    비교 3행은 ``voyage_id`` 없이 저장되고, 항차와 이어지는 것은 **채택한 한 행**뿐이다
-    (``services/scenario_adopt.py``). 그래서 기준은 하나다 — **이 항차에 지금 채택된 행이
-    속한 비교**. 형제 두 행은 그 행의 id를 담은 계산 이력(``SCENARIO``)의
-    ``result_json.scenarios[]``에서 온다. 같은 항차로 비교를 여러 번 돌렸어도, 다시
-    채택해 옛 채택 행이 남아 있어도 한 묶음만 잡힌다.
+    비교 3행은 ``voyage_id`` 없이 저장되고, 시나리오 행이 항차와 이어지는 것은 **채택한 한
+    행**뿐이다(``services/scenario_adopt.py``). 계산 이력(``SCENARIO``) 쪽은 비교 요청이 대상
+    항차를 밝혔을 때 그 항차에 붙는다(``calculation_run.voyage_id`` · `#2217`). 그래서 순서는
+    둘이다.
 
-    - 이 항차에 이어진 행이 없다 → 절을 생략한다. **비교를 돌리지 않은 항차와 비교만 하고
-      채택하지 않은 항차는 저장 구조에서 구분되지 않는다** — 둘 다 이어진 행이 없다.
+    1. **이 항차에 지금 채택된 행이 속한 비교.** 형제 두 행은 그 행의 id를 담은 계산 이력의
+       ``result_json.scenarios[]``에서 온다. 같은 항차로 비교를 여러 번 돌렸어도, 다시 채택해
+       옛 채택 행이 남아 있어도 한 묶음만 잡힌다.
+    2. 채택이 없으면 **이 항차를 두고 한 비교 가운데 가장 최근 것** (`#2217`). 채택 표지는
+       어느 행에도 붙지 않는다.
+
+    - 둘 다 없다 → 절을 생략한다. 비교 없이 끝난 항차다. **항차를 밝히지 않고 돌린 비교**
+      (`#2217` 이전의 비교 전부가 그렇다)는 채택하지 않았으면 여기에 든다 — 그 이력은 어느
+      항차의 것인지 적혀 있지 않아, 선박의 다른 비교에서 끌어오지 않는다.
     - 채택 행을 만든 이력이 없다(저장하지 않는 경로가 남긴 행 — `#2088` 이전) → 채택 행만
       값을 싣고 나머지 종류는 「이력 없음」이다. 선박의 다른 비교에서 끌어오지 않는다.
     """
@@ -402,12 +409,13 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
         .scalars()
         .all()
     )
-    if not linked:
-        return None
-    anchor = linked[0]
+    anchor = linked[0] if linked else None
 
-    by_type: dict[str, dict[str, object]] = {
-        anchor.scenario_type: {
+    by_type: dict[str, dict[str, object]] = {}
+    transport_capacity: Decimal | None = None
+    capacity_basis: str | None = None
+    if anchor is not None:
+        by_type[anchor.scenario_type] = {
             "scenario_id": str(anchor.id),
             "scenario_name": anchor.scenario_name,
             "distance_nm": anchor.distance_nm,
@@ -417,12 +425,17 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
             "cii": anchor.cii_value,
             "estimated_rating": anchor.estimated_rating,
         }
-    }
-    transport_capacity: Decimal | None = None
-    capacity_basis: str | None = None
-    run = await calc_run_repo.find_scenario_run(
-        session, vessel_id=voyage.vessel_id, scenario_id=anchor.id
-    )
+        run = await calc_run_repo.find_scenario_run(
+            session, vessel_id=voyage.vessel_id, scenario_id=anchor.id
+        )
+    else:
+        # 채택이 없다 (`#2217`) — 이 항차를 두고 한 비교가 있으면 그 가운데 가장 최근 것을
+        # 싣는다. 없으면 비교 없이 끝난 항차다.
+        run = await calc_run_repo.find_latest_scenario_run_of_voyage(
+            session, vessel_id=voyage.vessel_id, voyage_id=voyage.id
+        )
+        if run is None:
+            return None
     if run is not None:
         # 정본은 계산 이력이다(``DB_SCHEMA §2.4`` `[M-8]` — 시나리오 행의 ``cii_value``는
         # 조회용 사본). 이력이 있으면 채택 행까지 이력의 값으로 싣는다.
@@ -468,7 +481,10 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
                 str((values or {}).get("scenario_name") or SCENARIO_NAMES[scenario_type]),
                 values,
                 adopted=bool(
-                    values and anchor.is_adopted and values["scenario_id"] == str(anchor.id)
+                    values
+                    and anchor is not None
+                    and anchor.is_adopted
+                    and values["scenario_id"] == str(anchor.id)
                 ),
             )
         )
