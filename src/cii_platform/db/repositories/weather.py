@@ -17,6 +17,7 @@ from cii_platform.db.models.weather_snapshot import WeatherSnapshot
 if TYPE_CHECKING:
     from datetime import datetime
     from decimal import Decimal
+    from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,3 +75,15 @@ async def find_last_snapshot(
         .limit(1)
     )
     return (await session.execute(stmt)).scalars().first()
+
+
+async def fetched_at_by_ids(session: AsyncSession, ids: list[UUID]) -> dict[str, datetime]:
+    """스냅샷 id → 받은 시각. 계산 이력이 「어느 시각의 기상인가」를 보일 때 쓴다 (`#2135`).
+
+    키는 ``str(id)``다 — 계산 이력 행의 ``weather_snapshot_id``를 문자열로 옮기는 쪽과 같은
+    형태로 맞춘다. 없는 id는 결과에 없다. 빈 목록이면 질의하지 않는다.
+    """
+    if not ids:
+        return {}
+    stmt = select(WeatherSnapshot.id, WeatherSnapshot.fetched_at).where(WeatherSnapshot.id.in_(ids))
+    return {str(row.id): row.fetched_at for row in (await session.execute(stmt)).all()}

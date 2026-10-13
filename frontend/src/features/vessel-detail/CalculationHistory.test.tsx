@@ -4,6 +4,11 @@ import '../../test/renderSetup'
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { CalculationHistory } from './CalculationHistory'
+import {
+  WEATHER_AS_OF_LABEL,
+  WEATHER_NOT_APPLIED_TEXT,
+  weatherAsOfText,
+} from '../../display/weatherAsOf'
 
 /**
  * 재계산 필요 표시가 **화면에 보이는가** (#992 · `PRD §8.4`).
@@ -40,6 +45,32 @@ async function failureMessage(): Promise<string> {
   const alert = await screen.findByRole('alert')
   return alert.querySelector('.error-state__message')?.textContent ?? ''
 }
+
+describe('계산 이력 — 기상 기준 시각 (#2135)', () => {
+  function scenarioRun(id: string, fetchedAt: string | null) {
+    return {
+      ...run(id, false),
+      calculation_type: 'SCENARIO',
+      result_summary: {},
+      weather: { model_requested: 'SIMPLE_RULE', fetched_at: fetchedAt },
+    }
+  }
+
+  it('보정한 항로 비교에만 기준 시각 줄이 나오고, 보정하지 않았으면 「보정 없이」가 나온다', async () => {
+    const fetchImpl = vi.fn(async () =>
+      respond(
+        [scenarioRun('s1', '2026-10-06T00:00:00Z'), scenarioRun('s2', null), run('r1', false)],
+        { next_cursor: null, has_more: false, needs_recalc_total: 0 },
+      ),
+    )
+    render(<CalculationHistory vesselId="v1" fetchImpl={fetchImpl as unknown as typeof fetch} />)
+
+    expect(await screen.findByText(weatherAsOfText('2026-10-06T00:00:00Z') as string)).toBeTruthy()
+    // 기상을 적용하지 않는 종류(CII 예측)는 줄이 없다 — 세 행 가운데 둘만 기상 줄을 가진다.
+    expect(screen.getAllByText(WEATHER_NOT_APPLIED_TEXT)).toHaveLength(1)
+    expect(screen.getAllByText(new RegExp(`^(${WEATHER_AS_OF_LABEL}|${WEATHER_NOT_APPLIED_TEXT})`))).toHaveLength(2)
+  })
+})
 
 describe('계산 이력 (#992)', () => {
   it('재계산 필요 계산을 배지로 표시하고 건수를 머리에 적는다', async () => {

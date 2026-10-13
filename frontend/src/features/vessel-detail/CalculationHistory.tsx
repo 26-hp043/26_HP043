@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ErrorState } from '../../components/ErrorState'
 import { NO_TIMESTAMP_TEXT, formatTimestamp } from '../../display/format'
+import { weatherAsOfText } from '../../display/weatherAsOf'
 import { fetchCalculationPage, type CalculationRow } from './calculationRuns'
 
 /**
@@ -167,6 +168,10 @@ export function CalculationHistory({
                   <td>
                     {row.typeLabel}
                     {row.attachedToVoyage ? <span className="vd-calcs__tag">항차</span> : null}
+                    {/* `PRD §6.3` 기상 기준 시각 — 기상을 적용한 계산(항로 비교)에만 (#2135). */}
+                    {row.weather !== null && weatherAsOfText(row.weather.fetchedAt) !== null ? (
+                      <p className="vd-calcs__note">{weatherAsOfText(row.weather.fetchedAt)}</p>
+                    ) : null}
                   </td>
                   <td className="num">{row.ciiText}</td>
                   <td>{row.rating ?? '—'}</td>

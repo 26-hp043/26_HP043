@@ -237,6 +237,19 @@ class WeatherResolution:
     wave_heading_deg: float = 0.0
 
 
+def fetched_at_iso(value: datetime | None) -> str | None:
+    """스냅샷을 받은 시각 → 응답 문자열 (UTC, 초 단위, ``Z`` 접미 — `API_SPEC §1.3` 형식). `#2135`
+
+    기능②(`API_SPEC §5.1`)와 계산 이력(`§1.9`)이 **같은 값을 같은 모양으로** 싣도록 한 곳에서
+    만든다. 방금 받아 메모리에 있는 값과 DB에서 다시 읽은 값은 마이크로초가 다를 수 있어,
+    초 단위로 자른다. 시간대가 없는 값은 UTC로 읽는다(저장 컬럼이 UTC다).
+    """
+    if value is None:
+        return None
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return aware.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
 def _age_hours(fetched_at: datetime, now: datetime) -> float:
     return (now - fetched_at).total_seconds() / 3600
 

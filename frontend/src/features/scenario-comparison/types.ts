@@ -155,6 +155,13 @@ export interface ScenarioComparisonResponse {
    * 그 항차로 좁힌다(`§5.2`). 선택 필드 — 가짜 provider에는 없을 수 있고 `null`과 같게 읽는다.
    */
   voyage_id?: string | null
+  /**
+   * 보정에 쓴 기상 스냅샷을 **받은 시각** (`API_SPEC §5.1` `data.weather.fetched_at` · `#2135`).
+   * 기상 보정을 하지 않았으면 `null`이다. 화면은 이 값으로 「기상 기준 시각」 한 줄을 내고,
+   * 없으면 「기상 보정 없이 계산했습니다」를 낸다. 선택 필드 — 가짜 provider에는 없을 수 있고
+   * `null`과 같게 읽는다.
+   */
+  weather_fetched_at?: string | null
 }
 
 /**

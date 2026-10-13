@@ -76,6 +76,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 import { useShowsLabelEn } from '../../i18n/core'
+import { weatherAsOfText } from '../../display/weatherAsOf'
 import { publishScreenResult } from '../assistant/screenResult'
 
 /**
@@ -1185,6 +1186,14 @@ export function ScenarioComparison({
   const { response, snapshot } = state
   const unit = ciiUnit(response.transport_capacity_basis)
   const shownWarnings = displayWarnings(response.warnings)
+  /*
+   * 기상 기준 시각 한 줄 (`PRD §6.3` · #2135). 보정하지 않았을 때의 「기상 보정 없이 계산했습니다」는
+   * `WEATHER_NONE_FALLBACK` 경고가 이미 같은 말을 하므로 그때는 두 번 적지 않는다.
+   */
+  const weatherLine =
+    response.weather_fetched_at == null && shownWarnings.includes('WEATHER_NONE_FALLBACK')
+      ? null
+      : weatherAsOfText(response.weather_fetched_at)
 
   /*
    * 제목의 선박명 (#821 · #875).
@@ -1270,6 +1279,9 @@ export function ScenarioComparison({
         <p className="scenario-comparison__notice">
           {ESTIMATE_NOTICE} {NO_AUTO_DECISION_NOTICE}
         </p>
+        {weatherLine !== null ? (
+          <p className="scenario-comparison__notice">{weatherLine}</p>
+        ) : null}
         {/* `PRD §15.2` — 좌표로 계산한 거리는 「좌표 기반 추정 거리」라고 표시한다 (#1005). */}
         {usesCoordinateDistance(snapshot.inputs) ? (
           <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>

@@ -617,9 +617,9 @@ def test_no_implicit_float_in_layer1():
 | TC ID | 테스트 | 입력 | 기대 결과 |
 |---|---|---|---|
 | IT-WX-001 | API 정상 → factor 적용 | Open-Meteo 정상 응답 | weather_factor > 1.0, warning 없음 |
-| IT-WX-002 | API 실패 + 캐시 | API timeout, 캐시 존재 | 캐시 factor 사용. 6시간 초과 24시간 이하 캐시면 `WEATHER_STALE` warning, 6시간 이하 캐시면 warning 없음 (`#2268`) |
-| IT-WX-003 | API 실패 + 캐시 없음 | API timeout, 캐시 없음 | weather_model = NONE, `WEATHER_NONE_FALLBACK` warning |
-| IT-WX-004 | **보정한 계산이 근거를 남긴다** [#904] (`test_scenario_compare_db.py`) | 기능② `SIMPLE_RULE` + 좌표 + 6시간 이내 캐시 / `NONE` / 좌표 없음 | 보정하면 `calculation_run.weather_snapshot_id` = 시나리오 3행의 스냅샷 = 쓴 스냅샷, `result_json.scenarios[].weather_factor` > 1.0(값 하나). `NONE`·fallback은 스냅샷 NULL · 인자 1.0 — 캐시가 있어도 **쓰지 않은 기상을 근거로 적지 않는다** (`TECH_SPEC §5.4` 4·5항) |
+| IT-WX-002 | API 실패 + 캐시 | API timeout, 캐시 존재 | 캐시 factor 사용. 6시간 초과 24시간 이하 캐시면 `WEATHER_STALE` warning, 6시간 이하 캐시면 warning 없음 (`#2268`). 24시간을 넘긴 캐시는 쓰지 않는다(IT-WX-003). 어느 쪽이든 계산 도중 사용자에게 묻지 않는다 (`#2135`) |
+| IT-WX-003 | API 실패 + 캐시 없음 | API timeout, 캐시 없음 | weather_model = NONE, `WEATHER_NONE_FALLBACK` warning. 사용자 선택·계산 중단 없이 200으로 끝난다 (`#2135`) |
+| IT-WX-004 | **보정한 계산이 근거를 남긴다** [#904] (`test_scenario_compare_db.py`) | 기능② `SIMPLE_RULE` + 좌표 + 6시간 이내 캐시 / `NONE` / 좌표 없음 | 보정하면 `calculation_run.weather_snapshot_id` = 시나리오 3행의 스냅샷 = 쓴 스냅샷, `result_json.scenarios[].weather_factor` > 1.0(값 하나). `NONE`·fallback은 스냅샷 NULL · 인자 1.0 — 캐시가 있어도 **쓰지 않은 기상을 근거로 적지 않는다** (`TECH_SPEC §5.4` 4·5항); **기상 기준 시각** (`#2135`): 보정하면 응답 `data.weather.fetched_at` = 계산 이력 `data[].weather.fetched_at` = 저장된 스냅샷의 받은 시각(UTC), `NONE`·fallback은 둘 다 `null` — 쓰지 않은 기상의 시각을 적지 않는다 |
 
 ### 3.7 감사 로그 (`test_audit_log.py`) [ORACLE-X-3]
 
@@ -1386,8 +1386,8 @@ def test_no_implicit_float_in_layer1():
 | AC ID | 테스트 매핑 | 검증 방법 |
 |---|---|---|
 | AC-F2-001 | AT-SC-001 | 동일 기준으로 3개 시나리오 계산 |
-| AC-F2-002 | IT-WX-002 | 기상 API 실패 + 캐시 시 경고 표시 |
-| AC-F2-003 | IT-WX-003 | 기상 API 실패 + 캐시 없음 시 NONE 또는 중단 |
+| AC-F2-002 | IT-WX-002 | 기상 API 실패 + 캐시 시 캐시로 계산(6시간 초과 시에만 `WEATHER_STALE`) · 기상 기준 시각 응답(IT-WX-004) |
+| AC-F2-003 | IT-WX-003 | 기상 API 실패 + 캐시 없음 시 사용자 선택 없이 보정 없이 계산(`WEATHER_NONE_FALLBACK`) |
 | AC-F2-004 | IT-ADOPT-001 | 채택 시 Voyage 계획값 업데이트 |
 | AC-F2-005 | AT-SC-002 | "추천" 없이 지표별 최소값만 표시 |
 

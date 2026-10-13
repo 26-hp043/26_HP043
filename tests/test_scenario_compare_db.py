@@ -429,6 +429,50 @@ async def test_corrected_comparison_records_the_snapshot_it_used(wx_session):
     assert result["data"]["scenarios"][0]["weather_model_used"] == "SIMPLE_RULE"
 
 
+async def _stored_fetched_at(session, snapshot_id) -> str:
+    """저장된 스냅샷의 받은 시각을 응답 형식(UTC · 초 · ``Z``)으로 — 서비스 헬퍼를 거치지 않는다."""
+    from cii_platform.db.repositories import weather as weather_repo
+
+    stored = (await weather_repo.fetched_at_by_ids(session, [snapshot_id]))[str(snapshot_id)]
+    return stored.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def test_corrected_comparison_reports_when_the_weather_was_fetched(wx_session):
+    """`#2135` — 보정한 결과는 **그 기상을 받은 시각**을 싣고, 계산 이력도 같은 값을 보인다.
+
+    값은 저장된 스냅샷의 ``fetched_at``이어야 한다 — 응답이 계산 시각이나 요청 시각을
+    대신 적으면 「언제의 기상인가」라는 근거가 거짓이 된다(`PRD §6.3`).
+    """
+    snapshot_id = await _seed_fresh_snapshot(wx_session)
+    expected = await _stored_fetched_at(wx_session, snapshot_id)
+
+    result = await _compare(wx_session, weather_model="SIMPLE_RULE")
+
+    assert result["data"]["weather"] == {"fetched_at": expected}
+    weather = await _listed_weather(wx_session, result["calculation_run_id"])
+    assert weather["fetched_at"] == expected
+
+
+async def test_uncorrected_comparison_reports_no_weather_time(wx_session):
+    """`#2135` — 보정하지 않은 결과는 시각이 ``null``이다. 키는 늘 있다.
+
+    캐시가 있어도 요청이 ``NONE``이면 쓰지 않았고, 캐시가 없어 보정 없이 계산한 경우도
+    마찬가지다 — 쓰지 않은 기상의 시각을 적으면 보정한 것으로 읽힌다.
+    """
+    await _seed_fresh_snapshot(wx_session)
+    none_result = await _compare(wx_session, weather_model="NONE")
+    assert none_result["data"]["weather"] == {"fetched_at": None}
+    none_listed = await _listed_weather(wx_session, none_result["calculation_run_id"])
+    assert none_listed["fetched_at"] is None
+
+    # 좌표가 없으면 조회하지 않는다 — 요청은 보정이었으나 적용되지 않았다.
+    fallback = await _compare(wx_session, weather_model="SIMPLE_RULE", with_coordinates=False)
+    assert "WEATHER_NONE_FALLBACK" in fallback["warnings"]
+    assert fallback["data"]["weather"] == {"fetched_at": None}
+    fallback_listed = await _listed_weather(wx_session, fallback["calculation_run_id"])
+    assert fallback_listed["fetched_at"] is None
+
+
 async def test_uncorrected_comparison_points_at_no_snapshot(wx_session):
     """IT-WX-004 — ``NONE``은 스냅샷 없이 계산하는 정상 경로다(``TECH_SPEC §5.4`` 5항).
 

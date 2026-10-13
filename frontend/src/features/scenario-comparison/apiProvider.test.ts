@@ -470,6 +470,26 @@ describe('실행 id (#1533)', () => {
   })
 })
 
+describe('기상 기준 시각 (#2135)', () => {
+  const withWeather = (weather: unknown) => ({ ...OK_BODY, data: { ...OK_BODY.data, weather } })
+
+  it('data.weather.fetched_at을 넘긴다 — 화면이 「기상 기준 시각」을 낸다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(withWeather({ fetched_at: '2026-10-06T00:00:00Z' })),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.weather_fetched_at).toBe('2026-10-06T00:00:00Z')
+  })
+
+  it('null이거나 블록이 없으면 「보정하지 않았다」다', async () => {
+    for (const body of [withWeather({ fetched_at: null }), withWeather(null), OK_BODY]) {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+      const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+      expect(result.weather_fetched_at).toBeNull()
+    }
+  })
+})
+
 describe('비교가 붙은 항차 (#2217)', () => {
   const withVoyage = (voyageId: unknown) => ({ ...OK_BODY, data: { ...OK_BODY.data, voyage_id: voyageId } })
 

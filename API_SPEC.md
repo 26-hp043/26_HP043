@@ -613,6 +613,7 @@ GET /api/v1/calculations
         "model_requested": "SIMPLE_RULE",
         "model_used": "NONE",
         "snapshot_id": null,
+        "fetched_at": null,
         "warnings": ["WEATHER_NONE_FALLBACK"]
       }
     }
@@ -632,6 +633,7 @@ GET /api/v1/calculations
 | `model_requested` | string \| null | 요청한 기상 모델(`§4.1` `weather_model` 코드). **`#2012` 이전 계산은 `null`**(기록 없음) — 그때까지 요청은 입력 해시 재료로만 쓰이고 저장되지 않았다 |
 | `model_used` | string \| null | **실제로 적용된** 모델. fallback이면 요청과 다르다(`NONE`) — `PRD §11.6` |
 | `snapshot_id` | string \| null | 보정에 쓴 기상 스냅샷(`§9.1`) id. 보정하지 않았으면 `null`. ⚠️ **2026-09-12(`#904` · PR #1007) 이전 계산은 보정했어도 `null`이다** — 그때까지 계산 이력에 스냅샷을 남기지 않았다 |
+| `fetched_at` | string \| null | 보정에 쓴 스냅샷을 **받은 시각**(`§9.1` `fetched_at`과 같은 값 · UTC, 초 단위, `Z` 접미 — `§1.3` 형식). 화면의 「기상 기준 시각」(`PRD §6.3`)이다. 보정하지 않았으면 `null`, `snapshot_id`가 있는데 스냅샷 행을 찾지 못해도 `null`이다 — 시각을 지어내지 않는다. 값은 스냅샷 행(`weather_snapshot.fetched_at`)에서 읽어 옮긴다 (`#2135`) |
 | `warnings` | string[] | 이 계산의 경고 중 **기상 해석 단계가 낸 코드**만(`§1.6` `WEATHER_STALE` · `WEATHER_NONE_FALLBACK` · `EXPERIMENTAL_MODEL` · `CB_ESTIMATED` · `CB_OUT_OF_RANGE`) — 뒤의 셋은 실험 모델(`TOWNSIN_KWON_ALPHA`)이 방형계수를 쓸 때 붙는다 |
 
 > **요청과 실제를 나눠 싣는 이유** — 조회가 실패하면 요청은 `SIMPLE_RULE`인데 계산은 `NONE`으로 돈다. 요청만 보이면 보정되지 않은 값을 보정된 값으로 읽는다. 종전에는 실제 모델·스냅샷·경고가 DB에 있는데도 응답에 없어, 운영 확인(`#790`)이 스냅샷 수신 시각과 계산 시각을 **대조해 추정**해야 했다. 값은 저장된 것을 옮길 뿐 다시 계산하지 않는다(`TECH_SPEC §5.4`). 요청 모델은 계산 결과 저장본에만 기록되며 `POST /scenarios/compare` 응답(`§5.1`)은 바뀌지 않는다.
@@ -3318,7 +3320,8 @@ POST /api/v1/scenarios/compare
       "shortest_duration_scenarios": ["DIRECT"],
       "lowest_fuel_scenarios": ["SLOW_STEAMING"]
     },
-    "voyage_id": null
+    "voyage_id": null,
+    "weather": { "fetched_at": null }
   },
   "parameters_used": { ... },
   "calculation_run_id": "uuid",
@@ -3338,6 +3341,8 @@ POST /api/v1/scenarios/compare
 > **[#2217] `data.voyage_id`는 이 비교의 계산 이력이 붙은 항차다.** 키는 늘 있고, 붙지 않았으면 `null`이다 — 요청이 `voyage_id`를 밝히지 않았거나, 밝혔어도 그 항차가 계획 단계(`DRAFT` · `PLANNED`)가 아니었다. `PRD §25.2.1`이 리포트에 싣는 것을 **「항차 착수 전 저장된」** 비교로 정했으므로, 떠났거나 끝난 항차를 골라 둔 채 돌린 비교는 그 항차의 비교 이력이 되지 않는다. 그때 요청을 거부하지 않는 것은 비교가 선박 단위로 성립하기 때문이고, 「붙지 않았다」를 조용히 넘기지 않으려고 값을 되돌려 준다.
 >
 > **붙은 뒤의 귀결 셋** (2026-10-08 결정). ⑴ **그 항차는 물리 삭제할 수 없다.** 초안(`DRAFT`)이어도 같다 — `DELETE /voyages/{id}`가 `409`를 낸다(`§3.7` `[#313]`). 초안에서 비교해 보고 계획으로 올리는 흐름에서도 리포트가 그 비교를 실을 수 있어야 하므로 초안에도 붙인다. ⑵ **재계산 필요 표시는 계획값을 직접 고칠 때만 붙는다.** `PATCH /voyages/{id}`로 계획값이 바뀌면 비교의 전제가 달라진 것이라 붙은 비교 이력이 재계산 필요로 표시된다(`PRD §8.4`). **시나리오 채택(`§5.2`)은 비교 이력을 표시하지 않는다** — 채택은 비교 결과를 계획으로 옮기는 조작이라 그 비교는 새 계획의 근거다. ⑶ **그 비교의 시나리오는 그 항차에만 채택할 수 있다**(`§5.2`).
+
+> **[#2135] `data.weather.fetched_at`은 보정에 쓴 기상을 받은 시각이다.** 키는 늘 있고, 기상 보정을 하지 않았으면 `null`이다 — 요청이 `NONE`이거나, 좌표가 없거나, 캐시가 없어(또는 24시간을 넘겨) 보정 없이 계산한 경우(`WEATHER_NONE_FALLBACK`)다. 형식은 `§9.1`의 `fetched_at`과 같은 값을 UTC 초 단위 `Z` 접미로 싣는다(`§1.3`). 화면이 「기상 기준 시각」으로 보이는 근거이며(`PRD §6.3`), 값은 계산 이력의 `data[].weather.fetched_at`(`§1.9`)과 같다. 위 예시는 `weather_model`을 `NONE`으로 둬서 `null`이다 — 보정한 요청은 예를 들어 `"weather": { "fetched_at": "2026-10-06T00:00:00Z" }`가 된다.
 
 > **[#799 정정] 세 필드가 배열이다 — 동률이면 전부 싣는다.** 종전에는 `lowest_cii_scenario`처럼 단수 문자열이었고 동률에서 **먼저 등장한 시나리오 하나**만 실렸다. **같은 값 중 하나만 지목하는 것은 그 자체가 추천**이라 바로 위 문장과 어긋난다.
 >
@@ -4612,6 +4617,8 @@ GET /api/v1/weather/snapshot?lat=35.0&lon=129.0
 | `FRESH` | age ≤ 6h |
 | `STALE` | 6h < age ≤ 24h |
 | `EXPIRED` | age > 24h |
+
+> **[#2135] 이 `fetched_at`이 화면의 「기상 기준 시각」(`PRD §6.3`)의 출처다.** 기능② 응답(`§5.1` `data.weather.fetched_at`)과 계산 이력(`§1.9` `data[].weather.fetched_at`)이 **보정에 쓴 스냅샷의 이 값**을 같은 형식(UTC, 초 단위, `Z` 접미)으로 싣는다 — 이 조회 엔드포인트를 화면이 따로 부르지 않는다.
 
 ### 9.2 기상 수동 갱신 — **열지 않는다** [#767]
 
