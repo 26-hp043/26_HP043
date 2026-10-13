@@ -185,7 +185,11 @@ export const STORED_YEAR_MAX = 2050
 function regulationYearError(raw: string): string | null {
   const year = readNumber(raw)
   if (year === null) return null
-  if (Number.isNaN(year) || !Number.isInteger(year) || !/^\d{4}$/.test(raw.trim())) {
+  /*
+   * 네 자리인지는 **읽은 값**으로 본다 (#2465). 원문에 정규식을 걸면 `readNumber`가 받아 주는
+   * 입력(전각 `２０２６` · `2,026` · `2026.0`)을 형식 오류로 거절한다 — 서버에는 2026이 간다.
+   */
+  if (Number.isNaN(year) || !Number.isInteger(year) || year < 1000 || year > 9999) {
     return '기준연도는 연도 네 자리입니다.'
   }
   if (year < STORED_YEAR_MIN || year > STORED_YEAR_MAX) {
