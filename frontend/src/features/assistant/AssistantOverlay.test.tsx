@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { AssistantOverlay, type AssistantOverlayProps } from './AssistantOverlay'
+import { AssistantOverlay, STATUS_RECHECK_MS, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatAnswer } from './types'
 import { publishScreenResult, resetScreenResult } from './screenResult'
@@ -651,7 +651,7 @@ describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` ·
     open()
     await waitFor(() => expect(screen.getByRole('status').textContent).not.toBe(''))
     expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
-    expect(status).toHaveBeenCalledTimes(1)
+    expect(status).toHaveBeenCalled()
     expect(ask).not.toHaveBeenCalled()
   })
 
@@ -673,6 +673,105 @@ describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` ·
     await waitFor(() => expect(status).toHaveBeenCalled())
     expect(screen.queryByRole('status')).toBeNull()
     expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(false)
+  })
+})
+
+describe('「쓸 수 없음」인 동안 런처를 숨기고 다시 묻는다 (#2289 · `API_SPEC §15.7`)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const launcher = () => screen.queryByRole('button', { name: /AI 어시스턴트 열기/ })
+
+  it('화면에 들어올 때 물어, 「쓸 수 없음」이면 런처를 그리지 않는다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    await waitFor(() => expect(launcher()).toBeNull())
+  })
+
+  it('「쓸 수 있음」이거나 조회가 실패하면 런처는 그대로다', async () => {
+    const on = vi.fn(async () => ({ available: true }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status: on } })
+    await waitFor(() => expect(on).toHaveBeenCalled())
+    expect(launcher()).not.toBeNull()
+    cleanup()
+
+    const broken = vi.fn(async () => {
+      throw new AssistantError('상태를 확인하지 못했습니다.')
+    })
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status: broken } })
+    await waitFor(() => expect(broken).toHaveBeenCalled())
+    expect(launcher()).not.toBeNull()
+  })
+
+  it('숨긴 동안 다시 물어, 서버가 「쓸 수 있음」이라고 하면 런처가 돌아온다', async () => {
+    vi.useFakeTimers()
+    let available = false
+    const status = vi.fn(async () => ({ available }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(launcher()).toBeNull()
+    const asked = status.mock.calls.length
+
+    // 아직 「쓸 수 없음」이면 숨긴 채로 계속 묻는다.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STATUS_RECHECK_MS)
+    })
+    expect(status.mock.calls.length).toBe(asked + 1)
+    expect(launcher()).toBeNull()
+
+    available = true
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STATUS_RECHECK_MS)
+    })
+    expect(launcher()).not.toBeNull()
+
+    // 돌아온 뒤에는 묻기를 멈춘다.
+    const settled = status.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STATUS_RECHECK_MS * 3)
+    })
+    expect(status.mock.calls.length).toBe(settled)
+  })
+
+  it('느리게 돌아온 옛 답이 그 뒤에 확인된 「쓸 수 없음」을 덮지 않는다', async () => {
+    // 들어올 때의 조회는 붙들어 두고, 패널을 열 때의 조회가 먼저 「쓸 수 없음」으로 돌아온다.
+    let releaseFirst: (value: { available: boolean }) => void = () => {}
+    const status = vi
+      .fn<() => Promise<{ available: boolean }>>()
+      .mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = resolve)))
+      .mockImplementation(async () => ({ available: false }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() =>
+      expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true),
+    )
+
+    await act(async () => {
+      releaseFirst({ available: true })
+    })
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
+  })
+
+  it('「쓸 수 없음」 뒤에 둘러보기로 확인되어도 런처는 남는다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    const provider = { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status }
+    const view = render(<AssistantOverlay provider={provider} />)
+    await waitFor(() => expect(launcher()).toBeNull())
+    view.rerender(<AssistantOverlay provider={provider} tour />)
+    expect(launcher()).not.toBeNull()
+  })
+
+  it('둘러보기는 상태와 무관하게 런처가 남는다 — 전용 안내가 패널 안에 있다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    setup({
+      provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status },
+      tour: true,
+    })
+    expect(launcher()).not.toBeNull()
+    expect(status).not.toHaveBeenCalled()
   })
 })
 
@@ -1060,7 +1159,7 @@ describe('쓸 수 없는 상태의 초점 (#2128)', () => {
     expect(active.matches(':disabled')).toBe(false)
   }
 
-  it('키보드로 열고 Escape로 닫을 수 있다 — 닫으면 여는 버튼으로 돌아간다', async () => {
+  it('키보드로 열고 Escape로 닫을 수 있다 — 닫은 뒤에는 런처가 없다(#2289)', async () => {
     const status = vi.fn(async () => ({ available: false }))
     setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
     open()
@@ -1069,22 +1168,24 @@ describe('쓸 수 없는 상태의 초점 (#2128)', () => {
     focusIsUsable()
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
 
-    const launcher = screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
-    expect(document.activeElement).toBe(launcher)
+    // 패널이 닫혔고, 「쓸 수 없음」인 동안은 돌아갈 런처를 그리지 않는다.
+    expect(screen.queryByLabelText('질문')).toBeNull()
+    expect(screen.queryByRole('button', { name: /AI 어시스턴트 열기/ })).toBeNull()
   })
 
-  it('다시 열 때 — 입력이 처음부터 닫혀 있어도 초점이 패널 안에 놓인다', async () => {
-    const status = vi.fn(async () => ({ available: false }))
-    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+  it('다시 열 때 — 입력이 처음부터 닫혀 있어도 초점이 패널 안에 놓인다', () => {
+    /*
+     * 닫았다 다시 여는 길이 남는 「닫힌 입력」은 둘러보기다 — 「쓸 수 없음」은 런처를 숨겨
+     * 다시 열 수 없다(#2289). 지키려는 성질(닫힌 입력에 초점이 떨어지지 않는다)은 같다.
+     */
+    setup({ tour: true })
     open()
-    await waitFor(() => expect(inputClosed()).toBe(true))
+    expect(inputClosed()).toBe(true)
+    focusIsUsable()
     fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
 
     open()
-    // 상태 조회가 돌아오기 **전**이다 — 입력은 지난번에 닫힌 그대로다.
     expect(inputClosed()).toBe(true)
-    focusIsUsable()
-    await waitFor(() => expect(status).toHaveBeenCalledTimes(2))
     focusIsUsable()
   })
 

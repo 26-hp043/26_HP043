@@ -171,6 +171,14 @@ const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 �
  * #1535 — 패널을 열 때 서버가 「쓸 수 없음」이라고 답하면 입력 대신 보이는 안내.
  * 종전에는 질문을 다 쓰고 보낸 뒤에야 503으로 알았다.
  */
+/**
+ * #2289 — 「쓸 수 없음」으로 런처를 숨긴 동안 상태를 다시 묻는 간격.
+ *
+ * 런처가 없으면 사용자가 다시 시도할 길이 없다 — 서버가 차단을 풀었는지는 화면이 물어야
+ * 안다(`API_SPEC §15.7`). 조회는 기본 한도 버킷이고 공급자를 부르지 않는다.
+ */
+export const STATUS_RECHECK_MS = 60_000
+
 const STATUS_UNAVAILABLE = '지금은 AI 어시스턴트를 사용할 수 없습니다. 관리자에게 문의해 주세요.'
 
 /**
@@ -285,6 +293,61 @@ export function AssistantOverlay({
    */
   const client = useMemo(() => provider ?? createApiAssistantProvider(), [provider])
 
+  /*
+   * 상태 조회의 답을 화면에 옮기는 **한 자리**다. 조회는 세 곳(들어올 때 · 열 때 · 숨긴 동안의
+   * 재조회)에서 하지만 `statusOff`와 `stopped`는 여기서만 같은 값으로 나란히 켠다 —
+   * `avatarMood.test.ts`가 이 짝을 잠근다(#2009 · #1535).
+   */
+  const applyStatus = useCallback(({ available }: { readonly available: boolean }) => {
+    setStatusOff(!available)
+    setStopped(!available)
+  }, [])
+  /*
+   * 조회의 순번이다. **가장 나중에 보낸 조회의 답만** 옮긴다 — 느리게 돌아온 옛 답이 그 뒤에
+   * 확인된 상태(더 새 조회의 답 · 질문 뒤 503)를 덮으면, 서버가 막아 둔 동안 런처와 입력이
+   * 되살아난다.
+   */
+  const statusSeq = useRef(0)
+  const askStatus = useCallback(
+    (isCancelled: () => boolean) => {
+      const seq = ++statusSeq.current
+      client.status?.().then(
+        (result) => {
+          if (!isCancelled() && seq === statusSeq.current) applyStatus(result)
+        },
+        () => {},
+      )
+    },
+    [client, applyStatus],
+  )
+
+  useEffect(() => {
+    /*
+     * #2289 — 화면에 들어올 때도 한 번 묻는다. 「쓸 수 없음」이면 런처를 숨기는데, 열 때만
+     * 물으면 눌러 본 뒤에야 숨길 수 있다. 조회 실패는 아래와 같이 아무것도 바꾸지 않는다.
+     */
+    if (!client.status || tour) return
+    let cancelled = false
+    askStatus(() => cancelled)
+    return () => {
+      cancelled = true
+    }
+  }, [client, tour, askStatus])
+
+  useEffect(() => {
+    /*
+     * #2289 — 「쓸 수 없음」인 동안 주기적으로 다시 묻는다. 서버가 공급자 차단을 풀거나
+     * 운영자가 키를 넣으면 런처와 입력이 사용자의 새로고침 없이 돌아온다.
+     */
+    if (!unavailableStopped || !client.status || tour) return
+    let cancelled = false
+    const timer = window.setInterval(() => askStatus(() => cancelled), STATUS_RECHECK_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [unavailableStopped, client, tour, askStatus])
+
   useEffect(() => {
     /*
      * #1535 — 열 때마다 한 번 묻는다. 닫았다 여는 사이 운영자가 키를 넣거나 뺄 수 있다.
@@ -296,18 +359,11 @@ export function AssistantOverlay({
     // 안내가 둘러보기 안내와 겹쳐 뜨지 않게 한다.
     if (tour) return
     let cancelled = false
-    client.status().then(
-      ({ available }) => {
-        if (cancelled) return
-        setStatusOff(!available)
-        setStopped(!available)
-      },
-      () => {},
-    )
+    askStatus(() => cancelled)
     return () => {
       cancelled = true
     }
-  }, [open, client, tour])
+  }, [open, client, tour, askStatus])
 
   useEffect(() => {
     onOpenChange?.(open)
@@ -406,14 +462,25 @@ export function AssistantOverlay({
           failed: true,
         },
       ])
-      // 설정이 없는 상태면 다시 눌러도 소용없다 — 입력을 닫는다.
-      if (unavailable) setStopped(true)
+      // 설정이 없는 상태면 다시 눌러도 소용없다 — 입력을 닫는다. 이 503이 지금의 상태다 —
+      // 아직 돌아오지 않은 옛 조회가 덮지 못하게 순번을 넘긴다(#2289).
+      if (unavailable) {
+        statusSeq.current += 1
+        setStopped(true)
+      }
     } finally {
       setPending(false)
     }
   }, [client, draft, pending, stopped, vesselId])
 
   if (!open) {
+    /*
+     * #2289 — 서버가 「쓸 수 없음」이라고 한 동안은 런처를 그리지 않는다(`UIFLOW 2-7`).
+     * 눌러도 답을 받을 수 없는 버튼을 두면 사용자가 눌러 보고 실패를 겪는다. 첫 방문 안내도
+     * 가리킬 런처가 없으니 함께 걷는다. 둘러보기는 런처가 남는다 — 세션 확인이 늦어 `tour`가
+     * 「쓸 수 없음」 뒤에 참이 되어도 그렇다.
+     */
+    if (unavailableStopped && !tour) return null
     return (
       <>
         {/*

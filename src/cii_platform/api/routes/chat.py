@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.db.session import get_session
 from cii_platform.errors import ChatUnavailableError, NotFoundError
+from cii_platform.llm import health
 from cii_platform.llm.anthropic import AnthropicProvider
 from cii_platform.llm.provider import LLMProvider, is_enabled
 from cii_platform.services import audit as audit_svc
@@ -46,13 +48,30 @@ def get_provider() -> LLMProvider:
     """
     if not is_enabled():
         raise ChatUnavailableError("챗봇을 사용할 수 없습니다. 관리자에게 문의해 주세요.")
-    return AnthropicProvider()
+    # `#2289` — 공급자가 연속으로 실패해 막아 둔 동안은 외부를 부르지 않는다. 설정이 없는
+    # 것과 달리 관리자가 고칠 일이 아니라 문구를 가른다. 조건은 `/chat/status`의
+    # `available: false`와 같다(`API_SPEC §15.4` · `§15.7`).
+    if health.is_blocked():
+        raise ChatUnavailableError(
+            "챗봇이 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요."
+        )
+    return health.TrackedProvider(AnthropicProvider())
+
+
+def get_probe_provider_factory() -> Callable[[], LLMProvider]:
+    """차단 뒤 시험 요청을 보낼 공급자를 만드는 함수. **검사가 갈아 끼우는 지점이다.**
+
+    결과를 세는 포장(``TrackedProvider``)을 씌우지 않는다 — 시험의 성패는
+    ``health.run_probe``가 직접 판정한다.
+    """
+    return AnthropicProvider
 
 
 @router.get("/chat/status")
 async def chat_status(
     request: Request,
     _user: Annotated[AppUser, Depends(get_current_user)],
+    probe_factory: Annotated[Callable[[], LLMProvider], Depends(get_probe_provider_factory)],
 ) -> dict[str, object]:
     """챗봇을 지금 쓸 수 있는가 (``API_SPEC §15.7`` · `#1535`).
 
@@ -68,10 +87,19 @@ async def chat_status(
 
     ``CHAT_PATHS``는 ``/chat`` 하나다. 패널을 열 때마다 부르는 조회가 질문 한도(분당
     10)를 깎으면 사용자는 질문도 하기 전에 429를 만난다 — 기본 버킷에 둔다.
+
+    ## 공급자를 기다리지 않는다 (`#2289`)
+
+    설정이 있어도 공급자가 연속으로 실패해 막아 둔 동안은 거짓이다. 차단 뒤 시험할
+    차례가 됐으면 시험 요청을 **백그라운드로 시작만** 하고, 이 응답은 지금까지 확인된
+    상태를 낸다 — 시험 결과는 다음 조회에 반영된다.
     """
     state = getattr(request, "state", None)
+    enabled = is_enabled()
+    if enabled:
+        health.start_probe_if_due(probe_factory)
     return {
-        "data": {"available": is_enabled()},
+        "data": {"available": enabled and not health.is_blocked()},
         "meta": {
             "request_id": getattr(state, "request_id", None),
             "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
