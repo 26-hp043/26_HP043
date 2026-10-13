@@ -229,6 +229,9 @@ export function AuthShell({
   )
 }
 
+/** 비밀번호 보기 단추의 이름 — 눌린 상태는 `aria-pressed`가 말한다 (#2323). */
+const REVEAL_LABEL = '비밀번호 보기'
+
 /**
  * 로그인 폼의 입력 한 칸 — 공용 `Field` 위의 얇은 층이다 (`#936`).
  *
@@ -278,7 +281,12 @@ export function AuthField({
             <button
               type="button"
               className="auth-reveal"
-              aria-label={shown ? '비밀번호 숨기기' : '비밀번호 보기'}
+              /*
+               * 이름은 고정하고 상태는 `aria-pressed`만 나른다 (#2323). 이름까지 「보기 ↔ 숨기기」로
+               * 바꾸면 낭독이 「비밀번호 숨기기, 눌림」처럼 상태를 두 번 말한다 — 저장소의 다른
+               * 토글(데이터 점검 필터 · 지도 카드 선택)도 이름을 두고 눌림만 바꾼다.
+               */
+              aria-label={REVEAL_LABEL}
               aria-pressed={shown}
               onClick={() => setShown((was) => !was)}
             >
