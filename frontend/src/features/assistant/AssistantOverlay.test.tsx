@@ -1166,7 +1166,12 @@ describe('쓸 수 없는 상태의 초점 (#2128)', () => {
     open()
     await waitFor(() => expect(inputClosed()).toBe(true))
 
-    focusIsUsable()
+    /*
+     * 초점은 입력이 닫힌 **그 렌더 뒤의 효과**에서 패널로 옮겨진다(`AssistantOverlay.tsx`의
+     * `[open, stopped]` 효과). 입력이 닫힌 것을 본 직후에는 아직 닫힌 입력에 남아 있을 수
+     * 있어, 옮겨질 때까지 기다린 뒤 단언한다 (#2458 — CI에서 한 번 이 사이에 걸렸다).
+     */
+    await waitFor(focusIsUsable)
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
 
     // 패널이 닫혔고, 「쓸 수 없음」인 동안은 돌아갈 런처를 그리지 않는다.
