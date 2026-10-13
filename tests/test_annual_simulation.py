@@ -10,7 +10,8 @@ DB 없이 돈다 — ``calc`` 계층이라 이미 읽어 온 값만 받는다.
   말하고, 값이 그럴듯해서 드러나지 않는다.
 * **경계** — ``PRD §12.8``이 지목한 예외 8종. 목표 E 거부·잔여 항차 상한 등.
 
-케이스: UT-CII-008 (`TEST_PLAN §14.5`)
+케이스: UT-CII-008 · AT-SA-002 (`TEST_PLAN §14.5`) — `AT-SA-002`(지렛대의 방향)는
+``test_sensitivity_fuel_direction`` · ``test_sensitivity_speed_uses_the_cubic_model``이다.
 """
 
 from __future__ import annotations

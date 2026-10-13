@@ -42,6 +42,9 @@
 
 데모 시드(`conftest.migrated_db`)가 넣는 고정 UUID 선박을 쓴다. 시드가 바뀌어
 항차·정박 구간이 사라지면 이 테스트가 먼저 깨진다 — 그것도 알아야 하는 변화다.
+
+케이스: AT-SA-001 (`TEST_PLAN §14.5`) — 연간 시뮬레이션 응답의 ``data.sensitivity_analysis``
+키 집합(지렛대별 ``projected_cii`` · ``rating_change`` · ``target_probability_change``)이다.
 """
 
 from __future__ import annotations
