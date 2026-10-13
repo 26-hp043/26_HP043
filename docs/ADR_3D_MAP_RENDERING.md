@@ -26,12 +26,12 @@ production build의 현재 실측값과 budget은 [성능 가이드](../frontend
 
 ## 선박 geometry·LOD 계약
 
-선박은 저장소가 소유한 절차형 `ConeGeometry`를 사용한다. 외부 asset·texture·NOTICE 의무가 없다. `+Y`가 선수, 단위는 meter, 원점은 수면 중앙이다. 서버 `course_deg` 또는 playback route bearing만 적용한다.
+선박은 저장소가 소유한 절차형 geometry를 사용한다 — 부품 조립형이다(선체 1 · 갑판 1 · 선교 1 · 화물 18, 추적 모드는 연돌 1 추가 · `vesselParts.ts`). 외부 asset·texture·NOTICE 의무가 없다. `+Z`가 선수(위는 `+Y`), 단위는 선체 길이 1, 원점은 수면 중앙이다. (#2454에서 현행 코드에 맞춤) 서버 `course_deg` 또는 playback route bearing만 적용한다.
 
 | 용도 | 삼각형 상한 | texture | asset 파일 |
 |---|---:|---:|---:|
-| Fleet 다중 선박 | 24 | 0 B | 0 B |
-| 단일 추적 확장 상한 | 48 | 0 B | 0 B |
+| Fleet 다중 선박 | 300 | 0 B | 0 B |
+| 단일 추적 확장 상한 | 320 | 0 B | 0 B |
 
 Comparison은 현재 선박 위치 정본이 없으므로 항로·항만만 표시한다. 공용 layer 입력은 `comparison` mode를 허용하지만 좌표를 만들어 선박을 추가하지 않는다.
 

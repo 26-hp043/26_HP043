@@ -115,9 +115,13 @@ export function vesselParts(mode: MapModeInput['mode']): readonly VesselPart[] {
   return parts
 }
 
-/** 삼각형 수 — 상자는 12, 8각 기둥은 옆 16 + 뚜껑 12다. 예산 대조에 쓴다. */
+/**
+ * 삼각형 수 — 상자는 12, 8각 기둥은 옆 16 + 뚜껑 8 × 2 = 32다. 예산 대조에 쓴다.
+ * 기둥은 28로 세었던 적이 있다(뚜껑을 12로 셈 · `#2454`). three로 실제 만든 값과의
+ * 일치는 `vesselParts.test.ts`가 본다.
+ */
 export function vesselTriangleCount(mode: MapModeInput['mode']): number {
-  return vesselParts(mode).reduce((sum, part) => sum + (part.shape === 'box' ? 12 : 28), 0)
+  return vesselParts(mode).reduce((sum, part) => sum + (part.shape === 'box' ? 12 : 32), 0)
 }
 
 /**

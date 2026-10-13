@@ -11,9 +11,10 @@
  * 무언가 쌓여 있고 한쪽 끝에 탑이 선 모양. 여기서 잠그는 것이 그 실루엣의 뼈대다.
  */
 
+import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 
-import { CARGO_COLOR_TOKENS, vesselParts, vesselTriangleCount } from './vesselParts'
+import { CARGO_COLOR_TOKENS, vesselParts, vesselTriangleCount, type VesselPart } from './vesselParts'
 import { VESSEL_GEOMETRY_BUDGET } from './vesselModel'
 
 const roles = (mode: 'fleet' | 'comparison' | 'playback') =>
@@ -73,7 +74,33 @@ describe('실루엣 — 실험이 고른 구성', () => {
   })
 })
 
+/** `vesselLayer.ts`의 `shapeFor`와 같은 three 도형으로 삼각형을 센다. */
+const realTriangles = (part: VesselPart): number => {
+  const [x, y, z] = part.size
+  const geometry = part.shape === 'box'
+    ? new THREE.BoxGeometry(x, y, z)
+    : new THREE.CylinderGeometry(x / 2, (x / 2) * 0.72, z, 8, 1)
+  return (geometry.index ? geometry.index.count : geometry.attributes.position.count) / 3
+}
+
 describe('예산과 색', () => {
+  it('계산한 삼각형 수가 three로 실제 만든 geometry와 같다', () => {
+    // 28로 세어 실제(32)보다 4 적던 것을 잡는다 — 예산 안이라 예산 검사는 통과했다(`#2454`).
+    for (const mode of ['fleet', 'comparison', 'playback'] as const) {
+      const real = vesselParts(mode).reduce((sum, part) => sum + realTriangles(part), 0)
+      expect(vesselTriangleCount(mode)).toBe(real)
+    }
+  })
+
+  it('계약 상수가 부품 명세와 같은 좌표 약속을 적는다', () => {
+    // 선체가 가장 길게 뻗는 축이 선수 축이고, 그 길이가 단위(1)다.
+    const hull = vesselParts('fleet').find((part) => part.role === 'hull')!
+    const longest = hull.size.indexOf(Math.max(...hull.size))
+    expect(VESSEL_GEOMETRY_BUDGET.forwardAxis).toBe(['+X', '+Y', '+Z'][longest])
+    expect(Math.max(...hull.size)).toBe(1)
+    expect(VESSEL_GEOMETRY_BUDGET.unit).toBe('hull-length')
+  })
+
   it('삼각형이 예산 안에 든다', () => {
     expect(vesselTriangleCount('fleet')).toBeLessThanOrEqual(VESSEL_GEOMETRY_BUDGET.fleetTriangles)
     for (const mode of ['comparison', 'playback'] as const) {

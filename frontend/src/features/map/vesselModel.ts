@@ -21,7 +21,13 @@ export type GlobeVesselLayerModel = MapModeInput & {
 
 /** 외부 GLB 없이 저장소 소유 geometry로 고정한 저폴리 LOD 계약이다. */
 export const VESSEL_GEOMETRY_BUDGET = {
-  forwardAxis: '+Y', unit: 'meter', origin: 'waterline-center',
+  /*
+   * 좌표 약속 (`#2454`) — 부품 명세(`vesselParts.ts`)와 같다: 위는 `+Y`, **선수는 `+Z`**,
+   * 단위는 **선체 길이 1**이다. 미터가 아니다 — 화면 길이(px)는 `vesselLayer.ts`가
+   * `mesh.scale`로 곱한다. 이 값을 읽어 동작이 달라지는 코드는 없고(문서용),
+   * `vesselParts.test.ts`가 부품 명세에서 끌어낸 성질로 대조한다.
+   */
+  forwardAxis: '+Z', unit: 'hull-length', origin: 'waterline-center',
   /*
    * 예산 (`#1935`).
    *
