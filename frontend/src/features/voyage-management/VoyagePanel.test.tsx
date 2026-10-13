@@ -1012,6 +1012,19 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
   const primaries = () => Array.from(row().querySelectorAll('.vy__primary'))
   const actionsFirst = () => row().querySelector('.vy__row-actions button') as HTMLButtonElement
 
+  it('「조치」의 정렬 상자는 칸 안에 있다 — 칸 자체에 걸면 행 아래 선이 어긋난다 (#2432)', async () => {
+    // `td`를 flex로 두면 행 높이까지 늘어나지 않아, 계획 대비가 두 줄인 행에서 그 칸의 아래 선만
+    // 20px쯤 위에 그려졌다. 정렬 클래스는 칸 안의 상자가 들고, 칸은 표의 칸으로 남는다.
+    renderOne(IN_PROGRESS)
+    await screen.findByRole('button', { name: ACTUALS_TOGGLE })
+    const box = row().querySelector('.vy__row-actions') as HTMLElement
+    expect(box.tagName).not.toBe('TD')
+    expect(box.parentElement?.tagName).toBe('TD')
+    for (const cell of Array.from(row().children)) {
+      expect(cell.className).not.toMatch(/vy__row-actions|vy__route/)
+    }
+  })
+
   it('항해 중 · 연료 실적 없음 — 「실적 입력」이 주 버튼이고, 막힌 완료의 사유가 그것을 가리킨다', async () => {
     renderOne(IN_PROGRESS)
     const actuals = await screen.findByRole('button', { name: ACTUALS_TOGGLE })

@@ -553,7 +553,7 @@ function VoyageRow({
         <th scope="row" className="vy__no">
           {voyage.voyageNo ?? NO_VALUE}
         </th>
-        <td className="vy__route">{routeText(voyage, ports)}</td>
+        <td>{routeText(voyage, ports)}</td>
         <td>
           <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>
             {STATUS_LABELS[voyage.status]}
@@ -584,7 +584,9 @@ function VoyageRow({
         <td className="num">
           <PlanDelta voyage={voyage} />
         </td>
-        <td className="vy__row-actions">
+        <td>
+          {/* 정렬 상자를 칸 안에 둔다 — 칸 자체가 flex면 행 아래 선이 어긋난다 (#2432). */}
+          <div className="vy__row-actions">
           {/*
             다음에 누를 것 하나만 행에 둔다 (#1551). 나머지는 펼침 줄이다.
             10/7 — 채움 버튼은 항해 중 행만. 완료 행은 외곽선, 다음 계획은 글자 링크,
@@ -622,6 +624,7 @@ function VoyageRow({
           >
             {open ? '접기' : '자세히'}
           </button>
+          </div>
         </td>
       </tr>
 

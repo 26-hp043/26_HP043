@@ -195,7 +195,6 @@
   color: var(--color-link);
 }
 
-.vy__route,
 /*
  * ## `auto-fit`이 칸을 늘리고 있었다 (#721)
  *
@@ -230,6 +229,11 @@
   color: var(--text-primary);
 }
 
+/*
+ * 표의 「조치」 칸에서는 **칸 안의 상자**에 건다 (#2432). 칸(`td`) 자체를 `flex`로 두면
+ * 행 높이까지 늘어나지 않아, 계획 대비가 두 줄인 행에서 아래 선이 다른 칸보다 20px쯤
+ * 위에 따로 그려졌다. 칸은 `table-cell`로 두고 정렬만 이 상자가 맡는다.
+ */
 .vy__row-actions {
   display: flex;
   align-items: center;
