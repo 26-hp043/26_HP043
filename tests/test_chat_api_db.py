@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -26,8 +27,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
-from cii_platform.api.routes.chat import get_provider
+from cii_platform.api.routes.chat import get_probe_provider_factory, get_provider
 from cii_platform.db.types import JSONText, UuidText
+from cii_platform.llm import health
 from cii_platform.llm.provider import FakeProvider, LLMError, LLMResponse, ToolCall
 from cii_platform.services import chat as chat_service
 from cii_platform.services import chat_tools as chat_tools_service
@@ -51,6 +53,8 @@ async def _cleanup() -> None:
     from cii_platform.db.session import get_engine, get_sessionmaker
 
     app.dependency_overrides.pop(get_provider, None)
+    app.dependency_overrides.pop(get_probe_provider_factory, None)
+    health.reset()
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as s:
         await s.execute(
@@ -1238,6 +1242,72 @@ async def test_placeholder_key_is_503_not_an_outbound_call(
             response = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
             assert response.status_code == 503
             assert response.json()["error"]["code"] == "CHAT_UNAVAILABLE"
+    finally:
+        await _cleanup()
+
+
+class _DownProvider:
+    """실제 공급자 자리에 끼우는, 항상 실패하는 공급자 (`#2289`)."""
+
+    calls = 0
+
+    async def complete(self, *, messages, tools=None) -> LLMResponse:
+        type(self).calls += 1
+        raise LLMError("공급자 실패")
+
+
+async def test_repeated_provider_failures_close_the_chat_until_a_probe_succeeds(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """`#2289` · ``API_SPEC §15.7`` — 연속 실패면 「쓸 수 없음」이고 시험 요청만이 푼다.
+
+    종전에는 설정만 보아, 공급자가 죽어 있어도 ``available: true``였고 질문마다 실패했다.
+    """
+    from cii_platform.api.routes import chat as chat_routes
+
+    monkeypatch.setenv("LLM_API_KEY", "real-looking-key")
+    monkeypatch.delenv("LLM_AUTH_SCHEME", raising=False)
+    monkeypatch.setattr(chat_routes, "AnthropicProvider", _DownProvider)
+    _DownProvider.calls = 0
+    health.reset()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            status_url = "/api/v1/chat/status"
+            for _ in range(health.FAILURE_THRESHOLD):
+                assert client.get(status_url).json()["data"] == {"available": True}
+                turn = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
+                assert turn.status_code == 200
+                assert turn.json()["data"]["discarded"] is True
+
+            # 막힌 뒤 — 상태는 거짓이고, 질문은 외부를 부르지 않고 503이다.
+            assert client.get(status_url).json()["data"] == {"available": False}
+            calls_before = _DownProvider.calls
+            blocked = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
+            assert blocked.status_code == 503
+            assert blocked.json()["error"]["code"] == "CHAT_UNAVAILABLE"
+            assert _DownProvider.calls == calls_before
+
+            # 시험할 차례가 되기 전의 조회는 시험을 시작하지 않는다.
+            assert client.get(status_url).json()["data"] == {"available": False}
+            assert _DownProvider.calls == calls_before
+
+            # 차례가 되면 조회가 시험 한 건을 시작한다. 그 응답은 아직 거짓이고(기다리지
+            # 않는다), 시험이 성공한 뒤의 조회가 참이다.
+            probe = FakeProvider([LLMResponse(text="확인")])
+            app.dependency_overrides[get_probe_provider_factory] = lambda: lambda: probe
+            health._state.next_probe_at = 0.0
+            assert client.get(status_url).json()["data"] == {"available": False}
+            # 시험은 백그라운드 작업이다 — 끝났는지는 조회로만 안다. 도는 동안의 조회가
+            # 시험을 더 내보내지 않는다는 것은 아래 호출 기록(한 건)이 함께 본다.
+            answers = []
+            for _ in range(50):
+                answers.append(client.get(status_url).json()["data"]["available"])
+                if answers[-1]:
+                    break
+                time.sleep(0.02)
+            assert answers[-1] is True
+            assert probe.calls == [[{"role": "user", "content": health.PROBE_MESSAGE}]]
     finally:
         await _cleanup()
 
