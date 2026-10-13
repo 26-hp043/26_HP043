@@ -49,12 +49,23 @@ describe('toCalculationRow — 기상 기준 시각 (#2135)', () => {
   it('weather 블록의 fetched_at을 옮긴다 — 없으면 null, 블록이 없는 종류는 블록도 null', () => {
     expect(
       toCalculationRow({ ...base, weather: { fetched_at: '2026-10-06T00:00:00Z' } }).weather,
-    ).toEqual({ fetchedAt: '2026-10-06T00:00:00Z' })
+    ).toEqual({ fetchedAt: '2026-10-06T00:00:00Z', notApplied: false })
     expect(toCalculationRow({ ...base, weather: { fetched_at: null } }).weather).toEqual({
       fetchedAt: null,
+      notApplied: false,
     })
     expect(toCalculationRow({ ...base, weather: null }).weather).toBeNull()
     expect(toCalculationRow(base).weather).toBeNull()
+  })
+
+  it('보정하지 않았다는 것은 실제 모델(NONE)이나 fallback 경고로만 판정한다 — 시각이 없다는 것으로는 아니다 (#2461)', () => {
+    const notApplied = (weather: object) => toCalculationRow({ ...base, weather }).weather?.notApplied
+    expect(notApplied({ fetched_at: null, model_used: 'NONE', warnings: [] })).toBe(true)
+    expect(notApplied({ fetched_at: null, model_used: null, warnings: ['WEATHER_NONE_FALLBACK'] })).toBe(true)
+    // 보정했지만 시각을 모른다(`#904` 이전 · 스냅샷 행 없음) — 「보정 없이」가 아니다.
+    expect(notApplied({ fetched_at: null, model_used: 'SIMPLE_RULE', warnings: [] })).toBe(false)
+    expect(notApplied({ fetched_at: null, model_used: null, warnings: [] })).toBe(false)
+    expect(notApplied({ fetched_at: null, model_used: null, warnings: null })).toBe(false)
   })
 })
 

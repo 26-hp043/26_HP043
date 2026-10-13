@@ -47,12 +47,17 @@ async function failureMessage(): Promise<string> {
 }
 
 describe('계산 이력 — 기상 기준 시각 (#2135)', () => {
-  function scenarioRun(id: string, fetchedAt: string | null) {
+  function scenarioRun(id: string, fetchedAt: string | null, modelUsed: string | null = fetchedAt === null ? 'NONE' : 'SIMPLE_RULE') {
     return {
       ...run(id, false),
       calculation_type: 'SCENARIO',
       result_summary: {},
-      weather: { model_requested: 'SIMPLE_RULE', fetched_at: fetchedAt },
+      weather: {
+        model_requested: 'SIMPLE_RULE',
+        model_used: modelUsed,
+        fetched_at: fetchedAt,
+        warnings: modelUsed === 'NONE' ? ['WEATHER_NONE_FALLBACK'] : [],
+      },
     }
   }
 
@@ -69,6 +74,22 @@ describe('계산 이력 — 기상 기준 시각 (#2135)', () => {
     // 기상을 적용하지 않는 종류(CII 예측)는 줄이 없다 — 세 행 가운데 둘만 기상 줄을 가진다.
     expect(screen.getAllByText(WEATHER_NOT_APPLIED_TEXT)).toHaveLength(1)
     expect(screen.getAllByText(new RegExp(`^(${WEATHER_AS_OF_LABEL}|${WEATHER_NOT_APPLIED_TEXT})`))).toHaveLength(2)
+  })
+
+  it('보정했지만 받은 시각을 모르는 행에는 「보정 없이」를 적지 않는다 — 줄을 뺀다 (#2461)', async () => {
+    // 스냅샷 행을 찾지 못했거나 `#904` 이전 계산 — 실제 모델은 보정 모델인데 시각이 없다.
+    const fetchImpl = vi.fn(async () =>
+      respond([scenarioRun('s1', null, 'SIMPLE_RULE'), scenarioRun('s2', null, null)], {
+        next_cursor: null,
+        has_more: false,
+        needs_recalc_total: 0,
+      }),
+    )
+    render(<CalculationHistory vesselId="v1" fetchImpl={fetchImpl as unknown as typeof fetch} />)
+
+    expect(await screen.findAllByText('현행')).toHaveLength(2)
+    expect(screen.queryByText(WEATHER_NOT_APPLIED_TEXT)).toBeNull()
+    expect(screen.queryByText(new RegExp(`^${WEATHER_AS_OF_LABEL}`))).toBeNull()
   })
 })
 
