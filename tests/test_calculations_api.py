@@ -224,13 +224,23 @@ class TestListCalculations:
         item = wired.get(ENDPOINT).json()["data"][0]
         assert item["result_summary"] == {}
 
-    def _item(self, wired: TestClient, monkeypatch: pytest.MonkeyPatch, row) -> dict:
+    def _item(
+        self,
+        wired: TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+        row,
+        snapshot_times: dict[str, datetime] | None = None,
+    ) -> dict:
         from cii_platform.services import calculation as svc
 
         async def fake_list_runs(_session, **_kwargs):
             return [row]
 
+        async def fake_fetched_at_by_ids(_session, ids):
+            return {i: t for i, t in (snapshot_times or {}).items() if i in {str(x) for x in ids}}
+
         monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
+        monkeypatch.setattr(svc.weather_repo, "fetched_at_by_ids", fake_fetched_at_by_ids)
         return wired.get(ENDPOINT).json()["data"][0]
 
     def test_scenario_carries_the_weather_it_actually_used(
@@ -254,12 +264,28 @@ class TestListCalculations:
             warnings_json=["REFERENCE_ONLY"],
             weather_snapshot_id=snapshot,
         )
-        assert self._item(wired, monkeypatch, row)["weather"] == {
+        # `#2135` — 기상 기준 시각은 스냅샷 행의 받은 시각이다(UTC · 초 · ``Z``).
+        times = {snapshot: datetime(2026, 10, 6, 0, 0, 0, 123456, tzinfo=UTC)}
+        assert self._item(wired, monkeypatch, row, times)["weather"] == {
             "model_requested": "SIMPLE_RULE",
             "model_used": "SIMPLE_RULE",
             "snapshot_id": snapshot,
+            "fetched_at": "2026-10-06T00:00:00Z",
             "warnings": [],
         }
+
+    def test_a_snapshot_that_is_gone_leaves_the_weather_time_empty(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """`#2135` — 스냅샷 id는 있는데 행이 없으면 시각은 ``null``이다. 지어내지 않는다."""
+        row = FakeCalcRow(
+            calculation_type="SCENARIO",
+            result_json={"scenarios": [{"weather_model_used": "SIMPLE_RULE"}]},
+            weather_snapshot_id=str(uuid4()),
+        )
+        weather = self._item(wired, monkeypatch, row, {})["weather"]
+        assert weather["snapshot_id"] is not None
+        assert weather["fetched_at"] is None
 
     def test_a_fallback_shows_the_requested_and_the_used_model_apart(
         self, wired: TestClient, monkeypatch: pytest.MonkeyPatch

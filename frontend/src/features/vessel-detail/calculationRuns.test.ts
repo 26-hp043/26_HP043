@@ -37,6 +37,27 @@ describe('toCalculationRow', () => {
   })
 })
 
+describe('toCalculationRow — 기상 기준 시각 (#2135)', () => {
+  const base = {
+    calculation_run_id: 'r3',
+    calculation_type: 'SCENARIO',
+    voyage_id: null,
+    needs_recalc: false,
+    created_at: '2026-10-06T01:00:00Z',
+  }
+
+  it('weather 블록의 fetched_at을 옮긴다 — 없으면 null, 블록이 없는 종류는 블록도 null', () => {
+    expect(
+      toCalculationRow({ ...base, weather: { fetched_at: '2026-10-06T00:00:00Z' } }).weather,
+    ).toEqual({ fetchedAt: '2026-10-06T00:00:00Z' })
+    expect(toCalculationRow({ ...base, weather: { fetched_at: null } }).weather).toEqual({
+      fetchedAt: null,
+    })
+    expect(toCalculationRow({ ...base, weather: null }).weather).toBeNull()
+    expect(toCalculationRow(base).weather).toBeNull()
+  })
+})
+
 describe('fetchCalculationPage', () => {
   it('그 선박의 최신 20건을 커서와 함께 묻고 페이지 정보를 meta에서 읽는다', async () => {
     const fetchImpl = vi.fn(

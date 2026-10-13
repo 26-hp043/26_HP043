@@ -794,6 +794,9 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.summary.shortest_duration_scenarios",
             # `#2217` — 이 비교가 붙은 항차. 붙지 않았으면 `null`이고 키는 늘 있다.
             "data.voyage_id",
+            # `#2135` — 보정에 쓴 기상을 받은 시각. 보정하지 않았으면 `null`, 키는 늘 있다.
+            "data.weather",
+            "data.weather.fetched_at",
             "disclaimer",
             "input_hash",
             "meta",

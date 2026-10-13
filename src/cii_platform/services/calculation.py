@@ -11,6 +11,7 @@ import re
 from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import calculation_run as calc_run_repo
+from cii_platform.db.repositories import weather as weather_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services.pagination import normalize_limit as _normalize_limit
 from cii_platform.services.weather import (
@@ -19,9 +20,11 @@ from cii_platform.services.weather import (
     WARNING_EXPERIMENTAL_MODEL,
     WARNING_WEATHER_NONE_FALLBACK,
     WARNING_WEATHER_STALE,
+    fetched_at_iso,
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,7 +75,9 @@ _WEATHER_WARNINGS = frozenset(
 )
 
 
-def _weather(run: CalculationRun) -> dict[str, object] | None:
+def _weather(
+    run: CalculationRun, snapshot_fetched_at: dict[str, datetime] | None = None
+) -> dict[str, object] | None:
     """이 계산이 **요청한** 기상 모델과 **실제로 쓴** 모델 · 스냅샷 · 기상 경고 (`#2012`).
 
     둘을 나눠 싣는 이유는 fallback이다(``PRD §11.6`` · `#62`) — 조회가 실패하면 요청은
@@ -81,6 +86,10 @@ def _weather(run: CalculationRun) -> dict[str, object] | None:
     **저장된 값을 옮기기만 한다.** 요청은 ``result_json.weather_model_requested``, 실제 모델은
     ``result_json.scenarios[].weather_model_used``(한 요청은 한 번 조회한 기상으로 세 시나리오를
     모두 보정하므로 같은 값이다), 스냅샷은 ``weather_snapshot_id`` 컬럼이다.
+
+    ``fetched_at``은 그 스냅샷을 **받은 시각**이다(`#2135` · `PRD §6.3` 「기상 기준 시각」). 스냅샷
+    행에서 읽은 값을 옮긴다 — 계산 결과에 따로 적어 두지 않아 `#904` 이전 계산처럼 스냅샷이
+    없으면 ``null``이다. ``snapshot_fetched_at``은 이 페이지의 스냅샷 id → 시각 대응이다.
 
     ⚠️ **요청 모델은 `#2012` 이후 계산에만 있다.** 그 전에는 입력 해시 재료로만 쓰이고
     저장되지 않았다 — 과거 행은 ``model_requested``가 ``null``(기록 없음)이다. 계산 결과는
@@ -104,11 +113,14 @@ def _weather(run: CalculationRun) -> dict[str, object] | None:
         "model_requested": result_json.get("weather_model_requested"),
         "model_used": used,
         "snapshot_id": str(run.weather_snapshot_id) if run.weather_snapshot_id else None,
+        "fetched_at": fetched_at_iso((snapshot_fetched_at or {}).get(str(run.weather_snapshot_id))),
         "warnings": warnings,
     }
 
 
-def _to_dict(run: CalculationRun) -> dict[str, object]:
+def _to_dict(
+    run: CalculationRun, snapshot_fetched_at: dict[str, datetime] | None = None
+) -> dict[str, object]:
     """``CalculationRun`` 행을 API_SPEC §1.9 ``data[]`` 항목으로 바꾼다."""
     result_json = run.result_json or {}
     result_summary = {key: result_json[key] for key in _SUMMARY_KEYS if key in result_json}
@@ -121,7 +133,7 @@ def _to_dict(run: CalculationRun) -> dict[str, object]:
         "parameter_hash": run.parameter_hash,
         "model_version": run.model_version,
         "result_summary": result_summary,
-        "weather": _weather(run),
+        "weather": _weather(run, snapshot_fetched_at),
         "needs_recalc": run.needs_recalc,
         "created_at": _iso(run.created_at),
     }
@@ -224,7 +236,15 @@ async def list_calculation_runs(
         vessel_id=vessel_id,
     )
 
-    return [_to_dict(row) for row in page], {
+    # 이 페이지가 가리키는 기상 스냅샷의 받은 시각을 한 번에 읽는다(`#2135`).
+    snapshot_ids = [
+        row.weather_snapshot_id
+        for row in page
+        if row.calculation_type in _WEATHER_TYPES and row.weather_snapshot_id
+    ]
+    snapshot_fetched_at = await weather_repo.fetched_at_by_ids(session, snapshot_ids)
+
+    return [_to_dict(row, snapshot_fetched_at) for row in page], {
         "next_cursor": next_cursor,
         "has_more": has_more,
         "needs_recalc_total": needs_recalc_total,

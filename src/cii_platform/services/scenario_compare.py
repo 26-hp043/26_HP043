@@ -57,7 +57,11 @@ from cii_platform.services.voyage_cii import (
     _plain,
     _publish,
 )
-from cii_platform.services.weather import WeatherResolution, resolve_with_fallback
+from cii_platform.services.weather import (
+    WeatherResolution,
+    fetched_at_iso,
+    resolve_with_fallback,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -374,6 +378,10 @@ async def compare_scenarios(
         # 아니었거나, 저장하지 않는 경로면 ``None``이다 — 키는 늘 있다. 호출부가 「붙었는가」를
         # 키의 유무가 아니라 값으로 읽게 하려는 것이다.
         "voyage_id": None if attributed_voyage_id is None else str(attributed_voyage_id),
+        # 보정에 쓴 기상을 **언제 받았는가** (`#2135` · `PRD §6.3`). 기상 보정을 하지 않은
+        # 결과(요청이 NONE · 좌표 없음 · 캐시 없음 · 24시간 초과)는 ``fetched_at``이 ``None``이다 —
+        # 키는 늘 있다. 화면이 「보정했는가」를 키의 유무가 아니라 값으로 읽게 하려는 것이다.
+        "weather": {"fetched_at": fetched_at_iso(weather.synced_at)},
     }
 
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))

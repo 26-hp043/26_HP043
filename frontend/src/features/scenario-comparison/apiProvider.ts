@@ -73,7 +73,11 @@ interface ServerScenario {
 }
 
 interface ServerBody {
-  data?: { scenarios?: ServerScenario[]; voyage_id?: string | null }
+  data?: {
+    scenarios?: ServerScenario[]
+    voyage_id?: string | null
+    weather?: { fetched_at?: string | null } | null
+  }
   /*
    * `API_SPEC §5.1` — 응답 **최상위**에 실린다(`data` 안이 아니다).
    * `routes/scenarios.py`가 서비스 dict를 그대로 돌려주고 `meta`만 덧붙인다.
@@ -285,6 +289,9 @@ export function createApiScenarioProvider(
           : {}),
         // `#2217` — 이 비교가 붙은 항차. 문자열이 아니면 「붙지 않았다」로 읽는다.
         voyage_id: typeof body?.data?.voyage_id === 'string' ? body.data.voyage_id : null,
+        // `#2135` — 보정에 쓴 기상을 받은 시각. 문자열이 아니면 「보정하지 않았다」로 읽는다.
+        weather_fetched_at:
+          typeof body?.data?.weather?.fetched_at === 'string' ? body.data.weather.fetched_at : null,
       }
     },
 

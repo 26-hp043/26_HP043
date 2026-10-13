@@ -9,6 +9,11 @@ import { ScenarioComparison } from './ScenarioComparison'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import * as session from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
+import {
+  WEATHER_AS_OF_LABEL,
+  WEATHER_NOT_APPLIED_TEXT,
+  weatherAsOfText,
+} from '../../display/weatherAsOf'
 
 /**
  * 항로 비교 화면의 **선택지 배선** (#632).
@@ -433,6 +438,38 @@ describe('서버 경고가 화면에 뜬다 (#821)', () => {
 
     expect(screen.queryByText(/NON_CII_VESSEL/)).toBeNull()
     expect(screen.queryByText(/WEATHER_NONE_FALLBACK/)).toBeNull()
+  })
+
+  /*
+   * 기상 기준 시각 (#2135 · `PRD §6.3`). 보정에 쓴 기상을 받은 시각이 있을 때만 그 줄이 나오고,
+   * 없으면 「기상 보정 없이 계산했습니다」가 나온다. 문구는 리터럴이 아니라 정본 상수로 대조한다.
+   */
+  it('기상 보정을 했으면 기상 기준 시각 한 줄이 나온다 (#2135)', async () => {
+    stubServerWithComparison({
+      ...COMPARE_BODY,
+      warnings: [],
+      data: { ...COMPARE_BODY.data, weather: { fetched_at: '2026-10-06T00:00:00Z' } },
+    })
+    renderScreen()
+    await compareAndWaitForResult()
+
+    expect(
+      await screen.findByText(weatherAsOfText('2026-10-06T00:00:00Z') as string),
+    ).toBeTruthy()
+    expect(screen.queryByText(WEATHER_NOT_APPLIED_TEXT)).toBeNull()
+  })
+
+  it('기상 보정을 하지 않았으면 시각 줄 없이 「보정 없이 계산했습니다」가 한 번 나온다 (#2135)', async () => {
+    stubServerWithComparison({
+      ...COMPARE_BODY,
+      warnings: [],
+      data: { ...COMPARE_BODY.data, weather: { fetched_at: null } },
+    })
+    renderScreen()
+    await compareAndWaitForResult()
+
+    expect(await screen.findAllByText(WEATHER_NOT_APPLIED_TEXT)).toHaveLength(1)
+    expect(screen.queryByText(new RegExp(WEATHER_AS_OF_LABEL))).toBeNull()
   })
 
   it('서버가 경고를 보내지 않으면 배너 자체가 없다', async () => {

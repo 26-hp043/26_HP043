@@ -36,6 +36,12 @@ export interface CalculationRow {
   /** 항차에 붙은 계산인가 (`#817`). */
   attachedToVoyage: boolean
   needsRecalc: boolean
+  /**
+   * 기상 보정을 적용하는 계산(`SCENARIO`)의 기상 블록 (`API_SPEC §1.9` `weather` · `#2135`).
+   * `null`이면 기상을 적용하지 않는 종류라 화면이 기상 줄을 내지 않는다. 객체의 `fetchedAt`이
+   * `null`이면 보정에 쓴 기상이 없다(보정 없이 계산).
+   */
+  weather: { fetchedAt: string | null } | null
 }
 
 interface CalculationPage {
@@ -59,6 +65,7 @@ interface ServerRun {
   voyage_id: string | null
   result_summary?: { attained_cii?: string; estimated_rating?: string }
   needs_recalc: boolean
+  weather?: { fetched_at?: string | null } | null
   created_at: string
 }
 
@@ -74,6 +81,10 @@ export function toCalculationRow(raw: ServerRun): CalculationRow {
     rating: raw.result_summary?.estimated_rating ?? null,
     attachedToVoyage: raw.voyage_id !== null,
     needsRecalc: raw.needs_recalc === true,
+    weather:
+      raw.weather === null || raw.weather === undefined
+        ? null
+        : { fetchedAt: typeof raw.weather.fetched_at === 'string' ? raw.weather.fetched_at : null },
   }
 }
 
