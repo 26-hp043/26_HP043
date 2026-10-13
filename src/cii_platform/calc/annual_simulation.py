@@ -55,6 +55,7 @@ bit-exact 재현이 안 된다.**
 from __future__ import annotations
 
 import platform
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
@@ -309,6 +310,27 @@ class SimulationOutcome:
 
 
 # ─── 결정론 예측 (Layer 1) ───────────────────────────────────────────────────
+
+
+@layer1_context
+def mass_weighted_cf(
+    fuel_uses: Iterable[tuple[Decimal, Decimal]],
+) -> tuple[Decimal, Decimal | None]:
+    """연료 질량가중 평균 CF — ``Σ(톤 × CF) / Σ톤`` (`#812` · `#2254`).
+
+    ``RemainingVoyage``는 항차당 CF 하나를 받으므로 서비스가 유종을 이 값 하나로 합친다.
+    합·곱·나눗셈은 **호출 스레드의 정밀도가 아니라 작업 정밀도**(`TECH_SPEC §1.2.1`)에서
+    한다 — 밖에서 나누면 기본 ``prec=28``로 돈다. ``float`` 변환은 호출부 책임이다.
+
+    :param fuel_uses: ``(톤, CF)`` 쌍.
+    :returns: ``(총 톤, 유효 CF)``. 총 톤이 0 이하면 유효 CF는 ``None``이다.
+    """
+    pairs = list(fuel_uses)
+    total = sum((ton for ton, _ in pairs), Decimal(0))
+    if total <= 0:
+        return total, None
+    weighted = sum((ton * cf for ton, cf in pairs), Decimal(0))
+    return total, weighted / total
 
 
 @layer1_context

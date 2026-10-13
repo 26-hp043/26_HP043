@@ -40,10 +40,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
-from cii_platform.calc.annual_simulation import RemainingVoyage, project_deterministic
+from cii_platform.calc.annual_simulation import (
+    RemainingVoyage,
+    mass_weighted_cf,
+    project_deterministic,
+)
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
 from cii_platform.calc.precision import (
@@ -442,15 +446,19 @@ def _year_end_drivers(
 
     elapsed: list[RemainingVoyage] = []
     if contribution is not None:
-        fuel_ton = sum((ton for _, ton in contribution.fuel_uses), Decimal(0))
-        co2 = sum((ton * cf_by_fuel[code] for code, ton in contribution.fuel_uses), Decimal(0))
         # ⑶의 조립(`_inputs_from_snapshot`)과 같은 모양이다 — 연료를 CO₂ 기여로 합쳐
-        # 유효 CF 하나로 만들고 마지막에 float로 내린다.
+        # 유효 CF 하나로 만들고(작업 정밀도 안 · `#2254`) 마지막에 float로 내린다.
+        fuel_ton, cf_eff = mass_weighted_cf(
+            (ton, cf_by_fuel[code]) for code, ton in contribution.fuel_uses
+        )
+        if cf_eff is None:
+            # 종전에는 `co2 / fuel_ton`이 0 나눗셈으로 예외를 냈다 — 같은 종류로 유지한다.
+            raise InvalidOperation("진행 중 항차 경과분의 연료 합이 0 이하다")
         elapsed.append(
             RemainingVoyage(
                 distance_nm=float(contribution.distance_nm),
                 fuel_ton=float(fuel_ton),
-                cf=float(co2 / fuel_ton),
+                cf=float(cf_eff),
             )
         )
 

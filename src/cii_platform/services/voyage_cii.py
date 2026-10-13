@@ -39,7 +39,11 @@ from typing import TYPE_CHECKING
 
 import numpy
 
-from cii_platform.calc.annual_simulation import RemainingVoyage, project_deterministic
+from cii_platform.calc.annual_simulation import (
+    RemainingVoyage,
+    mass_weighted_cf,
+    project_deterministic,
+)
 from cii_platform.calc.capacity import (
     capacity_axis,
     resolve_reference_capacity,
@@ -546,11 +550,10 @@ def _effective_cf(fuel_uses: list[FuelUse]) -> tuple[Decimal, Decimal] | None:
     보존**되므로 분자 ``M``이 기능①의 값과 같아진다 — 평균을 산술로 내면 유종별
     사용량이 다를 때 갈린다.
     """
-    total = sum((use.fuel_ton for use in fuel_uses), Decimal(0))
-    if total <= 0:
+    total, cf = mass_weighted_cf((use.fuel_ton, use.cf_value) for use in fuel_uses)
+    if cf is None:
         return None
-    weighted = sum((use.fuel_ton * use.cf_value for use in fuel_uses), Decimal(0))
-    return total, weighted / total
+    return total, cf
 
 
 async def _annual_impact(
