@@ -34,7 +34,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from cii_platform.api.security_headers import SECURITY_HEADERS
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.errors import ERROR_HTTP_STATUS, AppError
-from cii_platform.validation.field_labels import field_label
+from cii_platform.validation.field_labels import field_label_for_route
 from cii_platform.validation.messages import korean_message
 
 if TYPE_CHECKING:
@@ -138,13 +138,15 @@ _WHOLE_BODY_ERRORS = frozenset({"json_invalid", "json_type"})
 _WHOLE_BODY_LABEL = "요청 본문"
 
 
-def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
+def _validation_details(exc: RequestValidationError, path: str = "") -> list[dict[str, object]]:
     """Pydantic 오류를 API_SPEC §1.3.2 ``details[]`` 형식으로 옮긴다.
 
     ``rule``은 넣지 않는다. §1.3.2 예시에도 없다(#2100). **Pydantic 오류에서 VAL 번호를
     유도할 수 없고**, 임의로 붙이면 근거 없는 규칙 번호가 응답에 실린다.
 
     ``field_label``은 :func:`~cii_platform.validation.field_labels.field_label`이 채운다.
+    ``path``는 요청 경로다 — 같은 필드명이 자원마다 다른 이름으로 불릴 때 라벨을 가른다
+    (정박 구간의 ``distance_nm``은 「이동 거리」 · #2467).
     미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약) — 요청 필드가 전부
     등록돼 있는지는 ``tests/test_validation_messages.py``가 OpenAPI로 대조한다(#900).
 
@@ -157,7 +159,7 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
         # 본문이 JSON이 아니면 ``loc``이 ``("body", 12)``처럼 **글자 위치**다 — 필드가 아니다.
         if error.get("type") in _WHOLE_BODY_ERRORS:
             field = ""
-        label = field_label(field) if field else _WHOLE_BODY_LABEL
+        label = field_label_for_route(path, field) if field else _WHOLE_BODY_LABEL
         entry: dict[str, object] = {
             "field": field,
             "field_label": label,
@@ -178,7 +180,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     ``message``는 첫 오류 문구를 쓴다 — 여러 필드가 동시에 틀렸을 때 대표 문구가
     필요하고, 전체 목록은 ``details``에 그대로 있다.
     """
-    details = _validation_details(exc)
+    details = _validation_details(exc, getattr(getattr(request, "url", None), "path", "") or "")
     message = str(details[0]["message"]) if details else "요청 값이 올바르지 않습니다."
     state = getattr(request, "state", None)
     body = to_error_response(
