@@ -178,7 +178,7 @@ export function createApiAssistantProvider(
       } | null
       if (!response.ok) {
         throw new AssistantError(
-          body?.error?.message ?? `대화를 불러오지 못했습니다 (HTTP ${response.status}).`,
+          body?.error?.message ?? '대화를 불러오지 못했습니다.',
         )
       }
       const data = body?.data
@@ -222,7 +222,7 @@ export function createApiAssistantProvider(
         error?: { message?: string }
       } | null
       throw new AssistantError(
-        body?.error?.message ?? `대화를 지우지 못했습니다 (HTTP ${response.status}).`,
+        body?.error?.message ?? '대화를 지우지 못했습니다.',
       )
     },
   }

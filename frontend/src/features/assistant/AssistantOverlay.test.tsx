@@ -1315,7 +1315,7 @@ describe('새로고침 뒤 대화 복원 (`#1981` · `API_SPEC §15.8`)', () => 
 
   it('지우기가 실패하면 대화를 **그대로 두고** 알린다', async () => {
     const forget = vi.fn<NonNullable<AssistantProvider['forget']>>(async () => {
-      throw new AssistantError('대화를 지우지 못했습니다 (HTTP 500).')
+      throw new AssistantError('대화를 지우지 못했습니다.')
     })
     const ask = vi.fn<AssistantProvider['ask']>(async () => ANSWER)
     render(<AssistantOverlay provider={{ ask, forget }} />)
@@ -1324,7 +1324,7 @@ describe('새로고침 뒤 대화 복원 (`#1981` · `API_SPEC §15.8`)', () => 
     await screen.findByText(ANSWER.answer)
 
     fireEvent.click(screen.getByRole('button', { name: '대화 지우기' }))
-    expect(await screen.findByText('대화를 지우지 못했습니다 (HTTP 500).')).toBeTruthy()
+    expect(await screen.findByText('대화를 지우지 못했습니다.')).toBeTruthy()
     expect(screen.getByText(ANSWER.answer)).toBeTruthy()
     expect(recallSession()).toBe(ANSWER.sessionId)
   })
