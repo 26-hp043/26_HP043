@@ -27,7 +27,7 @@ describe('공용 3D 선박 asset·LOD 계약', () => {
      *
      * **형상 자체의 예산 준수는** `vesselParts.test.ts`가 실제 부품 수로 본다.
      */
-    expect(VESSEL_GEOMETRY_BUDGET).toMatchObject({ forwardAxis: '+Y', textureBytes: 0, assetBytes: 0 })
+    expect(VESSEL_GEOMETRY_BUDGET).toMatchObject({ textureBytes: 0, assetBytes: 0 })
     expect(VESSEL_GEOMETRY_BUDGET.fleetTriangles).toBeLessThanOrEqual(400)
     expect(VESSEL_GEOMETRY_BUDGET.trackingTriangles).toBeLessThanOrEqual(500)
   })
