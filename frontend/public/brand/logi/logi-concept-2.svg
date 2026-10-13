@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-labelledby="title desc">
+  <title id="title">로기 시안 2 — 빛의 눈</title>
+  <desc id="desc">한쪽으로 빛을 비추는 큰 둥근 등실과 각진 탑 몸통의 등대 캐릭터</desc>
+  <path d="M63 35 89 25v25L63 40Z" fill="#2b6cb0"/>
+  <path d="M37 43h22l8 34H29l8-34Z" fill="#f4f6f9" stroke="#1a365d" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M34 58h28l2 8H32l2-8Z" fill="#1a365d"/>
+  <path d="m29 78 5-22 8 6-4 16Z" fill="#2b6cb0"/>
+  <path d="M29 78h38" stroke="#f4f6f9" stroke-width="7" stroke-linecap="round"/>
+  <path d="M29 78h38" stroke="#1a365d" stroke-width="3" stroke-linecap="round"/>
+  <path d="m30 30 7-10h22l7 10-5 15H35l-5-15Z" fill="#1a365d" stroke="#f4f6f9" stroke-width="4" stroke-linejoin="round" paint-order="stroke fill"/>
+  <circle cx="48" cy="34" r="11" fill="#f4f6f9"/>
+  <circle cx="49.5" cy="34" r="5" fill="#2b6cb0"/>
+  <circle cx="50.5" cy="34" r="2" fill="#1a365d"/>
+  <path d="M35 20h26" stroke="#1a365d" stroke-width="3" stroke-linecap="round"/>
+</svg>
