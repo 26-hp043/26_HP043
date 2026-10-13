@@ -528,8 +528,12 @@ export function ScenarioComparison({
      * 상단바에 고른 항차를 함께 보낸다 (`#2217`) — 그 항차를 두고 한 비교로 남아야, 채택 없이
      * 끝난 항차의 리포트가 이 비교를 싣는다. **폼의 배가 상단바의 배와 같을 때만**이다: 폼에서
      * 배를 바꿨으면 상단바의 항차는 다른 배의 것이고, 서버가 그 조합을 422로 거부한다.
+     *
+     * 싣는 것은 **셸의 항차 목록에 있는 항차**다(`listedVoyageId`). 주소에서 온 항차 id는
+     * 낡았을 수 있고(지워진 항차 · 엇갈린 링크 · 깨진 id), 그때 상단 선택기는 「항차 선택 안
+     * 함」으로 보인다 — 그 id를 실으면 사용자가 고른 적 없는 항차 때문에 비교가 실패한다.
      */
-    const voyageId = form.vesselId === shell.vesselId ? shell.voyageId : null
+    const voyageId = form.vesselId === shell.vesselId ? shell.listedVoyageId : null
     const request = toRequest(form, fuels)
     provider.compare(voyageId === null ? request : { ...request, voyage_id: voyageId }).then(
       (response) => {
@@ -1355,10 +1359,13 @@ export function ScenarioComparison({
         {/*
           비교 뒤 그 판단을 항차 계획으로 옮기는 경로 (#580). 선박은 **비교를 실행한**
           선박이다 — 폼에서 배를 바꿨으면 결과가 낡은(`stale`) 상태라 반영을 막는다.
+          `comparedVoyageId`는 서버가 이 비교를 **붙였다고 답한** 항차다(`#2217`) — 요청에
+          실은 값이 아니다. 계획 단계가 아닌 항차는 실어 보내도 붙지 않는다.
         */}
         <ScenarioAdoptPanel
           provider={provider}
           vesselId={snapshot.inputs.vesselId}
+          comparedVoyageId={response.voyage_id ?? null}
           scenarios={response.scenarios}
           stale={stale}
           preferredVoyageId={shell.voyageId}

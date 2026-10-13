@@ -70,7 +70,7 @@ export function invalidatedMessage(count: number | undefined): string {
     return base
   }
   if (count === 0) {
-    return `${base} 이번에 새로 재계산 필요 표시가 붙은 계산 결과는 없습니다 — 이 항차에 계산 이력이 없거나, 이미 전부 표시돼 있습니다.`
+    return `${base} 이번에 새로 재계산 필요 표시가 붙은 계산 결과는 없습니다 — 이 항차에 표시할 계산 이력이 없거나, 이미 전부 표시돼 있습니다. 시나리오 비교 이력에는 표시하지 않습니다.`
   }
   return `${base} 이 항차의 계산 결과 ${count}건에 재계산 필요 표시를 남겼습니다.`
 }

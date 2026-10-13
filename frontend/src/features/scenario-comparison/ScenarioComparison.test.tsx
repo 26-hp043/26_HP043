@@ -962,7 +962,15 @@ describe('계획에 반영 (#580)', () => {
     { id: 'v-done', voyage_no: '2026-03', status: 'CONFIRMED' },
   ]
 
-  function stubAdoptServer(adoptStatus = 200) {
+  /**
+   * `comparedVoyageId`는 서버가 이 비교를 **붙였다고 답하는** 항차다 (`API_SPEC §5.1`
+   * `data.voyage_id` · `#2217`). 주지 않으면 종전 응답 그대로다 — 키가 없다.
+   */
+  function stubAdoptServer(adoptStatus = 200, comparedVoyageId?: string | null) {
+    const compareBody =
+      comparedVoyageId === undefined
+        ? COMPARE_BODY
+        : { ...COMPARE_BODY, data: { ...COMPARE_BODY.data, voyage_id: comparedVoyageId } }
     const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
       void init
       const url = String(input)
@@ -972,7 +980,7 @@ describe('계획에 반영 (#580)', () => {
           data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
         })
       }
-      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      if (url.includes('/scenarios/compare')) return jsonResponse(compareBody)
       if (url.includes(`/vessels/${VESSEL}/voyages`)) return jsonResponse({ data: VOYAGES })
       if (url.includes('/adopt')) {
         return adoptStatus === 200
@@ -1032,15 +1040,80 @@ describe('계획에 반영 (#580)', () => {
    */
   function sentCompareBody(fetchImpl: ReturnType<typeof stubAdoptServer>): string {
     const call = fetchImpl.mock.calls.find(([input]) => String(input).includes('/scenarios/compare'))
-    return (call?.[1] as RequestInit).body as string
+    if (call === undefined) throw new Error('비교 요청이 나가지 않았다')
+    return (call[1] as RequestInit).body as string
   }
 
   it('상단바에서 고른 항차를 비교 요청에 싣는다 (#2217)', async () => {
     const fetchImpl = stubAdoptServer()
-    renderScreen({ voyageId: 'v-planned' })
+    renderScreen({ voyageId: 'v-planned', listedVoyageId: 'v-planned' })
     await openPanel()
 
     expect(JSON.parse(sentCompareBody(fetchImpl)).voyage_id).toBe('v-planned')
+  })
+
+  /*
+   * 주소에서 온 항차 id는 낡았을 수 있다(지워진 항차 · 선박과 엇갈린 링크 · 깨진 id). 셸이
+   * 그 선박의 항차 목록에서 찾지 못하면 `listedVoyageId`가 `null`이고, 상단 선택기는 「항차
+   * 선택 안 함」으로 보인다. 그 id를 실으면 서버가 404·422로 거부해 **고른 적 없는 항차
+   * 때문에** 비교가 실패한다.
+   */
+  it('상단바의 항차 id가 항차 목록에 없으면 비교 요청에 싣지 않는다 (#2217)', async () => {
+    const fetchImpl = stubAdoptServer()
+    renderScreen({ voyageId: 'v-gone', listedVoyageId: null })
+    await openPanel()
+
+    expect(sentCompareBody(fetchImpl)).not.toContain('voyage_id')
+  })
+
+  /*
+   * 항차를 두고 한 비교는 그 항차에만 반영한다 (`API_SPEC §5.2` · `#2217`). 화면은 요청에 실은
+   * 값이 아니라 **서버가 붙였다고 답한 항차**(`data.voyage_id`)로 후보를 좁힌다 — 계획 단계가
+   * 아닌 항차는 실어 보내도 붙지 않는다.
+   */
+  it('항차에 붙은 비교는 그 항차만 반영 대상으로 내고, 어느 항차의 비교인지 알린다 (#2217)', async () => {
+    stubAdoptServer(200, 'v-planned')
+    // 상단바는 다른 항차를 가리킨다 — 후보를 정하는 것은 응답이다.
+    renderScreen({ voyageId: 'v-draft', listedVoyageId: 'v-draft' })
+    await openPanel()
+
+    const select = (await screen.findByLabelText('대상 항차')) as HTMLSelectElement
+    const values = [...select.querySelectorAll('option')].map((o) => o.value)
+    expect(values).toEqual(['', 'v-planned'])
+    // 하나뿐이라 그것이 기본 선택이다.
+    await waitFor(() => expect(select.value).toBe('v-planned'))
+
+    // 표시 문구는 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 그 항차의 이름을 싣는지만 본다.
+    const note = screen.getByTestId('scenario-compared-voyage')
+    expect(note.textContent).toContain('2026-06')
+    expect(note.textContent).not.toContain('2026-05')
+  })
+
+  it('붙은 항차가 계획 단계를 벗어났으면 반영 대상이 없다 — 다른 항차로 새지 않는다 (#2217)', async () => {
+    const fetchImpl = stubAdoptServer(200, 'v-sailing')
+    renderScreen()
+    await openPanel()
+
+    // 항차 목록이 **도착한 뒤**를 본다 — 불러오는 동안에도 선택칸이 없어 그대로는 헛통과한다.
+    await waitFor(() =>
+      expect(fetchImpl.mock.calls.some(([input]) => String(input).includes('/voyages'))).toBe(true),
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(screen.queryByLabelText('대상 항차')).toBeNull()
+    expect((screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('붙지 않은 비교는 종전대로 계획 단계 항차를 모두 내고, 귀속 안내를 내지 않는다 (#2217)', async () => {
+    stubAdoptServer(200, null)
+    renderScreen({ voyageId: 'v-sailing', listedVoyageId: 'v-sailing' })
+    await openPanel()
+
+    const select = (await screen.findByLabelText('대상 항차')) as HTMLSelectElement
+    const values = [...select.querySelectorAll('option')].map((o) => o.value)
+    expect(values).toEqual(['', 'v-draft', 'v-planned'])
+    expect(screen.queryByTestId('scenario-compared-voyage')).toBeNull()
   })
 
   it('항차를 고르지 않았으면 비교 요청에 항차 키가 없다 (#2217)', async () => {

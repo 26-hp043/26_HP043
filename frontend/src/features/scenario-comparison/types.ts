@@ -148,6 +148,13 @@ export interface ScenarioComparisonResponse {
    * 결과를 읽는다. 선택 필드 — 가짜 provider·옛 응답에는 없을 수 있다.
    */
   calculation_run_id?: string
+  /**
+   * 이 비교의 계산 이력이 **붙은** 항차 (`API_SPEC §5.1` `data.voyage_id` · `#2217`).
+   * 붙지 않았으면 `null`이다 — 요청이 항차를 밝히지 않았거나, 밝혔어도 그 항차가 계획
+   * 단계가 아니었다. 화면은 이 값으로 「어느 항차의 비교로 남았는가」를 알리고, 채택 대상을
+   * 그 항차로 좁힌다(`§5.2`). 선택 필드 — 가짜 provider에는 없을 수 있고 `null`과 같게 읽는다.
+   */
+  voyage_id?: string | null
 }
 
 /**

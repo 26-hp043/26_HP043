@@ -65,6 +65,8 @@ function ContextProbe() {
       <span data-testid="vessel-id">{context.vesselId ?? '(없음)'}</span>
       <span data-testid="vessels-state">{context.vesselsState}</span>
       <span data-testid="vessel-count">{context.vessels.length}</span>
+      <span data-testid="voyage-id">{context.voyageId ?? '(없음)'}</span>
+      <span data-testid="listed-voyage-id">{context.listedVoyageId ?? '(없음)'}</span>
     </div>
   )
 }
@@ -790,6 +792,37 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
       expect(optionLabel).toContain(SAMPLE_PORTS[0].name_ko)
     })
     expect(voyageCalls).toHaveLength(1)
+  })
+
+  /*
+   * #2217 — 주소에서 온 항차 id는 낡았을 수 있다. 셸은 그 값을 그대로 들고 있되
+   * (`voyageId`), **받아 온 항차 목록에 있을 때만** `listedVoyageId`로 따로 내린다. 서버에
+   * 항차를 실어 보내는 화면이 그 값을 쓴다 — 목록에 없는 id를 실으면 404·422가 된다.
+   */
+  const VOYAGE_QUERY = 'voyage_id'
+  const pathWithVoyage = (voyageId: string) =>
+    `${FORECAST_PATH}?${VESSEL_QUERY_KEY}=${VESSELS.data[1].id}&${VOYAGE_QUERY}=${voyageId}`
+
+  it('주소의 항차가 항차 목록에 있으면 listedVoyageId로 내린다 (#2217)', async () => {
+    stubServerWithPortCodedVoyage()
+    renderShell(pathWithVoyage('v-1'))
+
+    await waitFor(() => expect(screen.getByTestId('listed-voyage-id').textContent).toBe('v-1'))
+    expect(screen.getByTestId('voyage-id').textContent).toBe('v-1')
+  })
+
+  it('주소의 항차가 항차 목록에 없으면 listedVoyageId는 비어 있다 (#2217)', async () => {
+    const voyageCalls = stubServerWithPortCodedVoyage()
+    renderShell(pathWithVoyage('v-gone'))
+
+    // 목록이 도착한 뒤에도 비어 있어야 한다 — 「아직 안 왔다」로 통과하지 않게 기다린다.
+    await waitFor(() => expect(voyageCalls).toHaveLength(1))
+    await waitFor(() => {
+      const select = document.getElementById('global-voyage') as HTMLSelectElement
+      expect([...select.querySelectorAll('option')].some((o) => o.value === 'v-1')).toBe(true)
+    })
+    expect(screen.getByTestId('voyage-id').textContent).toBe('v-gone')
+    expect(screen.getByTestId('listed-voyage-id').textContent).toBe('(없음)')
   })
 })
 

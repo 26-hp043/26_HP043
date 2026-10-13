@@ -274,8 +274,10 @@ async def find_latest_scenario_run_of_voyage(
     ``voyage_id``가 붙은 이력만 본다. 항차를 밝히지 않은 비교(``NULL``)는 같은 선박의 것이라도
     잡히지 않는다 — 선박의 다른 비교를 이 항차의 것으로 끌어오지 않는다.
 
-    정렬은 ``list_runs``와 같다(``created_at desc, id desc``). ``created_at``이 같은 두 이력의
-    선후는 id로 갈려 정해지지 않는다.
+    정렬은 ``list_runs``와 같다(``created_at desc, id desc``). ``created_at``은 밀리초까지
+    저장된다(CUBRID ``DATETIMETZ`` — 2026-10-13 실측: 잇달아 돌린 두 비교가 같은 초 안에서
+    52 ms 차이로 갈렸다). 그래서 「같은 초」의 두 비교는 선후가 정해지고, **같은 밀리초**에
+    저장된 두 이력만 id(무작위)로 갈려 선후가 정해지지 않는다.
     """
     stmt = (
         select(CalculationRun)

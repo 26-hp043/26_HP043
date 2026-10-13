@@ -73,7 +73,7 @@ interface ServerScenario {
 }
 
 interface ServerBody {
-  data?: { scenarios?: ServerScenario[] }
+  data?: { scenarios?: ServerScenario[]; voyage_id?: string | null }
   /*
    * `API_SPEC §5.1` — 응답 **최상위**에 실린다(`data` 안이 아니다).
    * `routes/scenarios.py`가 서비스 dict를 그대로 돌려주고 `meta`만 덧붙인다.
@@ -283,6 +283,8 @@ export function createApiScenarioProvider(
         ...(typeof body?.calculation_run_id === 'string'
           ? { calculation_run_id: body.calculation_run_id }
           : {}),
+        // `#2217` — 이 비교가 붙은 항차. 문자열이 아니면 「붙지 않았다」로 읽는다.
+        voyage_id: typeof body?.data?.voyage_id === 'string' ? body.data.voyage_id : null,
       }
     },
 
