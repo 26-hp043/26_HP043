@@ -411,9 +411,9 @@
 
 /* 확정만 강조한다 — 검증은 되돌릴 수 있고 확정은 아니다. */
 .vy-import__row .vy-import__commit {
-  color: var(--surface-card);
-  background: var(--semantic-primary);
-  border-color: var(--semantic-primary);
+  color: var(--color-on-primary);
+  background: var(--color-primary-solid);
+  border-color: var(--color-primary-solid-border);
 }
 
 .vy-import__row button:disabled {
@@ -667,9 +667,9 @@
   font: inherit;
   font-size: var(--font-size-label);
   padding: var(--spacing-sm) var(--spacing-lg);
-  color: var(--surface-card);
-  background: var(--semantic-primary);
-  border: 1px solid var(--semantic-primary);
+  color: var(--color-on-primary);
+  background: var(--color-primary-solid);
+  border: 1px solid var(--color-primary-solid-border);
   border-radius: var(--radius-control);
   cursor: pointer;
 }

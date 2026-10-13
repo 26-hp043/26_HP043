@@ -51,7 +51,8 @@ describe('정박 기록 버튼의 hover (#1654)', () => {
   })
 
   it('채움 버튼의 hover는 면을 바꾼다 — 저장소의 다른 채움 버튼과 같은 방식', () => {
-    expect(ruleFor('.nu__submit:hover')).toMatch(/background:\s*var\(--color-primary-hover\)/)
+    // 채움면 전용 hover 토큰이다 — `--color-primary-hover`는 다크에서 글자 대비를 지키지 못한다 (#2431).
+    expect(ruleFor('.nu__submit:hover')).toMatch(/background:\s*var\(--color-primary-solid-hover\)/)
   })
 
   it('공통 hover 규칙에 채움 버튼이 들어 있지 않다', () => {

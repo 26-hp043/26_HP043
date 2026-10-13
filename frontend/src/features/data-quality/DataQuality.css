@@ -487,13 +487,14 @@
 }
 
 .dq-task__go--primary {
-  background: var(--color-primary);
+  background: var(--color-primary-solid);
+  border: 1px solid var(--color-primary-solid-border);
   color: var(--color-on-primary);
   font-weight: var(--font-weight-strong);
 }
 
 .dq-task__go--primary:hover {
-  background: var(--color-primary-hover);
+  background: var(--color-primary-solid-hover);
 }
 
 /* 선박별 완결성 막대 */

@@ -222,13 +222,13 @@
 }
 
 .rp__primary {
-  background: var(--semantic-primary);
-  border-color: var(--semantic-primary);
-  color: var(--surface-card);
+  background: var(--color-primary-solid);
+  border-color: var(--color-primary-solid-border);
+  color: var(--color-on-primary);
 }
 
 .rp__primary:hover:not(:disabled) {
-  color: var(--surface-card);
+  color: var(--color-on-primary);
   opacity: 0.9;
 }
 
