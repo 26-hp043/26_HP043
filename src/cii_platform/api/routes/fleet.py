@@ -32,6 +32,7 @@ from cii_platform.services.fleet_reduction import (
 )
 from cii_platform.services.fleet_summary import get_fleet_summary
 from cii_platform.services.notifications import get_notifications
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 router = APIRouter(tags=["fleet"])
 
@@ -52,7 +53,7 @@ async def get_fleet_summary_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     regulation_year: Annotated[
         int | None,
-        Query(ge=2000, le=2100, description="집계 대상 규제연도. 미지정이면 as_of 연도"),
+        Query(**REGULATION_YEAR, description="집계 대상 규제연도. 미지정이면 as_of 연도"),
     ] = None,
     as_of: Annotated[
         datetime | None,
@@ -93,7 +94,7 @@ async def get_fleet_data_quality_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     regulation_year: Annotated[
         int | None,
-        Query(ge=2000, le=2100, description="점검 대상 규제연도. 미지정이면 올해"),
+        Query(**REGULATION_YEAR, description="점검 대상 규제연도. 미지정이면 올해"),
     ] = None,
 ) -> dict[str, object]:
     """선대의 CII 계산에 **실측이 아닌 값이** 어디에 들어갔는지 (`API_SPEC §2.16` · #513).
@@ -110,7 +111,7 @@ async def get_fleet_notifications_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     regulation_year: Annotated[
         int | None,
-        Query(ge=2000, le=2100, description="대상 규제연도. 미지정이면 as_of 연도"),
+        Query(**REGULATION_YEAR, description="대상 규제연도. 미지정이면 as_of 연도"),
     ] = None,
     as_of: Annotated[
         datetime | None,

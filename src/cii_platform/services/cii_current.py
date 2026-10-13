@@ -80,6 +80,7 @@ from cii_platform.services.ytd_cii import (
     YtdCiiOutput,
     compute_ytd_cii,
 )
+from cii_platform.validation.bounds import MAX_REGULATION_YEAR, MIN_REGULATION_YEAR
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -89,10 +90,8 @@ if TYPE_CHECKING:
 #: 수치 직렬화 자릿수 (``API_SPEC §1.7``). ``cii_history``와 같은 기준이다.
 _DIGITS = {"cii": 6, "ratio": 5, "distance_nm": 2, "fuel_ton": 2, "co2_ton": 2, "hours": 4}
 
-#: 규제연도 입력 범위 — 실시간 CII(`API_SPEC §2.14`)·연간(`§2.18`)·이력(`§2.7`)이 같이 쓴다.
-#: 하한은 ``voyage.regulation_year``의 CHECK 하한(``DB_SCHEMA §2.2``)과 같은 값이다.
-MIN_REGULATION_YEAR = 2019
-MAX_REGULATION_YEAR = 2100
+# 규제연도 입력 범위(2019~2100)는 ``validation/bounds.py``가 정의한다 (`#2190`) —
+# 실시간 CII(`API_SPEC §2.14`)·연간(`§2.18`)·이력(`§2.7`)이 같이 쓰고, 기존 import 경로를 지킨다.
 
 #: ⑶의 외삽 근거가 없다 — 올해 실적이 아직 없어 일평균을 낼 수 없다.
 REASON_NO_BASIS = "NO_BASIS"

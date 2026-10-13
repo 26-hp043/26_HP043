@@ -44,10 +44,24 @@ def storable_from(floor: Decimal, precision: int, scale: int) -> dict[str, Decim
     return {"ge": floor, "le": largest(precision, scale)}
 
 
-#: ``voyage.regulation_year`` · ``not_underway_period.regulation_year``의 DB CHECK
-#: (``BETWEEN 2019 AND 2050`` — 마이그레이션 005·025 · `DB_SCHEMA §2.2`). 종전 스키마의
-#: ``2000~2100``은 형식만 보는 값이라 2010·2080이 DB에서 500으로 죽었다 (`#1086` ①).
-REGULATION_YEAR = {"ge": 2019, "le": 2050}
+#: 규제연도 입력의 **하한** — 조회·계산·저장이 모두 같다 (`#2190` 결정 1). BlueLog의 입력
+#: 정책이며 「IMO가 2019를 법적 최저 연도로 정했다」는 뜻이 아니다.
+MIN_REGULATION_YEAR = 2019
+#: 규제연도 **조회·계산**의 상한 — 실시간 CII·이력·연간 시뮬레이션 등 (`#2190` 결정 2).
+MAX_REGULATION_YEAR = 2100
+#: 규제연도 **저장**의 상한 — ``voyage.regulation_year`` · ``not_underway_period.regulation_year``의
+#: DB CHECK(``BETWEEN 2019 AND 2050`` — 마이그레이션 005·025 · `DB_SCHEMA §2.2`)와 같다 (`#2190`).
+MAX_STORED_REGULATION_YEAR = 2050
+
+#: 조회·계산이 받는 규제연도 ``2019~2100`` — ``Field(**REGULATION_YEAR)`` · ``Query(**…)``.
+REGULATION_YEAR = {"ge": MIN_REGULATION_YEAR, "le": MAX_REGULATION_YEAR}
+#: 항차·정박 구간이 **저장하는** 규제연도 ``2019~2050``. 종전 스키마의 ``2000~2100``은
+#: 형식만 보는 값이라 2010·2080이 DB에서 500으로 죽었다 (`#1086` ①).
+STORED_REGULATION_YEAR = {"ge": MIN_REGULATION_YEAR, "le": MAX_STORED_REGULATION_YEAR}
+
+#: 공적 기항 기록의 입항연도(``call_year``) ``2000~2100``. **규제연도가 아니다** — 기록 한
+#: 건을 찾는 키라 규제연도 하한을 적용하지 않는다 (`#2190` 결정 3 · `API_SPEC §3.12`).
+CALL_YEAR = {"ge": 2000, "le": 2100}
 
 #: 운항 속력의 물리 상한(kn) — ``PRD §9.1`` VAL-009 (`#1269` · 결정 G-10).
 #:

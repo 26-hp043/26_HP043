@@ -23,7 +23,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cii_platform.api.schemas.instants import Instant
 from cii_platform.api.schemas.voyage_cii import WeatherModel
-from cii_platform.validation.bounds import DAILY_FOC, DISTANCE, PORT_NAME_MAX_LENGTH, SPEED
+from cii_platform.validation.bounds import (
+    DAILY_FOC,
+    DISTANCE,
+    PORT_NAME_MAX_LENGTH,
+    REGULATION_YEAR,
+    SPEED,
+)
 
 
 class ScenarioCompareRequest(BaseModel):
@@ -33,7 +39,7 @@ class ScenarioCompareRequest(BaseModel):
 
     vessel_id: UUID
     # VAL-005 연도 존재 확인은 DB를 봐야 하므로 서비스가 한다. 상식적 범위만.
-    regulation_year: Annotated[int, Field(ge=2000, le=2100)]
+    regulation_year: Annotated[int, Field(**REGULATION_YEAR)]
     # VAL-007: −90 ~ +90 / −180 ~ +180. direct_distance_nm이 없을 때 필요(서비스 검증).
     current_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     current_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None

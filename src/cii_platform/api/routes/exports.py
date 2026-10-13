@@ -37,6 +37,7 @@ from cii_platform.services.data_export import (
     ExportTable,
     build_export,
 )
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 router = APIRouter(tags=["exports"])
 
@@ -67,7 +68,7 @@ async def export_vessel_data_route(
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     type: Annotated[str, Query(description="voyages · calculations · simulations")],
-    year: Annotated[int | None, Query(ge=2000, le=2100, description="기준연도 필터")] = None,
+    year: Annotated[int | None, Query(**REGULATION_YEAR, description="기준연도 필터")] = None,
     format: Annotated[str, Query(description="csv (기본) · json")] = "csv",
     calculation_run_id: Annotated[
         UUID | None, Query(description="계산 한 건만 (type=calculations · #891)")

@@ -46,9 +46,10 @@ from cii_platform.services.not_underway import (
     CONSUMER_TYPES,
     PERIOD_TYPES,
     create_period,
+    require_storable_year,
     stationary_distance_violation,
 )
-from cii_platform.services.voyage import require_vessel
+from cii_platform.services.voyage import require_vessel, utc_year
 from cii_platform.services.voyage_import import (
     INSTANT_EXAMPLE,
     MAX_ROWS,
@@ -178,6 +179,15 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     ended_at = _instant(row, "ended_at", label="종료 시각", required=False)
     if ended_at is not None and started_at is not None and ended_at <= started_at:
         raise RowError("ended_at", "종료 시각은 시작 시각보다 뒤여야 합니다.")
+
+    # CSV에는 연도 열이 없어 **항상 서버가 시작 시각에서 채운다.** 그 연도가 저장 범위
+    # (2019~2050) 밖이면 화면 입력과 같은 문구로 이 행을 거부한다 (`#2190` 결정 4).
+    # 저장 단계(`create_period`)도 같은 함수로 막지만 여기서 먼저 봐야 `dry_run`이 같은 판정을 낸다.
+    if started_at is not None:
+        try:
+            require_storable_year(utc_year(started_at))
+        except ValidationError as error:
+            raise RowError("started_at", error.message) from error
 
     # 접안·묘박은 이동 거리가 0이어야 한다 (`#2130`). 저장 단계(`create_period`)도 같은
     # 함수로 막지만 **여기서 먼저 본다** — 그래야 `dry_run`이 실제 가져오기와 같은 판정을 낸다

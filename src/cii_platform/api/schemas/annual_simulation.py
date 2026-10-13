@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cii_platform.api.schemas.instants import Instant
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 
 class AnnualSimulationRequest(BaseModel):
@@ -20,7 +21,7 @@ class AnnualSimulationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     vessel_id: UUID
-    regulation_year: Annotated[int, Field(ge=2000, le=2100)]
+    regulation_year: Annotated[int, Field(**REGULATION_YEAR)]
     #: A~D. **E는 거부**한다 (`PRD §12.8`) — 검증은 서비스가 하고, 여기서는 길이만 본다.
     #: 열거값을 두 곳에 두면 갈리므로 정본 하나(`services.annual_simulation`)만 둔다.
     target_rating: Annotated[str, Field(min_length=1, max_length=1)]

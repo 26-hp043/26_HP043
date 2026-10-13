@@ -447,3 +447,66 @@ async def test_csrf_header_is_required_on_every_write_route(migrated_db, app_fre
             response = getattr(client, method)(url, **kwargs)
             # 403이어야 한다 — 404(대상 없음)까지 가면 CSRF를 지나쳤다는 뜻이다.
             assert response.status_code == 403, f"{method.upper()} {url} → {response.status_code}"
+
+
+async def test_저장_범위_밖_규제연도는_명시해도_생략해도_같은_422다(migrated_db, app_fresh_engine):
+    """`#2190` 결정 4 — 규제연도 저장 범위(2019~2050)를 **명시·생략·시각 수정** 세 경로가 같게 본다.
+
+    종전에는 명시한 값만 스키마가 막고, 생략해 서버가 ``started_at``에서 채운 연도는 검사하지
+    않았다. 같은 시각이 요청 작성법에 따라 저장되거나 거부되었고(2018 이하는 저장, 2051 이상은
+    DB CHECK의 500), CSV는 항상 생략 경로라 화면 입력과 결과가 달랐다.
+
+    문구까지 같아야 한다 — 명시한 경우는 요청 스키마의 범위 문구, 생략한 경우는 서비스의 문구다.
+    두 문구가 갈리면 사용자는 같은 잘못에 다른 안내를 받는다. 대조군(경계 안쪽)도 함께 본다.
+    """
+    vessel_id = await _seed_vessel()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = _csrf(client)
+            base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
+
+            def post(year: int, **over):
+                return client.post(
+                    base,
+                    json=_period_body(
+                        started_at=f"{year}-06-10T00:00:00Z",
+                        ended_at=f"{year}-06-11T00:00:00Z",
+                        **over,
+                    ),
+                    headers=headers,
+                )
+
+            def refusal(response) -> dict:
+                assert response.status_code == 422, response.text
+                detail = response.json()["error"]["details"][0]
+                assert detail["field"] == "regulation_year", detail
+                assert detail["field_label"] == "규제연도", detail
+                return detail
+
+            for year, floor_side in ((2018, True), (2051, False)):
+                explicit = refusal(post(year, regulation_year=year))
+                omitted = refusal(post(year))
+                assert explicit["message"] == omitted["message"], (explicit, omitted)
+                bound = "2019 이상" if floor_side else "2050 이하"
+                assert bound in omitted["message"], omitted
+
+            # 대조군 — 경계 안쪽은 생략해도 명시해도 들어간다.
+            for year in (2019, 2050):
+                assert post(year).status_code == 201
+            assert post(2026, regulation_year=2026).status_code == 201
+
+            # 수정 — 시각을 범위 밖 연도로 옮기면(연도는 보내지 않음) 새 시작 연도로 채워지는데,
+            # 그 값도 같은 422다.
+            period_id = post(2030).json()["data"]["id"]
+            moved = client.patch(
+                f"/api/v1/not-underway-periods/{period_id}",
+                json={
+                    "started_at": "2051-06-10T00:00:00Z",
+                    "ended_at": "2051-06-11T00:00:00Z",
+                },
+                headers=headers,
+            )
+            assert refusal(moved)["message"] == refusal(post(2051))["message"]
+    finally:
+        await _cleanup(vessel_id)

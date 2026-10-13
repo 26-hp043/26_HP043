@@ -69,7 +69,7 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(model, name):
         ("reference_daily_foc_ton", "1000000"),  # NUMERIC(8,2) 초과
         # #966 — 방형계수는 저장 범위 위에 물리 범위(0 < CB <= 1)가 더 좁힌다.
         # 경계 대조 집합(_FIELDS)에 넣지 않는 이유: 의도적인 도메인 좁힘이라
-        # 컬럼 정밀도와 같아질 수 없다(REGULATION_YEAR의 2019~2050과 같은 성격).
+        # 컬럼 정밀도와 같아질 수 없다(STORED_REGULATION_YEAR의 2019~2050과 같은 성격).
         ("block_coefficient", "0"),  # 양수가 아니다
         ("block_coefficient", "0.0005"),  # 0.000으로 반올림돼 범위 밖이 된다
         ("block_coefficient", "1.001"),  # 체적 비율은 1을 넘지 않는다

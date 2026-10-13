@@ -35,6 +35,7 @@ from cii_platform.reports.document import ReportDocument
 from cii_platform.reports.html import render_html
 from cii_platform.reports.pdf import render_pdf_async
 from cii_platform.services.report import build_annual_report, build_voyage_report
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 router = APIRouter(tags=["reports"])
 
@@ -123,7 +124,7 @@ async def annual_report_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     _office: Annotated[None, Depends(require_office)],
     year: Annotated[
-        int | None, Query(ge=2000, le=2100, description="규제연도. 기본 as_of 연도")
+        int | None, Query(**REGULATION_YEAR, description="규제연도. 기본 as_of 연도")
     ] = None,
     format: Annotated[str, Query(description="pdf · csv · html")] = "pdf",
     as_of: Annotated[datetime | None, Query(description="기준 시각 (ISO 8601 UTC)")] = None,

@@ -19,7 +19,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL
+from cii_platform.validation.bounds import DISTANCE, REGULATION_YEAR, SPEED, VOYAGE_FUEL
 
 #: API_SPEC §4.1 ``weather_model`` enum. 8/8 UI는 이 값을 보내지 않으며 기본값 NONE이다.
 WeatherModel = Literal["NONE", "SIMPLE_RULE", "TOWNSIN_KWON_ALPHA"]
@@ -52,7 +52,7 @@ class VoyageCiiRequest(BaseModel):
     vessel_id: UUID
     # 연도 존재 확인(VAL-005)은 DB를 봐야 하므로 서비스가 한다. 여기서는 상식적
     # 범위만 막는다 — 음수·4자리 아닌 값이 DB 조회까지 가지 않게 한다.
-    regulation_year: Annotated[int, Field(ge=2000, le=2100)]
+    regulation_year: Annotated[int, Field(**REGULATION_YEAR)]
     # VAL-002 — 항차 저장의 거리(``NUMERIC(12,2)``)와 같은 범위다(`#2134` · 결정 D-15):
     # 0.01 ~ 9,999,999,999.99. 이유는 ``fuel_ton``과 같다.
     distance_nm: Annotated[Decimal, Field(**DISTANCE)]
