@@ -424,23 +424,39 @@ async def record_chat_message(
     role: str,
     content: str,
     ip_address: str | None = None,
+    message_id: UUID | None = None,
+    tool_names: Sequence[str] = (),
 ) -> None:
     """챗봇 메시지 한 건 (`#120` 완료 기준 「모든 에이전트 호출이 audit_log에 기록됨」).
 
     **본문 대신 해시와 길이**를 담는다 — 위 :func:`content_digest` 참조. 본문은
     ``chat_message.content``에 있고 90일 뒤 지워진다.
+
+    ## 답 행에는 도구 이름을 동봉한다 (`#1981`)
+
+    ``message_id``는 이 행이 가리키는 ``chat_message.id``다. 대화를 다시 불러올 때
+    (``API_SPEC §15.8``) 답마다 근거를 되살리는데, ``chat_message``에는 도구 이름이 없고
+    ``CHAT_TOOL_CALL`` 행은 **어느 답의 것인지** 말하지 않는다 — 감사 ``timestamp``가 초
+    단위라 같은 초에 끝난 두 턴은 시간으로 가를 수 없다(리뷰에서 재현). 그래서 **답을 남기는
+    행 자신**에 그 턴이 실제로 쓴 도구를 실행 순서대로 싣고, ``message_id``로 답 메시지와
+    1:1로 짝짓는다 — 해시도 순서도 필요 없다. 빈 이름은 싣지 않는다.
     """
+    details: dict[str, object] = {
+        "role": role,
+        "content_sha256": content_digest(content),
+        "content_length": len(content),
+    }
+    if message_id is not None:
+        details["message_id"] = str(message_id)
+    if role == "ASSISTANT":
+        details["tool_names"] = [name for name in tool_names if name]
     await audit_repo.insert_event(
         session,
         action="CHAT_MESSAGE",
         user_id=user_id,
         entity_type="chat_session",
         entity_id=session_id,
-        details={
-            "role": role,
-            "content_sha256": content_digest(content),
-            "content_length": len(content),
-        },
+        details=details,
         ip_address=ip_address,
     )
 

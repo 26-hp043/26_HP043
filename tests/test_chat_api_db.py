@@ -1442,3 +1442,168 @@ async def test_a_regulation_value_from_the_table_passes_the_number_guard(
             assert data["tool_calls"] == ["lookup_regulation"]
     finally:
         await _cleanup()
+
+
+async def test_a_conversation_is_restored_as_the_screen_drew_it(migrated_db, app_fresh_engine):
+    """IT-CHAT-085 (`#1981`) — ``GET /chat/sessions/{id}/messages``가 **처음 화면이 본
+    모양**을 되돌린다 (``API_SPEC §15.8``).
+
+    세 턴을 쌓는다 — ⑴ 도구를 부른 답 ⑵ 수치 검증에 걸려 **버린** 답 ⑶ 도구를 부른 답. 버린
+    답은 저장되지 않으므로(`IT-CHAT-029`) 그 자리는 **질문만** 남는데, 복원은 그 질문 뒤에
+    ``discarded: true`` 항목을 세워야 한다 — 없으면 화면이 그 질문을 답을 기다리는 것처럼
+    그린다. 도구 이름은 ``chat_message``에 없고 답을 남긴 감사 행에 동봉된 것을 ``message_id``로
+    짝지어 되살린다 — ⑴·⑶ 각자에게 붙고 서로 새지 않는지 본다. 세 턴은 **같은 초 안에** 끝나므로
+    (가짜 공급자) 시간으로 가르는 방식은 여기서 ⑴에 둘 다 몰린다(리뷰 재현 · `IT-CHAT-088`).
+    """
+    _use(
+        FakeProvider(
+            [
+                LLMResponse(
+                    tool_calls=(ToolCall(name="search_vessel", arguments={"name": "DEMO"}),)
+                ),
+                LLMResponse(text="찾았습니다."),
+                LLMResponse(text="attained CII는 4.98입니다."),  # 도구 없이 수치 → 폐기
+                LLMResponse(
+                    tool_calls=(ToolCall(name="search_vessel", arguments={"name": "DEMO"}),)
+                ),
+                LLMResponse(text="다시 찾았습니다."),
+            ]
+        )
+    )
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "DEMO 찾아줘"}, headers=headers
+            ).json()["data"]
+            session_id = first["session_id"]
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": "등급은?", "session_id": session_id},
+                headers=headers,
+            ).json()["data"]
+            assert second["discarded"] is True, second
+            third = client.post(
+                "/api/v1/chat",
+                json={"message": "고마워", "session_id": session_id},
+                headers=headers,
+            ).json()["data"]
+            assert third["discarded"] is False, third
+
+            response = client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+            assert response.status_code == 200, response.text
+            data = response.json()["data"]
+            assert set(data) == {"session_id", "messages", "disclaimer"}
+            assert data["session_id"] == session_id
+            assert data["disclaimer"] == DISCLAIMER
+
+            entry_keys = {"role", "content", "discarded", "tool_calls"}
+            assert all(set(entry) == entry_keys for entry in data["messages"]), data["messages"]
+            assert [
+                (m["role"], m["content"], m["discarded"], m["tool_calls"]) for m in data["messages"]
+            ] == [
+                ("USER", "DEMO 찾아줘", False, []),
+                ("ASSISTANT", "찾았습니다.", False, ["search_vessel"]),
+                ("USER", "등급은?", False, []),
+                ("ASSISTANT", chat_service.DISCARDED_RESTORED_MESSAGE, True, []),
+                ("USER", "고마워", False, []),
+                ("ASSISTANT", "다시 찾았습니다.", False, ["search_vessel"]),
+            ]
+            # 처음 화면에 갔던 폐기 사유 원문은 저장하지 않았고, 복원도 그것을 지어내지 않는다.
+            assert DISCARDED_MESSAGE not in json.dumps(data, ensure_ascii=False)
+    finally:
+        await _cleanup()
+
+
+async def test_history_of_another_user_or_nobody_is_not_found(migrated_db, app_fresh_engine):
+    """IT-CHAT-086 (`#1981`) — 남의 대화·없는 대화는 **404**, 로그인 없이는 401.
+
+    다른 계정으로 갈아탄 탭이 앞 계정의 번호를 들고 와도 여기서 끊긴다. 403이면 id를 바꿔
+    가며 남의 대화가 존재하는지 알아낼 수 있으므로(``API_SPEC §15.4``) 없는 것과 같은 코드다.
+    """
+    from uuid import uuid4
+
+    from cii_platform.db.repositories import chat as chat_repo
+    from cii_platform.db.session import get_sessionmaker
+
+    other_user = uuid4()
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                'INSERT INTO app_user (id, email, password_hash, "role", is_deleted) '
+                "VALUES (:id, :email, 'x', 'FIELD', 0)"
+            ),
+            {"id": other_user, "email": f"restore-{other_user.hex[:8]}@example.com"},
+        )
+        other_session = await chat_repo.create_session(s, user_id=other_user)
+        await chat_repo.add_message(
+            s, session_id=other_session.id, role="USER", content="남의 질문"
+        )
+        await s.commit()
+        other_id = str(other_session.id)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.get(f"/api/v1/chat/sessions/{other_id}/messages").status_code == 401
+            _login(client)
+            for session_id in (other_id, "00000000-0000-4000-8000-000000000000"):
+                response = client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+                assert response.status_code == 404, response.text
+                assert response.json()["error"]["code"] == "NOT_FOUND"
+                assert "남의 질문" not in response.text
+    finally:
+        async with get_sessionmaker()() as s:
+            await s.execute(text("DELETE FROM chat_session WHERE user_id = :u"), {"u": other_user})
+            await s.execute(text("DELETE FROM app_user WHERE id = :u"), {"u": other_user})
+            await s.commit()
+        await _cleanup()
+
+
+async def test_history_of_an_expired_session_is_not_found(migrated_db, app_fresh_engine):
+    """IT-CHAT-087 (`#1981`) — 만료된 대화(청소 전)는 복원도 **404**다 (`#1632`와 같은 규칙).
+
+    질의가 막힌 대화를 조회만 열어 두면 「쓸 수 없는데 보이는」 대화가 된다 — 화면은 그것을
+    이어 가려다 404를 만난다. 같은 자리에서 같은 코드로 끊어 화면이 새 대화로 넘어가게 한다.
+    """
+    _use(FakeProvider([LLMResponse(text="안녕하세요.")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            session_id = client.post(
+                "/api/v1/chat", json={"message": "안녕"}, headers=headers
+            ).json()["data"]["session_id"]
+            assert client.get(f"/api/v1/chat/sessions/{session_id}/messages").status_code == 200
+            await _expire(session_id)
+            response = client.get(f"/api/v1/chat/sessions/{session_id}/messages")
+            assert response.status_code == 404
+            assert response.json()["error"]["code"] == "NOT_FOUND"
+    finally:
+        await _cleanup()
+
+
+def test_tool_names_pair_with_the_answer_by_id_not_by_time() -> None:
+    """IT-CHAT-088 (`#1981` 리뷰) — 같은 초에 끝난 두 턴에서도 도구가 **제 답에** 붙는다.
+
+    감사 ``timestamp``는 초 단위다. 종전 방식(시간순 정렬 · 질문에서 비우고 답에서 넘김)은
+    턴1(도구 없이 A) · 턴2(``calc_voyage_cii``로 B)가 같은 초면 ``U1 U2 T A B``로 세워져
+    **A에 붙었다.** 지금은 답 행에 동봉된 ``tool_names``를 ``message_id``로 짝지으므로
+    시간이 전부 같아도 B에만 붙는다. 이 기능 이전 행(키 없음)은 빈 목록이고 빈 이름은 건너뛴다.
+    """
+    from types import SimpleNamespace
+
+    same = datetime(2026, 9, 30, 2, 40, 0, tzinfo=UTC)
+
+    def row(action: str, **details: object) -> SimpleNamespace:
+        return SimpleNamespace(action=action, timestamp=same, details_json=details)
+
+    events = [
+        row("CHAT_MESSAGE", role="USER", message_id="q1"),
+        row("CHAT_MESSAGE", role="ASSISTANT", message_id="a1", tool_names=[]),
+        row("CHAT_MESSAGE", role="USER", message_id="q2"),
+        row("CHAT_TOOL_CALL", tool_name="calc_voyage_cii"),
+        row("CHAT_MESSAGE", role="ASSISTANT", message_id="a2", tool_names=["calc_voyage_cii", ""]),
+        # 이 기능 이전의 답 행 — message_id도 tool_names도 없다.
+        row("CHAT_MESSAGE", role="ASSISTANT"),
+    ]
+    tools = chat_service._tools_by_message(events)  # type: ignore[arg-type]
+    assert tools == {"a1": [], "a2": ["calc_voyage_cii"]}
+    assert tools.get("legacy", []) == []

@@ -140,6 +140,30 @@ async def test_tour_cannot_read_account_list(client, monkeypatch):
         await _cleanup()
 
 
+async def test_tour_cannot_read_a_chat_history_even_its_own(client, monkeypatch):
+    """`#1981` — 둘러보기는 **그 계정 소유의 대화**도 404다 (`API_SPEC §15.8`).
+
+    공유 계정이라 「본인 대화」가 성립하지 않는다 — 정책 도입 전에 남은 대화가 있으면 방문자
+    누구에게나 보인다. ``GET``이라 메서드 정책은 통과시키므로 라우트가 따로 끊는다.
+    """
+    from cii_platform.auth.tour_gate import TOUR_USER_ID
+    from cii_platform.db.repositories import chat as chat_repo
+    from cii_platform.db.session import get_sessionmaker
+
+    _enter_tour(client, monkeypatch)
+    try:
+        async with get_sessionmaker()() as s:
+            row = await chat_repo.create_session(s, user_id=TOUR_USER_ID)
+            await chat_repo.add_message(s, session_id=row.id, role="USER", content="둘러보기 질문")
+            await s.commit()
+            session_id = str(row.id)
+        resp = client.get(f"{API_V1_PREFIX}/chat/sessions/{session_id}/messages")
+        assert resp.status_code == 404, resp.text
+        assert "둘러보기 질문" not in resp.text
+    finally:
+        await _cleanup()
+
+
 async def test_tour_cannot_read_audit_logs(client, monkeypatch):
     """감사 로그도 같은 이유로 막힌다 — 이메일·IP·행동 이력이 섞인다."""
     _enter_tour(client, monkeypatch)

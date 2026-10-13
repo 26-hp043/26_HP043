@@ -27,6 +27,7 @@ from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.chat import ChatRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import get_current_user, require_csrf
+from cii_platform.auth.tour_policy import is_tour_user
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.db.session import get_session
@@ -35,7 +36,9 @@ from cii_platform.llm import health
 from cii_platform.llm.anthropic import AnthropicProvider
 from cii_platform.llm.provider import LLMProvider, is_enabled
 from cii_platform.services import audit as audit_svc
+from cii_platform.services.chat import DISCLAIMER
 from cii_platform.services.chat import answer as answer_question
+from cii_platform.services.chat import history as chat_history
 
 router = APIRouter(tags=["chat"])
 
@@ -169,6 +172,63 @@ async def chat(
     state = getattr(request, "state", None)
     return {
         "data": {"session_id": str(chat_session.id), **result},
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }
+
+
+@router.get("/chat/sessions/{session_id}/messages")
+async def chat_session_messages(
+    request: Request,
+    session_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[AppUser, Depends(get_current_user)],
+) -> dict[str, object]:
+    """저장된 대화를 다시 불러온다 (``API_SPEC §15.8`` · `#1981`).
+
+    화면이 **새로고침 뒤** 탭에 기억해 둔 대화 번호로 부른다 — 종전에는 질문·답이 서버에
+    90일 남아 있어도 닿을 길이 없었다(챗봇 API는 질의·상태·삭제 셋뿐이었다).
+
+    ## 남의 대화·만료 대화는 404다
+
+    ``POST /chat``과 **같은 조건, 같은 코드**다 — 403이나 410을 두면 「있지만 네 것이
+    아니다」·「있었지만 만료됐다」가 새어 존재 여부를 알린다. 로그아웃 뒤 다른 계정으로
+    들어온 탭이 앞 계정의 번호를 들고 와도 여기서 끊긴다.
+
+    ## 둘러보기 계정에는 언제나 404다
+
+    둘러보기(``auth/tour_policy.py``)는 ``GET``을 통과시키지만 **공유 계정**이라 「본인
+    대화」가 성립하지 않는다 — 정책 도입 전에 남은 대화가 있으면 방문자 누구에게나 보이게
+    된다. 그래서 주인 확인과 별개로 여기서 끊는다. 지금은 ``POST /chat``이 막혀 새 대화가
+    생기지 않지만, 그 사실에 기대지 않는다.
+
+    ## 한도 버킷은 ``chat``이 아니다
+
+    ``GET /chat/status``와 같은 이유(`#1535`) — 패널을 열 때 부르는 조회가 질문 한도를
+    깎으면 안 된다. 기본 버킷에 든다.
+    """
+    if is_tour_user(user):
+        raise NotFoundError("대화를 찾을 수 없습니다.")
+    chat_session = await chat_repo.get_session_row(session, session_id=session_id)
+    if (
+        chat_session is None
+        or chat_session.user_id != user.id
+        or chat_repo.is_expired(chat_session)
+    ):
+        raise NotFoundError("대화를 찾을 수 없습니다.")
+
+    messages = await chat_history(session, chat_session_id=chat_session.id)
+
+    state = getattr(request, "state", None)
+    return {
+        "data": {
+            "session_id": str(chat_session.id),
+            "messages": messages,
+            # 면책은 조회에도 붙는다 — 화면이 되살린 답 아래에 같은 문구를 다시 세운다.
+            "disclaimer": DISCLAIMER,
+        },
         "meta": {
             "request_id": getattr(state, "request_id", None),
             "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),

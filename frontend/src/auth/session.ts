@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { forgetSession } from '../features/assistant/sessionMemory'
 import { clearStored } from '../layout/globalContext'
 import { SCREEN_BY_ID } from '../screens'
 import { safeNext } from './safeNext'
@@ -168,6 +169,8 @@ function subscribeAuth(listener: Listener): () => void {
  */
 function startSession(user: CurrentUser): CurrentUser {
   clearStored()
+  // #1981 — 챗봇 대화 번호도 같은 이유로 버린다. 서버가 남의 대화를 404로 끊지만 한 겹에만 기대지 않는다.
+  forgetSession()
   currentUser = user
   authResolved = true
   notify()
@@ -183,6 +186,7 @@ function startSession(user: CurrentUser): CurrentUser {
  */
 function endSession(): void {
   clearStored()
+  forgetSession()
   currentUser = null
   authResolved = true
   notify()
