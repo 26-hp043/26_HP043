@@ -60,6 +60,7 @@ from cii_platform.calc.annual_simulation import (
     backsolve_required_cut,
     feedback_factor,
     fuel_cf_alternative_projection,
+    mass_weighted_cf,
     profile_from_rows,
     project_deterministic,
     rate_against_future_year,
@@ -523,14 +524,13 @@ def _inputs_from_snapshot(
 
         # 연료를 CO₂ 기여로 합친다. Decimal로 더한 뒤 마지막에 한 번만 float로
         # 내린다 — 줄마다 float로 바꿔 더하면 오차가 연료 종류 수만큼 쌓인다.
-        fuel_ton = Decimal(0)
-        co2_g = Decimal(0)
-        for fuel_use in fuel_uses:
-            ton = Decimal(fuel_use.get("planned_fuel_ton") or "0")
-            fuel_ton += ton
-            co2_g += ton * Decimal(fuel_use["cf_used"])
+        # 합·나눗셈은 작업 정밀도 안에서 한다(`mass_weighted_cf` · `#2254`).
+        fuel_ton, cf_eff = mass_weighted_cf(
+            (Decimal(fuel_use.get("planned_fuel_ton") or "0"), Decimal(fuel_use["cf_used"]))
+            for fuel_use in fuel_uses
+        )
 
-        if fuel_ton <= 0:
+        if cf_eff is None:
             # 연료를 알 수 없는 계획 항차는 **계산에서 뺀다** (#812).
             #
             # 거리만 넣으면 「거리는 가는데 배출은 0」이 되어 분모만 커지고, 연말
@@ -547,7 +547,7 @@ def _inputs_from_snapshot(
             RemainingVoyage(
                 distance_nm=planned_distance,
                 fuel_ton=float(fuel_ton),
-                cf=float(co2_g / fuel_ton),
+                cf=float(cf_eff),
                 speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
                 reference_speed_kn=reference_speed_kn,
                 base_daily_foc_ton=base_daily_foc_ton,

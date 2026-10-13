@@ -1259,3 +1259,129 @@ async def test_ytd_total_fuel_at_a_transport_boundary_is_sent_as_the_exact_value
         out = await ytd_cii.compute_ytd_cii(None, vessel_id="vessel", regulation_year=2026)
 
     assert cii_current._publish(out.total_fuel_ton, "fuel_ton") == "3653.04"
+
+
+# ─── #2254 유효 CF — 연료 질량가중 평균을 작업 정밀도 안에서 낸다 ─────────────────
+#
+# 세 자리(`_inputs_from_snapshot` · `_year_end_drivers` · `_effective_cf`)가 `Σ(톤×CF)/Σ톤`을
+# 호출 스레드의 정밀도로 내고 있었다. 그 몫은 `float`로 내려 `RemainingVoyage`에 담기므로
+# 응답 값은 달라지지 않지만(`float`이 17자리라 28자리 꼬리가 사라진다), 계산이 호출 경로의
+# 정밀도에 매달려 있다는 점이 `TECH_SPEC §1.2.1`의 「파생값 계산도 적용 지점 안에서」와 어긋난다.
+# 호출 스레드를 6자리로 좁히면 데코레이터가 빠진 구현은 `float`에도 6자리만 남아 드러난다.
+
+_CF_ROW_FUELS = [("HFO", "100"), ("LNG", "200")]
+_CF_EXACT = Fraction("861.4") / 300  # (100×3.114 + 200×2.75) / 300 — 비종결 소수
+
+
+def _narrowed(fn, *args, **kwargs):
+    """호출 스레드의 컨텍스트를 ``prec=6``으로 좁힌 채 ``fn``을 부른다."""
+    with localcontext(prec=6, rounding=ROUND_HALF_UP):
+        return fn(*args, **kwargs)
+
+
+def test_mass_weighted_cf_ignores_the_callers_precision():
+    from cii_platform.calc.annual_simulation import mass_weighted_cf
+
+    pairs = [(Decimal("100"), Decimal("3.114")), (Decimal("200"), Decimal("2.75"))]
+    default = mass_weighted_cf(pairs)
+    assert _narrowed(mass_weighted_cf, pairs) == default
+    assert _run_in_thread(lambda: mass_weighted_cf(pairs)) == default
+    with localcontext(prec=28, rounding=ROUND_HALF_UP):
+        outside = Decimal("861.4") / Decimal(300)
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=ROUND_HALF_UP):
+        inside = Decimal("861.4") / Decimal(300)
+    assert default == (Decimal(300), inside)
+    assert default[1] != outside, "28자리로 나눠도 같은 값이면 이 검사는 아무것도 잠그지 않는다"
+    assert mass_weighted_cf([(Decimal(0), Decimal("3.114"))]) == (Decimal(0), None)
+
+
+def _snapshot_row(fuels):
+    uses = [
+        {"fuel_type": code, "planned_fuel_ton": ton, "actual_fuel_ton": None, "cf_used": cf}
+        for code, ton, cf in fuels
+    ]
+    return {
+        "voyage_id": "v1",
+        "kind": "PLAN",
+        "planned_distance_nm": "3000",
+        "actual_distance_nm": None,
+        "planned_speed_kn": None,
+        "fuel_uses": uses,
+    }
+
+
+def test_snapshot_effective_cf_is_derived_inside_the_context():
+    from cii_platform.services.annual_simulation import _inputs_from_snapshot
+
+    vessel = SimpleNamespace(reference_speed_kn=None, reference_daily_foc_ton=None)
+    row = _snapshot_row([("HFO", "100", "3.114"), ("LNG", "200", "2.75")])
+    _c, default, _w = _inputs_from_snapshot([row], vessel)
+    _c, narrowed, _w = _narrowed(_inputs_from_snapshot, [row], vessel)
+    assert narrowed[0].cf == default[0].cf == float(_CF_EXACT)
+    assert narrowed[0].fuel_ton == default[0].fuel_ton == 300.0
+
+
+def test_year_end_driver_effective_cf_is_derived_inside_the_context(monkeypatch):
+    from cii_platform.services import cii_current
+
+    seen: list[tuple[float, float]] = []
+
+    class _Stop(Exception):
+        pass
+
+    def _spy(**kwargs):
+        seen.extend((v.fuel_ton, v.cf) for v in kwargs["remaining"])
+        raise _Stop
+
+    monkeypatch.setattr(cii_current, "project_deterministic", _spy)
+    call = {
+        "context": SimpleNamespace(
+            vessel=SimpleNamespace(reference_speed_kn=None, reference_daily_foc_ton=None),
+            transport_capacity=Decimal(50000),
+            required_cii=Decimal("5"),
+            d_vector=None,
+        ),
+        "inputs": SimpleNamespace(voyages_json=[], completed=None),
+        "deterministic": None,
+        "ytd_attained_cii": Decimal("5"),
+        "current_voyage_id": None,
+        "contribution": SimpleNamespace(
+            distance_nm=Decimal("1000"),
+            fuel_uses=[("HFO", Decimal(100)), ("LNG", Decimal(200))],
+        ),
+        "cf_by_fuel": {"HFO": Decimal("3.114"), "LNG": Decimal("2.75")},
+    }
+
+    def run():
+        seen.clear()
+        with pytest.raises(_Stop):
+            cii_current._year_end_drivers(
+                call["context"],
+                call["inputs"],
+                call["deterministic"],
+                ytd_attained_cii=call["ytd_attained_cii"],
+                current_voyage_id=None,
+                contribution=call["contribution"],
+                cf_by_fuel=call["cf_by_fuel"],
+            )
+        return list(seen)
+
+    default = run()
+    with localcontext(prec=6, rounding=ROUND_HALF_UP):
+        narrowed = run()
+    assert narrowed == default == [(300.0, float(_CF_EXACT))]
+
+
+def test_voyage_effective_cf_is_derived_inside_the_context():
+    from cii_platform.services.voyage_cii import _effective_cf
+
+    fuels = [
+        FuelUse(fuel_code="HFO", fuel_ton=Decimal(100), cf_value=Decimal("3.114")),
+        FuelUse(fuel_code="LNG", fuel_ton=Decimal(200), cf_value=Decimal("2.75")),
+    ]
+    default = _effective_cf(fuels)
+    assert default is not None
+    assert _narrowed(_effective_cf, fuels) == default
+    assert _run_in_thread(lambda: _effective_cf(fuels)) == default
+    assert float(default[1]) == float(_CF_EXACT)
+    assert _effective_cf([]) is None
