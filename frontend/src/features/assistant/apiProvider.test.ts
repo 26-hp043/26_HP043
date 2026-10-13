@@ -43,6 +43,26 @@ describe('ask()', () => {
   })
 })
 
+describe('ask() — 이어 가던 대화가 서버에 없을 때 (#1981 후속)', () => {
+  const gone = { error: { code: 'NOT_FOUND', message: '대화를 찾을 수 없습니다.' } }
+
+  it('대화 번호를 실어 보낸 질문의 404는 sessionGone이다', async () => {
+    const provider = createApiAssistantProvider(fetchReturning(404, gone), '/api/v1')
+    await expect(provider.ask({ message: 'q', sessionId: 's-1' })).rejects.toMatchObject({
+      sessionGone: true,
+    })
+  })
+
+  it('번호 없이 보낸 질문의 404와 다른 오류는 sessionGone이 아니다', async () => {
+    const without = createApiAssistantProvider(fetchReturning(404, gone), '/api/v1')
+    await expect(without.ask({ message: 'q' })).rejects.toMatchObject({ sessionGone: false })
+    const other = createApiAssistantProvider(fetchReturning(422, gone), '/api/v1')
+    await expect(other.ask({ message: 'q', sessionId: 's-1' })).rejects.toMatchObject({
+      sessionGone: false,
+    })
+  })
+})
+
 describe('history() — `GET /chat/sessions/{id}/messages` (`#1981` · `API_SPEC §15.8`)', () => {
   const body = {
     data: {

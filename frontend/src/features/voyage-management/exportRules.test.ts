@@ -8,6 +8,8 @@ import {
   fallbackFilename,
   initialExportForm,
   validateExport,
+  EXPORT_YEAR_MAX,
+  EXPORT_YEAR_MIN,
 } from './exportRules'
 
 /**
@@ -37,6 +39,18 @@ describe('선택지는 서버 정본의 사본이다 (#890)', () => {
 describe('검증 — 연도는 선택이다 (#890)', () => {
   it('기본 상태가 통과한다', () => {
     expect(validateExport(initialExportForm())).toEqual({})
+  })
+
+  it('연도는 서버의 조회 범위와 같다 — 범위 밖은 서버 422를 기다리지 않고 알린다 (#2190)', () => {
+    const at = (year: number) => validateExport({ type: 'voyages', year: String(year), format: 'csv' })
+    expect(at(EXPORT_YEAR_MIN).year).toBeUndefined()
+    expect(at(EXPORT_YEAR_MAX).year).toBeUndefined()
+    expect(at(EXPORT_YEAR_MIN - 1).year).toBeDefined()
+    expect(at(EXPORT_YEAR_MAX + 1).year).toBeDefined()
+    // 범위 밖과 형식 오류는 다른 말을 한다 — 네 자리로 넣었는데 「네 자리로」라고 하면 틀린 안내다.
+    expect(at(EXPORT_YEAR_MIN - 1).year).not.toBe(
+      validateExport({ type: 'voyages', year: '26', format: 'csv' }).year,
+    )
   })
 
   it('연도가 비어 있어도 오류가 아니다 — §8.1의 year는 optional이다', () => {
