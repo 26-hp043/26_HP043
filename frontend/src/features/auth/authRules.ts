@@ -135,10 +135,16 @@ export function validateEmail(email: string): string | undefined {
 
 export function validatePassword(password: string): string | undefined {
   if (!password) return '비밀번호를 입력해 주세요.'
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  /*
+   * **코드포인트로 센다** — 서버(`auth/password.py`의 `len`)와 같은 단위다 (#2470).
+   * `password.length`는 UTF-16 단위라 이모지를 2로 센다. 이모지 다섯 개가 「10자」로
+   * 통과했다가 서버에서 「10자 이상이어야 합니다」로 거절됐다.
+   */
+  const length = [...password].length
+  if (length < MIN_PASSWORD_LENGTH) {
     return `비밀번호는 ${MIN_PASSWORD_LENGTH}자 이상이어야 합니다.`
   }
-  if (password.length > MAX_PASSWORD_LENGTH) {
+  if (length > MAX_PASSWORD_LENGTH) {
     return `비밀번호는 ${MAX_PASSWORD_LENGTH}자를 넘을 수 없습니다.`
   }
   return undefined

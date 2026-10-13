@@ -48,6 +48,20 @@ describe('비밀번호 정책 — 서버와 같은 값', () => {
     expect(validatePassword('a'.repeat(MIN_PASSWORD_LENGTH))).toBeUndefined()
   })
 
+  it('길이를 코드포인트로 센다 — 이모지는 한 자다 (서버의 len과 같은 단위 · #2470)', () => {
+    const emoji = '😀'
+    expect(emoji.length).toBe(2)
+    // 다섯 자다. UTF-16 단위로 세면 10이라 통과했고, 서버가 「10자 이상」으로 거절했다.
+    expect(validatePassword(emoji.repeat(5))).toBe(validatePassword('a'.repeat(5)))
+    expect(validatePassword(emoji.repeat(MIN_PASSWORD_LENGTH))).toBeUndefined()
+    // 65자다. UTF-16 단위로 세면 130이라 화면만 거절했다.
+    expect(validatePassword(emoji.repeat(65))).toBeUndefined()
+    expect(validatePassword(emoji.repeat(MAX_PASSWORD_LENGTH))).toBeUndefined()
+    expect(validatePassword(emoji.repeat(MAX_PASSWORD_LENGTH + 1))).toBe(
+      validatePassword('a'.repeat(MAX_PASSWORD_LENGTH + 1)),
+    )
+  })
+
   it('한 자 모자라면 거부', () => {
     expect(validatePassword('a'.repeat(MIN_PASSWORD_LENGTH - 1))).toContain('10자')
   })
