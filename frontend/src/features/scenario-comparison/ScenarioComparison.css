@@ -225,10 +225,10 @@
   height: var(--target-row);
   min-inline-size: 180px;
   padding: 0 var(--space-32);
-  border: none;
+  border: 1px solid var(--color-primary-solid-border);
   border-radius: var(--radius-control);
-  background: var(--color-primary);
-  color: var(--color-surface);
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-label);
   cursor: pointer;
@@ -246,7 +246,7 @@
 }
 
 .scenario-comparison__submit:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+  background: var(--color-primary-solid-hover);
 }
 
 .scenario-comparison__submit:disabled {

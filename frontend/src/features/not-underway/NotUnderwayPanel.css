@@ -64,8 +64,7 @@
  * 화면마다 다르게 굴면 사용자가 hover를 「눌렸다」로 읽는다.
  */
 .nu__submit:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
+  background: var(--color-primary-solid-hover);
   /*
    * **면 위 글자색을 여기서도 적는다** (`#2061`). 이 규칙은 `0-3-0`이라 위
    * `.nu__button:hover`(`0-2-0`)가 거는 링크색을 이긴다 — 적지 않으면 마우스를 올렸을 때
@@ -106,8 +105,8 @@
 
 .nu__submit {
   align-self: flex-start;
-  background: var(--semantic-primary);
-  border-color: var(--semantic-primary);
+  background: var(--color-primary-solid);
+  border-color: var(--color-primary-solid-border);
   /*
    * 면 위 글자는 `--color-on-primary`다 (`#1654`). 종전 `--surface-card`는 라이트에서
    * 결과가 같았지만 **면 위 글자라는 뜻을 담지 않는다** — 다크에서 두 값이 갈리면
