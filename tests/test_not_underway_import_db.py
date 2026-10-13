@@ -464,3 +464,56 @@ async def test_deleted_vessel_is_404_and_nothing_is_stored(client, dry_run):
         assert await _count_periods(vessel_id) == 0
     finally:
         await _purge(vessel_id)
+
+
+def _years_csv(*years: int) -> bytes:
+    """연도 열이 없는 CSV — 서버가 시작 시각에서 규제연도를 채우는 경로다."""
+    return _csv(
+        *(
+            f"IN_PORT,{year}-06-10T00:00:00+00:00,{year}-06-11T00:00:00+00:00,0,HFO,10,,"
+            for year in years
+        )
+    )
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_저장_범위_밖_연도의_행은_화면_입력과_같은_문구로_떨어진다(client, dry_run):
+    """`#2190` 결정 4 — CSV는 연도 열이 없어 **항상 서버가 채우는** 경로다.
+
+    2019~2050 밖(2018 · 2051)이면 그 행만 떨어진다. 문구는 직접 입력(`POST …/not-underway-periods`)
+    의 422와 같다. ``dry_run``이 실제 가져오기와 같은 판정을 내야 하므로 둘 다 본다 — 아니면
+    미리보기는 「전부 가능」이라 답하고 실제 가져오기에서 행이 떨어진다. 대조군은 2019 · 2050이다.
+    """
+    created = client.post(
+        f"{API_V1_PREFIX}/vessels",
+        headers={"X-CSRF-Token": client.cookies.get("csrf", "")},
+        json={
+            "imo_number": _HTTP_IMO,
+            "name": "NU IMPORT YEAR",
+            "ship_type": "BULK_CARRIER",
+            "deadweight": 50000,
+            "gross_tonnage": 30000,
+        },
+    )
+    assert created.status_code == 201, created.text
+    vessel_id = created.json()["data"]["id"]
+    try:
+        response = client.post(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}/import",
+            params={"dry_run": str(dry_run).lower()},
+            headers={"X-CSRF-Token": client.cookies.get("csrf", "")},
+            data={"type": "not_underway_periods"},
+            files={"file": ("periods.csv", _years_csv(2018, 2019, 2050, 2051), "text/csv")},
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert data["imported_count"] == 2, data
+        assert [(e["row"], e["field"]) for e in data["errors"]] == [
+            (2, "started_at"),
+            (5, "started_at"),
+        ], data
+        assert "2019 이상" in data["errors"][0]["message"], data["errors"]
+        assert "2050 이하" in data["errors"][1]["message"], data["errors"]
+        assert await _count_periods(vessel_id) == (0 if dry_run else 2)
+    finally:
+        await _purge(vessel_id)

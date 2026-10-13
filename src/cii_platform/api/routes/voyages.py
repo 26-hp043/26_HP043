@@ -38,6 +38,7 @@ from cii_platform.services.voyage import (
     update_voyage,
 )
 from cii_platform.services.voyage_import import MAX_FILE_BYTES, import_voyages
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 router = APIRouter(tags=["voyages"])
 
@@ -58,7 +59,7 @@ async def list_voyages_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     status: Annotated[str | None, Query(description="상태 필터")] = None,
     regulation_year: Annotated[
-        int | None, Query(ge=2000, le=2100, description="기준연도 필터")
+        int | None, Query(**REGULATION_YEAR, description="기준연도 필터")
     ] = None,
     annual_inclusion_policy: Annotated[
         str | None, Query(description="연간 반영 정책 필터 (#1332)")

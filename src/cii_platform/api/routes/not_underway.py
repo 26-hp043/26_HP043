@@ -36,6 +36,7 @@ from cii_platform.services.not_underway import (
     list_periods,
     update_period,
 )
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 router = APIRouter(tags=["not-underway"])
 
@@ -55,7 +56,7 @@ async def list_periods_route(
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     regulation_year: Annotated[
-        int | None, Query(ge=2000, le=2100, description="규제연도 필터")
+        int | None, Query(**REGULATION_YEAR, description="규제연도 필터")
     ] = None,
     started_from: Annotated[datetime | None, Query(description="시작 시각 하한")] = None,
     started_to: Annotated[datetime | None, Query(description="시작 시각 상한")] = None,

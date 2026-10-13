@@ -27,7 +27,7 @@ from cii_platform.api.schemas.voyage import HumanTimeSource
 from cii_platform.validation.bounds import (
     NOT_UNDERWAY_DISTANCE,
     NOT_UNDERWAY_FUEL,
-    REGULATION_YEAR,
+    STORED_REGULATION_YEAR,
 )
 
 
@@ -65,7 +65,7 @@ class NotUnderwayPeriodCreateRequest(BaseModel):
     distance_nm: Annotated[Decimal, Field(**NOT_UNDERWAY_DISTANCE)] = Decimal(0)
     #: 생략하면 서버가 ``started_at``의 연도로 채운다.
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부는 서비스가 본다.
-    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
+    regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
     #: 맥락 참조용. 구간은 항차가 아니라 **선박+연도**에 귀속된다(``#345``).
     voyage_id: UUID | None = None
     #: 비워 둘 수 있다 — 정박이 끝나야 소모량을 아는 것이 보통이라, §2.13으로 뒤에
@@ -110,5 +110,5 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     distance_nm: Annotated[Decimal | None, Field(**NOT_UNDERWAY_DISTANCE)] = None
-    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
+    regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
     voyage_id: UUID | None = None

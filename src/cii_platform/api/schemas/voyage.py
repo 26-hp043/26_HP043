@@ -15,10 +15,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from cii_platform.api.schemas.instants import Instant
 from cii_platform.validation.bounds import (
+    CALL_YEAR,
     DISTANCE,
     PORT_NAME_MAX_LENGTH,
-    REGULATION_YEAR,
     SPEED,
+    STORED_REGULATION_YEAR,
     VOYAGE_FUEL,
 )
 
@@ -101,7 +102,7 @@ class VoyageCreateRequest(BaseModel):
     planned_departure_at: Instant | None = None
     planned_arrival_at: Instant | None = None
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부(VAL-005)는 서비스가 본다.
-    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
+    regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
     fuel_uses: Annotated[list[VoyageFuelUseCreateRequest], Field(min_length=1)]
     # PRD §10.2 ⑵ — 메모 0~1000자. 정본이 값을 정해 뒀는데 코드에 상한이 없어
     # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
@@ -137,7 +138,7 @@ class VoyageUpdateRequest(BaseModel):
     planned_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     planned_departure_at: Instant | None = None
     planned_arrival_at: Instant | None = None
-    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
+    regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
     # PRD §10.2 ⑵ — 메모 0~1000자. 정본이 값을 정해 뒀는데 코드에 상한이 없어
     # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
     # 받는 것과 **받아도 되는 것**은 다르다.
@@ -201,7 +202,7 @@ class PublicRecordKey(BaseModel):
 
     source: Annotated[str, Field(min_length=1, max_length=50)]
     port_authority_code: Annotated[str, Field(min_length=1, max_length=10)]
-    call_year: Annotated[int, Field(ge=2000, le=2100)]
+    call_year: Annotated[int, Field(**CALL_YEAR)]
     call_seq: Annotated[str, Field(min_length=1, max_length=20)]
 
 

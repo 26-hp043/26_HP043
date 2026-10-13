@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from cii_platform.calc.fleet_reduction import MAX_REDUCTION_PERCENT
+from cii_platform.validation.bounds import REGULATION_YEAR
 
 
 class VesselAdjustment(BaseModel):
@@ -59,7 +60,7 @@ class ReductionPlanRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    regulation_year: Annotated[int, Field(ge=2000, le=2100)]
+    regulation_year: Annotated[int, Field(**REGULATION_YEAR)]
     target: Literal["NO_AT_RISK", "ALL_C_OR_BETTER"]
     adjustments: list[VesselAdjustment] = []
     prices: PriceAssumptions = PriceAssumptions()

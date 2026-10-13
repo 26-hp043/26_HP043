@@ -1125,7 +1125,7 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| `regulation_year` | integer | 아니오 | 집계 대상 규제연도. 기본 `as_of`의 한국 달력 해(`§1.10`) |
+| `regulation_year` | integer | 아니오 | 집계 대상 규제연도. 기본 `as_of`의 한국 달력 해(`§1.10`). **2019~2100**(조회·계산 범위 — 아래 `[#2190]`) |
 | `as_of` | string | 아니오 | 기준 시각 (ISO 8601 UTC). 미지정 시 서버가 확정하고 응답에 실어 반환한다 (`TECH_SPEC §5.4.1` 계약 ⑵). **다음 페이지를 물을 때는 첫 페이지 응답의 값을 그대로 싣는다** — 시각이 바뀌면 순서가 바뀌어 페이지 사이에 선박이 겹치거나 빠진다 |
 | `sort` | string | 아니오 | **[#772]** `vessels[]` 정렬 — `risk`(기본: 규제 트리거 → YTD 등급이 나쁜 순 → 이름) · `grade`(등급이 나쁜 순 → 이름) · `name`. 등급이 없는 선박은 나쁜 등급으로 오해되지 않게 **가장 뒤**, 이름은 대소문자를 가르지 않으며 마지막 키는 늘 `vessel_id`다. 그 밖의 값은 422 |
 | `limit` · `cursor` | | 아니오 | **[#772]** `vessels[]` 페이지(`§1.5` — 기본 20, 최대 100). 다음 페이지 정보는 `meta.next_cursor`·`meta.has_more`. **다른 `sort`의 커서는 422**다 — 다른 순서의 n번째부터가 나와 선박이 겹치거나 빠진다 |
@@ -1371,7 +1371,7 @@ GET /api/v1/vessels/{vessel_id}/not-underway-periods?regulation_year=2026
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
-| `regulation_year` | integer | 아니오 | 규제연도 필터. 생략하면 연도 무관 전체 |
+| `regulation_year` | integer | 아니오 | 규제연도 필터. 생략하면 연도 무관 전체. **2019~2100**(조회 범위 — 저장 범위 2019~2050과 다르다, `[#2190]`) |
 | `started_from` | string | 아니오 | 시작 시각 하한 (ISO 8601) |
 | `started_to` | string | 아니오 | 시작 시각 상한 (ISO 8601) |
 
@@ -1476,7 +1476,7 @@ POST /api/v1/vessels/{vessel_id}/not-underway-periods
 | `port_name` | string \| null | N | 최대 200자 |
 | `lat` / `lon` | number \| null | N | −90~90 / −180~180 |
 | `distance_nm` | number | N | 기본 `0`. **`>= 0`** — 접안·묘박은 0이 정상값이라 `> 0`이 아니다. **`IN_PORT`·`AT_ANCHOR`는 `0`만 받는다**(아래 `[#2130]`) |
-| `regulation_year` | integer \| null | N | 생략하면 **서버가 `started_at`의 연도로 채운다** |
+| `regulation_year` | integer \| null | N | 생략하면 **서버가 `started_at`의 연도로 채운다**. 직접 넣은 값도 채운 값도 **저장 범위 2019~2050** 밖이면 422다(`[#2190]` — 아래 판정 규칙) |
 | `voyage_id` | string \| null | N | 맥락 참조. 구간은 항차가 아니라 **선박+연도**에 귀속된다. **이 선박의 살아 있는 항차**여야 한다 — 없으면 404, 다른 선박의 항차면 422 (`#1333` · `§5.1`과 같은 검사) |
 | `fuel_uses` | array | N | 비워 둘 수 있다 — 실적은 §2.13으로 뒤에 붙인다 |
 | `fuel_uses[].consumer_type` | string | Y | 소비처 — `§2.9` `meta.consumer_types`의 값. §2.13의 본문과 같은 모양(`NotUnderwayFuelUseCreateRequest`)이다 — 이 행과 아래 `fuel_type` 행은 예시에는 있었으나 표에 없었다 (`#1523`) |
@@ -1491,7 +1491,7 @@ POST /api/v1/vessels/{vessel_id}/not-underway-periods
 
 > **[#1333] `voyage_id`도 검사한다.** 종전에는 없는 항차 id가 FK 위반으로 **500**이 되고 **다른 선박의 항차에도 붙었다** — 뒤엣것은 아무 오류 없이 지나가고, 그 항차의 계획이 바뀔 때 **엉뚱한 선박의 계산**이 재계산 필요로 표시된다. 생성·수정 **양쪽**에 같은 검사를 건다(`null`은 클리어이므로 통과).
 
-> **`regulation_year`의 판정 규칙.** 생략하면 `started_at`의 **UTC** 연도다 — 대부분의 구간이 한 해 안에서 끝나므로 이 기본값이 맞고, 매번 묻는 것은 실수를 만드는 질문이다. ⚠️ **UTC로 뽑는다**(`#1333`): 종전 구현이 오프셋 붙은 값의 **현지 연도**를 읽어, `§8.2` 예시 형식(`+09:00`)대로 KST 1/1 새벽 정박을 올리면 **다음 해 분자·분모에 들어갔다.** 명시했다면 `started_at` 또는 `ended_at`의 연도 중 하나여야 한다. **연말을 걸치는 구간(12/30~1/2)은 어느 해에 넣을지가 실제로 판단 사항**이라 선택을 받되, 무관한 연도는 오타로 보고 막는다.
+> **`regulation_year`의 판정 규칙.** 생략하면 `started_at`의 **UTC** 연도다 — 대부분의 구간이 한 해 안에서 끝나므로 이 기본값이 맞고, 매번 묻는 것은 실수를 만드는 질문이다. ⚠️ **UTC로 뽑는다**(`#1333`): 종전 구현이 오프셋 붙은 값의 **현지 연도**를 읽어, `§8.2` 예시 형식(`+09:00`)대로 KST 1/1 새벽 정박을 올리면 **다음 해 분자·분모에 들어갔다.** 명시했다면 `started_at` 또는 `ended_at`의 연도 중 하나여야 한다. **연말을 걸치는 구간(12/30~1/2)은 어느 해에 넣을지가 실제로 판단 사항**이라 선택을 받되, 무관한 연도는 오타로 보고 막는다. 명시한 값이든 `started_at`에서 채운 값이든 **2019~2050** 밖이면 422다(`#2190` — 문구는 「규제연도는 2019 이상이어야 합니다.」 · 「규제연도는 2050 이하여야 합니다.」, `field` `regulation_year`).
 
 #### 응답 (201 Created)
 
@@ -1503,7 +1503,7 @@ POST /api/v1/vessels/{vessel_id}/not-underway-periods
 |---|---|---|
 | 404 | `NOT_FOUND` | 존재하지 않는 선박 |
 | 409 | `CONFLICT` | **같은 선박의 다른 구간과 시간대가 겹침** |
-| 422 | `VALIDATION_ERROR` | 열거값 위반 · `ended_at <= started_at` · `fuel_ton <= 0` · 알 수 없는 연료 · 같은 요청 안 `(소비원, 유종)` 중복 · 구간과 무관한 `regulation_year` · 접안·묘박 구간의 `distance_nm != 0`(`#2130`) |
+| 422 | `VALIDATION_ERROR` | 열거값 위반 · `ended_at <= started_at` · `fuel_ton <= 0` · 알 수 없는 연료 · 같은 요청 안 `(소비원, 유종)` 중복 · 구간과 무관한 `regulation_year` · 저장 범위(2019~2050) 밖 `regulation_year` — 서버가 `started_at`에서 채운 값 포함(`#2190`) · 접안·묘박 구간의 `distance_nm != 0`(`#2130`) |
 
 > **겹침을 막는 이유.** 같은 정박이 두 번 들어가면 `M`이 두 배가 되고 **등급이 실제보다 나쁘게** 나온다. 사용자는 화면에서 그 이유를 알 수 없다.
 >
@@ -1872,7 +1872,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 
 | 쿼리 | 필수 | 설명 |
 |---|---|---|
-| `regulation_year` | N | 점검 대상 규제연도(2000~2100). 미지정이면 `as_of`의 한국 달력 해(올해, `§1.10`) |
+| `regulation_year` | N | 점검 대상 규제연도(2019~2100). 미지정이면 `as_of`의 한국 달력 해(올해, `§1.10`) |
 
 > **집계 기준은 실적 확정 항차(`INCLUDE_AS_ACTUAL`)다 — 진행 중 항차는 넣지 않는다.** 진행분은 시계가 만든 추정이라(`#368`) 「실측이 아니다」가 정의상 참이고, 조회마다 값이 바뀐다. 그래서 `vessels[].ytd_attained_cii`는 `§2.8` 대시보드 값(진행분 포함)과 **다를 수 있다.**
 
@@ -2017,7 +2017,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
 
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
-| `regulation_year` | int | Y | 2000~2100 | |
+| `regulation_year` | int | Y | 2019~2100 | |
 | `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸). **판정은 조정 후 연말 결정론 예상 등급(`vessels[].after`)으로 한다** — `§2.8` 대시보드의 「위험 선박」(올해 누적 YTD)과 기준이 다르다 (`#1531`) |
 | `adjustments[]` | list | N | `speed_reduction_percent` 0~50 | 선박별 감속률(%). **목록에 없는 선박은 0%** · 모르는 선박이면 422 · **같은 선박이 두 번 오면 422**(`#1070` ⑶ — 받아 주면 계산은 마지막 값으로 하고 저장본에는 두 값이 다 남아, 다시 연 계획이 어느 감속률이었는지 답할 수 없다) |
 | `adjustments[].vessel_id` | UUID | Y | 존재 확인 | 감속을 적용할 선박. 이 행과 아래 행은 예시에는 있었으나 표에 없었다 (`VesselAdjustment` · `#1523`) |
@@ -2258,7 +2258,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
 
 | 쿼리 | 필수 | 설명 |
 |---|---|---|
-| `regulation_year` | N | 대상 규제연도(2000~2100). 미지정이면 `as_of`의 한국 달력 해(`§1.10`) |
+| `regulation_year` | N | 대상 규제연도(2019~2100). 미지정이면 `as_of`의 한국 달력 해(`§1.10`) |
 | `as_of` | N | 기준 시각(ISO 8601 UTC). 미지정이면 서버가 확정 — `§2.8`과 같은 `as_of` 계약 |
 
 > **판정을 새로 만들지 않는다.** 넷 다 다른 경로가 이미 내는 판정을 그대로 옮긴다 — 여기서 다시 판정하면 대시보드와 종 버튼의 수가 갈린다. 선대 요약과 같은 계산 함수(`fleet_summary.compute_fleet_rows`)를 쓴다.
@@ -2328,7 +2328,7 @@ GET /api/v1/fleet/notifications?regulation_year=2026&as_of=2026-10-06T00:00:00Z
 |---|---|---|
 | 401 | `UNAUTHORIZED` | 세션 없음 |
 | 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 — `§2.8`과 같다 |
-| 422 | `VALIDATION_ERROR` | `regulation_year`가 2000~2100 밖 · `as_of` 형식 오류 |
+| 422 | `VALIDATION_ERROR` | `regulation_year`가 2019~2100 밖 · `as_of` 형식 오류 |
 
 > **선박이 0척인 것은 오류가 아니다.** `counts` 전부 0 · `items: []`로 200을 반환한다(`§2.8`과 같은 이유).
 
@@ -2349,7 +2349,7 @@ GET /api/v1/vessels/{vessel_id}/voyages?status=PLANNED&limit=20
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `status` | string | N | 상태 필터 (DRAFT, PLANNED, IN_PROGRESS, COMPLETED, CONFIRMED, CANCELLED, ARCHIVED) |
-| `regulation_year` | int | N | 기준연도 필터 |
+| `regulation_year` | int | N | 기준연도 필터. **2019~2100**(조회 범위, `[#2190]`) |
 | `annual_inclusion_policy` | string | N | EXCLUDE, INCLUDE_AS_PLAN, INCLUDE_AS_ACTUAL |
 | `limit` | int | N | 페이지 크기 |
 | `cursor` | string | N | 페이지네이션 커서 |
@@ -2483,6 +2483,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 > **[#1332] VAL-005는 이 자리에서 409다.** 검증한다고 적혀 있었으나 **보는 자리가 없어** seed에 없는 연도(예: 2031)가 **201로 저장**됐고, `INCLUDE_AS_PLAN` 전환까지 통과한 뒤 **CII 조회에서 409**가 나 사용자는 서버 문제로 읽었다. 고칠 수 있는 입력이라면 **입력받는 자리에서** 말한다. `§3.4` 수정 경로도 같다 — 한쪽만 막으면 「만들 때는 안 되는데 고칠 때는 되는」 상태가 된다.
 
 > **[#150] `regulation_year`는 optional이다.** 주어지면 `VAL-005`(`regulation_year` 테이블에 해당 연도 존재)로 검증한다. `annual_inclusion_policy = EXCLUDE`인 동안에는 없어도 되고, **`INCLUDE_AS_PLAN` 전환 시점에는 반드시 있어야 한다**(§3.5 전환 가드 · `PRD §8.1.1`). 생성 시 넣지 않았다면 §3.4 PATCH로 설정한다.
+
+> **[#2190] 규제연도 입력 범위 — 용도가 둘이다.** 하한은 모두 2019다(BlueLog의 입력 정책이며 「IMO가 2019를 법적 최저 연도로 정했다」는 뜻이 아니다). 상한은 **조회·계산 2100**(`§2.7` · `§2.8` · `§2.14` · `§2.16` · `§2.17` · `§2.18` · `§2.19` · `§4.1` · `§5.1` · `§6.1` · `§8.1` · `§8.4`의 `year` · `regulation_year` 쿼리·요청 필드, 목록 필터 포함)와 **저장 2050**(항차 `regulation_year` · 정박 구간 `regulation_year` — DB CHECK `BETWEEN 2019 AND 2050`)로 갈린다. 저장 범위 밖의 값은 422 `VALIDATION_ERROR`(`field` `regulation_year`)다. 정박 구간(`§2.10` · `§2.11` · CSV 가져오기 `§8.2`)은 연도를 생략해 **서버가 `started_at`에서 채운 값에도 같은 저장 범위를 검사**하므로 직접 입력과 CSV가 같은 범위 밖 연도에 같은 422를 낸다. 표에 그 해가 있는지(VAL-005)는 이 범위와 별개다. `§3.12`의 `call_year`(입항연도)는 규제연도가 아니어서 2000~2100이다.
 
 > **[#2133] `regulation_year`는 출항 또는 도착 시각의 UTC 해 중 하나여야 한다** (`PRD §8.3` 「항차의 귀속 연도」). `VAL-005`(409)를 통과한 뒤 `planned_departure_at`·`planned_arrival_at`의 **UTC** 해(`#1333`)와 대조해, 어느 쪽 해도 아니면 422 `VALIDATION_ERROR`(`field` `regulation_year` · `field_label` 「기준연도」 · 문구 「규제연도는 항차가 걸친 연도(2026)여야 합니다.」 — 괄호 안은 허용 연도이며 해를 걸친 항차는 「2026 또는 2027」)다. 예: 2026-03-10 출항 항차에 `2025`는 422, 2026-12-28 출항·2027-01-03 도착 항차에는 `2026`·`2027` 모두 201이다. **`planned_departure_at`이 없으면 대조하지 않는다** — 계획 단계에서 시각을 모르는 항차는 대조할 값이 없다(도착 시각만 있어도 같다). 허용 집합은 정박 구간(`§2.10`)과 **같은 함수**(`services/voyage.spanned_utc_years`)가 만들고 문구 모양도 같다(정박 구간은 「구간이 걸친 연도」). 같은 검사를 지나는 경로는 이 생성 · `§3.4` 수정 · `§5.2` `CREATE_NEW_VOYAGE`(원본 항차의 연도를 새 출항 시각과 대조한다)다. `§8.2` CSV 가져오기는 연도 열이 없어 늘 `null`로 저장되므로 대조할 값이 없다. 종전에는 `VAL-005`만 봐서 2026년 3월 항차를 2025년으로 저장할 수 있었고, 그 항차는 두 해의 누적과 등급을 모두 조용히 바꿨다.
 
@@ -2869,7 +2871,7 @@ POST /api/v1/voyages/{voyage_id}/public-record-fill
 | `record` | object | Y | 기항 열쇠 넷(`DB_SCHEMA §2.25` `uq_port_call_record_call`) |
 | `record.source` | string | Y | 제공자 — `§2.16` `public_record.source`(`MOF_VESSEL_OPS`) |
 | `record.port_authority_code` | string | Y | 항만청코드 — `mismatches[].port_authority_code` |
-| `record.call_year` | integer | Y | 입항연도 — `mismatches[].call_year` |
+| `record.call_year` | integer | Y | 입항연도 — `mismatches[].call_year`. **2000~2100**(`[#2190]` — 공적 기항 기록 한 건을 찾는 키라 규제연도가 아니다. 규제연도 하한 2019를 적용하지 않아 오래된 기록의 「이 값으로 채우기」를 막지 않는다) |
 | `record.call_seq` | string | Y | 입항 차수 — `mismatches[].call_seq` |
 | `recorded_at` | ISO 8601 | Y | 화면이 사용자에게 **보인** 공적 기록 시각(`mismatches[].recorded_at`). 서버는 기록을 다시 읽어 이 값과 같은지 본다 |
 | `revert_confirmed` | boolean | N | **확정(`CONFIRMED`) 항차에서만 뜻이 있다** — 화면의 재확인 줄을 사용자가 통과했다는 표시(`PRD §8.1.1`). 기본 `false` |
@@ -2952,7 +2954,7 @@ POST /api/v1/calculations/voyage-cii
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
-| `regulation_year` | int | Y | VAL-005: regulation_year 존재 | 등급 기준연도 |
+| `regulation_year` | int | Y | 2019~2100 · VAL-005: regulation_year 존재 | 등급 기준연도 |
 | `distance_nm` | decimal | Y | VAL-002: **0.01 ~ 9,999,999,999.99** — 항차 저장(`§3.3` `planned_distance_nm`)과 같은 범위 (`#2134`) | 항해거리 |
 | `speed_kn` | decimal | Y | VAL-009: 1.0 이상 60 이하 | 평균 예정 속도. **Layer 1 CII 계산에는 사용되지 않으며**, 항차 조건 표시 및 항차 저장 매핑을 위한 필수 입력이다 |
 | `fuel_uses` | array | Y | **최소 1개 이상** · VAL-006: active fuel_type | 연료 사용량 목록. **동일 `fuel_type`이 여러 행으로 들어오면 Decimal로 합산한다** |
@@ -3193,7 +3195,7 @@ POST /api/v1/scenarios/compare
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
-| `regulation_year` | int | Y | VAL-005 | 등급 기준연도 |
+| `regulation_year` | int | Y | 2019~2100 · VAL-005 | 등급 기준연도 |
 | `current_lat` | decimal | 조건부 | VAL-007: −90 ~ +90 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요(서비스가 검증) — #830 정정, 종전 「Y」 |
 | `current_lon` | decimal | 조건부 | VAL-007: −180 ~ +180 | 현재 경도. 위와 같다 |
 | `destination_port_name` | string | N | 최대 200자 | 목적항 이름. **표기용이라 계산에 쓰지 않는다** — 요청 예시에는 있었으나 이 표에 없었다 (`#1454`) |
@@ -3466,7 +3468,7 @@ POST /api/v1/annual-simulations
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
-| `regulation_year` | int | Y | VAL-005 | 기준연도 |
+| `regulation_year` | int | Y | 2019~2100 · VAL-005 | 기준연도 |
 | `target_rating` | string | Y | enum: A, B, C, D (E 불가, PRD §12.8) | 목표 등급 |
 | `simulation_runs` | int | N | 1000 이상. **10000 초과는 10000으로 잘라 실행하고 `SIMULATION_RUNS_CLAMPED`를 싣는다** (`PRD §12.8` · #830) | Monte Carlo 반복 횟수. 기본 5000 |
 | `random_seed` | int/string | N | 0 ~ 2^128-1. 큰 값은 문자열로 전송 권장 | 미지정 시 서버가 128-bit entropy 자동 생성. 응답의 `rng_metadata.seed_entropy`에서 hex 형태로 반환 |
@@ -4143,7 +4145,7 @@ GET /api/v1/vessels/{vessel_id}/export?type=voyages&year=2026&format=csv
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `type` | string | Y | `voyages`, `calculations`, `simulations` |
-| `year` | int | N | 기준연도 필터 |
+| `year` | int | N | 기준연도 필터. **2019~2100**(조회 범위, `[#2190]`) |
 | `format` | string | N | `csv` (기본), `json` |
 | `calculation_run_id` | uuid | N | **[#891]** `type=calculations`에서 **계산 한 건**만. 기능①의 「CSV 다운로드」(`PRD §10.5`)가 쓴다. 다른 `type`과 함께 오면 422(조용히 무시하면 한 건을 받으려다 전체 파일을 받는다) · 이 선박의 계산이 아니면 404. 파일 이름은 `calculations_{id 앞 8자}.csv` |
 
@@ -4512,7 +4514,7 @@ GET /api/v1/vessels/{vessel_id}/annual-report?year=2026&format=pdf
 | 상태 | 코드 | 조건 |
 |---|---|---|
 | 404 | `NOT_FOUND` | 존재하지 않거나 삭제된 선박 |
-| 422 | `VALIDATION_ERROR` | `year` 범위 밖 · 지원하지 않는 `format` |
+| 422 | `VALIDATION_ERROR` | `year`가 2019~2100 밖 · 지원하지 않는 `format` |
 | 500 | `INTERNAL_ERROR` | PDF 렌더러 사용 불가 |
 
 ---

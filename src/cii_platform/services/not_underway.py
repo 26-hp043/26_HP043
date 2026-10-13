@@ -43,7 +43,9 @@ from cii_platform.services.voyage import (
     spanned_utc_years,
     utc_year,
 )
+from cii_platform.validation.bounds import MAX_STORED_REGULATION_YEAR, MIN_REGULATION_YEAR
 from cii_platform.validation.field_labels import field_label
+from cii_platform.validation.messages import korean_message
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -179,6 +181,30 @@ async def _require_period(session: AsyncSession, period_id: UUID):
     return period
 
 
+def require_storable_year(year: int) -> int:
+    """서버가 채운 규제연도가 **저장 범위(2019~2050)** 안인지 본다 (`#2190` 결정 4).
+
+    직접 입력은 요청 스키마(``STORED_REGULATION_YEAR``)가 막지만, 연도를 생략해
+    ``started_at``에서 채운 값은 스키마를 지나지 않아 DB CHECK에서 500으로 죽거나(2051+)
+    저장되었다(2018-). 같은 시각이 요청 작성법에 따라 저장되거나 거부되지 않도록, 직접
+    입력과 같은 필드(``regulation_year``)·같은 문구로 422를 낸다. CSV 들여오기는 항상
+    생략 경로이므로 이 검사가 화면 입력과 같은 결과를 만든다. 규제연도 표에 그 해가
+    있는지(VAL-005)는 이 함수의 몫이 아니다.
+    """
+    label = field_label("regulation_year")
+    if year < MIN_REGULATION_YEAR:
+        message = korean_message(
+            {"type": "greater_than_equal", "ctx": {"ge": MIN_REGULATION_YEAR}}, label
+        )
+    elif year > MAX_STORED_REGULATION_YEAR:
+        message = korean_message(
+            {"type": "less_than_equal", "ctx": {"le": MAX_STORED_REGULATION_YEAR}}, label
+        )
+    else:
+        return year
+    raise ValidationError(message, field="regulation_year", field_label=label)
+
+
 def _resolve_regulation_year(
     started_at: datetime, ended_at: datetime | None, requested: int | None
 ) -> int:
@@ -203,7 +229,7 @@ def _resolve_regulation_year(
     allowed = spanned_utc_years(started_at, ended_at)
 
     if requested is None:
-        return utc_year(started_at)
+        return require_storable_year(utc_year(started_at))
     if requested not in allowed:
         raise ValidationError(
             attribution_message(allowed, subject="구간이"),
@@ -540,7 +566,7 @@ async def update_period(
     elif ("started_at" in fields or "ended_at" in fields) and (
         period.regulation_year not in spanned_utc_years(started_at, ended_at)
     ):
-        fields["regulation_year"] = utc_year(started_at)
+        fields["regulation_year"] = require_storable_year(utc_year(started_at))
 
     input_fields = {"period_type", "started_at", "ended_at", "distance_nm", "regulation_year"}
     input_changed = any(
