@@ -516,6 +516,15 @@ export function AssistantOverlay({
        * 대시보드가 오류 화면이 된다. 그것이 곧 격리 실패다.
        */
       const unavailable = error instanceof AssistantError && error.unavailable
+      /*
+       * 이어 가던 대화가 서버에 없으면 번호를 버린다 (#1981 후속). 들고 있으면 이 탭의 다음
+       * 질문이 전부 같은 404가 된다 — 복제한 탭에서 「대화 지우기」를 눌렀을 때가 그 경우다.
+       * 말풍선은 남긴다. 다음 질문은 새 대화로 간다.
+       */
+      if (error instanceof AssistantError && error.sessionGone) {
+        forgetSession()
+        setSessionId(undefined)
+      }
       setTurns((prev) => [
         ...prev,
         {

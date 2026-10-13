@@ -67,6 +67,10 @@ export type ExportErrors = Record<string, string>
  * **연도는 선택이다** — `§8.1`의 `year`가 optional이고, 「이 선박 전체」를 받는 것이
  * 정상 사용이다. 비어 있는 것은 오류가 아니다.
  */
+/** 내보내기 `year`의 범위 — 서버의 규제연도 조회 범위와 같다 (`API_SPEC §8.1` · #2190). */
+export const EXPORT_YEAR_MIN = 2019
+export const EXPORT_YEAR_MAX = 2100
+
 export function validateExport(state: ExportFormState): ExportErrors {
   const errors: ExportErrors = {}
 
@@ -81,8 +85,12 @@ export function validateExport(state: ExportFormState): ExportErrors {
   const year = state.year.trim()
   if (year !== '') {
     const parsed = Number(year)
-    if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 2100) {
+    if (!Number.isInteger(parsed) || year.length !== 4) {
       errors.year = '연도를 네 자리로 입력해 주세요.'
+    } else if (parsed < EXPORT_YEAR_MIN || parsed > EXPORT_YEAR_MAX) {
+      // 서버의 조회 범위와 같다(`validation/bounds.py` `REGULATION_YEAR` · `API_SPEC §8.1` · #2190).
+      // 종전의 2000~2100은 2000~2018을 통과시켜 서버 422를 받았다.
+      errors.year = `연도는 ${EXPORT_YEAR_MIN}~${EXPORT_YEAR_MAX} 범위로 입력해 주세요.`
     }
   }
 

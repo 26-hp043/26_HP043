@@ -127,7 +127,6 @@
 
 .vessel-registration__submit:hover:not(:disabled) {
   background: var(--color-primary-solid-hover);
-  border-color: var(--color-primary-hover);
 }
 
 .vessel-registration__submit:disabled {

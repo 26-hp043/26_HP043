@@ -20,11 +20,20 @@ import type { AssistantProvider, ChatAnswer, ChatHistory, ChatTurn } from './typ
 export class AssistantError extends Error {
   /** 503 — 챗봇이 설정되지 않았거나 외부 모델이 죽었다. 다시 눌러도 소용없다. */
   readonly unavailable: boolean
+  /**
+   * 이어 가던 대화가 서버에 없다 (#1981 후속). 다른 탭에서 지웠거나 만료됐다 — 그 번호로는
+   * 다시 물어도 같은 404다. 화면이 번호를 버리고 다음 질문부터 새 대화로 시작한다.
+   */
+  readonly sessionGone: boolean
 
-  constructor(message: string, options?: { unavailable?: boolean; cause?: unknown }) {
+  constructor(
+    message: string,
+    options?: { unavailable?: boolean; sessionGone?: boolean; cause?: unknown },
+  ) {
     super(message, { cause: options?.cause })
     this.name = 'AssistantError'
     this.unavailable = options?.unavailable ?? false
+    this.sessionGone = options?.sessionGone ?? false
   }
 }
 
@@ -129,6 +138,8 @@ export function createApiAssistantProvider(
       if (!response.ok) {
         throw new AssistantError(
           body?.error?.message ?? fallbackMessage('답변을 받지 못했습니다.', response.status),
+          // 대화 번호를 실어 보낸 질문의 404는 「그 대화가 없다」다(`API_SPEC §15.1`).
+          { sessionGone: response.status === 404 && Boolean(sessionId) },
         )
       }
 

@@ -1241,6 +1241,31 @@ describe('새로고침 뒤 대화 복원 (`#1981` · `API_SPEC §15.8`)', () => 
     expect(ask.mock.calls[0][0].sessionId).toBe('session-9')
   })
 
+  it('이어 가던 대화가 서버에서 사라졌으면 번호를 버리고, 다음 질문은 **새 대화로** 간다', async () => {
+    /*
+     * 복제한 탭에서 「대화 지우기」를 누르면 이 탭의 번호는 죽은 번호가 된다. 들고 있으면
+     * 다음 질문이 전부 같은 404다 — 번호를 버려야 다음 질문이 통한다.
+     */
+    rememberSession('session-9')
+    const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => RESTORED)
+    const ask = vi
+      .fn<AssistantProvider['ask']>()
+      .mockRejectedValueOnce(new AssistantError('대화를 찾을 수 없습니다.', { sessionGone: true }))
+      .mockResolvedValueOnce(ANSWER)
+    render(<AssistantOverlay provider={{ ask, history }} />)
+    open()
+    await screen.findByText('전의 답')
+
+    await send('이어서')
+    await screen.findByText('대화를 찾을 수 없습니다.')
+    expect(ask.mock.calls[0][0].sessionId).toBe('session-9')
+    expect(recallSession()).toBeUndefined()
+
+    await send('다시')
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(2))
+    expect(ask.mock.calls[1][0].sessionId).toBeUndefined()
+  })
+
   it('버린 답·근거가 **처음과 같게** 보인다 (`DESIGN_SYSTEM §8.5` · #1818)', async () => {
     rememberSession('session-9')
     const history = vi.fn<NonNullable<AssistantProvider['history']>>(async () => RESTORED)
