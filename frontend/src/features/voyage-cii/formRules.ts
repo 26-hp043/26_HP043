@@ -261,13 +261,13 @@ export const DISTANCE_RANGE = storableRange(12, 2)
 export const FUEL_RANGE = storableRange(12, 4)
 
 /** 범위 밖 문구. 소수 자릿수는 그 컬럼의 scale만큼 보인다 — 끝자리가 반올림돼 보이지 않게. */
-function outOfRange(label: string, range: { min: number; max: number }, scale: number): string {
+export function outOfRange(label: string, range: { min: number; max: number }, scale: number): string {
   const text = (value: number) =>
     value.toLocaleString('ko-KR', { maximumFractionDigits: scale })
   return `${label} ${text(range.min)} ~ ${text(range.max)} 사이여야 합니다.`
 }
 
-function inRange(value: number, range: { min: number; max: number }): boolean {
+export function inRange(value: number, range: { min: number; max: number }): boolean {
   return value >= range.min && value <= range.max
 }
 

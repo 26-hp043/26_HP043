@@ -1,6 +1,7 @@
 import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { MAX_SPEED_KN, STORABLE } from '../vessel-registration/formRules'
+import { DISTANCE_RANGE, inRange, outOfRange } from '../voyage-cii/formRules'
 import type { WeatherModel } from '../voyage-cii/types'
 import type { VesselSpecDefaults } from '../voyage-cii/vesselCatalog'
 import type { ScenarioComparisonRequest } from './types'
@@ -303,6 +304,17 @@ function checkOptionalBound(
 }
 
 /**
+ * 거리 칸의 저장 범위 — 서버 `DISTANCE`(0.01 ~ 9,999,999,999.99)와 같다 (#2457). 앞선 검사가
+ * 오류를 적었거나 비었으면 건드리지 않는다. 하한 이하는 앞선 `> 0` 문구가, 그 위는 이 범위가 맡는다.
+ */
+function checkDistanceRange(raw: string, field: string, label: string, errors: FormErrors): void {
+  if (errors[field] !== undefined) return
+  const value = toNumber(raw.trim())
+  if (value === null || inRange(value, DISTANCE_RANGE)) return
+  errors[field] = outOfRange(withEunNeun(label), DISTANCE_RANGE, 2)
+}
+
+/**
  * 속력 칸의 VAL-009 범위 — 1.0 이상 60 이하 (#1269). 숫자가 아니거나 비었으면 앞선 검사가
  * 이미 오류를 적었으므로 여기서는 범위만 본다.
  */
@@ -407,6 +419,7 @@ export function validateForm(
       '직항 거리를 입력하거나, 현재 위치와 목적항을 샘플 항만에서 골라 주세요.'
   } else {
     checkRequiredPositive(state.baseDistanceNm, FIELD.baseDistanceNm, '직항 거리', errors)
+    checkDistanceRange(state.baseDistanceNm, FIELD.baseDistanceNm, '직항 거리', errors)
   }
   checkRequiredPositive(state.baseSpeedKn, FIELD.baseSpeedKn, '현재 속력', errors)
   // VAL-009 — 현재 속력도 1.0 이상 60 이하다(`PRD §9.1` · #1269). 종전에는 화면이 `> 0`만
@@ -446,6 +459,7 @@ export function validateForm(
     min: 0,
     inclusive: false,
   })
+  checkDistanceRange(state.detourDistanceNm, FIELD.detourDistanceNm, '우회 거리', errors)
   // VAL-009 — floor는 1.0kn. `> 0`이 아니다 (`PRD §9.1`).
   checkOptionalBound(state.slowSpeedKn, FIELD.slowSpeedKn, '감속 속력', errors, {
     min: MIN_SPEED_KN,

@@ -517,3 +517,29 @@ describe('속력 범위 — VAL-009 (#1269)', () => {
     expect(validateForm(state({ slowSpeedKn: '' }))).not.toHaveProperty(FIELD.slowSpeedKn)
   })
 })
+
+describe('직항·우회 거리의 저장 범위 (#2457)', () => {
+  it.each([
+    ['0.005', true],
+    ['0.01', false],
+    ['9999999999.99', false],
+    ['10000000000', true],
+  ] as const)('직항 거리 %s — 거절 %s', (value, rejected) => {
+    const errors = validateForm(state({ baseDistanceNm: value }))
+    expect(FIELD.baseDistanceNm in errors).toBe(rejected)
+  })
+
+  it.each([
+    ['0.005', true],
+    ['0.01', false],
+    ['9999999999.99', false],
+    ['10000000000', true],
+  ] as const)('우회 거리 %s — 거절 %s', (value, rejected) => {
+    const errors = validateForm(state({ detourDistanceNm: value }))
+    expect(FIELD.detourDistanceNm in errors).toBe(rejected)
+  })
+
+  it('우회 거리는 비워 둘 수 있다 — 서버 기본값을 쓴다', () => {
+    expect(validateForm(state({ detourDistanceNm: '' }))).not.toHaveProperty(FIELD.detourDistanceNm)
+  })
+})

@@ -663,3 +663,65 @@ describe('validateRegulationYearInput (#2133)', () => {
     expect(validateRegulationYearInput('2026.5').error).toBe(form.regulationYear)
   })
 })
+
+/**
+ * 거리·연료·기준연도는 서버 저장 범위와 같다 (#2457) — 화면을 통과한 값이 서버 422를 받지
+ * 않게 한다. 문구는 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 오류가 있느냐와, 형식 오류와
+ * 범위 밖이 다른 말이냐를 본다.
+ */
+describe('저장 범위 경계 (#2457)', () => {
+  const D = [
+    ['0.005', true],
+    ['0.01', false],
+    ['9999999999.99', false],
+    ['10000000000', true],
+  ] as const
+  const F = [
+    ['0.00005', true],
+    ['0.0001', false],
+    ['99999999.9999', false],
+    ['100000000', true],
+  ] as const
+
+  it.each(D)('계획 거리 %s — 거절 %s', (value, rejected) => {
+    const errors = validateDraft(draft({ plannedDistanceNm: value }))
+    expect(errors.plannedDistanceNm !== undefined).toBe(rejected)
+  })
+
+  it.each(F)('계획 연료 %s — 거절 %s', (value, rejected) => {
+    const errors = validateDraft(draft({ fuelUses: [{ fuelType: 'HFO', plannedFuelTon: value }] }))
+    expect(errors['plannedFuelTon.0'] !== undefined).toBe(rejected)
+  })
+
+  it.each(D)('실적 거리 %s — 거절 %s', (value, rejected) => {
+    const errors = validateActuals(actuals({ actualDistanceNm: value }))
+    expect(errors.actualDistanceNm !== undefined).toBe(rejected)
+  })
+
+  it.each(F)('실적 연료 %s — 거절 %s', (value, rejected) => {
+    const errors = validateActuals(actuals({ actualFuelTon: { HFO: value } }))
+    expect(errors['actualFuelTon.HFO'] !== undefined).toBe(rejected)
+  })
+
+  it.each([
+    ['2018', true],
+    ['2019', false],
+    ['2050', false],
+    ['2051', true],
+  ] as const)('기준연도 %s — 거절 %s (생성 폼 · 카드 수정 줄이 같다)', (value, rejected) => {
+    const form = validateDraft(draft({ regulationYear: value }))
+    expect(form.regulationYear !== undefined).toBe(rejected)
+    expect(validateRegulationYearInput(value).error !== undefined).toBe(rejected)
+  })
+
+  it('기준연도의 범위 밖은 형식 오류와 다른 말을 한다 — 네 자리로 넣은 2051에 「네 자리」는 틀린 안내다', () => {
+    const format = validateDraft(draft({ regulationYear: '26' })).regulationYear
+    const range = validateDraft(draft({ regulationYear: '2051' })).regulationYear
+    expect(format).toBeDefined()
+    expect(range).toBeDefined()
+    expect(range).not.toBe(format)
+    // 네 자리 숫자가 아닌 값은 형식 오류다
+    expect(validateRegulationYearInput('26').error).toBe(format)
+    expect(validateRegulationYearInput('2051').error).toBe(range)
+  })
+})
