@@ -1226,10 +1226,10 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 |---|---|---|---|---|---|
 | 대상 선박 | Y | UUID | 선택 선박 | 존재 확인 | `vessel_id` |
 | 기준연도 | Y | int | 현재 연도 | 파라미터 존재 (VAL-005) | `regulation_year` |
-| 항해거리 | Y | decimal | 자동/수동 | `> 0` (VAL-002) | `distance_nm` |
+| 항해거리 | Y | decimal | 자동/수동 | 0.01 이상 — 항차 저장과 같은 범위 (VAL-002 · `#2134`) | `distance_nm` |
 | 평균 예정 속도 | Y | decimal | 선박 기준속도 | 1.0kn 이상 · 60kn 이하 (VAL-009) | `speed_kn` |
 | 연료 종류 | Y | enum | 선박 기본 연료 | active (VAL-006) | `fuel_uses[].fuel_type` |
-| 예상 연료 사용량 | Y | decimal | 사용자 입력 | `> 0` (VAL-002) | `fuel_uses[].fuel_ton` |
+| 예상 연료 사용량 | Y | decimal | 사용자 입력 | 0.0001 이상 — 항차 저장과 같은 범위 (VAL-002 · `#2134`) | `fuel_uses[].fuel_ton` |
 
 > **화면은 연료를 한 종류만 입력받는다.** 제출 시 어댑터가 길이 1의 `fuel_uses[]` 배열로 변환한다. 배열은 API payload의 구조이며 화면에 행 추가·삭제 UI를 두지 않는다.
 >
