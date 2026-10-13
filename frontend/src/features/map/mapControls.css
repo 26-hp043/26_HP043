@@ -1,0 +1,38 @@
+/*
+ * 지도 컨트롤 묶음(확대·축소·나침반·지구본↔평면)의 면이 테마를 따른다 (#2430).
+ *
+ * MapLibre 기본 CSS는 묶음의 면을 흰색으로 박아 두고 다크 갈래가 없다. 그 위에 얹은
+ * 「지구본」 버튼의 글자는 `--text-primary`(`DESIGN_SYSTEM §9.5` 〔확정〕)라 다크에서
+ * 밝아지는데, 면은 흰색 그대로여서 대비가 1.22:1이었다. 글자색을 바꾸지 않고 **면을
+ * 카드 면 토큰으로** 옮긴다 — 라이트에서는 값이 종전과 같다(흰색).
+ *
+ * 새 토큰·새 색은 만들지 않는다(`§0.2`).
+ */
+.maplibregl-map .maplibregl-ctrl-group {
+  background: var(--surface-card);
+}
+
+.maplibregl-map .maplibregl-ctrl-group button + button {
+  border-top-color: var(--border-default);
+}
+
+.maplibregl-map .maplibregl-ctrl-group button:not(:disabled):hover {
+  background-color: var(--surface-inset);
+}
+
+/*
+ * 확대·축소·나침반 아이콘은 MapLibre가 어두운 선의 그림으로 넣는다. 다크에서는 면이
+ * 어두워지므로 그림을 뒤집는다. 강제 색 모드는 MapLibre가 따로 그림을 바꾸므로 뺀다.
+ * 다크 판정은 토큰과 같은 두 갈래다(`tokens.generated.css` 머리말).
+ */
+@media (prefers-color-scheme: dark) and (forced-colors: none) {
+  :root:not([data-theme='light']) .maplibregl-map .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
+}
+
+@media (forced-colors: none) {
+  :root[data-theme='dark'] .maplibregl-map .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
+}
