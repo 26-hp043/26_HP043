@@ -73,6 +73,23 @@ def _write_dump(path: Path, classes: tuple[str, ...]) -> None:
             archive.addfile(info, io.BytesIO(payload))
 
 
+_DB_DIR = "/home/cubrid/CUBRID/databases/cii"
+
+#: 로컬 컨테이너에서 읽은 형태 그대로다(2026-10-13) — 서버 사용자(uid 1000) 소유.
+_HEALTHY_OWNERSHIP = "\n".join(
+    [
+        "want 1000",
+        "db cii",
+        f"dir 1000 755 {_DB_DIR}",
+        f"entry 1000 600 {_DB_DIR}/cii",
+        f"entry 1000 600 {_DB_DIR}/cii_lgat",
+        f"entry 1000 644 {_DB_DIR}/cii_lgat__lock",
+        f"entry 1000 700 {_DB_DIR}/lob",
+        "server 1000 cub_server cii ",
+    ]
+)
+
+
 class FakeContainer:
     """db 컨테이너 대역. 부른 명령을 순서대로 남기고, 스크립트 내용으로 응답을 고른다."""
 
@@ -93,6 +110,8 @@ class FakeContainer:
         self.running_services = "db\napp\n"
         #: ``databases.txt``의 vol-path. 실측 형태다 — ``cii`` 는 자기 이름의 폴더에 있다.
         self.volume_dir = "/home/cubrid/CUBRID/databases/cii"
+        #: 소유권 조회(`#2379`)의 답. 기본은 서버 사용자 소유의 건강한 DB다(로컬 실측 형태).
+        self.ownership = _HEALTHY_OWNERSHIP
 
     def __call__(self, argv, stdin_path, stdout_path) -> bytes:
         argv = list(argv)
@@ -109,6 +128,8 @@ class FakeContainer:
         on_live = '"$CUBRID_DB"' in script
         if script.startswith("printf"):
             return b"cii"
+        if "cub_server" in script:
+            return self.ownership.encode()
         if "databases.txt" in script:
             return self.volume_dir.encode()
         if "cubrid unloaddb" in script:
@@ -258,15 +279,136 @@ def test_commands_run_inside_the_db_container_without_a_tty(tmp_path: Path):
     _backup(tmp_path, fake)
 
     for call in fake.calls:
-        assert call[:7] == [
+        assert call[:9] == [
             "docker",
             "compose",
             "-f",
             "docker-compose.prod.yml",
             "exec",
             "-T",
+            "-u",
+            "cubrid",
             "db",
         ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 데이터 파일 소유권 (#2379)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_every_container_command_runs_as_the_server_user(tmp_path: Path):
+    """root로 돌면 ``createdb`` · ``renamedb`` · ``server start``가 root 소유 파일을 남긴다.
+
+    격리 컨테이너 실측(2026-10-13) — root로 만든 DB는 ``0:0 · 600``이고, 서버 사용자로
+    시작하면 ``Unable to mount disk volume … Permission denied``로 선다. 백업 · 리허설 ·
+    교체가 보내는 명령 **전부**가 서버 사용자로 가는지 본다.
+    """
+    fake = FakeContainer()
+    dump = _backup(tmp_path, fake)
+    bk.rehearse(_db(fake), dump)
+    bk.restore(_db(fake), dump, "cii", now=lambda: _NOW)
+
+    shell_calls = [c for c in fake.calls if c[-3:-1] == ["sh", "-c"]]
+    assert shell_calls
+    for call in shell_calls:
+        at = call.index("exec")
+        assert call[at : at + 4] == ["exec", "-T", "-u", bk.SERVER_USER], call[: at + 5]
+
+
+def test_a_healthy_database_has_no_ownership_problems():
+    assert bk.parse_ownership(_HEALTHY_OWNERSHIP, "cii") == []
+
+
+def test_root_owned_files_are_named_with_owner_and_mode():
+    raw = _HEALTHY_OWNERSHIP.replace(
+        f"entry 1000 600 {_DB_DIR}/cii_lgat", f"entry 0 600 {_DB_DIR}/cii_lgat"
+    )
+    problems = bk.parse_ownership(raw, "cii")
+    assert any("uid 1000" in p for p in problems), problems
+    assert any(f"{_DB_DIR}/cii_lgat(uid 0 · 600)" in p for p in problems), problems
+
+
+def test_a_root_owned_directory_is_a_problem_even_if_every_file_is_fine():
+    """디렉터리가 남의 것이면 서버가 새 로그 보관 파일을 만들지 못한다."""
+    raw = _HEALTHY_OWNERSHIP.replace(f"dir 1000 755 {_DB_DIR}", f"dir 0 755 {_DB_DIR}")
+    assert any("디렉터리" in p for p in bk.parse_ownership(raw, "cii"))
+
+
+def test_a_server_running_as_another_user_is_a_problem():
+    """root로 켠 서버는 지금은 돌지만, 그 뒤에 만드는 로그 파일이 root 소유가 된다."""
+    raw = _HEALTHY_OWNERSHIP.replace("server 1000 cub_server cii ", "server 0 cub_server cii ")
+    assert any("서버 프로세스" in p for p in bk.parse_ownership(raw, "cii"))
+
+
+def test_files_and_servers_of_other_databases_are_not_counted():
+    """교체가 남긴 보관 DB는 운영 DB와 같은 폴더에 있고 이름도 ``cii_``로 시작한다."""
+    kept = "cii_kept_20260916T030000Z"
+    raw = "\n".join(
+        [
+            _HEALTHY_OWNERSHIP,
+            f"db {kept}",
+            f"entry 0 600 {_DB_DIR}/{kept}",
+            f"entry 0 600 {_DB_DIR}/{kept}_lgat",
+            "server 0 cub_server cii_test ",
+        ]
+    )
+    assert bk.parse_ownership(raw, "cii") == []
+
+
+def test_an_unreadable_volume_directory_is_reported_not_passed():
+    """아무것도 읽지 못한 것을 「문제 없음」으로 읽지 않는다."""
+    assert bk.parse_ownership("", "cii")
+    assert bk.parse_ownership("want 1000\ndb cii\n", "cii")
+
+
+def test_a_long_list_of_files_is_counted_and_cut():
+    extra = "\n".join(f"entry 0 600 {_DB_DIR}/cii_lgar{n:03d}" for n in range(20))
+    problems = bk.parse_ownership(_HEALTHY_OWNERSHIP + "\n" + extra, "cii")
+    line = next(p for p in problems if "파일 20개" in p)
+    assert "외 12개" in line
+
+
+def test_restore_refuses_before_touching_anything_when_ownership_is_wrong(tmp_path: Path):
+    """어긋난 채로 시작하면 교체가 중간에 선다 — 새 DB를 만들기도 전에 멈춘다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+    fake.ownership = _HEALTHY_OWNERSHIP.replace("server 1000", "server 0")
+    with pytest.raises(bk.BackupError, match=r"OPERATIONS\.md §9\.2\.2"):
+        bk.restore(_db(fake), dump, "cii", now=lambda: _NOW)
+
+    assert not any("cubrid createdb" in s for s in fake.scripts())
+    assert not any("cubrid server stop" in s for s in fake.scripts())
+    assert fake.compose_calls() == []
+
+
+def test_restore_checks_the_new_live_database_after_the_swap(tmp_path: Path):
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+    bk.restore(_db(fake), dump, "cii", now=lambda: _NOW)
+
+    scripts = fake.scripts()
+    checks = [i for i, s in enumerate(scripts) if "cub_server" in s]
+    last_start = max(i for i, s in enumerate(scripts) if "cubrid server start" in s)
+    assert len(checks) == 2
+    assert checks[0] < min(i for i, s in enumerate(scripts) if "cubrid createdb" in s)
+    assert checks[1] > last_start
+
+
+def test_the_ownership_check_changes_nothing():
+    """읽기만 한다 — 소유자나 권한을 바꾸는 명령이 스크립트 어디에도 없다."""
+    for word in ("chown", "chmod", "chgrp"):
+        assert word not in bk._OWNERSHIP_SH
+    source = _executable_source(_SCRIPT)
+    assert "chown" not in source and "chmod" not in source
+
+
+def test_cli_check_ownership_exits_1_on_a_mismatch(capsys):
+    fake = FakeContainer()
+    assert bk.main(["check-ownership"], runner=fake) == 0
+    fake.ownership = _HEALTHY_OWNERSHIP.replace(f"dir 1000 755 {_DB_DIR}", f"dir 0 755 {_DB_DIR}")
+    assert bk.main(["check-ownership"], runner=fake) == 1
+    assert "소유권" in capsys.readouterr().err
 
 
 def test_every_csql_call_carries_the_password(tmp_path: Path):

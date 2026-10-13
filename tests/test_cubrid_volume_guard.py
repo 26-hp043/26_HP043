@@ -189,3 +189,23 @@ def test_db01_step_stops_before_up_when_data_is_still_in_an_anonymous_volume():
     assert "exit 1" in guard
     assert "com.docker.compose.project=" in guard
     assert "test -d /v/cii" in guard
+
+
+def test_db01_step_checks_file_ownership_before_up_and_stops_on_a_mismatch():
+    """db-01 단계가 `up -d` **전에** 데이터 파일의 소유권을 보고, 어긋나면 멈춘다 (#2379).
+
+    서버는 `cubrid`로 뜨는데 root 소유 파일이 섞여 있으면, 컨테이너를 다시 만든 뒤 서버가
+    제 파일을 열지 못한다(#2117의 배포 실패). 검사가 `up -d` 뒤에 있으면 이미 늦다.
+    배포 단계가 소유자를 **스스로 바꾸지 않는지**도 본다 — 사본 없이 자동으로 고치지 않는다.
+    """
+    block = _db01_run_block(_DEPLOY.read_text(encoding="utf-8"))
+    check = block.index("scripts/db_backup.py check-ownership")
+    up = block.index("docker compose -f docker-compose.prod.db.yml up -d")
+    assert check < up, "소유권 검사가 up -d 뒤에 있다"
+    guard = block[check:up]
+    assert "exit 1" in guard
+    assert "§9.2.2" in guard
+    # 주석을 뺀 실행 줄에 소유자·권한을 바꾸는 명령이 없다.
+    code = "\n".join(line for line in block.splitlines() if not line.strip().startswith("#"))
+    assert "chown" not in code
+    assert "chmod" not in code

@@ -159,6 +159,19 @@ TAG_KEPT = "_b"
 #: DB 컨테이너의 compose 서비스 이름 (`#1330`). ``DB_SERVICE``로 덮는다.
 DEFAULT_DB_SERVICE = "db"
 
+#: 컨테이너 안에서 명령을 돌리는 OS 사용자 — **DB 서버와 같은 사용자**다 (`#2379`).
+#:
+#: ``cubrid/cubrid`` 이미지는 서버(``cub_master`` · ``cub_server``)를 ``cubrid``(uid 1000)로
+#: 띄우는데, ``docker compose exec``의 기본 사용자는 **root**다. root로 ``createdb`` ·
+#: ``loaddb`` · ``renamedb`` · ``server start``를 부르면 DB 파일과 그 뒤 서버가 만드는 로그
+#: 파일이 ``0:0 · 600``으로 생긴다. 그 상태로 컨테이너를 다시 만들면 서버가 ``cubrid``로
+#: 시작해 제 파일을 열지 못한다(격리 컨테이너 실측 · 2026-10-13)::
+#:
+#:     Unable to mount disk volume ".../r1_lgat".... Permission denied
+#:
+#: 같은 명령을 ``-u cubrid``로 부르면 파일이 ``1000:1000 · 600``으로 생긴다(같은 실측).
+SERVER_USER = "cubrid"
+
 #: 복구 때 멈추고 켤 앱의 compose 서비스 이름 (`#1635` · 결정 F-13). ``APP_SERVICE``로 덮는다.
 #: **분리 배포(db-01)에는 앱이 없다** — 그때는 ``none``으로 두고, 운영자가 app-01에서 앱을
 #: 멈춘 뒤 ``--app-stopped``로 그 사실을 적는다(스크립트가 다른 호스트를 다루지 않는다).
@@ -341,7 +354,8 @@ class Db:
     def sh(
         self, script: str, stdin_path: Path | None = None, stdout_path: Path | None = None
     ) -> bytes:
-        argv = [*self.compose, "exec", "-T", self.service, "sh", "-c", script]
+        # `-u` — 서버와 같은 사용자로 돈다(`SERVER_USER` 주석). 빠지면 root가 DB 파일을 만든다.
+        argv = [*self.compose, "exec", "-T", "-u", SERVER_USER, self.service, "sh", "-c", script]
         return self.run(argv, stdin_path, stdout_path)
 
     def compose_cmd(self, *args: str) -> bytes:
@@ -724,6 +738,113 @@ def _swap(db: Db, *, live: str, staged: str, kept: str, app: str | None) -> None
     start_app()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# 데이터 파일 소유권 (`#2379`)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 운영 DB의 파일 소유자와 서버 프로세스의 실행 사용자를 **한 번에** 읽는다.
+#:
+#: 출력은 줄마다 머리말이 다르다 — ``want``(이 셸의 uid = 서버가 돌아야 할 사용자) ·
+#: ``db``(``databases.txt``에 등록된 이름) · ``dir``(운영 DB의 볼륨 디렉터리) ·
+#: ``entry``(그 안의 파일) · ``server``(떠 있는 ``cub_server``의 uid와 명령줄).
+#: 읽기만 한다 — 소유자도 권한도 바꾸지 않는다.
+_OWNERSHIP_SH = (
+    'echo "want $(id -u)"; '
+    'd=$(awk -v n="$CUBRID_DB" \'$1==n {print $2}\' "$CUBRID/databases/databases.txt"); '
+    'd="${d:-$CUBRID/databases}"; '
+    'awk \'$1 !~ /^#/ && NF {print "db " $1}\' "$CUBRID/databases/databases.txt"; '
+    '[ -e "$d" ] && stat -c "dir %u %a %n" "$d"; '
+    'for f in "$d"/*; do [ -e "$f" ] && stat -c "entry %u %a %n" "$f"; done; '
+    "for p in /proc/[0-9]*; do "
+    '[ "$(cat "$p/comm" 2>/dev/null)" = cub_server ] || continue; '
+    'echo "server $(awk \'/^Uid:/ {print $2}\' "$p/status") '
+    '$(tr "\\0" " " < "$p/cmdline")"; '
+    "done; true"
+)
+
+#: 문제 목록에 파일을 이만큼만 적는다 — 로그 보관 파일이 수십 개일 수 있다.
+_OWNERSHIP_LISTED = 8
+
+
+def _belongs_to(basename: str, live: str, registered: set[str]) -> bool:
+    """이 파일이 운영 DB(``live``)의 것인가.
+
+    CUBRID는 DB 파일을 ``<이름>`` · ``<이름>_<꼬리>``로 짓는다. 교체가 남긴 보관 DB
+    (``cii_kept_…``)는 운영 DB와 **같은 디렉터리**에 있고 이름도 ``cii_``로 시작하므로,
+    등록된 이름 가운데 **가장 길게 맞는 것**의 파일로 본다.
+    """
+    owner = ""
+    for name in registered | {live}:
+        if (basename == name or basename.startswith(name + "_")) and len(name) > len(owner):
+            owner = name
+    return owner == live
+
+
+def parse_ownership(raw: str, live: str) -> list[str]:
+    """:data:`_OWNERSHIP_SH`의 출력에서 **서버가 열지 못할 것**을 고른다. 없으면 빈 목록."""
+    want: str | None = None
+    registered: set[str] = set()
+    directory: tuple[str, str] | None = None
+    entries: list[tuple[str, str, str]] = []
+    servers: list[tuple[str, str]] = []
+    for line in raw.splitlines():
+        kind, _, rest = line.partition(" ")
+        if kind == "want":
+            want = rest.strip()
+        elif kind == "db":
+            registered.add(rest.strip())
+        elif kind == "dir":
+            uid, _mode, path = rest.split(" ", 2)
+            directory = (uid, path)
+        elif kind == "entry":
+            uid, mode, path = rest.split(" ", 2)
+            entries.append((uid, mode, path))
+        elif kind == "server":
+            uid, _, cmdline = rest.partition(" ")
+            servers.append((uid, cmdline))
+    if want is None or directory is None:
+        return ["소유권을 읽지 못했습니다 — 볼륨 디렉터리를 서버 실행 사용자로 열 수 없습니다"]
+
+    problems: list[str] = []
+    if directory[0] != want:
+        problems.append(f"디렉터리 {directory[1]}의 소유자가 uid {directory[0]}입니다")
+    wrong = [
+        f"{path}(uid {uid} · {mode})"
+        for uid, mode, path in entries
+        if uid != want and _belongs_to(path.rsplit("/", 1)[-1], live, registered)
+    ]
+    if wrong:
+        shown = " · ".join(wrong[:_OWNERSHIP_LISTED])
+        more = f" 외 {len(wrong) - _OWNERSHIP_LISTED}개" if len(wrong) > _OWNERSHIP_LISTED else ""
+        problems.append(f"파일 {len(wrong)}개의 소유자가 다릅니다: {shown}{more}")
+    for uid, cmdline in servers:
+        if uid != want and live in cmdline.split():
+            problems.append(
+                f"서버 프로세스가 uid {uid}로 떠 있습니다 — 새 로그 파일이 그 소유로 생깁니다"
+            )
+    if problems:
+        problems.insert(0, f"서버 실행 사용자는 uid {want}입니다")
+    return problems
+
+
+def check_ownership(db: Db) -> str:
+    """운영 DB의 파일을 서버 실행 사용자가 열 수 있는지 본다. 아니면 :class:`BackupError`.
+
+    **읽기만 한다.** 어긋난 소유자를 여기서 고치지 않는다 — 사본 없이 소유자를 바꾸는 일은
+    운영자가 절차(``docs/OPERATIONS.md §9.2.2``)대로 한다.
+    """
+    live = db.live_name()
+    problems = parse_ownership(db.sh(_OWNERSHIP_SH).decode("utf-8", "replace"), live)
+    if problems:
+        raise BackupError(
+            f"{live}의 데이터 파일 소유권이 서버 실행 사용자와 맞지 않습니다 — "
+            + " · ".join(problems)
+            + ". 이 상태로 컨테이너를 다시 만들면 서버가 파일을 열지 못합니다. "
+            "docs/OPERATIONS.md §9.2.2 절차로 맞추십시오."
+        )
+    return f"소유권 확인 — {live}의 데이터 파일과 서버 프로세스가 같은 사용자입니다."
+
+
 def restore(
     db: Db,
     dump: Path,
@@ -781,6 +902,9 @@ def restore(
         )
     if manifest["database"] != live:
         raise BackupError(f"이 덤프는 {manifest['database']}의 것입니다(운영 DB {live}).")
+    # 교체를 시작하기 **전에** 본다 (`#2379`). 운영 DB가 이미 다른 사용자 소유면 이 스크립트
+    # (서버 사용자로 돈다)는 서버를 멈추지도 이름을 바꾸지도 못해 교체가 중간에 선다.
+    check_ownership(db)
     locale = db.query(_LOCALE_SQL)
     stamp = now().strftime(DB_STAMP_FORMAT)
     staged = derived_name(live, TAG_STAGED, stamp)
@@ -793,6 +917,9 @@ def restore(
     if app is not None:
         db.compose_cmd("stop", app)
     _swap(db, live=live, staged=staged, kept=kept, app=app)
+    # 교체된 운영 DB가 서버 사용자의 것인지 **결과로** 확인한다 (`#2379`). 어긋나면 지금은
+    # 떠 있어도 다음 컨테이너 재생성에서 서버가 뜨지 않는다.
+    check_ownership(db)
     if app is None:
         return (
             f"복구 완료 — {live}를 {dump.name}로 교체했습니다. 이전 DB는 {kept}로 남겼습니다. "
@@ -826,6 +953,10 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_process) -> int
     p_res = sub.add_parser("restore", help="운영 DB를 덤프로 교체한다(이전 DB는 남긴다)")
     p_res.add_argument("dump", type=Path)
     p_res.add_argument("--confirm", required=True, help="운영 DB 이름을 그대로 적는다")
+    sub.add_parser(
+        "check-ownership",
+        help="운영 DB 파일의 소유자가 서버 실행 사용자와 같은지 본다(읽기 전용 · #2379)",
+    )
     p_res.add_argument(
         "--app-stopped",
         action="store_true",
@@ -846,6 +977,8 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_process) -> int
             print(f"백업 완료 — {dump} (매니페스트 {manifest_path(dump).name})")
         elif args.command == "rehearse":
             print(rehearse(db, args.dump, keep_db=args.keep_db))
+        elif args.command == "check-ownership":
+            print(check_ownership(db))
         else:
             print(
                 restore(
