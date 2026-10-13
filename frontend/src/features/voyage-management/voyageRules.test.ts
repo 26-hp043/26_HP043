@@ -714,6 +714,21 @@ describe('저장 범위 경계 (#2457)', () => {
     expect(validateRegulationYearInput(value).error !== undefined).toBe(rejected)
   })
 
+  it.each(['２０２６', '2,026', '2026.0', ' 2026 '])(
+    '기준연도 「%s」 — 숫자 입력이 받아 주는 표기는 형식 오류가 아니다 (#2465)',
+    (value) => {
+      expect(validateDraft(draft({ regulationYear: value })).regulationYear).toBeUndefined()
+      expect(validateRegulationYearInput(value)).toEqual({ year: 2026 })
+    },
+  )
+
+  it.each(['26', '20261', '2026.5'])('기준연도 「%s」 — 네 자리 정수가 아니면 형식 오류다 (#2465)', (value) => {
+    const format = validateRegulationYearInput('26').error
+    expect(format).toBeDefined()
+    expect(validateRegulationYearInput(value).error).toBe(format)
+    expect(validateDraft(draft({ regulationYear: value })).regulationYear).toBe(format)
+  })
+
   it('기준연도의 범위 밖은 형식 오류와 다른 말을 한다 — 네 자리로 넣은 2051에 「네 자리」는 틀린 안내다', () => {
     const format = validateDraft(draft({ regulationYear: '26' })).regulationYear
     const range = validateDraft(draft({ regulationYear: '2051' })).regulationYear
