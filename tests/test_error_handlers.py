@@ -338,3 +338,56 @@ def test_custom_app_error_subclass_is_caught_by_base_handler() -> None:
     payload = resp.json()
     assert payload["error"]["code"] == "WEATHER_FETCH_ERROR"
     assert payload["error"]["message"] == "계절풍 급변으로 기상 모델이 무효화됐습니다."
+
+
+def test_schema_validation_label_follows_route_for_not_underway_distance() -> None:
+    """정박 구간 경로의 ``distance_nm``은 스키마 검증에서도 「이동 거리」다 (#2467).
+
+    서비스가 던지는 오류는 이미 「이동 거리」였는데(#2101) 스키마 검증 경로만 「항해거리」로
+    불렀다 — 같은 칸의 오류가 경로에 따라 두 이름으로 나갔다. 다른 자원의 같은 필드명은
+    종전 라벨을 그대로 쓴다.
+    """
+    from pydantic import BaseModel, Field
+
+    from cii_platform.validation.field_labels import field_label
+
+    class Body(BaseModel):
+        distance_nm: float = Field(le=10)
+
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    register_exception_handlers(app)
+
+    @app.post("/vessels/{vessel_id}/not-underway-periods")
+    async def create_period(vessel_id: str, body: Body) -> dict[str, str]:
+        return {}
+
+    @app.patch("/not-underway-periods/{period_id}")
+    async def update_period(period_id: str, body: Body) -> dict[str, str]:
+        return {}
+
+    @app.post("/voyage-cii/estimate")
+    async def estimate(body: Body) -> dict[str, str]:
+        return {}
+
+    client = TestClient(app)
+    scoped = field_label("not_underway.distance_nm")
+    plain = field_label("distance_nm")
+    assert scoped != plain
+
+    for method, url in (
+        ("post", "/vessels/v1/not-underway-periods"),
+        ("patch", "/not-underway-periods/p1"),
+    ):
+        detail = getattr(client, method)(url, json={"distance_nm": 11}).json()["error"]["details"][
+            0
+        ]
+        assert detail["field"] == "distance_nm"
+        assert detail["field_label"] == scoped
+        assert str(detail["message"]).startswith(scoped)
+
+    other = client.post("/voyage-cii/estimate", json={"distance_nm": 11}).json()["error"][
+        "details"
+    ][0]
+    assert other["field_label"] == plain
+    assert str(other["message"]).startswith(plain)
