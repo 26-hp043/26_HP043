@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 
@@ -87,6 +87,7 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
     create: vi.fn(async () => CREATED),
     transition: vi.fn(async () => IN_PROGRESS),
     saveActuals: vi.fn(async () => IN_PROGRESS),
+    setRegulationYear: vi.fn(async () => IN_PROGRESS),
     importCsv: vi.fn(async () => ({
       importedCount: 0,
       skippedCount: 0,
@@ -1334,5 +1335,149 @@ describe('계획 대비 — 연료 차이를 앞에 (#2296)', () => {
     await waitFor(() => expect(deltaCell()).not.toBeNull())
     expect(deltaCell()!.children).toHaveLength(1)
     expect(deltaCell()!.textContent).toContain(DISPLAY_UNITS.distance)
+  })
+})
+
+/**
+ * 기준연도만 고치는 한 줄 (#2133). 서버가 `PATCH /voyages/{id}`에서 기준연도 하나만 받는
+ * 두 경우(진행 중·완료 / 연도 빈 확정)에만 버튼이 선다. 버튼 문구는 표시 문구라(`AGENTS §4.6`)
+ * 리터럴로 잠그지 않고 있다·없다와 두 경우의 구분만 본다.
+ */
+describe('기준연도 수정 줄 (#2133)', () => {
+  const YEAR_TOGGLE = /^기준연도 (고치기|넣기)$/
+  const CONFIRMED_NO_YEAR: ManagedVoyage = {
+    ...IN_PROGRESS,
+    status: 'CONFIRMED',
+    inclusionPolicy: 'EXCLUDE',
+    regulationYear: null,
+  }
+
+  function renderOne(voyage: ManagedVoyage, over: Partial<VoyageManagementProvider> = {}) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+          ...over,
+        })}
+      />,
+    )
+  }
+
+  async function openAndName() {
+    await expandRow()
+    fireEvent.click(await screen.findByRole('button', { name: YEAR_TOGGLE }))
+    return await screen.findByLabelText('기준연도')
+  }
+
+  const submit = () =>
+    document.querySelector<HTMLButtonElement>('form[id^="ry-form"] button[type="submit"]') as HTMLButtonElement
+
+  it('진행 중·완료 항차에는 보인다', async () => {
+    renderOne(IN_PROGRESS)
+    await expandRow()
+    expect(screen.getByRole('button', { name: YEAR_TOGGLE })).toBeTruthy()
+  })
+
+  it('연도 빈 확정 항차에도 보이고, 고치기와 넣기는 레이블이 서로 다르다', async () => {
+    renderOne(CONFIRMED_NO_YEAR)
+    await expandRow()
+    const fill = screen.getByRole('button', { name: YEAR_TOGGLE })
+    cleanup()
+    renderOne(IN_PROGRESS)
+    await expandRow()
+    const fix = screen.getByRole('button', { name: YEAR_TOGGLE })
+    expect(fill.textContent).not.toBe(fix.textContent)
+  })
+
+  it('처음 넣기에는 연간 누적 반영 안내가 있고, 고치기에는 없다', async () => {
+    renderOne(CONFIRMED_NO_YEAR)
+    await openAndName()
+    expect(document.querySelector('form[id^="ry-form"] .vy__hint')).not.toBeNull()
+    cleanup()
+    renderOne(IN_PROGRESS)
+    await openAndName()
+    expect(document.querySelector('form[id^="ry-form"] .vy__hint')).toBeNull()
+  })
+
+  it('계획 단계 항차와 연도가 이미 있는 확정 항차에는 보이지 않는다', async () => {
+    for (const voyage of [
+      { ...IN_PROGRESS, status: 'PLANNED' as const, inclusionPolicy: 'INCLUDE_AS_PLAN' as const },
+      { ...CONFIRMED_NO_YEAR, regulationYear: 2026 },
+    ]) {
+      renderOne(voyage)
+      await expandRow()
+      expect(screen.queryByRole('button', { name: YEAR_TOGGLE })).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('처음 넣기를 저장하면 연도가 provider에 닿고 갱신된 행에서 수정 줄이 사라진다', async () => {
+    // 서버가 같은 요청에서 산입을 바꾼다 — 갱신된 행은 더 고칠 수 없는 확정 항차다.
+    const updated: ManagedVoyage = {
+      ...CONFIRMED_NO_YEAR,
+      regulationYear: 2027,
+      inclusionPolicy: 'INCLUDE_AS_ACTUAL',
+    }
+    const setRegulationYear = vi.fn(async (_id: string, _year: number) => updated)
+    renderOne(CONFIRMED_NO_YEAR, { setRegulationYear })
+    const input = await openAndName()
+    fireEvent.change(input, { target: { value: '2027' } })
+    fireEvent.click(submit())
+
+    await waitFor(() => expect(setRegulationYear).toHaveBeenCalledWith('v-1', 2027))
+    await waitFor(() => expect(screen.queryByRole('button', { name: YEAR_TOGGLE })).toBeNull())
+    expect(screen.queryByLabelText('기준연도')).toBeNull()
+  })
+
+  it('고치기를 저장하면 입력이 닫히고 버튼은 남는다', async () => {
+    const setRegulationYear = vi.fn(async (_id: string, _year: number) => ({
+      ...IN_PROGRESS,
+      regulationYear: 2027,
+    }))
+    renderOne(IN_PROGRESS, { setRegulationYear })
+    const input = await openAndName()
+    fireEvent.change(input, { target: { value: '2027' } })
+    fireEvent.click(submit())
+
+    await waitFor(() => expect(setRegulationYear).toHaveBeenCalledWith('v-1', 2027))
+    await waitFor(() => expect(screen.queryByLabelText('기준연도')).toBeNull())
+    expect(screen.getByRole('button', { name: YEAR_TOGGLE })).toBeTruthy()
+  })
+
+  it('저장이 실패하면 입력과 값이 남고 서버 문구가 보인다', async () => {
+    const setRegulationYear = vi.fn(async () => {
+      throw new Error('규제연도는 항차가 걸친 연도(2027)여야 합니다.')
+    })
+    renderOne(IN_PROGRESS, { setRegulationYear })
+    const input = await openAndName()
+    fireEvent.change(input, { target: { value: '2025' } })
+    fireEvent.click(submit())
+
+    expect(await screen.findByText('규제연도는 항차가 걸친 연도(2027)여야 합니다.')).toBeTruthy()
+    expect((screen.getByLabelText('기준연도') as HTMLInputElement).value).toBe('2025')
+  })
+
+  it('형식이 틀리면 provider를 부르지 않고 오류가 입력과 연결된다', async () => {
+    const setRegulationYear = vi.fn(async () => IN_PROGRESS)
+    renderOne(IN_PROGRESS, { setRegulationYear })
+    const input = await openAndName()
+    fireEvent.change(input, { target: { value: 'abc' } })
+    fireEvent.click(submit())
+
+    await waitFor(() => expect(input.getAttribute('aria-describedby')).toBeTruthy())
+    const described = document.getElementById(input.getAttribute('aria-describedby') ?? '')
+    expect(described?.textContent).toBeTruthy()
+    expect(setRegulationYear).not.toHaveBeenCalled()
+  })
+
+  it('그만두면 입력이 닫히고 초점이 연 버튼으로 돌아간다', async () => {
+    renderOne(IN_PROGRESS)
+    await openAndName()
+    const cancel = document.querySelector<HTMLButtonElement>('form[id^="ry-form"] .vy__cancel') as HTMLButtonElement
+    fireEvent.click(cancel)
+
+    expect(screen.queryByLabelText('기준연도')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: YEAR_TOGGLE }))
   })
 })

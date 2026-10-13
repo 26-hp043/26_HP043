@@ -369,6 +369,41 @@ describe('saveActuals — API_SPEC §3.6', () => {
   })
 })
 
+describe('setRegulationYear — PATCH /voyages/{id} (#2133)', () => {
+  it('PATCH로 regulation_year 하나만 보낸다', async () => {
+    const fetchMock = fakeFetch({ '/voyages/f0a1': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').setRegulationYear('f0a1', 2027)
+
+    const calls = (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(String(calls[0][0])).toMatch(/\/voyages\/f0a1$/)
+    expect((calls[0][1] as RequestInit).method).toBe('PATCH')
+    expect(bodyOf(fetchMock)).toEqual({ regulation_year: 2027 })
+  })
+
+  it('성공 응답을 항차로 읽는다', async () => {
+    const fetchMock = fakeFetch({ '/voyages/f0a1': ok(VOYAGE_BODY) })
+    const updated = await createApiVoyageManagementProvider(fetchMock, '').setRegulationYear('f0a1', 2026)
+    expect(updated.id).toBe(VOYAGE_BODY.data.id)
+  })
+
+  it('422의 서버 문구와 field를 그대로 전한다', async () => {
+    const fetchMock = fakeFetch({
+      '/voyages/f0a1': fail(422, {
+        error: {
+          message: '규제연도는 항차가 걸친 연도(2027)여야 합니다.',
+          details: [{ field: 'regulation_year' }],
+        },
+      }),
+    })
+    await expect(
+      createApiVoyageManagementProvider(fetchMock, '').setRegulationYear('f0a1', 2026),
+    ).rejects.toMatchObject({
+      message: '규제연도는 항차가 걸친 연도(2027)여야 합니다.',
+      field: 'regulation_year',
+    })
+  })
+})
+
 describe('오류', () => {
   it('서버 문구와 field를 그대로 전한다', async () => {
     const fetchMock = fakeFetch({

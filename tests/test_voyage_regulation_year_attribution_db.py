@@ -35,9 +35,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.main import API_V1_PREFIX, app
-from cii_platform.errors import ParameterError, ValidationError
+from cii_platform.errors import ParameterError, StateTransitionError, ValidationError
+from cii_platform.imo_number import imo_check_digit
 from cii_platform.services.cii_history import count_excluded_confirmed_voyages
-from cii_platform.services.voyage import create_voyage, spanned_utc_years, update_voyage
+from cii_platform.services.voyage import (
+    create_voyage,
+    get_voyage,
+    set_actuals,
+    spanned_utc_years,
+    update_voyage,
+)
 
 _BASE = "https://testserver"
 KST = timezone(timedelta(hours=9))
@@ -291,11 +298,234 @@ async def test_excluded_confirmed_count_is_zero_without_such_rows(session, vesse
     assert await count_excluded_confirmed_voyages(session, vessel_id=vessel_id) == 0
 
 
+# ── 계획 단계를 벗어난 항차의 기준연도 (결정 2026-10-08) ─────────────────────
+
+DEC_20_2026 = datetime(2026, 12, 20, tzinfo=UTC)
+DEC_28_2026_END = datetime(2026, 12, 28, tzinfo=UTC)
+JAN_2_2027 = datetime(2027, 1, 2, tzinfo=UTC)
+JAN_9_2027 = datetime(2027, 1, 9, tzinfo=UTC)
+
+
+async def _insert_voyage(
+    session,
+    vessel_id,
+    *,
+    status,
+    policy,
+    year,
+    planned=(None, None),
+    actual=(None, None),
+) -> UUID:
+    """상태 전이를 거치지 않고 그 상태의 항차 한 건을 둔다 — 보려는 것은 연도 규칙이다."""
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+        "departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
+        "planned_departure_at, planned_arrival_at, actual_departure_at, actual_arrival_at) "
+        "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', 1000, 12, :pd, :pa, :ad, :aa) "
+        "RETURNING id",
+        {
+            "vid": vessel_id,
+            "st": status,
+            "pol": policy,
+            "yr": year,
+            "pd": planned[0],
+            "pa": planned[1],
+            "ad": actual[0],
+            "aa": actual[1],
+        },
+    )
+
+
+async def test_a_confirmed_voyage_without_a_year_can_be_given_one_and_joins_the_year(
+    session, vessel_id
+):
+    """안내(「기준연도를 넣고 반영으로」)를 사용자가 실행할 수 있어야 한다.
+
+    종전에는 확정 항차의 PATCH가 계획값 가드에 막혀, 개요가 권한 일을 할 길이 없었다.
+    """
+    voyage_id = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="EXCLUDE",
+        year=None,
+        actual=(MARCH_2026, MARCH_2026_END),
+    )
+    assert await count_excluded_confirmed_voyages(session, vessel_id=vessel_id) == 1
+
+    updated = await update_voyage(session, voyage_id, regulation_year=2026)
+
+    assert updated["regulation_year"] == 2026
+    assert updated["annual_inclusion_policy"] == "INCLUDE_AS_ACTUAL"
+    assert updated["status"] == "CONFIRMED"
+    assert await count_excluded_confirmed_voyages(session, vessel_id=vessel_id) == 0
+
+
+async def test_the_year_given_to_a_confirmed_voyage_must_match_its_times(session, vessel_id):
+    """실제 시각이 있으면 실제 시각과, 없으면 계획 시각과 대조한다."""
+    with_actual = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="EXCLUDE",
+        year=None,
+        planned=(DEC_20_2026, DEC_28_2026_END),
+        actual=(JAN_2_2027, JAN_9_2027),
+    )
+    with pytest.raises(ValidationError) as caught:
+        await update_voyage(session, with_actual, regulation_year=2026)
+    _assert_attribution_error(caught.value, 2027)
+
+    plan_only = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="EXCLUDE",
+        year=None,
+        planned=(MARCH_2026, MARCH_2026_END),
+    )
+    with pytest.raises(ValidationError) as caught:
+        await update_voyage(session, plan_only, regulation_year=2025)
+    _assert_attribution_error(caught.value, 2026)
+
+
+async def test_a_confirmed_voyage_that_already_has_a_year_cannot_be_moved(session, vessel_id):
+    """처음 채우는 것만 연다 — 이미 어느 해에 들어간 확정 항차를 옮기는 것은 다른 일이다."""
+    included = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="INCLUDE_AS_ACTUAL",
+        year=2026,
+        actual=(DEC_28_2026, JAN_3_2027),
+    )
+    with pytest.raises(StateTransitionError):
+        await update_voyage(session, included, regulation_year=2027)
+
+    # 연도는 있는데 반영 안 함인 확정 항차도 「처음 채우기」가 아니다.
+    excluded_with_year = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="EXCLUDE",
+        year=2026,
+        actual=(DEC_28_2026, JAN_3_2027),
+    )
+    with pytest.raises(StateTransitionError):
+        await update_voyage(session, excluded_with_year, regulation_year=2027)
+
+
+@pytest.mark.parametrize("status", ["IN_PROGRESS", "COMPLETED", "CONFIRMED"])
+async def test_other_plan_values_stay_locked_after_departure(session, vessel_id, status):
+    """연 것은 기준연도 **하나**다 — 거리·시각은 종전대로 잠근다. 함께 보내도 거부한다."""
+    policy = "EXCLUDE"
+    voyage_id = await _insert_voyage(
+        session, vessel_id, status=status, policy=policy, year=None, actual=(MARCH_2026, None)
+    )
+    with pytest.raises(StateTransitionError):
+        await update_voyage(session, voyage_id, planned_distance_nm=Decimal("500"))
+    with pytest.raises(StateTransitionError):
+        await update_voyage(
+            session, voyage_id, regulation_year=2026, planned_distance_nm=Decimal("500")
+        )
+    # 지우는 요청도 이 길이 아니다.
+    with pytest.raises(StateTransitionError):
+        await update_voyage(session, voyage_id, regulation_year=None, planned_speed_kn=13)
+
+
+@pytest.mark.parametrize(
+    ("status", "policy"), [("IN_PROGRESS", "INCLUDE_AS_PLAN"), ("COMPLETED", "INCLUDE_AS_ACTUAL")]
+)
+async def test_late_departure_is_refused_then_passes_after_the_year_is_corrected(
+    session, vessel_id, status, policy
+):
+    """12월 계획 · 1월 출항 — 실적 거절 → 연도만 수정 → 실적 통과.
+
+    실적을 그대로 받으면 2026년 누적에 2027년 항차가 들어간다. 연도 수정 없이 거절만 하면
+    사용자는 실적도 연도도 못 고친다. 계획 시각(2026)으로 연도 수정을 막지 않는지도 본다.
+    """
+    voyage_id = await _insert_voyage(
+        session,
+        vessel_id,
+        status=status,
+        policy=policy,
+        year=2026,
+        planned=(DEC_20_2026, DEC_28_2026_END),
+    )
+
+    with pytest.raises(ValidationError) as caught:
+        await set_actuals(
+            session, voyage_id, actual_departure_at=JAN_2_2027, actual_arrival_at=JAN_9_2027
+        )
+    assert caught.value.field == "regulation_year"
+    # 허용 연도와 지금 연도, 고칠 길을 함께 말한다.
+    assert "2027" in str(caught.value)
+    assert "2026" in str(caught.value)
+    assert (await get_voyage(session, voyage_id))["actual_departure_at"] is None
+
+    updated = await update_voyage(session, voyage_id, regulation_year=2027)
+    assert updated["regulation_year"] == 2027
+    assert updated["annual_inclusion_policy"] == policy
+
+    saved = await set_actuals(
+        session, voyage_id, actual_departure_at=JAN_2_2027, actual_arrival_at=JAN_9_2027
+    )
+    assert saved["actual_departure_at"] is not None
+
+
+async def test_actual_times_spanning_two_years_accept_either_year(session, vessel_id):
+    """해를 걸친 실제 시각은 두 해 모두 통과한다 — 서버가 대신 고르지 않는다."""
+    for year in (2026, 2027):
+        voyage_id = await _insert_voyage(
+            session, vessel_id, status="IN_PROGRESS", policy="INCLUDE_AS_PLAN", year=year
+        )
+        saved = await set_actuals(
+            session, voyage_id, actual_departure_at=DEC_28_2026, actual_arrival_at=JAN_3_2027
+        )
+        assert saved["regulation_year"] == year
+
+
+async def test_once_actual_times_exist_the_year_edit_is_checked_against_them(session, vessel_id):
+    voyage_id = await _insert_voyage(
+        session,
+        vessel_id,
+        status="COMPLETED",
+        policy="INCLUDE_AS_ACTUAL",
+        year=2027,
+        planned=(DEC_20_2026, DEC_28_2026_END),
+        actual=(JAN_2_2027, JAN_9_2027),
+    )
+    with pytest.raises(ValidationError) as caught:
+        await update_voyage(session, voyage_id, regulation_year=2026)
+    _assert_attribution_error(caught.value, 2027)
+
+
+async def test_actuals_without_times_do_not_reopen_an_already_mismatched_row(session, vessel_id):
+    """시각을 건드리지 않는 실적 저장은 연도를 보지 않는다 — 대조할 실제 시각이 없다."""
+    voyage_id = await _insert_voyage(
+        session,
+        vessel_id,
+        status="IN_PROGRESS",
+        policy="INCLUDE_AS_PLAN",
+        year=2025,
+        planned=(MARCH_2026, MARCH_2026_END),
+    )
+    saved = await set_actuals(session, voyage_id, actual_distance_nm=Decimal("990"))
+    assert saved["actual_distance_nm"] is not None
+
+
 # ── HTTP ────────────────────────────────────────────────────────────────────
 
 
 def _csrf(client: TestClient) -> dict[str, str]:
     return {"X-CSRF-Token": client.cookies["csrf"]}
+
+
+def _valid_imo() -> str:
+    """검사숫자가 맞는 임의의 IMO 번호 — 선박 등록이 검사숫자를 본다(`#2134`)."""
+    first_six = f"{uuid.uuid4().int % 1_000_000:06d}"
+    return f"{first_six}{imo_check_digit(first_six)}"
 
 
 async def test_http_create_rejects_and_history_carries_the_excluded_count(
@@ -319,7 +549,7 @@ async def test_http_create_rejects_and_history_carries_the_excluded_count(
             created = client.post(
                 f"{API_V1_PREFIX}/vessels",
                 json={
-                    "imo_number": f"6{uuid.uuid4().int % 1_000_000:06d}",
+                    "imo_number": _valid_imo(),
                     "name": "ATTRIBUTION HTTP",
                     "ship_type": "BULK_CARRIER",
                     "deadweight": 50000,
@@ -374,6 +604,30 @@ async def test_http_create_rejects_and_history_carries_the_excluded_count(
             after = client.get(history)
             assert after.status_code == 200, after.text
             assert after.json()["data"]["excluded_confirmed_voyage_count"] == 1
+
+            # 결정 2026-10-08 — 개요가 권한 일(기준연도 넣기)을 실제 요청으로 할 수 있다.
+            voyage_url = f"{API_V1_PREFIX}/voyages/{voyage_id}"
+            wrong = client.patch(voyage_url, json={"regulation_year": 2025}, headers=_csrf(client))
+            assert wrong.status_code == 422, wrong.text
+            assert wrong.json()["error"]["details"][0]["field"] == "regulation_year"
+            locked = client.patch(
+                voyage_url,
+                json={"regulation_year": 2026, "planned_speed_kn": 13},
+                headers=_csrf(client),
+            )
+            assert locked.json()["error"]["code"] == "STATE_TRANSITION_ERROR", locked.text
+
+            filled = client.patch(voyage_url, json={"regulation_year": 2026}, headers=_csrf(client))
+            assert filled.status_code == 200, filled.text
+            assert filled.json()["data"]["regulation_year"] == 2026
+            assert filled.json()["data"]["annual_inclusion_policy"] == "INCLUDE_AS_ACTUAL"
+            assert client.get(history).json()["data"]["excluded_confirmed_voyage_count"] == 0
+
+            # 한 번 채운 뒤에는 옮길 수 없다.
+            moved_again = client.patch(
+                voyage_url, json={"regulation_year": 2026}, headers=_csrf(client)
+            )
+            assert moved_again.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
     finally:
         if vessel_id is not None:
             from cii_platform.db.session import get_sessionmaker

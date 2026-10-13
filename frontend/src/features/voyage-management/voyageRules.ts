@@ -140,6 +140,45 @@ export function canEnterActuals(status: VoyageStatus): boolean {
 }
 
 /**
+ * 이 항차의 기준연도를 화면에서 고칠 수 있는가 (#2133 · `PATCH /voyages/{id}`).
+ *
+ * 서버가 기준연도 **하나만** 보내는 요청을 받는 두 경우와 같은 갈래다.
+ * - `fix` — 진행 중·완료 항차. 다른 계획값은 여전히 거부되지만 기준연도만은 고칠 수 있다.
+ * - `fill` — 확정이면서 기준연도가 비고 연간 산입이 `EXCLUDE`인 항차. 처음 채우며,
+ *   서버가 같은 요청에서 산입을 `INCLUDE_AS_ACTUAL`로 바꾼다.
+ * - `none` — 그 밖. 계획 단계는 항차 수정 경로가 따로 있고, 연도가 이미 있는 확정 항차는
+ *   서버가 거부한다.
+ */
+type RegulationYearEdit = 'none' | 'fix' | 'fill'
+
+export function regulationYearEdit(
+  voyage: Pick<ManagedVoyage, 'status' | 'regulationYear' | 'inclusionPolicy'>,
+): RegulationYearEdit {
+  if (voyage.status === 'IN_PROGRESS' || voyage.status === 'COMPLETED') return 'fix'
+  if (
+    voyage.status === 'CONFIRMED' &&
+    voyage.regulationYear === null &&
+    voyage.inclusionPolicy === 'EXCLUDE'
+  ) {
+    return 'fill'
+  }
+  return 'none'
+}
+
+/**
+ * 기준연도 한 칸의 입력 검증. 빈 칸은 오류다(이 경로는 값을 **넣는** 일뿐이다).
+ * 형식 문구는 `validateDraft`와 같은 것을 쓴다.
+ */
+export function validateRegulationYearInput(raw: string): { year: number | null; error?: string } {
+  const year = readNumber(raw)
+  if (year === null) return { year: null, error: '기준연도를 입력해 주세요.' }
+  if (Number.isNaN(year) || !Number.isInteger(year)) {
+    return { year: null, error: '기준연도는 연도 네 자리입니다.' }
+  }
+  return { year }
+}
+
+/**
  * 전환 요청에 `annual_inclusion_policy`를 실어야 하는가.
  *
  * ## 여기가 데모 동선이 끊기는 자리다

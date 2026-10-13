@@ -544,6 +544,37 @@ _PLAN_GUARD_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _attribution_times(
+    voyage, fields: dict[str, object]
+) -> tuple[datetime | None, datetime | None]:
+    """기준연도를 대조할 출항·도착 시각 쌍 (`#2133`).
+
+    ===============================  ==============================================
+     항차의 상태                      대조하는 시각
+    ===============================  ==============================================
+     계획 단계                        계획 시각 — 요청 값과 저장된 값을 합친 결과
+     진행·완료 · 실제 출항 시각 있음    실제 시각
+     진행·완료 · 실제 출항 시각 없음    대조하지 않는다
+     확정                             실제 시각, 없으면 계획 시각
+    ===============================  ==============================================
+
+    진행·완료에서 실제 출항 시각이 아직 없으면 **계획 시각과 대조하지 않는다.** 이 길은 계획과
+    다른 해에 떠난 항차의 연도를 고치라고 연 것이라, 계획 시각으로 막으면 12월 계획·1월 출항
+    항차가 실적도 연도도 못 고친다. 그 연도는 실적 입력(:func:`set_actuals`)이 실제 시각과
+    대조한다. 확정 항차는 그 뒤에 실적을 받지 않으므로 계획 시각이라도 대조한다.
+    """
+    if voyage.status in PLANNING_STATUSES:
+        return (
+            fields.get("planned_departure_at", voyage.planned_departure_at),
+            fields.get("planned_arrival_at", voyage.planned_arrival_at),
+        )
+    if voyage.actual_departure_at is not None:
+        return voyage.actual_departure_at, voyage.actual_arrival_at
+    if voyage.status == "CONFIRMED":
+        return voyage.planned_departure_at, voyage.planned_arrival_at
+    return None, None
+
+
 async def update_voyage(
     session: AsyncSession,
     voyage_id: UUID,
@@ -588,7 +619,25 @@ async def update_voyage(
     # 않지만, **계획 거리에 붙은 표시**라 거리와 같은 상태에서만 바뀐다. 확정된 항차의
     # 거리에 사후로 「추정」을 붙이거나 떼는 길을 열어 두지 않는다.
     guarded_fields = sorted(set(fields) & (_PLAN_GUARD_FIELDS | {"planned_distance_source"}))
-    if guarded_fields and voyage.status not in PLANNING_STATUSES:
+    # #2133(2026-10-08 결정) — 계획 단계를 벗어난 항차에서도 **기준연도 하나만** 고치는 길
+    # 둘을 연다. 다른 계획값은 종전대로 잠근다.
+    year_only = guarded_fields == ["regulation_year"] and fields["regulation_year"] is not None
+    # ⑴ 진행·완료 — 계획보다 늦게 떠나 실제 출항 해가 달라지면 실적 입력이 거절된다
+    #    (:func:`set_actuals`). 연도를 고칠 길이 없으면 사용자는 실적도 연도도 못 고친다.
+    year_edit_after_departure = year_only and voyage.status in ACTUALS_ALLOWED_STATUSES
+    # ⑵ 확정 — **비어 있던 연도를 처음 채우는 것**만이다. 이미 어느 해에 들어간 확정 항차를
+    #    다른 해로 옮기는 것과 다르다. 채우면서 연간 반영으로 바꾼다(아래 대입).
+    confirmed_first_fill = (
+        year_only
+        and voyage.status == "CONFIRMED"
+        and voyage.regulation_year is None
+        and voyage.annual_inclusion_policy == "EXCLUDE"
+    )
+    if (
+        guarded_fields
+        and voyage.status not in PLANNING_STATUSES
+        and not (year_edit_after_departure or confirmed_first_fill)
+    ):
         raise StateTransitionError(
             f"계획 단계 항차만 계획값을 바꿀 수 있습니다 (현재 상태: {voyage.status}). "
             f"대상 필드: {', '.join(guarded_fields)} · "
@@ -619,16 +668,22 @@ async def update_voyage(
     # 둘 다 건드리지 않는 요청은 보지 않는다 — 이미 어긋나 저장된 행의 메모 수정까지
     # 막지 않는다(#2090과 같은 쪽).
     if {"regulation_year", "planned_departure_at", "planned_arrival_at"} & set(fields):
+        departure_at, arrival_at = _attribution_times(voyage, fields)
         await _require_regulation_year(
             session,
             fields.get("regulation_year", voyage.regulation_year),
-            departure_at=fields.get("planned_departure_at", voyage.planned_departure_at),
-            arrival_at=fields.get("planned_arrival_at", voyage.planned_arrival_at),
+            departure_at=departure_at,
+            arrival_at=arrival_at,
         )
 
     annual_input_changed = any(getattr(voyage, key) != fields[key] for key in changed_plan_fields)
     for key, value in fields.items():
         setattr(voyage, key, value)
+    if confirmed_first_fill:
+        # 연도와 정책을 **같은 flush**에 싣는다 — `chk_year_policy`는 두 컬럼의 조합에 걸린
+        # 제약이다(`transition_voyage`의 `#688` 주석과 같은 이유). 확정 항차의 연간 반영은
+        # 실적값이다(`_POLICY_BY_STATUS`).
+        voyage.annual_inclusion_policy = "INCLUDE_AS_ACTUAL"
 
     if annual_input_changed:
         await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
@@ -919,6 +974,26 @@ async def set_actuals(
             fields.get("actual_departure_at", voyage.actual_departure_at),
             fields.get("actual_arrival_at", voyage.actual_arrival_at),
         )
+        # #2133(2026-10-08 결정) — 실제 시각이 기준연도와 맞는지 본다. 계획보다 늦게 떠나
+        # 해가 바뀌었는데 그대로 받으면 **다른 해의 누적과 등급이 사용자가 모르게 바뀐다.**
+        # 서버가 연도를 대신 옮기지 않는다 — 해를 걸친 항차는 두 해 중 사용자가 고른다
+        # (`PRD §8.3`). 거절하면서 **고칠 길**을 함께 말한다: 진행·완료 항차는 기준연도만
+        # 수정할 수 있다(:func:`update_voyage`). 시각을 건드리지 않는 요청은 보지 않는다 —
+        # 이미 어긋나 저장된 행의 연료 수정까지 막지 않는다(#2090과 같은 쪽).
+        actual_departure_at = fields.get("actual_departure_at", voyage.actual_departure_at)
+        if voyage.regulation_year is not None and actual_departure_at is not None:
+            allowed = spanned_utc_years(
+                actual_departure_at,
+                fields.get("actual_arrival_at", voyage.actual_arrival_at),
+            )
+            if voyage.regulation_year not in allowed:
+                raise ValidationError(
+                    attribution_message(allowed, subject="항차가")
+                    + f" 지금 기준연도는 {voyage.regulation_year}입니다 — "
+                    "기준연도를 먼저 고친 뒤 실적을 입력해 주세요.",
+                    field="regulation_year",
+                    field_label="기준연도",
+                )
     annual_input_changed = any(
         getattr(voyage, key) != value
         for key, value in fields.items()

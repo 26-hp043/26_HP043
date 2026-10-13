@@ -9,6 +9,8 @@ import {
   hasErrors,
   nextStatuses,
   policyForTransition,
+  regulationYearEdit,
+  validateRegulationYearInput,
   toIsoInstant,
   toLocalInput,
   transitionBlocker,
@@ -607,5 +609,57 @@ describe('fuelTotal — 전부 있을 때만 합이다 (#2121)', () => {
 
   it('하나도 없으면 「없음」이다 — 0이 아니다', () => {
     expect(fuelTotal(twoFuels(null, null), 'actual')).toEqual({ kind: 'none' })
+  })
+})
+
+describe('regulationYearEdit — 기준연도를 화면에서 고칠 수 있는가 (#2133)', () => {
+  it('진행 중·완료 항차는 연도가 비었든 있든 고치기다', () => {
+    for (const status of ['IN_PROGRESS', 'COMPLETED'] as const) {
+      expect(regulationYearEdit(voyage({ status, regulationYear: 2026 }))).toBe('fix')
+      expect(regulationYearEdit(voyage({ status, regulationYear: null }))).toBe('fix')
+    }
+  })
+
+  it('확정 + 연도 없음 + 산입 제외만 처음 넣기다', () => {
+    const base = { status: 'CONFIRMED', regulationYear: null, inclusionPolicy: 'EXCLUDE' } as const
+    expect(regulationYearEdit(voyage(base))).toBe('fill')
+  })
+
+  it('확정이어도 연도가 있거나 산입 제외가 아니면 고칠 수 없다', () => {
+    expect(
+      regulationYearEdit(voyage({ status: 'CONFIRMED', regulationYear: 2026, inclusionPolicy: 'EXCLUDE' })),
+    ).toBe('none')
+    expect(
+      regulationYearEdit(
+        voyage({ status: 'CONFIRMED', regulationYear: null, inclusionPolicy: 'INCLUDE_AS_ACTUAL' }),
+      ),
+    ).toBe('none')
+  })
+
+  it('계획 단계·취소 항차는 고칠 수 없다', () => {
+    for (const status of ['DRAFT', 'PLANNED', 'CANCELLED'] as const) {
+      expect(regulationYearEdit(voyage({ status, regulationYear: null, inclusionPolicy: 'EXCLUDE' }))).toBe(
+        'none',
+      )
+    }
+  })
+})
+
+describe('validateRegulationYearInput (#2133)', () => {
+  it('정수 연도는 숫자로 돌려준다', () => {
+    expect(validateRegulationYearInput('2027')).toEqual({ year: 2027 })
+  })
+
+  it('빈 칸·숫자가 아닌 값·소수는 오류이고 연도를 돌려주지 않는다', () => {
+    for (const raw of ['', '  ', 'abc', '2026.5']) {
+      const result = validateRegulationYearInput(raw)
+      expect(result.year, raw).toBeNull()
+      expect(result.error, raw).toBeTruthy()
+    }
+  })
+
+  it('형식 오류 문구는 항차 폼의 기준연도 검증과 같다', () => {
+    const form = validateDraft(draft({ regulationYear: '2026.5' }))
+    expect(validateRegulationYearInput('2026.5').error).toBe(form.regulationYear)
   })
 })

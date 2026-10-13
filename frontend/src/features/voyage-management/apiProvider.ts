@@ -254,6 +254,11 @@ export interface VoyageManagementProvider {
   ): Promise<ManagedVoyage>
   saveActuals(voyageId: string, draft: ActualsDraft): Promise<ManagedVoyage>
   /**
+   * 기준연도 하나만 고친다 (`PATCH /voyages/{id}` · #2133). 본문은 `regulation_year` 하나다 —
+   * 서버가 이 모양만 진행 중·완료 항차와 「연도 빈 확정 항차」에서 받는다.
+   */
+  setRegulationYear(voyageId: string, year: number): Promise<ManagedVoyage>
+  /**
    * CSV 가져오기 (`API_SPEC §8.2`).
    *
    * `dryRun`이면 **검증만 하고 아무것도 저장하지 않는다.** 화면은 이 걸음을 먼저
@@ -614,6 +619,14 @@ export function createApiVoyageManagementProvider(
       const body = await call(`/voyages/${voyageId}/actuals`, {
         method: 'PUT',
         body: JSON.stringify(actualsPayload(draft)),
+      })
+      return readVoyage(body)
+    },
+
+    async setRegulationYear(voyageId, year) {
+      const body = await call(`/voyages/${voyageId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ regulation_year: year }),
       })
       return readVoyage(body)
     },
