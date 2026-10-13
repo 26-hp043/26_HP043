@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-09 |
+| 최종 수정일 | 2026-10-13 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -184,7 +184,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 선박 ID |
 | `voyage_no` | VARCHAR(100) | NULL | 사용자 입력 항차 번호 |
 | `status` | VARCHAR(20) | NOT NULL | DRAFT, PLANNED, IN_PROGRESS, COMPLETED, CONFIRMED, CANCELLED, ARCHIVED |
-| `regulation_year` | INTEGER | NULL **[C-1 추가]** | 해당 항차가 포함될 규정연도. `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL 필수 |
+| `regulation_year` | INTEGER | NULL **[C-1 추가]** | 해당 항차가 포함될 규정연도. `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL 필수. **값은 출항 또는 도착 시각의 UTC 해 중 하나**이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3` · `#2133`). 이 대조는 서비스가 쓰기 때 한다 — DB 제약이 아니므로 규칙 전에 저장된 행은 어긋난 채 남을 수 있다 |
 | `departure_port_name` | VARCHAR(200) | NOT NULL | 출발항 |
 | `departure_lat` | NUMERIC(9,6) | NULL | 출발항 위도 |
 | `departure_lon` | NUMERIC(9,6) | NULL | 출발항 경도 |
@@ -2417,3 +2417,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-08 | `#2362` | §2.14 `audit_log.action`에 실제 운영 만료 행 정리 액션 `EXPIRED_PURGE`와 기록 형식 각주를 추가했다. 운영에서 2026-10-07부터 생성된 값이며 `tests/test_audit_enum_sync.py`가 스크립트 상수·실제 INSERT·문서 값을 대조한다. `AGENTS §4.3`상 값·각주 보강이므로 버전은 올리지 않는다 (#2328) |
 | 2026-10-09 | `#2374` | §2.1·§2.3·§2.18·§7.1·§7.4 참조 중인 연료 부모 DELETE 보호069 반영. 세 참조/삭제 이력 거부·미참조 허용·seed UPDATE/INSERT 설명. head069·트리거178·그래프와 현재 제외 사유를 맞춤 (#2308) |
 | 2026-10-09 | `#2390` | §3.1~§3.3 각주에 **규제값 원문 대조 확인자 기록** — 신하늘(`sky01170851`) 2026-10-09 재확인 셋(z-factor 8/8 · CF 9값 · Reference Line 20/20, 모두 불일치 0건). §3.1에 `source_ref` 보충 규칙(같은 값이 여러 문서에 있으면 **현행 표가 인쇄된 문서**), §3.2에 `Ethane` 2.927 제외 판정, §3.3의 「팀원 확인 없음」 ⚠️ 문단을 확인 기록으로 교체. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#773) |
+| 2026-10-13 | `#2421` | **§2.2 `voyage.regulation_year` 설명 보강** — 값은 출항 또는 도착 시각의 UTC 해 중 하나이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3`). 대조는 서비스가 쓰기 때 하는 것이라 DB 제약이 아니고, 규칙 전에 저장된 행은 어긋난 채 남을 수 있다. 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#2133) |

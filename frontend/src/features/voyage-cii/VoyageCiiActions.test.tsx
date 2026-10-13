@@ -63,6 +63,7 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
     create: vi.fn(async () => DRAFT),
     transition: vi.fn(async () => ({ ...DRAFT, status: 'PLANNED' as const })),
     saveActuals: vi.fn(),
+    setRegulationYear: vi.fn(),
     importCsv: vi.fn(),
     exportData: vi.fn(async () => 'calculations_run-abcd.csv'),
     samplePorts: vi.fn(async () => []),

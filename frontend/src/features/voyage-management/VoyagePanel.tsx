@@ -15,11 +15,13 @@ import {
   hasErrors,
   isRevert,
   nextStatuses,
+  regulationYearEdit,
   toLocalInput,
   transitionBlocker,
   transitionCaution,
   validateActuals,
   validateDraft,
+  validateRegulationYearInput,
 } from './voyageRules'
 import type { FieldErrors } from './voyageRules'
 import {
@@ -383,6 +385,18 @@ function VoyageRow({
   const [actualsOpen, setActualsOpen] = useState(openOnMount && canEnterActuals(voyage.status))
   const rowRef = useRef<HTMLTableRowElement>(null)
   /*
+   * 기준연도 한 칸 수정 (#2133). 열고 닫을 때 초점을 잃지 않게 — 열면 입력 칸으로,
+   * 그만두면 연 버튼으로 돌려준다.
+   */
+  const [yearOpen, setYearOpen] = useState(false)
+  const [yearValue, setYearValue] = useState('')
+  const [yearError, setYearError] = useState<string | undefined>(undefined)
+  const yearTrigger = useRef<HTMLButtonElement>(null)
+  const yearFormRef = useRef<HTMLFormElement>(null)
+  useEffect(() => {
+    if (yearOpen) yearFormRef.current?.querySelector<HTMLInputElement>('input')?.focus()
+  }, [yearOpen])
+  /*
    * 되돌릴 수 없거나 정본이 재확인을 요구하는 전환은 **카드 안 확인 줄**을 거친다 (#1598 ·
    * `transitionCaution`). 모달을 두지 않는다 — 저장소에 아직 모달이 없고(`DESIGN_SYSTEM §5`
    * `--radius-modal` 사용처 0 · `§16` 항목 17 겹침 순서 미결), 확인할 대상(이 카드의 값)이
@@ -469,6 +483,7 @@ function VoyageRow({
   const caution = pending === null ? null : transitionCaution(voyage.status, pending)
   const cautionId = `vy-caution-${voyage.id}`
   const canCancel = nextStatuses(voyage.status).includes('CANCELLED')
+  const yearEdit = regulationYearEdit(voyage)
 
   /*
     펼침 줄 (#1729) — 속력 · 정책 · 나머지 전환 · 실적 입력 · 확인 줄이 여기 있다.
@@ -750,6 +765,88 @@ function VoyageRow({
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {yearEdit !== 'none' ? (
+            <div className="vy__row-actions">
+              <button
+                type="button"
+                ref={yearTrigger}
+                className="vy__text-action"
+                disabled={busy}
+                aria-expanded={yearOpen}
+                onClick={() => {
+                  if (yearOpen) {
+                    setYearOpen(false)
+                    return
+                  }
+                  setYearValue(voyage.regulationYear?.toString() ?? '')
+                  setYearError(undefined)
+                  setYearOpen(true)
+                }}
+              >
+                {yearEdit === 'fill' ? '기준연도 넣기' : '기준연도 고치기'}
+              </button>
+            </div>
+          ) : null}
+
+          {yearEdit !== 'none' && yearOpen ? (
+            <form
+              ref={yearFormRef}
+              id={`ry-form-${voyage.id}`}
+              className="vy__form"
+              noValidate
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setYearOpen(false)
+                  yearTrigger.current?.focus()
+                }
+              }}
+              onSubmit={async (event) => {
+                event.preventDefault()
+                const { year, error } = validateRegulationYearInput(yearValue)
+                setYearError(error)
+                if (error !== undefined || year === null) return
+                // 성공했을 때만 닫는다 (`#824` ⑸) — 실패하면 넣은 값을 남겨 둔다. 서버 문구는 `rowError`에 뜬다.
+                if (await run(() => api.setRegulationYear(voyage.id, year))) {
+                  setYearOpen(false)
+                  // 처음 넣으면 이 줄 자체가 사라진다 — 초점이 문서 머리로 떨어지지 않게 행에 둔다.
+                  const row = rowRef.current
+                  row?.setAttribute('tabindex', '-1')
+                  row?.focus({ preventScroll: true })
+                }
+              }}
+            >
+              {yearEdit === 'fill' ? (
+                <p className="vy__hint">
+                  기준연도를 넣으면 이 항차가 그 해의 연간 누적에 반영됩니다.
+                </p>
+              ) : null}
+              <VoyageField
+                id={`ry-year-${voyage.id}`}
+                label="기준연도"
+                value={yearValue}
+                onChange={setYearValue}
+                error={yearError}
+                inputMode="numeric"
+              />
+              <div className="vy__form-actions">
+                <button type="submit" className="vy__submit" disabled={busy}>
+                  {busy ? '저장 중' : '기준연도 저장'}
+                </button>
+                <button
+                  type="button"
+                  className="vy__cancel"
+                  disabled={busy}
+                  onClick={() => {
+                    setYearOpen(false)
+                    yearTrigger.current?.focus()
+                  }}
+                >
+                  그만두기
+                </button>
+              </div>
+            </form>
           ) : null}
 
           {actualsOpen ? (

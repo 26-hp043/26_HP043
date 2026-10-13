@@ -92,6 +92,11 @@ export interface VesselDetail {
    */
   capacityBasis: CapacityBasis
   years: CiiYear[]
+  /**
+   * 연간 반영 안 함으로 남은 **실적 확정** 항차 수 (`API_SPEC §2.7` · #2133).
+   * 올해 누적이 비어 있을 때 「실적이 없다」와 「확정 항차가 연간에서 빠져 있다」를 가른다.
+   */
+  excludedConfirmedVoyageCount: number
   /** 확정/진행 중 판정에 쓴 기준 시각(`TECH_SPEC §5.4.1` 계약 ⑵). */
   asOf: string
 }
