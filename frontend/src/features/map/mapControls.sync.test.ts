@@ -22,9 +22,9 @@ describe('지도 컨트롤 묶음의 면이 테마를 따른다 (#2430)', () => 
     expect(code).toMatch(/\.maplibregl-ctrl-group\s*\{[^}]*background:\s*var\(--surface-card\)/)
   })
 
-  it('MapLibre 기본 규칙을 이긴다 — 선택자가 지도 컨테이너에서 시작한다', () => {
+  it('MapLibre 기본 규칙을 이긴다 — 묶음의 두 클래스를 겹쳐 적는다', () => {
     // 기본 규칙은 `.maplibregl-ctrl-group` 하나라, 같은 무게면 불러오는 순서에 결과가 걸린다.
-    expect(code).toMatch(/\.maplibregl-map\s+\.maplibregl-ctrl-group\s*\{/)
+    expect(code).toMatch(/\.maplibregl-ctrl\.maplibregl-ctrl-group\s*\{/)
   })
 
   it('다크에서 아이콘 그림을 뒤집는다 — 토큰과 같은 두 갈래 모두', () => {
