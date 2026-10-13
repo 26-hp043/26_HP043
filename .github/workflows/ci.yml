@@ -468,6 +468,20 @@ jobs:
           kept=$($COMPOSE exec -T db sh -c 'cut -f1 "$CUBRID/databases/databases.txt" | grep -c "^${CUBRID_DB}_b" || true' | tr -d '[:space:]')
           [ "$kept" = "1" ] || { echo "::error::이전 DB가 남지 않았다 ($kept)"; exit 1; }
           echo "  선박 $vessels척 · 트리거 $triggers개 · 이전 DB 보존 · 백업 기록 $backups건"
+          # 교체된 운영 DB의 파일과 서버가 **서버 실행 사용자**의 것인가 (#2379).
+          # 스크립트가 root로 돌던 때에는 교체 뒤 파일이 0:0 · 600으로 남아, 컨테이너를 다시
+          # 만들면 서버가 제 파일을 열지 못했다. 실제 이미지에서 확인한다.
+          python3 scripts/db_backup.py check-ownership
+          # 검사가 어긋남을 **실제로 잡는지**도 본다 — root 소유 파일 하나를 운영 DB 이름으로
+          # 두면 종료 코드 1이어야 한다. 확인 뒤 그 파일만 지운다.
+          probe_sh='d=$(awk -v n="$CUBRID_DB" "\$1==n {print \$2}" "$CUBRID/databases/databases.txt"); printf %s "$d/${CUBRID_DB}_ownerprobe"'
+          probe=$($COMPOSE exec -T -u root db sh -c "$probe_sh")
+          $COMPOSE exec -T -u root db touch "$probe"
+          if python3 scripts/db_backup.py check-ownership; then
+            echo "::error::root 소유 파일($probe)이 있는데 소유권 검사가 통과했다"; exit 1
+          fi
+          $COMPOSE exec -T -u root db rm -f "$probe"
+          python3 scripts/db_backup.py check-ownership
 
       # 실패 원인을 로그 없이 추측하지 않도록 남긴다.
       - name: 실패 시 컨테이너 로그

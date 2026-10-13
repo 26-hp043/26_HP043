@@ -738,6 +738,10 @@ docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade h
 
 > 번호 — `§3.6.5`는 마이그레이션 `062`의 속력 초과 멈춤(`#1269` · PR #1890)이 쓴다.
 
+> **[#2379] 교체는 시작 전과 끝난 뒤에 데이터 파일의 소유권을 대조한다.** 운영 DB의 파일이나
+> 서버 프로세스가 서버 실행 사용자(`cubrid`)의 것이 아니면 **새 DB를 만들기 전에** 멈춘다 —
+> 맞추는 절차는 `§9.2.2`. 스크립트의 컨테이너 명령은 전부 `exec -u cubrid`로 간다.
+
 **앱은 운영 이름의 DB가 제자리에 떠 있을 때만 켠다** — 없는 DB를 향해 켜진 앱보다 꺼진 앱이
 낫다(결정 F-13). 스크립트는 교체의 어느 단계가 실패해도 아래 표대로 되돌리거나 멈추고,
 어느 경우든 종료 코드 1이다.
@@ -1501,6 +1505,65 @@ head `061`까지 마이그레이션 + 규제·데모 시드 + 시험 표 1,000�
 백업이 남긴 `DB_BACKUP` 감사 행 1) → **`down` → `up` 뒤에도 같음**(옛 마운트에서는 이 단계가
 빈 DB였다). 배포 사전 검사는 세 상태에서 돌렸다 — 옮긴 뒤 통과 · 옛 마운트에 `cubrid-data`
 빔 → **exit 1** · 옛 마운트에 복사까지 마침 → 통과.
+
+#### 9.2.2 데이터 파일 소유권이 서버 실행 사용자와 다를 때 (#2379)
+
+`cubrid/cubrid:11.4` 이미지는 DB 서버(`cub_master` · `cub_server`)를 **`cubrid`(uid 1000)**로
+띄운다. 반면 `docker compose exec`의 기본 사용자는 **root**다. root로 `cubrid createdb` ·
+`loaddb` · `renamedb` · `server start`를 부르면 DB 파일과 그 뒤 서버가 만드는 로그 파일이
+`0:0 · 600`으로 생기고, 그 상태로 컨테이너를 다시 만들면 서버가 제 파일을 열지 못한다.
+
+**재현 (2026-10-13 · 로컬 일회용 컨테이너 `cubrid/cubrid:11.4`)**
+
+| 한 일 | 결과 |
+|---|---|
+| 이미지가 띄운 서버 프로세스의 uid | `cub_master` · `cub_server` 모두 1000 |
+| `exec`(root)로 `cubrid createdb r1` | 디렉터리 `0:0 · 755` · 볼륨 파일 `0:0 · 600` |
+| 그 DB를 `exec -u cubrid`로 `cubrid server start r1` | `Unable to mount disk volume ".../r1_lgat".... Permission denied` |
+| `exec -u cubrid`로 `cubrid createdb c1` | 디렉터리 `1000:1000 · 755` · 볼륨 파일 `1000:1000 · 600` |
+
+`#2117`의 배포 실패에서 본 것이 이 모양이다(실행 사용자 1000:1000 · 주요 DB 파일 0:0 · 600).
+**운영의 root 파일이 언제 어느 작업에서 처음 생겼는지는 확인하지 못했다** — 위 재현은 그런
+파일이 생기는 경로 하나를 보인 것이다. 종전 `scripts/db_backup.py`는 모든 명령을 root로
+보냈으므로 복구(`restore`)가 그 경로에 해당한다.
+
+**지금의 장치 셋**
+
+1. `scripts/db_backup.py`는 컨테이너 명령을 **전부 `exec -u cubrid`로** 보낸다. 백업 · 리허설 ·
+   교체가 만드는 파일이 처음부터 서버 사용자의 것이다.
+2. `db_backup.py restore`는 **교체를 시작하기 전과 끝낸 뒤**에 소유권을 대조한다. 시작 전에
+   어긋나 있으면 새 DB를 만들기도 전에 멈춘다(운영 DB는 그대로다).
+3. 배포의 db-01 단계는 **`up -d` 전에** `db_backup.py check-ownership`을 돌리고, 어긋나면
+   멈춘다. 컨테이너를 건드리기 전이라 서비스는 그대로다.
+
+검사는 **읽기만 한다.** 대상은 운영 DB(`$CUBRID_DB`)의 볼륨 디렉터리 · 그 DB 이름으로 시작하는
+파일 · 그 DB의 `cub_server` 프로세스다. 같은 디렉터리에 남은 보관 DB(`cii_b…`)의 파일은
+`databases.txt`에 등록된 이름으로 갈라 세지 않는다.
+
+```bash
+# db-01에서 — 읽기 전용
+cd ~/bluelog
+COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid \
+  python3 scripts/db_backup.py check-ownership
+```
+
+**어긋나 있을 때 맞추는 순서** — 낮에, 사람이 지켜볼 때 한다. 자동으로 돌지 않는다.
+
+1. **원본 사본을 먼저 남긴다.** app-01에서 앱을 멈추고(`§3.6.6`), db-01에서 `cii-cubrid`를
+   멈춘 뒤 볼륨을 통째로 복사한다(`§9.2.1`의 복사 명령과 같은 방식 · `cp -a`는 소유자와
+   권한을 그대로 옮긴다). 사본 없이 소유자를 바꾸지 않는다.
+2. **검사가 이름을 적은 것만** 서버 사용자로 돌린다. 볼륨 전체에 `chown -R`을 걸지 않는다 —
+   같은 볼륨의 보관 DB나 다른 파일까지 바뀐다. 권한(`600`)과 내용은 바꾸지 않는다.
+   ```bash
+   docker run --rm --entrypoint sh -v <cubrid-data 볼륨>:/v cubrid/cubrid:11.4 \
+     -c 'chown cubrid:cubrid /v/cii /v/cii/<검사가 적은 파일>'
+   ```
+3. 컨테이너를 켜고 `check-ownership`을 다시 돌려 통과를 확인한다. 서버 프로세스가 root로 떠
+   있다고 나온 경우에는 컨테이너를 다시 켜는 것으로 서버가 `cubrid`로 뜬다.
+4. 기존 비밀번호로 인증되는지 확인하고(`§9.1`) app-01에서 앱을 켠다.
+
+**되돌림** — 2에서 문제가 생기면 컨테이너를 멈추고 1의 사본을 볼륨에 되돌려 놓는다.
+DB 초기화(`force_db_init`)와 `deletedb`는 해결책이 아니다 — 데이터가 사라진다.
 
 ### 9.3 app-01에서 db-01 연결 실패
 
