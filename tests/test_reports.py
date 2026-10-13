@@ -1929,3 +1929,22 @@ def test_pattern_ids_do_not_collide_between_charts():
     html = render_html(_document(sections=[_band(), _band()]))
     ids = re.findall(r'<pattern id="([^"]+)"', html)
     assert len(ids) == len(set(ids)) == 10
+
+
+def test_tech_spec_names_every_section_type_of_the_document_model():
+    """`TECH_SPEC §19.1`이 적는 섹션 종류가 코드의 ``Section`` 타입과 같다 (`#2303`).
+
+    `#2002`가 ``ChartSection``을 더했는데 정본은 「둘뿐이다」로 남아 있었다. 타입에 종류를
+    더하거나 빼면 이 검사가 정본을 함께 고치게 한다.
+    """
+    import typing
+
+    from cii_platform.reports import document
+
+    spec = (Path(__file__).resolve().parents[1] / "TECH_SPEC.md").read_text(encoding="utf-8")
+    start = spec.index("### 19.1 ")
+    section = spec[start : spec.index("### 19.2 ", start)]
+    named = set(re.findall(r"`(\w+Section)`", section))
+    in_code = {member.__name__ for member in typing.get_args(document.Section)}
+    assert in_code, "Section 타입에서 종류를 읽지 못했다"
+    assert named == in_code
