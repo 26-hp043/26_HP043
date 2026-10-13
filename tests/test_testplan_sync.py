@@ -44,7 +44,13 @@ _ROOT = Path(__file__).resolve().parents[1]
 _TEST_PLAN = _ROOT / "TEST_PLAN.md"
 _TESTS_DIR = _ROOT / "tests"
 
-#: ``§14.3`` 계획분 — 규정은 있으나 구현이 아직 없는 테스트.
+#: ``TEST_PLAN.md``에 **이름은 나오지만 그 이름의 파일은 없는** 것.
+#:
+#: 두 종류가 든다. ⑴ ``§14.3`` 계획분 — 규정은 있으나 구현이 아직 없는 테스트. ⑵ ``§14.4``의
+#: 종전 이름 — 구현은 됐으나 파일명이 달라진 것. **지금은 전부 ⑵다** (#2472). ``§14.3``은
+#: 2026-09-17 재검증부터 「현재 계획분은 없다」고 적는다 — 아래 묶음 주석의 이슈(#58~#66 ·
+#: #105)는 모두 닫혔고 구현은 다른 파일명으로 들어갔다(대응은 ``§14.4`` 표).
+#:
 #: 여기 있는 이름이 실제 파일로 생기면 ``§14.2``로 옮겨야 한다.
 PLANNED_ONLY: frozenset[str] = frozenset(
     {
@@ -145,9 +151,9 @@ def test_planned_only_files_do_not_exist():
 
 
 def test_planned_only_entries_are_mentioned_in_plan():
-    """계획분 목록과 §14.3이 어긋나지 않는다.
+    """이 목록의 이름은 문서에 실제로 나온다 — §14.3의 계획분이거나 §14.4의 종전 이름으로.
 
-    이 파일에만 적고 문서에 없으면, 문서를 읽는 사람은 그 계획을 모른다.
+    이 파일에만 적고 문서에 없으면, 문서를 읽는 사람은 그 이름이 왜 예외인지 모른다.
     """
     plan = _plan_text()
     absent = sorted(name for name in PLANNED_ONLY if name not in plan)
