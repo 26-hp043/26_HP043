@@ -30,6 +30,7 @@ from cii_platform.validation.bounds import (
     NOT_UNDERWAY_DISTANCE,
     NOT_UNDERWAY_FUEL,
     STORED_REGULATION_YEAR,
+    stored,
 )
 
 
@@ -47,7 +48,7 @@ class NotUnderwayFuelUseCreateRequest(BaseModel):
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # chk_not_underway_fuel_positive: > 0. 0톤 기록은 「안 썼다」가 아니라 오타다.
     # 상·하한은 DB 저장 범위 `NUMERIC(12,2)`에서 온다 (#1086 · `schemas/bounds.py`).
-    fuel_ton: Annotated[Decimal, Field(**NOT_UNDERWAY_FUEL)]
+    fuel_ton: Annotated[Decimal, Field(**NOT_UNDERWAY_FUEL), stored(2)]
 
 
 class NotUnderwayPeriodCreateRequest(BaseModel):
@@ -60,11 +61,11 @@ class NotUnderwayPeriodCreateRequest(BaseModel):
     #: ``None``이면 **진행 중**이다. 「모름」이 아니다.
     ended_at: AwareInstant | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
-    lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
     #: ``chk_nup_distance_non_negative``: >= 0. 접안·묘박은 0이 정상값이라 ``gt``가
     #: 아니라 ``ge``다(마이그레이션 028). 이 값은 CII 분모 ``Dt``에 더해진다.
-    distance_nm: Annotated[Decimal, Field(**NOT_UNDERWAY_DISTANCE)] = Decimal(0)
+    distance_nm: Annotated[Decimal, Field(**NOT_UNDERWAY_DISTANCE), stored(2)] = Decimal(0)
     #: 생략하면 서버가 ``started_at``의 연도로 채운다.
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부는 서비스가 본다.
     regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
@@ -109,8 +110,8 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     started_at_source: HumanTimeSource | None = None
     ended_at_source: HumanTimeSource | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
-    lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    distance_nm: Annotated[Decimal | None, Field(**NOT_UNDERWAY_DISTANCE)] = None
+    lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
+    distance_nm: Annotated[Decimal | None, Field(**NOT_UNDERWAY_DISTANCE), stored(2)] = None
     regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
     voyage_id: UUID | None = None

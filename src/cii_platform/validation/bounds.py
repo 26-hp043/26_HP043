@@ -21,7 +21,9 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
+
+from pydantic import AfterValidator
 
 
 def smallest_positive(scale: int) -> Decimal:
@@ -42,6 +44,37 @@ def storable(precision: int, scale: int) -> dict[str, Decimal]:
 def storable_from(floor: Decimal, precision: int, scale: int) -> dict[str, Decimal]:
     """하한이 도메인에서 오는 컬럼용(속력 ``>= 1.0`` 등) — 상한만 저장 형식에서 온다."""
     return {"ge": floor, "le": largest(precision, scale)}
+
+
+def _to_scale(value: Decimal | None, scale: int) -> Decimal | None:
+    """값을 컬럼 소수 자릿수(``scale``)의 **고정 소수 표기**로 맞춘다 (`#2502`).
+
+    드라이버가 파라미터를 SQL 리터럴로 인라인하므로 ``1E+1``·``1E-7`` 같은 지수 표기와
+    컬럼 scale을 넘는 긴 소수는 ``CAST(... AS NUMERIC(p,s))`` 문법 오류·``Data overflow``로
+    500이 됐다. 소수 아래 자릿수를 거절하지 않고 반올림한다는 종전 정책(위 docstring)을 따라
+    ``ROUND_HALF_UP``(0에서 먼 쪽 — DB 반올림과 같다)으로 scale에 맞춘다. 범위(``ge``·``le``)는
+    이 검증기보다 앞서 이미 통과했고 경계가 scale 격자 위에 있어 반올림이 범위를 벗어나지 않는다.
+    값의 크기는 그대로이고 표기만 바뀐다 — ``"1.5E+1"`` → ``Decimal("15.00")``.
+
+    범위 검사가 먼저이므로 하한 바로 아래 값(``ge`` 0.01인 칸의 ``0.005``)은 반올림하면 0.01이
+    되더라도 이미 422로 끝난다 — 「거절하지 않고 반올림」은 범위 **안**의 값에 대한 말이다.
+    """
+    if value is None:
+        return None
+    with localcontext() as ctx:
+        # 기본 28자리면 quantize가 InvalidOperation — 정수부+scale보다 충분히 크게 둔다.
+        ctx.prec = 200
+        quantized = value.quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
+    # 「-0.000000」 같은 음의 0을 남기지 않는다 — 부호만 다른 같은 값이다.
+    return quantized if quantized else abs(quantized)
+
+
+def stored(scale: int) -> AfterValidator:
+    """저장 컬럼 ``NUMERIC(_, scale)`` 입력용 — ``Annotated[Decimal, Field(**범위), stored(2)]``.
+
+    ``Field`` 제약 **뒤에** 둔다(범위를 먼저 본 뒤 표기를 맞춘다). ``None``은 그대로 통과한다.
+    """
+    return AfterValidator(lambda v: _to_scale(v, scale))
 
 
 #: 규제연도 입력의 **하한** — 조회·계산·저장이 모두 같다 (`#2190` 결정 1). BlueLog의 입력
