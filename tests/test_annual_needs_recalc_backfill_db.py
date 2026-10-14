@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import text
 from test_annual_simulation_read_db import _add_voyage
 from test_annual_simulation_read_db import session as session
@@ -59,17 +61,26 @@ async def _check(session, vessel_id, simulation_id) -> backfill.RunCheck:
 
 
 async def _insert_run(
-    session, vessel_id, *, voyages_json, vessel_json, not_underway_json=None
+    session, vessel_id, *, voyages_json, vessel_json, not_underway_json=None, created_at=None
 ) -> UUID:
-    """저장 스냅샷을 직접 정한 실행. 037·060 이전 실행의 모양(NULL)을 만들 때 쓴다."""
+    """저장 스냅샷을 직접 정한 실행. 037·060 이전 실행의 모양(NULL)을 만들 때 쓴다.
+
+    ``created_at``을 주면 스냅샷 생성 시각을 그 값(UTC)으로 정한다 — 안 주면 DB 기본값(지금)이다.
+    """
     snapshot_id, run_id, simulation_id = uuid4(), uuid4(), uuid4()
+    columns, values = "", ""
+    extra = {}
+    if created_at is not None:
+        columns, values = ", created_at", ", :created"
+        extra["created"] = created_at.astimezone(UTC).replace(tzinfo=None)
     await session.execute(
         text(
             "INSERT INTO simulation_snapshot (id, vessel_id, regulation_year, voyages_json, "
-            "vessel_json, not_underway_json, input_hash, parameter_hash) "
-            "VALUES (:id, :v, 2026, :voyages, :vessel, :nu, :h, :h)"
+            f"vessel_json, not_underway_json, input_hash, parameter_hash{columns}) "
+            f"VALUES (:id, :v, 2026, :voyages, :vessel, :nu, :h, :h{values})"
         ).bindparams(*_uuid_binds("id", "v")),
         {
+            **extra,
             "id": snapshot_id,
             "v": vessel_id,
             "voyages": json.dumps(voyages_json),
@@ -313,3 +324,129 @@ def test_recovery_file_lists_only_targets(tmp_path):
     ids = backfill.write_recovery_file(str(path), checks)
     assert ids == [checks[0].calculation_run_id]
     assert json.loads(path.read_text(encoding="utf-8"))["calculation_run_ids"] == ids
+
+
+# ─── #2491: 스냅샷 규칙 변경 이전 실행 · 승인 목록 ──────────────────────────────
+
+_LIVE_VESSEL = {
+    "ship_type": "BULK_CARRIER",
+    "deadweight": "50000",
+    "gross_tonnage": None,
+    "reference_speed_kn": "14",
+    "reference_daily_foc_ton": "30",
+}
+_BEFORE_CUTOFF = datetime(2026, 9, 20, 23, 59, tzinfo=backfill.SNAPSHOT_RULE_CUTOFF.tzinfo)
+_AFTER_CUTOFF = datetime(2026, 9, 21, 0, 1, tzinfo=backfill.SNAPSHOT_RULE_CUTOFF.tzinfo)
+
+
+async def _stale_run(session, vessel_id, created_at) -> UUID:
+    """저장 스냅샷에는 항차가 없는데 지금은 항차가 있는 실행 — 규칙 시각만 다르다."""
+    return await _insert_run(
+        session,
+        vessel_id,
+        voyages_json=[],
+        vessel_json=_LIVE_VESSEL,
+        created_at=created_at,
+    )
+
+
+async def test_run_before_rule_cutoff_is_uncomparable_even_if_inputs_differ(session, vessel_id):
+    """⑴ 기준 시각 이전에 만든 스냅샷 — 입력이 달라 보여도 견줄 수 없음, 적용해도 0건."""
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="PLAN-2491"
+    )
+    old = await _stale_run(session, vessel_id, _BEFORE_CUTOFF)
+
+    check = await _check(session, vessel_id, old)
+    assert check.status == backfill.STATUS_UNCOMPARABLE
+    assert check.differences == []
+    assert check.reasons == [
+        "스냅샷 규칙 변경(#816 · #1323) 이전 실행 — 지금 규칙으로 모은 항차 집합과 견줄 수 없음"
+    ]
+    # KST 23:59 = UTC 14:59 — DB가 돌려주는 UTC naive 값이 aware로 바뀌어 비교된다.
+    assert check.snapshot_created_at == "2026-09-20T14:59:00+00:00"
+    checks = await backfill.evaluate(session, vessel_id=vessel_id)
+    assert await backfill.apply(session, checks) == 0
+    assert await _flags(session, vessel_id) == [0]
+
+
+async def test_run_after_rule_cutoff_is_still_target(session, vessel_id):
+    """⑵ 기준 시각 이후의 같은 입력 — 종전대로 대상이고, 미리 보기 JSON에 생성 시각이 실린다."""
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="PLAN-2491"
+    )
+    new = await _stale_run(session, vessel_id, _AFTER_CUTOFF)
+
+    check = await _check(session, vessel_id, new)
+    assert check.status == backfill.STATUS_TARGET
+    assert check.snapshot_created_at == "2026-09-20T15:01:00+00:00"
+    report = backfill.report_json([check], applied=False, marked=0)
+    assert report["format_version"] == backfill.REPORT_FORMAT_VERSION
+    assert report["runs"][0]["snapshot_created_at"] == check.snapshot_created_at
+    assert check.snapshot_created_at in backfill.format_table([check])
+
+
+async def test_already_marked_is_judged_before_cutoff(session, vessel_id):
+    """기준 시각 이전이어도 이미 표시된 실행은 「이미 표시됨」이다 (먼저 판정)."""
+    old = await _stale_run(session, vessel_id, _BEFORE_CUTOFF)
+    assert await mark_annual_needs_recalc(session, vessel_id) == 1
+    assert (await _check(session, vessel_id, old)).status == backfill.STATUS_ALREADY
+
+
+def test_existing_checks_create_runs_after_cutoff():
+    """기존 검사가 만드는 실행은 지금 시각(기본값)으로 저장되므로 기준 시각 이후다."""
+    assert datetime.now(UTC) > backfill.SNAPSHOT_RULE_CUTOFF
+
+
+def test_apply_without_approved_list_is_refused(capsys):
+    """⑶ --apply에 승인 목록이 없으면 DB를 열기 전에 거부한다 (종료 코드 2)."""
+    with pytest.raises(SystemExit) as exit_info:
+        backfill.parse_args(["--apply"])
+    assert exit_info.value.code != 0
+    assert "--approved" in capsys.readouterr().err
+    # 미리 보기는 승인 목록 없이 돈다.
+    assert backfill.parse_args([]).apply is False
+
+
+def test_approved_list_reader_checks_format(tmp_path):
+    ok = tmp_path / "ok.json"
+    ok.write_text(
+        json.dumps(
+            {
+                "format_version": backfill.REPORT_FORMAT_VERSION,
+                "runs": [
+                    {"simulation_id": "a", "status": backfill.STATUS_TARGET},
+                    {"simulation_id": "b", "status": backfill.STATUS_CURRENT},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert backfill.load_approved(str(ok)) == {"a"}
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"runs": []}), encoding="utf-8")
+    with pytest.raises(ValueError, match="형식 버전"):
+        backfill.load_approved(str(bad))
+
+
+async def test_apply_marks_only_approved_targets(session, vessel_id, tmp_path):
+    """⑷ 승인 목록 밖 대상은 표시하지 않고, ⑸ 목록 안인데 지금 대상이 아니면 건너뛴다."""
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="PLAN-2491"
+    )
+    approved_run = await _stale_run(session, vessel_id, _AFTER_CUTOFF)
+    outside_run = await _stale_run(session, vessel_id, _AFTER_CUTOFF)
+    gone_run = await _stale_run(session, vessel_id, _BEFORE_CUTOFF)  # 지금은 견줄 수 없음
+    checks = await backfill.evaluate(session, vessel_id=vessel_id)
+    approved = {str(approved_run), str(gone_run)}
+
+    recovery = tmp_path / "recovery.json"
+    split, marked = await backfill.apply_approved(session, checks, approved, str(recovery))
+    assert marked == 1
+    assert [c.simulation_id for c in split.to_mark] == [str(approved_run)]
+    assert [c.simulation_id for c in split.outside] == [str(outside_run)]
+    assert split.changed == [str(gone_run)]
+    # 복구 자료에는 실제로 표시한 번호만 있다.
+    saved = json.loads(recovery.read_text(encoding="utf-8"))["calculation_run_ids"]
+    assert saved == [split.to_mark[0].calculation_run_id]
+    assert sorted(await _flags(session, vessel_id)) == [0, 0, 1]
