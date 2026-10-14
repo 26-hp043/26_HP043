@@ -78,7 +78,7 @@ from cii_platform.services.voyage import (
 )
 from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL
 from cii_platform.validation.field_labels import field_label
-from cii_platform.validation.instants import to_utc
+from cii_platform.validation.instants import OUT_OF_RANGE_MESSAGE, to_utc
 from cii_platform.validation.messages import _MESSAGES
 
 if TYPE_CHECKING:
@@ -353,7 +353,7 @@ def _instant(row: dict[str, str], column: str) -> datetime | None:
     except ValueError as exc:
         # 달력 끝의 시각은 UTC로 옮기면 범위를 넘는다 — 파일 전체가 500이 되지 않게
         # 이 행의 오류로 돌린다 (`#2474`).
-        raise RowError(column, str(exc)) from exc
+        raise RowError(column, OUT_OF_RANGE_MESSAGE) from exc
 
 
 def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:

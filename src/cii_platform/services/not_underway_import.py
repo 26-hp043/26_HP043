@@ -61,7 +61,7 @@ from cii_platform.services.voyage_import import (
     save_stage_row_error,
 )
 from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
-from cii_platform.validation.instants import to_utc
+from cii_platform.validation.instants import OUT_OF_RANGE_MESSAGE, to_utc
 from cii_platform.validation.messages import _MESSAGES, josa
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
@@ -158,7 +158,7 @@ def _instant(row: dict[str, str], column: str, *, label: str, required: bool) ->
     try:
         to_utc(parsed)
     except ValueError as exc:
-        raise RowError(column, str(exc)) from exc
+        raise RowError(column, OUT_OF_RANGE_MESSAGE) from exc
     return parsed
 
 
