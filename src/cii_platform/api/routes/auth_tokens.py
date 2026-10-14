@@ -45,6 +45,7 @@ from cii_platform.api.schemas.auth_tokens import (
     VerifyEmailRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import get_current_user, require_csrf
 from cii_platform.auth.password import (
     PasswordPolicyError,
     hash_password_async,
@@ -92,6 +93,14 @@ VERIFY_REQUESTED_MESSAGE = (
 
 #: 토큰 만료·사용됨 문구 — `PRD §6.3` 확정 원문.
 TOKEN_INVALID_MESSAGE = "링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."
+
+#: 다른 계정으로 로그인한 세션에서 인증 링크를 열었을 때 (#2327).
+#:
+#: 토큰은 소진하지 않는다 — 가입한 계정으로 다시 로그인하면 **같은 링크**가 듣는다.
+VERIFY_OTHER_ACCOUNT_MESSAGE = (
+    "이 인증 링크는 지금 로그인한 계정의 것이 아닙니다. "
+    "가입한 계정으로 로그인한 뒤 링크를 다시 열어 주세요."
+)
 
 #: 메일 발송 실패 안내. 계정·토큰은 만들어졌으므로 재발송을 권한다.
 MAIL_FAILED_MESSAGE = "메일이 발송되지 않았습니다. 잠시 후 재발송해 주세요."
@@ -211,13 +220,34 @@ async def confirm_email_verification(
     request: Request,
     payload: VerifyEmailConfirmRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    current: Annotated[AppUser, Depends(get_current_user)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> Response:
-    """토큰을 검증하고 `email_verified_at`을 기록한다."""
+    """토큰을 검증하고 `email_verified_at`을 기록한다.
+
+    ## 그 계정으로 로그인한 세션에서만 받는다 (#2327)
+
+    이메일 인증이 증명해야 하는 것은 「이 계정의 비밀번호를 아는 사람이 이 메일함도
+    쓴다」이다. 토큰만 받으면 남의 주소로 먼저 가입한 사람의 계정이, 진짜 주인이 링크를
+    누르는 순간 「인증됨」이 된다 — 최초 관리자 목록의 주소면 **관리자**가 된다
+    (아래 :func:`promote_verified_initial_admin`). 그래서 이 경로는 공개 경로가 아니고
+    (``auth/dependencies.py``), 세션이 없으면 라우트에 닿기 전에 401이다.
+
+    세션이 있어도 **토큰 주인과 세션 사용자가 다르면** 거절한다. 토큰은 롤백으로
+    되살린다 — 가입한 계정으로 로그인하면 같은 링크를 다시 쓸 수 있다. 조건은 주소와
+    무관하다(결정 2) — 목록은 배포 뒤에도 바뀌므로, 「인증 시각」의 뜻을 하나로 둬야
+    나중에 목록에 들어간 주소의 로그인 승격도 안전하다.
+    """
     try:
         user_id = await consume_token(session, raw=payload.token, purpose=PURPOSE_EMAIL_VERIFY)
     except TokenError:
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
+
+    if user_id != current.id:
+        # 소진을 되돌린다 — 주인이 자기 계정으로 로그인해 같은 링크를 쓸 수 있어야 한다.
+        await session.rollback()
+        return _error(request, "VALIDATION_ERROR", VERIFY_OTHER_ACCOUNT_MESSAGE)
 
     # 활성 계정만 본다 (#2109) — 탈퇴한 계정의 토큰은 **없는 토큰과 같은 응답**이다.
     # 다른 답을 내면 토큰 하나로 「그 계정은 탈퇴했다」가 확인된다. 토큰은 위에서

@@ -34,7 +34,7 @@ import { describe, expect, it } from 'vitest'
  *   `csrfHeaders()`를 싣는다. 그 함수가 `if (init.write)`처럼 **조건을 걸어** 실으면,
  *   넘기는 쪽이 그 깃발(`write: true`)을 켰는지도 본다.
  *
- * 어느 길도 아니면 실패한다. 실제 호출로 보는 것(`auth/session.test.ts`의 인증 요청 일곱)을
+ * 어느 길도 아니면 실패한다. 실제 호출로 보는 것(`auth/session.test.ts`의 인증 요청 여섯)을
  * 대신하지는 않는다 — 소스를 읽는 검사라 함수가 둘 이상의 파일에 걸치면 따라가지 못하고,
  * 그때는 「길을 찾지 못했다」로 **실패한다**(조용히 통과하지 않는다).
  */
@@ -54,13 +54,14 @@ const MUTATING = /method:\s*['"](POST|PUT|PATCH|DELETE)['"]/g
 /**
  * 파일별 상태 변경 요청 수.
  *
- * `auth/session.ts`의 8곳 가운데 하나(`postJsonWithStatus`)는 **공개 인증 요청 일곱**
- * (로그인·둘러보기·가입·메일 인증 2종·비밀번호 재설정 2종)이 함께 쓰는 자리다. 그 일곱은
+ * `auth/session.ts`의 9곳 가운데 하나(`postJsonWithStatus`)는 **공개 인증 요청 여섯**
+ * (로그인·둘러보기·가입·인증 메일 요청·비밀번호 재설정 2종)이 함께 쓰는 자리다. 그 여섯은
  * 세션 없이 부르므로 검증할 세션이 없다 — `API_SPEC §1.2`가 「예외가 아니라 적용 대상이
- * 아닌 것」으로 적은 경로다. 나머지 7곳이 세션을 요구하고 전부 헤더를 싣는다.
+ * 아닌 것」으로 적은 경로다. 나머지 8곳이 세션을 요구하고 전부 헤더를 싣는다 — 인증 확인은
+ * `#2327`부터 그 계정의 세션에서만 받아 이쪽으로 옮겼다.
  */
 const EXPECTED: Record<string, number> = {
-  'auth/session.ts': 8,
+  'auth/session.ts': 9,
   'features/annual-simulation/apiProvider.ts': 1,
   // `ask`(POST)와 「대화 지우기」(DELETE · #1981) 둘이다.
   'features/assistant/apiProvider.ts': 2,
@@ -210,7 +211,7 @@ function requestsWithoutCsrf(source: string): string[] {
 const WITHOUT_HEADER: Record<string, { within: string; reason: string }> = {
   'auth/session.ts': {
     within: 'postJsonWithStatus',
-    reason: '공개 인증 요청 일곱(로그인·둘러보기·가입·메일 인증 2종·비밀번호 재설정 2종)이 함께 쓴다',
+    reason: '공개 인증 요청 여섯(로그인·둘러보기·가입·인증 메일 요청·비밀번호 재설정 2종)이 함께 쓴다',
   },
 }
 

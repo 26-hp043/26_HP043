@@ -294,7 +294,11 @@ async def test_policy_applies_only_to_the_tour_principal(client, monkeypatch):
         # 가입은 현장직이고, 인증 링크를 누르면 관리자가 된다 (#2108)
         assert signed.json()["data"]["role"] == "FIELD"
         token = await issue_email_verify_token(_ADMIN_EMAIL)
-        confirmed = client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+        confirmed = client.post(
+            f"{API_V1_PREFIX}/auth/verify-email/confirm",
+            json={"token": token},
+            headers={"X-CSRF-Token": client.cookies["csrf"]},
+        )
         assert confirmed.status_code == 200, confirmed.text
 
         listed = client.get(f"{API_V1_PREFIX}/auth/users")

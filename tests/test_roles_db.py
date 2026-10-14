@@ -205,7 +205,11 @@ async def _signup_admin(client: TestClient, email: str) -> dict:
     """
     assert _signup(client, email)["role"] == "FIELD"
     token = await issue_email_verify_token(email)
-    confirmed = client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+    confirmed = client.post(
+        f"{API_V1_PREFIX}/auth/verify-email/confirm",
+        json={"token": token},
+        headers={"X-CSRF-Token": client.cookies["csrf"]},
+    )
     assert confirmed.status_code == 200, confirmed.text
     me = client.get(f"{API_V1_PREFIX}/auth/me")
     assert me.status_code == 200, me.text
@@ -283,7 +287,11 @@ async def test_new_signup_is_field_and_initial_admin_email_is_admin_once_verifie
         assert await _role_in_db(admin_email) == "FIELD"
 
         token = await issue_email_verify_token(admin_email)
-        confirmed = client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+        confirmed = client.post(
+            f"{API_V1_PREFIX}/auth/verify-email/confirm",
+            json={"token": token},
+            headers={"X-CSRF-Token": client.cookies["csrf"]},
+        )
         assert confirmed.status_code == 200, confirmed.text
         assert await _role_in_db(admin_email) == "ADMIN"
         me = client.get(f"{API_V1_PREFIX}/auth/me").json()["data"]

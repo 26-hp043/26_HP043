@@ -1066,8 +1066,9 @@ describe('계정이 바뀌는 성공 지점은 저장된 선택을 비운다 (#2
 /*
  * `API_SPEC §1.2` — 상태 변경 요청은 `X-CSRF-Token`을 요구하고, **세션을 요구하는
  * 라우트에 예외가 없다**(`#634`). 이 파일의 요청 가운데 세션이 있어야 부를 수 있는
- * 상태 변경 요청은 일곱이다. 세션 없이 부르는 공개 인증 요청 일곱(로그인·둘러보기·가입·
- * 메일 인증 2종·비밀번호 재설정 2종)은 검증할 세션이 없어 **적용 대상이 아니다**(같은 절).
+ * 상태 변경 요청은 여덟이다 — 인증 확인은 `#2327`부터 그 계정의 세션에서만 받는다. 세션
+ * 없이 부르는 공개 인증 요청 여섯(로그인·둘러보기·가입·인증 메일 요청·비밀번호 재설정
+ * 2종)은 검증할 세션이 없어 **적용 대상이 아니다**(같은 절).
  */
 describe('세션이 필요한 상태 변경 요청은 X-CSRF-Token을 싣는다 (#2127)', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -1083,6 +1084,7 @@ describe('세션이 필요한 상태 변경 요청은 X-CSRF-Token을 싣는다 
     ['비밀번호 변경', 'POST', '/auth/password-change', (f) => changePassword('a', 'b', f)],
     ['역할 지정', 'PATCH', '/auth/users/u-1/role', (f) => updateUserRole('u-1', 'OFFICE', f)],
     ['탈퇴', 'DELETE', '/auth/me', (f) => deleteAccount(f)],
+    ['인증 확인', 'POST', '/auth/verify-email/confirm', (f) => confirmEmailVerification('t', f)],
   ])('%s — %s %s', async (_label, method, path, act) => {
     vi.stubGlobal('document', { cookie: `sid=s; csrf=${TOKEN}` })
     await probeCurrentUser(async () => ME_OK)
@@ -1103,7 +1105,6 @@ describe('세션이 필요한 상태 변경 요청은 X-CSRF-Token을 싣는다 
     ['둘러보기', '/auth/tour-login', (f) => tourLogin('c', f)],
     ['가입', '/auth/signup', (f) => signup('a@b.c', 'password-1234', null, f)],
     ['인증 메일 요청', '/auth/verify-email/request', (f) => requestEmailVerification('a@b.c', f)],
-    ['인증 확인', '/auth/verify-email/confirm', (f) => confirmEmailVerification('t', f)],
     ['재설정 메일 요청', '/auth/password-reset/request', (f) => requestPasswordReset('a@b.c', f)],
     ['재설정 확인', '/auth/password-reset/confirm', (f) => confirmPasswordReset('t', 'password-1234', f)],
   ])('공개 인증 요청 %s(%s)는 POST이고 쿠키를 싣는다 — 세션이 없어 토큰 검증 대상이 아니다', async (_label, path, act) => {

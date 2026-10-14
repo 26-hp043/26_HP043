@@ -309,11 +309,23 @@ class TestEmailVerification:
         finally:
             await _cleanup("verify@example.com")
 
-    def test_forged_token_is_rejected_with_the_generic_message(self, client):
-        """위조·만료·사용됨을 구분하지 않는다 — 구분하면 추측 결과를 좁힐 수 있다."""
-        resp = client.post("/api/v1/auth/verify-email/confirm", json={"token": "forged-token"})
-        assert resp.status_code == 422
-        assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+    async def test_forged_token_is_rejected_with_the_generic_message(self, client):
+        """위조·만료·사용됨을 구분하지 않는다 — 구분하면 추측 결과를 좁힐 수 있다.
+
+        인증 확인은 로그인한 세션에서만 받으므로(#2327) 가입해 세션을 만든 뒤 보낸다.
+        """
+        email = "forged-verify@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            resp = client.post(
+                "/api/v1/auth/verify-email/confirm",
+                json={"token": "forged-token"},
+                headers={"X-CSRF-Token": client.cookies["csrf"]},
+            )
+            assert resp.status_code == 422
+            assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+        finally:
+            await _cleanup(email)
 
     async def test_request_for_unknown_email_looks_the_same(self, client):
         """존재 확인 수단이 되면 안 된다."""
@@ -629,7 +641,11 @@ class TestEmailVerificationSucceeds:
                 raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_EMAIL_VERIFY)
                 await s.commit()
 
-            resp = client.post("/api/v1/auth/verify-email/confirm", json={"token": raw})
+            resp = client.post(
+                "/api/v1/auth/verify-email/confirm",
+                json={"token": raw},
+                headers={"X-CSRF-Token": client.cookies["csrf"]},
+            )
             assert resp.status_code == 200, resp.text
             assert await _verified_at(email) is not None
         finally:
@@ -649,7 +665,11 @@ class TestEmailVerificationSucceeds:
             async with get_sessionmaker()() as s:
                 raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_EMAIL_VERIFY)
                 await s.commit()
-            client.post("/api/v1/auth/verify-email/confirm", json={"token": raw})
+            client.post(
+                "/api/v1/auth/verify-email/confirm",
+                json={"token": raw},
+                headers={"X-CSRF-Token": client.cookies["csrf"]},
+            )
             # 확인을 마치면 유효한 토큰이 남지 않는다(소진됨).
             settled = await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False)
 
@@ -882,7 +902,11 @@ class TestTokenRouteContract:
                 reset = await issue(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
                 await s.commit()
 
-            confirmed = client.post("/api/v1/auth/verify-email/confirm", json={"token": verify})
+            confirmed = client.post(
+                "/api/v1/auth/verify-email/confirm",
+                json={"token": verify},
+                headers={"X-CSRF-Token": client.cookies["csrf"]},
+            )
             assert confirmed.status_code == 200, confirmed.text
             assert _flatten(confirmed.json()) == MESSAGE_CONTRACT
 

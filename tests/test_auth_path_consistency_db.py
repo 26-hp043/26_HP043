@@ -33,7 +33,10 @@ from sqlalchemy import text
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.api.routes.auth import _normalize_email
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
-from cii_platform.api.routes.auth_tokens import TOKEN_INVALID_MESSAGE
+from cii_platform.api.routes.auth_tokens import (
+    TOKEN_INVALID_MESSAGE,
+    VERIFY_OTHER_ACCOUNT_MESSAGE,
+)
 from cii_platform.auth import role_bootstrap, tour_gate
 from cii_platform.auth.reserved_emails import (
     DEV_STUB_EMAIL,
@@ -143,7 +146,13 @@ def _reset_confirm(client: TestClient, token: str):
 
 
 def _verify_confirm(client: TestClient, token: str):
-    return client.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+    # 세션이 끊긴 뒤(탈퇴)에도 부를 수 있게 CSRF 쿠키가 없으면 헤더를 싣지 않는다.
+    csrf = client.cookies.get("csrf")
+    return client.post(
+        f"{API_V1_PREFIX}/auth/verify-email/confirm",
+        json={"token": token},
+        headers={"X-CSRF-Token": csrf} if csrf else {},
+    )
 
 
 def _error_of(resp) -> tuple[int, dict]:
@@ -184,8 +193,10 @@ class TestTokenConfirmAfterWithdrawal:
 
             resp = _verify_confirm(client, raw)
 
-            assert resp.status_code == 422, resp.text
-            assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+            # 탈퇴로 세션이 끊겨 라우트에 닿기 전에 401이다 — 인증 확인은 그 계정으로
+            # 로그인한 세션에서만 받는다(#2327). 남은 탈퇴 계정 판정은 아래 「살아 있는
+            # 토큰」 검사가 본다.
+            assert resp.status_code == 401, resp.text
             verified = await _scalar(
                 "SELECT email_verified_at FROM app_user WHERE email = :e", email
             )
@@ -230,7 +241,9 @@ class TestTokenConfirmAfterWithdrawal:
             withdrawn = confirm(client, raw)
             forged = confirm(client, "no-such-token-at-all")
 
-            assert withdrawn.status_code == 422, withdrawn.text
+            # 재설정 확정은 공개 경로라 422, 인증 확인은 세션이 탈퇴 계정을 가리켜 401이다
+            # (#2327). 어느 쪽이든 **없는 토큰과 같은 응답**이어야 한다.
+            assert withdrawn.status_code in (401, 422), withdrawn.text
             assert _error_of(withdrawn) == _error_of(forged)
             after = await _scalar("SELECT password_hash FROM app_user WHERE email = :e", email)
             assert after == before
@@ -549,3 +562,75 @@ class TestInitialAdminNeedsVerifiedEmail:
             assert await _role_changes(email) == []
         finally:
             await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 인증 확인은 그 계정으로 로그인한 세션에서만 받는다 (#2327)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestVerificationNeedsTheAccountsOwnSession:
+    """먼저 가입한 사람의 계정이 **주인의 인증 확인만으로** 관리자가 되지 않는다.
+
+    목록의 주소로 다른 사람이 먼저 가입하면 인증 메일은 진짜 주인에게 간다. 종전에는
+    토큰만으로 확인을 받아, 주인이 링크를 누르면 **먼저 가입한 사람의 계정과 세션**이
+    관리자가 됐다. 주인의 브라우저는 그 계정의 세션이 없다(비밀번호를 모른다) — 그
+    두 상태를 클라이언트 둘로 만든다.
+    """
+
+    async def test_owner_without_a_session_neither_verifies_nor_promotes(self, client, monkeypatch):
+        email = "squat-no-session@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            # 먼저 가입한 사람 — `client`가 그 계정의 세션을 쥔다.
+            assert _signup(client, email).status_code == 201
+            raw = await _issue(email, PURPOSE_EMAIL_VERIFY)
+
+            # 메일함의 주인 — 같은 앱, 세션 없는 다른 브라우저.
+            with TestClient(app, base_url=_BASE) as owner:
+                resp = _verify_confirm(owner, raw)
+
+            assert resp.status_code == 401, resp.text
+            assert (
+                await _scalar("SELECT email_verified_at FROM app_user WHERE email = :e", email)
+                is None
+            )
+            assert await _role_of(email) == "FIELD"
+            assert await _role_changes(email) == []
+            assert client.get(f"{API_V1_PREFIX}/auth/me").json()["data"]["role"] == "FIELD"
+            # 토큰은 소진되지 않았다 — 라우트에 닿기 전에 끊겼다.
+            assert await _unused_token_count(email) == 1
+        finally:
+            await _cleanup(email)
+
+    async def test_other_accounts_session_is_refused_and_the_link_still_works(
+        self, client, monkeypatch
+    ):
+        email = "squat-other-session@example.com"
+        owner_email = "squat-owner-own@example.com"
+        monkeypatch.setenv(role_bootstrap.ENV_NAME, email)
+        try:
+            assert _signup(client, email).status_code == 201
+            raw = await _issue(email, PURPOSE_EMAIL_VERIFY)
+
+            # 주인이 자기 다른 계정으로 로그인한 브라우저에서 링크를 연다.
+            with TestClient(app, base_url=_BASE) as owner:
+                assert _signup(owner, owner_email).status_code == 201
+                refused = _verify_confirm(owner, raw)
+
+            assert refused.status_code == 422, refused.text
+            assert refused.json()["error"]["message"] == VERIFY_OTHER_ACCOUNT_MESSAGE
+            for addr in (email, owner_email):
+                assert (
+                    await _scalar("SELECT email_verified_at FROM app_user WHERE email = :e", addr)
+                    is None
+                ), addr
+                assert await _role_of(addr) == "FIELD", addr
+            assert await _role_changes(email) == []
+            # 거절은 토큰을 되살린다 — 그 계정의 세션이면 **같은 링크**가 듣는다.
+            assert await _unused_token_count(email) == 1
+            accepted = _verify_confirm(client, raw)
+            assert accepted.status_code == 200, accepted.text
+            assert await _role_of(email) == "ADMIN"
+        finally:
+            await _cleanup(email, owner_email)

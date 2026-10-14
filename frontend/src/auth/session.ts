@@ -580,12 +580,38 @@ export async function requestEmailVerification(
   return messageOf(body)
 }
 
-/** 메일 링크의 토큰으로 이메일 인증을 완료한다. */
+/**
+ * 메일 링크의 토큰으로 이메일 인증을 완료한다.
+ *
+ * **그 계정으로 로그인한 세션에서만 받는다** (`#2327` · `API_SPEC §1.2`). 토큰만으로 받으면
+ * 남의 주소로 먼저 가입한 사람의 계정이, 진짜 주인이 링크를 누르는 순간 「인증됨」이 된다.
+ * 그래서 다른 로그인 요청처럼 CSRF 헤더를 싣고, 401이면 세션 만료와 같이 로그인으로 보낸다
+ * — `next`에 지금 주소(토큰 포함)가 남으므로 로그인하면 같은 링크로 돌아와 이어 간다.
+ * 서버는 세션이 없을 때 토큰을 소진하지 않는다.
+ */
 export async function confirmEmailVerification(
   token: string,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<string> {
-  const body = await postJson(VERIFY_CONFIRM_URL, { token }, fetchImpl)
+  let response: Response
+  try {
+    response = await fetchImpl(VERIFY_CONFIRM_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify({ token }),
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  const body = await response.json().catch(() => null)
+  if (response.status === 401) failExpiredSession()
+  if (!response.ok) throw authErrorOf(body, response.status, '인증을 처리하지 못했습니다.')
   return messageOf(body)
 }
 
