@@ -211,3 +211,26 @@ def test_소요시간이_0_01시간_미만이면_계산_단계에서_422다():
         fuel_ton=Decimal("5"),
     )
     assert _db_rows([fine])[0]["duration_hours"] == Decimal("10.00")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["departure_port_name", "arrival_port_name", "planned_distance_nm", "planned_speed_kn"],
+)
+def test_항차_수정은_비울_수_없는_칸의_null을_필드_이름으로_거부한다(field):
+    """#2504 — NOT NULL 열의 ``null``은 클리어가 아니다. 종전에는 DB까지 가서 500이었다."""
+    with pytest.raises(PydanticValidationError) as raised:
+        VoyageUpdateRequest.model_validate({field: None})
+    errors = raised.value.errors()
+    assert [(e["loc"], e["type"]) for e in errors] == [((field,), "missing")]
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["voyage_no", "notes", "regulation_year", "planned_distance_source"],
+)
+def test_항차_수정에서_null이_클리어인_칸은_그대로_받는다(field):
+    """#312 규약 유지 — 거부는 NOT NULL 넷뿐이다. 생략은 「변경 없음」이다."""
+    body = VoyageUpdateRequest.model_validate({field: None})
+    assert field in body.model_fields_set
+    assert VoyageUpdateRequest.model_validate({}).model_fields_set == set()

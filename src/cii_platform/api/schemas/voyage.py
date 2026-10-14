@@ -11,7 +11,8 @@ from decimal import Decimal
 from typing import Annotated, Literal, get_args
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 
 from cii_platform.api.schemas.instants import Instant
 from cii_platform.validation.bounds import (
@@ -143,6 +144,26 @@ class VoyageUpdateRequest(BaseModel):
     # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
     # 받는 것과 **받아도 되는 것**은 다르다.
     notes: Annotated[str | None, Field(max_length=NOTES_MAX_LENGTH)] = None
+
+    @field_validator(
+        "departure_port_name",
+        "arrival_port_name",
+        "planned_distance_nm",
+        "planned_speed_kn",
+        mode="after",
+    )
+    @classmethod
+    def _reject_explicit_null(cls, value: object) -> object:
+        """비워 둘 수 없는 칸의 명시적 ``null``을 422로 거절한다 (#2504).
+
+        ``null`` = 클리어 규약(#312)은 DB 열이 NULL을 받는 칸에만 성립한다. 이 넷은
+        NOT NULL 열이라 ``null``이 서비스까지 가면 DB 오류(500)가 된다. 생략은 검증기가
+        돌지 않으므로(기본값) 「변경 없음」으로 그대로 통과한다. ``missing`` 유형으로
+        올려 ``validation/messages.py``가 「…을/를 입력하세요.」를 필드 라벨로 만든다.
+        """
+        if value is None:
+            raise PydanticCustomError("missing", "Field required")
+        return value
 
 
 class VoyageTransitionRequest(BaseModel):
