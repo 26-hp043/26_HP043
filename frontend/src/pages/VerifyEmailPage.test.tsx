@@ -154,6 +154,34 @@ describe('로그인한 세션에서만 토큰을 보낸다 (#2327)', () => {
     expect(confirmCalls()).toBe(0)
   })
 
+  it('성공하면 사용자 정보를 다시 받아 인증 시각이 채워진다 — 미인증 배너가 남지 않는다 (#2489)', async () => {
+    let verified = false
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith(ME_URL_TAIL)) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              id: 'u-1',
+              email: 'captain@example.com',
+              display_name: null,
+              email_verified_at: verified ? '2026-10-15T00:00:00Z' : null,
+            },
+          }),
+          { status: 200 },
+        )
+      }
+      verified = true
+      return ok('[인증 완료 문구]')
+    })
+    const rtl = await fresh()
+    const session = await import('../auth/session')
+
+    await rtl.waitFor(() =>
+      expect(rtl.screen.getByRole('status').textContent).toBe('[인증 완료 문구]'),
+    )
+    await rtl.waitFor(() => expect(session.getCachedUser()?.emailVerifiedAt).toBeTruthy())
+  })
+
   it('세션이 있으면 그 세션으로 한 번 보낸다', async () => {
     routeFetch(async () => ok('[인증 완료 문구]'))
     const rtl = await fresh()

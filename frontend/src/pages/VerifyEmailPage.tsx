@@ -4,6 +4,7 @@ import { AuthAlert, AuthShell } from '../features/auth/AuthShell'
 import {
   AuthRequestError,
   LOGIN_PATH,
+  probeCurrentUser,
   probeSessionOnce,
   useAuthResolved,
   useAuthUser,
@@ -67,6 +68,10 @@ export function VerifyEmailPage() {
         if (!alive) return
         setMessage(text)
         setState('ok')
+        // 화면이 들고 있는 사용자의 인증 시각을 새로 받는다 (#2489). 받지 않으면 「대시보드로
+        // 이동」(앱 안 이동)으로 들어갔을 때 상단 미인증 배너가 새로고침 전까지 남는다 —
+        // 배너는 이 캐시의 `emailVerifiedAt`으로 그린다.
+        void probeCurrentUser()
       })
       .catch((error: unknown) => {
         if (!alive) return
