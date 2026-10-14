@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 #: 받는 시각의 UTC 날짜 범위 (`#2487`). 달력 양 끝에서 하루씩 뺐다.
 #:
@@ -30,6 +30,27 @@ LATEST_UTC_DATE = date(9999, 12, 30)
 
 #: 범위 밖 시각의 문구. 사용자에게 그대로 나간다.
 OUT_OF_RANGE_MESSAGE = "시각은 0001-01-02부터 9999-12-30까지만 받습니다(UTC 기준)."
+
+
+#: DB(CUBRID ``DATETIMETZ``)가 받는 UTC 오프셋 범위 (`#2503`). 실재하는 시간대도 이 안이다
+#: (가장 서쪽 UTC−12:00 · 가장 동쪽 UTC+14:00). 밖이면 드라이버가 「Invalid utc offset」으로
+#: 거부해 500이 났다 — 정박 구간은 받은 표기를 그대로 저장하므로(`#1333`) 입구에서 막는다.
+EARLIEST_OFFSET = timedelta(hours=-12)
+LATEST_OFFSET = timedelta(hours=14)
+
+#: 범위 밖 오프셋의 문구. 사용자에게 그대로 나간다.
+OFFSET_OUT_OF_RANGE_MESSAGE = "시간대는 -12:00부터 +14:00까지만 받습니다."
+
+
+def check_offset(moment: datetime) -> datetime:
+    """시간대 오프셋이 :data:`EARLIEST_OFFSET`~:data:`LATEST_OFFSET` 안인지 본다. 값은 그대로다.
+
+    :raises ValueError: 범위 밖 오프셋 (`#2503`).
+    """
+    offset = moment.utcoffset()
+    if offset is not None and not EARLIEST_OFFSET <= offset <= LATEST_OFFSET:
+        raise ValueError(OFFSET_OUT_OF_RANGE_MESSAGE)
+    return moment
 
 
 def to_utc(moment: datetime) -> datetime:

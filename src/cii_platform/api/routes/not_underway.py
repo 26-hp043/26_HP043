@@ -26,6 +26,7 @@ from cii_platform.api.schemas.not_underway import (
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.errors import ValidationError
 from cii_platform.services.not_underway import (
     CONSUMER_TYPES,
     PERIOD_TYPES,
@@ -37,6 +38,7 @@ from cii_platform.services.not_underway import (
     update_period,
 )
 from cii_platform.validation.bounds import REGULATION_YEAR
+from cii_platform.validation.instants import OUT_OF_RANGE_MESSAGE, to_utc
 
 router = APIRouter(tags=["not-underway"])
 
@@ -48,6 +50,20 @@ def _meta(request: Request, **extra: object) -> dict[str, object]:
         "request_id": getattr(state, "request_id", None),
         "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
     }
+
+
+def _query_instant(value: datetime | None, field: str) -> datetime | None:
+    """쿼리의 시각 필터를 UTC로 맞춘다 — 같은 순간이라 걸리는 구간은 같다 (`#2503`).
+
+    받은 표기 그대로 DB에 넘기면 범위 밖 오프셋(``+23:59`` 등)이 드라이버에서 500이 되고,
+    달력 끝 값은 비교식에서 넘친다. 시간대 없는 값은 종전대로 그대로 넘긴다.
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    try:
+        return to_utc(value)
+    except ValueError as exc:
+        raise ValidationError(OUT_OF_RANGE_MESSAGE, field=field) from exc
 
 
 @router.get("/vessels/{vessel_id}/not-underway-periods")
@@ -76,8 +92,8 @@ async def list_periods_route(
         session,
         vessel_id,
         regulation_year=regulation_year,
-        started_from=started_from,
-        started_to=started_to,
+        started_from=_query_instant(started_from, "started_from"),
+        started_to=_query_instant(started_to, "started_to"),
     )
     return {
         "data": data,

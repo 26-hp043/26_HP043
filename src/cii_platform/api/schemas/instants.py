@@ -28,7 +28,7 @@ from typing import Annotated
 
 from pydantic import AfterValidator, AwareDatetime
 
-from cii_platform.validation.instants import to_utc
+from cii_platform.validation.instants import check_offset, to_utc
 
 
 def _in_utc_range(value: datetime) -> datetime:
@@ -39,7 +39,8 @@ def _in_utc_range(value: datetime) -> datetime:
     옮기므로, 옮길 수 없는 값은 입구에서 422로 막는다.
     """
     to_utc(value)
-    return value
+    # 표기를 그대로 저장하므로 DB가 받는 오프셋인지도 본다 (`#2503`).
+    return check_offset(value)
 
 
 #: 외부 JSON이 주는 시각. 시간대가 없으면 422(`VALIDATION_ERROR`), 있으면 UTC로 맞춘다.

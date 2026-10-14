@@ -61,7 +61,12 @@ from cii_platform.services.voyage_import import (
     save_stage_row_error,
 )
 from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
-from cii_platform.validation.instants import OUT_OF_RANGE_MESSAGE, to_utc
+from cii_platform.validation.instants import (
+    OFFSET_OUT_OF_RANGE_MESSAGE,
+    OUT_OF_RANGE_MESSAGE,
+    check_offset,
+    to_utc,
+)
 from cii_platform.validation.messages import _MESSAGES, josa
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
@@ -159,7 +164,11 @@ def _instant(row: dict[str, str], column: str, *, label: str, required: bool) ->
         to_utc(parsed)
     except ValueError as exc:
         raise RowError(column, OUT_OF_RANGE_MESSAGE) from exc
-    return parsed
+    # 표기를 그대로 저장하므로 DB가 받는 오프셋인지도 본다 (`#2503`).
+    try:
+        return check_offset(parsed)
+    except ValueError as exc:
+        raise RowError(column, OFFSET_OUT_OF_RANGE_MESSAGE) from exc
 
 
 def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
