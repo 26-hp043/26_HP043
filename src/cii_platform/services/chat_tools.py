@@ -202,8 +202,9 @@ def _regulation_year(arguments: dict[str, object]) -> int:
         return current_regulation_year(datetime.now(UTC))
     try:
         return int(raw)  # type: ignore[arg-type]
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, OverflowError) as exc:
         # `#1334` ⑴ — 「2026년」처럼 오면 `ValueError`다. 종전에는 500이 됐다.
+        # 무한대(`Infinity`)는 `OverflowError`다 (`#2493`) — 같은 인자 오류로 답한다.
         raise ToolArgumentError("regulation_year") from exc
 
 
@@ -460,7 +461,7 @@ def _year_out_of_range(arguments: dict[str, object]) -> bool:
         return False
     try:
         year = int(raw)  # type: ignore[arg-type]
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return False
     return not MIN_REGULATION_YEAR <= year <= MAX_REGULATION_YEAR
 
