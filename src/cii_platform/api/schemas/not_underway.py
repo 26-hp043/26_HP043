@@ -4,7 +4,7 @@
 응답은 서비스가 만든 dict를 그대로 내보낸다. 형식·범위만 여기서 보고, DB를 봐야 아는
 것(연료 active 여부, 구간 겹침)은 서비스가 확인한다.
 
-**시각은 ``AwareDatetime``이다 (`#1333`).** 시간대 없는 시각을 받으면 두 가지가 난다 —
+**시각은 ``AwareDatetime``이다 (`#1333`) — UTC로 옮길 수 있는지도 본다(``AwareInstant`` · `#2474`).** 시간대 없는 시각을 받으면 두 가지가 난다 —
 ``PATCH``는 요청의 naive와 DB의 aware를 비교하다 ``TypeError``로 **500**이 되고,
 ``POST``는 서버 세션 시간대로 해석해 **조용히 다른 순간**을 저장한다. 같은 모듈의 CSV
 경로(``not_underway_import``)는 처음부터 시간대를 요구했다 — **한 리소스의 두 입구가
@@ -21,8 +21,9 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from cii_platform.api.schemas.instants import AwareInstant
 from cii_platform.api.schemas.voyage import HumanTimeSource
 from cii_platform.validation.bounds import (
     NOT_UNDERWAY_DISTANCE,
@@ -54,9 +55,9 @@ class NotUnderwayPeriodCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     period_type: Annotated[str, Field(min_length=1, max_length=20)]
-    started_at: AwareDatetime
+    started_at: AwareInstant
     #: ``None``이면 **진행 중**이다. 「모름」이 아니다.
-    ended_at: AwareDatetime | None = None
+    ended_at: AwareInstant | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
@@ -100,8 +101,8 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     period_type: Annotated[str | None, Field(min_length=1, max_length=20)] = None
-    started_at: AwareDatetime | None = None
-    ended_at: AwareDatetime | None = None
+    started_at: AwareInstant | None = None
+    ended_at: AwareInstant | None = None
     # #1923 — 시각을 바꾸면서 생략하면 출처는 `null`로 돌아간다(항차 실적 `§3.6`과 같은 규칙).
     # `PUBLIC_RECORD`는 `§3.12`만 붙인다.
     started_at_source: HumanTimeSource | None = None

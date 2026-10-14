@@ -44,6 +44,8 @@ from zoneinfo import ZoneInfo
 
 from cii_platform.calc.fuel_estimator import MIN_SPEED_KN, estimate_fuel_ton
 from cii_platform.calc.precision import layer1_context
+from cii_platform.errors import ValidationError
+from cii_platform.validation.instants import to_utc
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -69,7 +71,12 @@ def resolve_as_of(as_of: datetime | None) -> datetime:
         return datetime.now(UTC)
     if as_of.tzinfo is None:
         return as_of.replace(tzinfo=UTC)
-    return as_of.astimezone(UTC)
+    try:
+        return to_utc(as_of)
+    except ValueError as exc:
+        # 쿼리 ``as_of``는 ``Instant``를 지나지 않는다 — 달력 끝의 시각이 여기서
+        # ``OverflowError``로 500이 되던 자리다 (`#2474`).
+        raise ValidationError(str(exc), field="as_of") from exc
 
 
 def current_regulation_year(as_of: datetime) -> int:

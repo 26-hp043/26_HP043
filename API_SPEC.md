@@ -725,6 +725,8 @@ GET /vessels/{id}/cii/current?as_of=2026-08-15T15:00:00Z
 >
 > **받은 뒤 UTC로 맞춘다.** `+09:00`으로 온 값은 같은 순간의 UTC 표기로 바뀌어 저장·비교·해시에 들어간다(`astimezone(UTC)` — 순간은 바뀌지 않는다). 그래야 `input_hash`와 로그에서 **같은 순간이 언제나 같은 문자열**이 된다.
 >
+> **[#2474] UTC로 옮길 수 없는 시각도 422다.** 달력 끝에 시간대가 붙은 값 — `0001-01-01T00:00:00+09:00`(UTC로 0년) · `9999-12-31T23:59:59-05:00`(UTC로 10000년) — 은 UTC로 옮기면 표현 범위(`0001-01-01`~`9999-12-31`)를 벗어난다. 이때 `422` · `VALIDATION_ERROR` · 그 칸의 문구 `"UTC로 옮기면 0001-01-01~9999-12-31 범위를 벗어나는 시각입니다."`다. 종전에는 변환이 `OverflowError`를 냈고 검증 오류로 바뀌지 않아 **500**이었다. 위 표의 모든 칸과 **쿼리 `as_of`**(`GET /fleet/summary` · `/fleet/notifications` · `/vessels/{id}/cii-history` · `/cii/current` · `/cii/ytd-series` · `/voyages/{id}/report` · `/vessels/{id}/annual-report` — `details[].field`는 `as_of`), CSV 가져오기(`§8.2` · 그 행 오류)가 같다. not under way 구간은 받은 표기를 그대로 저장하므로(`#1333`) 범위만 보고 표기는 바꾸지 않는다.
+>
 > **응답에는 적용되지 않는다** — 서버가 내보내는 시각은 처음부터 UTC다(`§1.7`).
 
 
@@ -4385,7 +4387,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | Content-Type 검증 | `text/csv`, `application/vnd.ms-excel` 허용. 그 외 거부 |
 | 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 앞에 `'` (apostrophe)를 prefix하여 escape (formula injection 방지). 숫자 컬럼은 numeric parser로 검증하여 문자열 수식 거부 |
 | 필수 컬럼 | `voyage_no`, `departure_port_name`, `arrival_port_name`, `planned_distance_nm`, `planned_speed_kn`, `fuel_type`, `planned_fuel_ton` — **「필수 컬럼」은 그 열이 파일에 있어야 한다는 뜻이다**(없으면 파일 전체 422). 값의 필수 여부는 별개다 (`#2130`) — `voyage_no`는 수기 API(`§3.3`)에서 **선택**이지만, CSV에서는 지금 빈 값이 **그 행 오류**(「값을 입력해 주세요.」)다. 빈 번호는 서로 묶지 않는다. 같은 번호의 연료 행은 위 묶음 규칙(`#2094`)을 따르며, 번호 값의 필수 규칙은 유지한다 |
-| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없으면 그 행 오류 · 저장은 UTC (#906). **둘 다 있는데 `planned_arrival_at`이 `planned_departure_at`보다 이르거나 같으면 그 행 오류**(`field` `planned_arrival_at` · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」 · `§3.3` 같은 판정, #2090). `regulation_year` 열은 없다 — 가져온 항차는 연도 없이(`null`) 저장되므로 `§3.3` `[#2133]` 귀속 연도 대조를 받지 않는다 |
+| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601, **시간대 필수**(`2026-09-12T09:00:00+09:00` 또는 `…Z`). 빈 칸은 비어 들어간다. 시간대가 없거나 읽을 수 없거나 UTC로 옮기면 달력 범위를 벗어나면(`§1.11` `[#2474]`) 그 행 오류 · 저장은 UTC (#906). **둘 다 있는데 `planned_arrival_at`이 `planned_departure_at`보다 이르거나 같으면 그 행 오류**(`field` `planned_arrival_at` · 문구 「도착 시각은 출항 시각보다 뒤여야 합니다.」 · `§3.3` 같은 판정, #2090). `regulation_year` 열은 없다 — 가져온 항차는 연도 없이(`null`) 저장되므로 `§3.3` `[#2133]` 귀속 연도 대조를 받지 않는다 |
 
 #### 응답 (200 OK)
 

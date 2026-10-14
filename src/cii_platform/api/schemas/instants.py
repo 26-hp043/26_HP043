@@ -23,16 +23,28 @@ voyageRules.ts``의 ``toIsoInstant``).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import AfterValidator, AwareDatetime
 
+from cii_platform.validation.instants import to_utc
 
-def _to_utc(value: datetime) -> datetime:
-    """시간대가 붙은 시각을 UTC 표기로 옮긴다. 순간은 그대로다."""
-    return value.astimezone(UTC)
+
+def _in_utc_range(value: datetime) -> datetime:
+    """UTC로 옮길 수 있는지만 보고 **값은 그대로** 돌려준다 (`#2474`).
+
+    정박 구간은 받은 표기(``+09:00``)를 그대로 저장·응답한다(`#1333`) — 표기를 UTC로
+    바꾸면 응답과 ``input_hash``가 달라진다. 그래도 귀속 연도(``utc_year``)를 구할 때 UTC로
+    옮기므로, 옮길 수 없는 값은 입구에서 422로 막는다.
+    """
+    to_utc(value)
+    return value
 
 
 #: 외부 JSON이 주는 시각. 시간대가 없으면 422(`VALIDATION_ERROR`), 있으면 UTC로 맞춘다.
-Instant = Annotated[AwareDatetime, AfterValidator(_to_utc)]
+#: UTC로 옮기면 달력 범위를 벗어나는 값도 422다(`#2474` — 종전에는 ``OverflowError``로 500).
+Instant = Annotated[AwareDatetime, AfterValidator(to_utc)]
+
+#: 표기는 그대로 두고 UTC로 옮길 수 있는지만 보는 시각 — 정박 구간 스키마용 (`#2474`).
+AwareInstant = Annotated[AwareDatetime, AfterValidator(_in_utc_range)]

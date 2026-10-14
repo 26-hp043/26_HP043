@@ -61,6 +61,7 @@ from cii_platform.services.voyage_import import (
     save_stage_row_error,
 )
 from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
+from cii_platform.validation.instants import to_utc
 from cii_platform.validation.messages import _MESSAGES, josa
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
@@ -152,6 +153,12 @@ def _instant(row: dict[str, str], column: str, *, label: str, required: bool) ->
         raise RowError(column, f"{label} 형식이 올바르지 않습니다(예: {INSTANT_EXAMPLE}).") from exc
     if parsed.tzinfo is None:
         raise RowError(column, f"{label}에는 시간대가 필요합니다(예: {INSTANT_EXAMPLE}).")
+    # 표기는 그대로 두되, 귀속 연도(`utc_year`)를 구할 때 UTC로 옮기므로 옮길 수 없는
+    # 달력 끝의 시각은 여기서 행 오류로 막는다 (`#2474`).
+    try:
+        to_utc(parsed)
+    except ValueError as exc:
+        raise RowError(column, str(exc)) from exc
     return parsed
 
 
