@@ -213,6 +213,29 @@ def test_소요시간이_0_01시간_미만이면_계산_단계에서_422다():
     assert _db_rows([fine])[0]["duration_hours"] == Decimal("10.00")
 
 
+def test_소요시간이나_연료가_열_상한을_넘으면_계산_단계에서_422다():
+    """#2513 — 거리 2147483648 nm · 10 kn → 소요시간이 ``NUMERIC(10,2)``를 넘어 종전에는 500."""
+    for duration, fuel in (
+        (Decimal("2147483648") / Decimal("10"), Decimal("5")),
+        (Decimal("10"), Decimal("100000000")),
+    ):
+        huge = SimpleNamespace(
+            plan=SimpleNamespace(distance_nm=Decimal("100"), speed_kn=Decimal("10")),
+            duration_hours=duration,
+            fuel_ton=fuel,
+        )
+        with pytest.raises(ValidationError) as caught:
+            _db_rows([huge])
+        assert caught.value.details and caught.value.details[0]["field"] == "direct_distance_nm"
+
+    edge = SimpleNamespace(
+        plan=SimpleNamespace(distance_nm=Decimal("100"), speed_kn=Decimal("10")),
+        duration_hours=Decimal("99999999.99"),
+        fuel_ton=Decimal("99999999.9999"),
+    )
+    assert _db_rows([edge])[0]["duration_hours"] == Decimal("99999999.99")
+
+
 @pytest.mark.parametrize(
     "field",
     ["departure_port_name", "arrival_port_name", "planned_distance_nm", "planned_speed_kn"],

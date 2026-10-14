@@ -3220,7 +3220,7 @@ POST /api/v1/scenarios/compare
 | `current_speed_kn` | decimal | Y | VAL-009: 1.0 이상 60 이하 | 현재 속도 |
 | `fuel_type` | string | Y | VAL-006 | 연료 종류 |
 | `base_daily_foc_ton` | decimal | 조건부 | VAL-002: 0.01 이상 999,999.99 이하 | 선박 기준값 없을 시 필요. 범위는 선박 기준 일일 연료(`§2.3` `reference_daily_foc_ton`)와 같다 — 같은 양이며 `NUMERIC(8,2)`다 (`#2091`) |
-| `direct_distance_nm` | decimal | 조건부 | VAL-002 | 좌표 있으면 자동 계산 |
+| `direct_distance_nm` | decimal | 조건부 | VAL-002 | 좌표 있으면 자동 계산. 거리 범위 안이어도 **소요시간(`NUMERIC(10,2)`)·연료(`NUMERIC(12,4)`)가 저장 범위를 넘으면 422**(`field` `direct_distance_nm` — 우회 거리에서 넘쳐도 같다 · `#2513`) |
 | `detour_distance_nm` | decimal | N | VAL-002 | 기본: direct × 1.05. **우회 경유지보다 우선한다** |
 | `detour_waypoint_name` | string | N | 최대 200자 | 우회 경유지 **표기용** 이름 (`#1300`). 계산에 쓰지 않는다 — `destination_port_name`과 같은 규칙 |
 | `detour_waypoint_lat` | decimal | 조건부 | VAL-007: −90 ~ +90 | 우회 경유지 위도 (`#1300`). `detour_waypoint_lon`과 **함께**만 유효(한쪽만 주면 422 · 빠진 쪽 필드로). **경유지의 검증은 `detour_distance_nm` 입력과 무관하게 먼저 한다** — 현재 위치·목적항 좌표 넷이 없으면 422(`detour_waypoint_lat`), 경유지가 현재 위치·목적항 중 어느 쪽과 같은 점이면 422이며 문구가 어느 쪽과 같은지 말한다(둘 다 같으면 둘 다). 검증을 지나면 DETOUR 거리 = 대권(현재 → 경유지) + 대권(경유지 → 목적항)(`TECH_SPEC §6.3`) — 경로망 길이가 아니다. **재현성 해시 재료**(`TECH_SPEC §5.3` `detour_waypoint`), 항차에는 저장하지 않는다(`PRD §5.2`) |
@@ -5511,3 +5511,4 @@ POST /api/v1/chat
 | 2026-10-15 | `#2508` | **§8.2 제한 표에 「한 칸 길이」 행** (#2505). CSV 한 칸이 131,072자(`csv.field_size_limit`)를 넘으면 `_csv.Error`가 `read_rows`에서 잡히지 않아 `POST /vessels/{id}/import`(항차·정박)와 `POST /parameters/import`가 500이었다. 이제 파일 단위 422이며 세 가져오기가 한 헬퍼를 쓴다. 오기 정정 수준이라 버전은 올리지 않고 최종 수정일은 이미 2026-10-15다 |
 | 2026-10-15 | `#2509` | §1.4 `VALIDATION_ERROR` 행 추가 — 문자열의 NUL(`\x00`)은 라우트 앞에서 422로 거절한다. 종전에는 DB 드라이버 오류가 잡히지 않아 비로그인 로그인·가입을 포함한 문자열 입력 전반이 500이었다. CSV 셀의 NUL은 행 오류 (#2501) |
 | 2026-10-15 | `#2510` | **§1.7에 저장 수치 입력의 표기 규칙 한 줄** (`[#2502]`) — 지수 표기는 같은 값의 고정 소수 표기로, 컬럼 소수 자릿수를 넘는 값은 반올림, 범위 밖은 422. 종전에는 `"1E+1"`·`"0.0000001"`·40자리 값이 저장 단계에서 500이었다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#2502) |
+| 2026-10-15 | `#2514` | §5.1 `direct_distance_nm` 행에 한 마디 — 거리 범위(`NUMERIC(12,2)`) 안이어도 소요시간(`NUMERIC(10,2)`)·연료(`NUMERIC(12,4)`)가 저장 범위를 넘으면 422(`field` `direct_distance_nm`). 종전에는 INSERT에서 500이었다(경계 입력 재검증에서 발견). `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2513) |

@@ -67,6 +67,7 @@ from cii_platform.services.weather import (
     fetched_at_iso,
     resolve_with_fallback,
 )
+from cii_platform.validation.bounds import largest
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -103,6 +104,12 @@ _DB_SCALE = {
     "weather_factor": Decimal("0.0001"),
     "cii": Decimal("0.00000001"),
 }
+
+#: ``voyage_scenario`` 파생 열의 상한 — ``duration_hours NUMERIC(10,2)`` ·
+#: ``fuel_ton NUMERIC(12,4)``. 요청 거리의 상한(``DISTANCE`` · ``NUMERIC(12,2)``)보다
+#: 좁아, 거리 범위 안에서도 넘칠 수 있다(#2513).
+_DB_MAX_DURATION = largest(10, 2)
+_DB_MAX_FUEL = largest(12, 4)
 
 
 @dataclass(frozen=True)
@@ -793,6 +800,15 @@ def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
             raise ValidationError(
                 "항차 소요시간이 0.01시간 미만이라 시나리오를 저장할 수 없습니다. "
                 "거리를 늘리거나 속력을 낮춰 주세요.",
+                field="direct_distance_nm",
+                field_label="직항 거리",
+            )
+        # 반대쪽 끝(#2513) — 거리가 아주 길면 소요시간·연료가 열 상한을 넘어 INSERT가
+        # 500이었다. 하한과 같이 저장 전에 422로 끝낸다.
+        if row["duration_hours"] > _DB_MAX_DURATION or row["fuel_ton"] > _DB_MAX_FUEL:
+            raise ValidationError(
+                "항차 소요시간이나 연료가 저장할 수 있는 범위를 넘어 시나리오를 저장할 수 "
+                "없습니다. 거리를 줄여 주세요.",
                 field="direct_distance_nm",
                 field_label="직항 거리",
             )
