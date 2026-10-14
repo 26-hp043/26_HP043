@@ -338,7 +338,26 @@ async def evaluate(session: AsyncSession, *, vessel_id: UUID | None = None) -> l
     for row in await _stored_runs(session):
         if vessel_id is not None and UUID(str(row.vessel_id)) != vessel_id:
             continue
-        checks.append(await check_run(session, row))
+        try:
+            checks.append(await check_run(session, row))
+        except Exception as exc:  # noqa: BLE001 — 한 건 때문에 나머지 판정을 잃지 않는다 (#2511)
+            # 예기치 않은 예외(범위 밖 저장 시각 · 모양이 다른 옛 스냅샷 등)는 그 실행만
+            # 「견줄 수 없음」으로 돌리고 계속 본다. DB 오류면 이 단계는 읽기만 하므로 롤백해
+            # 세션을 되살린다 — 실패한 트랜잭션에서 다음 조회가 이어서 실패하지 않게.
+            if isinstance(exc, sa.exc.SQLAlchemyError):
+                await session.rollback()
+            checks.append(
+                RunCheck(
+                    simulation_id=str(row.simulation_id),
+                    calculation_run_id=str(row.calculation_run_id),
+                    vessel_id=str(row.vessel_id),
+                    vessel=row.vessel_name or "(선박 없음)",
+                    regulation_year=row.regulation_year,
+                    as_of="",
+                    status=STATUS_UNCOMPARABLE,
+                    reasons=[f"평가 중 예외 — {type(exc).__name__}"],
+                )
+            )
     return checks
 
 
@@ -380,6 +399,12 @@ def load_approved(path: str) -> set[str]:
     runs = data.get("runs")
     if not isinstance(runs, list):
         raise ValueError("승인 목록에 runs가 없음")
+    # 원소 모양도 본다 (#2511) — dict가 아니거나 번호가 없으면 `AttributeError`·`KeyError`로
+    # 스택트레이스가 나던 자리다. 모르는 형식은 추측하지 않고 거절한다(종료 코드 2).
+    if not all(isinstance(run, dict) and "simulation_id" in run for run in runs):
+        raise ValueError(
+            "승인 목록의 runs 원소 형식이 맞지 않음 — simulation_id가 있는 객체여야 함"
+        )
     return {str(run["simulation_id"]) for run in runs if run.get("status") == STATUS_TARGET}
 
 

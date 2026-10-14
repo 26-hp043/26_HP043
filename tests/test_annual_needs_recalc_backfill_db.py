@@ -450,3 +450,37 @@ async def test_apply_marks_only_approved_targets(session, vessel_id, tmp_path):
     saved = json.loads(recovery.read_text(encoding="utf-8"))["calculation_run_ids"]
     assert saved == [split.to_mark[0].calculation_run_id]
     assert sorted(await _flags(session, vessel_id)) == [0, 0, 1]
+
+
+def test_approved_list_reader_rejects_malformed_runs(tmp_path):
+    """`#2511` — 원소가 객체가 아니거나 번호가 없으면 스택트레이스가 아니라 `ValueError`다."""
+    for runs in (["a"], [{"status": backfill.STATUS_TARGET}], [None]):
+        path = tmp_path / "bad.json"
+        path.write_text(
+            json.dumps({"format_version": backfill.REPORT_FORMAT_VERSION, "runs": runs}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="원소 형식"):
+            backfill.load_approved(str(path))
+
+
+async def test_one_failing_run_does_not_stop_the_others(session, vessel_id, monkeypatch):
+    """`#2511` — 실행 하나의 예기치 않은 예외는 그 실행만 「견줄 수 없음」이고 나머지는 판정된다."""
+    broken = await _insert_run(session, vessel_id, voyages_json=[], vessel_json=None)
+    fine = await _insert_run(session, vessel_id, voyages_json=[], vessel_json=None)
+    original = backfill.check_run
+
+    async def flaky(session_, row):
+        if str(row.simulation_id) == str(broken):
+            raise RuntimeError("모양이 다른 옛 스냅샷")
+        return await original(session_, row)
+
+    monkeypatch.setattr(backfill, "check_run", flaky)
+    checks = {c.simulation_id: c for c in await backfill.evaluate(session, vessel_id=vessel_id)}
+
+    assert checks[str(broken)].status == backfill.STATUS_UNCOMPARABLE
+    assert "RuntimeError" in checks[str(broken)].reasons[0]
+    assert str(fine) in checks
+    # 다른 실행은 제 판정을 받는다(여기서는 제원 스냅샷이 없어 037 이전 사유).
+    assert "RuntimeError" not in "".join(checks[str(fine)].reasons)
+    assert await backfill.apply(session, list(checks.values())) == 0
