@@ -77,7 +77,7 @@ from cii_platform.services.voyage import (
     require_vessel,
     time_order_violation,
 )
-from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL
+from cii_platform.validation.bounds import DISTANCE, SPEED, VOYAGE_FUEL, to_scale
 from cii_platform.validation.field_labels import field_label
 from cii_platform.validation.instants import OUT_OF_RANGE_MESSAGE, to_utc
 from cii_platform.validation.messages import _MESSAGES
@@ -300,6 +300,14 @@ _NUMERIC_BOUNDS: dict[str, dict[str, Decimal]] = {
     "planned_fuel_ton": VOYAGE_FUEL,
 }
 
+#: 숫자 열의 저장 scale — ``voyage.planned_distance_nm NUMERIC(12,2)`` ·
+#: ``planned_speed_kn NUMERIC(6,2)`` · ``voyage_fuel_use.planned_fuel_ton NUMERIC(12,4)``.
+_NUMERIC_SCALES: dict[str, int] = {
+    "planned_distance_nm": 2,
+    "planned_speed_kn": 2,
+    "planned_fuel_ton": 4,
+}
+
 #: CSV 열 이름 → 라벨 조회에 쓸 **요청 필드 경로** (`#1329`).
 #:
 #: 연료량은 요청 본문에서 배열 안에 있어(``fuel_uses[].planned_fuel_ton``) 열 이름
@@ -356,7 +364,10 @@ def _numeric(row: dict[str, str], column: str) -> Decimal:
         raise RowError(column, _min_message(column, bounds["ge"]))
     if value > bounds["le"]:
         raise RowError(column, f"너무 큽니다(최대 {bounds['le']}).")
-    return value
+    # `#2515` — API(#2502)와 같이 열 scale의 고정 소수로 맞춘다. 지수 표기·긴 소수를
+    # 그대로 넘기면 드라이버의 인라인 CAST가 거부해 「저장 단계에서 거부」 행 오류가 됐고,
+    # ``dry_run``은 그 행을 통과시켜 실제 가져오기와 답이 갈렸다(#1190의 계약).
+    return to_scale(value, _NUMERIC_SCALES[column])
 
 
 def column_length(column: str, *, model: type = Voyage) -> int:

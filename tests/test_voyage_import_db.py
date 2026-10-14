@@ -1041,3 +1041,23 @@ async def test_save_stage_failure_is_a_row_error_not_a_500(session, vessel_id, m
     assert "errno" not in str(result["errors"])
     # 들어간 행 가운데의 수다 — 떨어진 V-2를 세면 「들어갔지만 시각이 없다」가 무너진다.
     assert result["missing_departure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_exponent_and_long_decimals_are_stored_like_the_api(session, vessel_id):
+    """`#2515` — API(#2502)가 받는 `3E+3`·긴 소수를 CSV도 같은 값으로 저장한다.
+
+    종전에는 드라이버의 인라인 CAST가 거부해 「저장 단계에서 거부」 행 오류였고,
+    ``dry_run``은 같은 행을 통과시켰다.
+    """
+    long = "13." + "5" * 40
+    content = csv_bytes(f"V-1,Busan,Tokyo,3E+3,{long},HFO,8.012345678")
+
+    preview = await import_voyages(session, vessel_id, content=content, dry_run=True)
+    result = await import_voyages(session, vessel_id, content=content)
+
+    assert preview["errors"] == result["errors"] == []
+    assert result["imported_count"] == 1
+    (row,) = await _stored(session, vessel_id)
+    assert row.planned_distance_nm == Decimal("3000.00")
+    assert row.planned_speed_kn == Decimal("13.56")

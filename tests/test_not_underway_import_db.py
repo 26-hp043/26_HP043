@@ -517,3 +517,29 @@ async def test_저장_범위_밖_연도의_행은_화면_입력과_같은_문구
         assert await _count_periods(vessel_id) == (0 if dry_run else 2)
     finally:
         await _purge(vessel_id)
+
+
+async def test_exponent_and_long_decimals_are_stored_like_the_api(session, vessel_id):
+    """`#2515` — 거리·연료·위경도의 `1E+1`·긴 소수를 API(#2502)와 같은 값으로 저장한다."""
+    content = _coord_csv(
+        "DRIFTING,2026-03-05T00:00:00+09:00,2026-03-06T00:00:00+09:00,1E+1,HFO,"
+        "4.125000000000000000000001,35.1234567890123,1.29E+2",
+    )
+
+    result = await import_not_underway_periods(session, vessel_id, content=content)
+
+    assert result["errors"] == []
+    assert result["imported_count"] == 1
+    row = (
+        await session.execute(
+            text(
+                "SELECT p.distance_nm, p.lat, p.lon, f.fuel_ton FROM not_underway_period p "
+                "JOIN not_underway_fuel_use f ON f.period_id = p.id WHERE p.vessel_id = :vid"
+            ),
+            {"vid": vessel_id},
+        )
+    ).one()
+    assert row.distance_nm == Decimal("10.00")
+    assert row.fuel_ton == Decimal("4.13")
+    assert row.lat == Decimal("35.123457")
+    assert row.lon == Decimal("129.000000")

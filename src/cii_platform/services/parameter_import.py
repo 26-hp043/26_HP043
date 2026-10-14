@@ -220,6 +220,11 @@ def _numeric(row: dict[str, str], column: str, spec: _Spec) -> Decimal:
         raise RowError(column, f"소수 {scale}자리까지 입력할 수 있습니다.")
     if value != 0 and value.adjusted() + 1 > precision - scale:
         raise RowError(column, f"너무 큽니다(정수 {precision - scale}자리까지).")
+    # `#2515` — 지수 표기(``3E+3``)로 들어온 값만 고정 소수로 바꾼다. 위에서 자릿수를 이미
+    # 거절했으므로 반올림은 일어나지 않고 **값은 그대로**다 — 규제값은 반올림하지 않는다.
+    # 보통 표기는 손대지 않는다 — 입력 그대로의 표기를 기존 행과 맞추는 단계가 있다.
+    if "E" in raw.upper():
+        return value.quantize(Decimal(1).scaleb(-scale))
     return value
 
 
