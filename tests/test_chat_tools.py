@@ -519,3 +519,24 @@ async def test_year_on_the_range_edge_still_reaches_the_service(monkeypatch, yea
         vessel_id="selected",
     )
     assert len(calls) == 1
+
+
+async def test_an_infinite_year_is_an_argument_error_not_a_crash():
+    """`#2493` — 무한대 연도는 `int()`에서 `OverflowError`다. 종전에는 그대로 올라가 500이었다.
+
+    범위 검사는 「정수로 읽히지 않음」으로 넘기고, 연도 해석이 기존 인자 오류로 답한다.
+    """
+    infinite = json.loads('{"regulation_year": Infinity}')
+    assert chat_tools._year_out_of_range(infinite) is False
+    with pytest.raises(chat_tools.ToolArgumentError):
+        chat_tools._regulation_year(infinite)
+
+    outcome = await chat_tools.run_tool(
+        None,
+        name=chat_tools.TOOL_PROJECT_YEAR_END,
+        arguments=infinite,
+        vessel_id="selected",
+    )
+    body = json.loads(outcome.envelope)
+    assert body["ok"] is False
+    assert body["error"]
