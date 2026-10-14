@@ -41,10 +41,12 @@ from cii_platform.calc.precision import (
     publish_layer1_canonical,
 )
 from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
+from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.annual_simulation import collect_annual_inputs, load_projection_context
 from cii_platform.services.applicability import STATE_NOT_APPLICABLE, applicability_state
+from cii_platform.services.calc_errors import regulation_year_missing
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
     UNAVAILABLE_NO_DATA,
@@ -223,6 +225,13 @@ async def evaluate_reduction_plan(
     vessels = await vessel_repo.list_all_active(session)
     for row in vessels:
         cache_put(session, ("vessel", row.id), row)
+    # 표에 없는 해는 요청 전체를 409로 거절한다 (`#2479` · `API_SPEC §2.17.1`). 종전에는 선박마다
+    # `NO_PARAMETERS`(정본 정의 「해당 **선종**의 기준선·등급경계가 없음」)를 붙여 200으로 답하고
+    # 저장까지 됐다 — 원인은 연도인데 선종 탓으로 적혔다. 연도 값이 없으면 한 척도 계산할 수
+    # 없어 문제가 요청 전체에 하나다. 선대 요약(`fleet_summary`)과 같은 판정·같은 문구다 —
+    # 선박이 없으면 계산할 대상이 없으므로 묻지 않는다.
+    if vessels and await param_repo.get_regulation_year(session, regulation_year) is None:
+        raise regulation_year_missing(regulation_year)
     known = {str(v.id) for v in vessels}
 
     reductions: dict[str, Decimal] = {}

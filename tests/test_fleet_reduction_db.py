@@ -419,6 +419,38 @@ def test_the_routes_answer_over_http(migrated_db, app_fresh_engine):
         assert client.get(f"{base}/{uuid4()}").status_code == 404
 
 
+def test_a_year_missing_from_the_table_is_409_for_evaluate_and_save(migrated_db, app_fresh_engine):
+    """표에 없는 해는 계산·저장 모두 **409**이고 저장되지 않는다 (`#2479` · #2190 결정 2).
+
+    종전에는 200(선박마다 `NO_PARAMETERS` — 「이 선종의 규정 기준값 없음」)이었고 저장은 201로
+    남았다. 원인은 연도인데 선종 탓으로 답했다. 선대 요약과 같은 409 · 같은 문구다.
+    """
+    from fastapi.testclient import TestClient
+
+    from cii_platform.api.main import API_V1_PREFIX, app
+
+    missing_year = 2049  # 시드 표(2023~2030)에 없는 해 — 저장 범위(2019~2050) 안이다
+    with TestClient(app, base_url="https://testserver") as client:
+        client.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        headers = {"X-CSRF-Token": client.cookies.get("csrf")}
+        base = f"{API_V1_PREFIX}/fleet/reduction-plans"
+        body = {"regulation_year": missing_year, "target": "ALL_C_OR_BETTER"}
+        before = {p["plan_id"] for p in client.get(base, params={"limit": 100}).json()["data"]}
+
+        evaluated = client.post(f"{base}/evaluate", headers=headers, json=body)
+        saved = client.post(base, headers=headers, json={**body, "plan_name": "표에 없는 해"})
+
+        for resp in (evaluated, saved):
+            assert resp.status_code == 409, resp.text
+            assert resp.json()["error"]["code"] == "PARAMETER_ERROR"
+            # 정본 문구 (PRD §9.1 VAL-005) — 바꾸려면 PRD 개정이 먼저다.
+            assert resp.json()["error"]["message"] == (
+                f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {missing_year})"
+            )
+        after = {p["plan_id"] for p in client.get(base, params={"limit": 100}).json()["data"]}
+        assert after == before, "거절한 계획이 저장됐다"
+
+
 # ─── 목록 페이지네이션 (#1367) ───────────────────────────────────────────────
 
 
