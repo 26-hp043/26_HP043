@@ -26,6 +26,8 @@ _BASE = "https://testserver"
 EDGES = [
     pytest.param("0001-01-01T00:00:00+09:00", id="0001년+09:00"),
     pytest.param("9999-12-31T23:59:59-05:00", id="9999년-05:00"),
+    # `#2487` — UTC로는 옮겨지지만 한국 시간으로 옮기면 넘친다(연도 생략 쿼리가 500이었다)
+    pytest.param("9999-12-31T15:00:00Z", id="9999년-KST로-넘침"),
 ]
 
 
@@ -118,7 +120,7 @@ async def test_calendar_edge_instants_are_422_on_every_path(migrated_db, app_fre
                 성질(범위를 벗어난다)로 본다(`AGENTS §4.6`)."""
                 if resp.status_code != 422:
                     return resp.status_code
-                return 422 if "범위를 벗어나는 시각" in resp.text else ("다른 422", resp.text[:200])
+                return 422 if "9999-12-30까지만" in resp.text else ("다른 422", resp.text[:200])
 
             nu_base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
             seen["정박 생성"] = code_of(
