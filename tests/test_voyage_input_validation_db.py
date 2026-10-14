@@ -275,3 +275,47 @@ async def test_an_unknown_default_fuel_type_is_422_not_500(migrated_db, app_fres
     finally:
         if vessel_id:
             await _cleanup(vessel_id)
+
+
+async def test_patch_null_on_not_null_columns_is_422_not_500(migrated_db, app_fresh_engine):
+    """#2504 — NOT NULL 열 넷의 명시적 ``null``은 **422**다 (종전 500 ``cannot be made NULL``).
+
+    클리어(``null``)가 유효한 칸(``notes``)은 200으로 남는다 — 넷만 막고 규약(#312)을
+    통째로 깨지 않았는지 함께 본다.
+    """
+    vessel_id: str | None = None
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post(f"{API_V1_PREFIX}/auth/dev-login", json={}).status_code == 200
+            vessel_id = _new_vessel(client, "PATCH NULL TEST")
+            created = client.post(
+                f"{API_V1_PREFIX}/vessels/{vessel_id}/voyages",
+                json=_VOYAGE,
+                headers=_csrf(client),
+            )
+            assert created.status_code == 201, created.text
+            voyage_id = created.json()["data"]["id"]
+
+            for field in (
+                "departure_port_name",
+                "arrival_port_name",
+                "planned_distance_nm",
+                "planned_speed_kn",
+            ):
+                response = client.patch(
+                    f"{API_V1_PREFIX}/voyages/{voyage_id}",
+                    json={field: None},
+                    headers=_csrf(client),
+                )
+                assert response.status_code == 422, (field, response.text)
+                assert response.json()["error"]["details"][0]["field"] == field
+
+            cleared = client.patch(
+                f"{API_V1_PREFIX}/voyages/{voyage_id}",
+                json={"notes": None},
+                headers=_csrf(client),
+            )
+            assert cleared.status_code == 200, cleared.text
+    finally:
+        if vessel_id:
+            await _cleanup(vessel_id)
