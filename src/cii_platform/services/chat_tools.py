@@ -37,6 +37,7 @@ from uuid import UUID
 from cii_platform.errors import CalculationError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.llm_guard import filter_outbound
 from cii_platform.services.simulation_clock import current_regulation_year
+from cii_platform.validation.bounds import MAX_REGULATION_YEAR, MIN_REGULATION_YEAR
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -441,6 +442,29 @@ _ERROR_TEXT: tuple[tuple[type[Exception], str], ...] = (
 )
 
 
+#: 규제연도가 조회 범위 밖일 때의 정해진 문장 (`#2480`). 서비스까지 내려가면 도구마다
+#: 답이 갈린다 — 어떤 도구는 「입력값이 올바르지 않습니다」, 어떤 도구는 「규정 파라미터가
+#: 없습니다」, 조회는 ``ok: true``에 빈 값이다. 사용자에게는 같은 사정이므로 한 문장으로 답한다.
+_YEAR_OUT_OF_RANGE_TEXT = (
+    f"규제연도는 {MIN_REGULATION_YEAR}~{MAX_REGULATION_YEAR} 사이로 물어 주세요."
+)
+
+
+def _year_out_of_range(arguments: dict[str, object]) -> bool:
+    """모델이 넘긴 규제연도가 정수로 읽히면서 조회 범위 밖인가.
+
+    정수로 읽히지 않는 값은 여기서 다루지 않는다 — 기존 ``ToolArgumentError`` 경로가 맡는다.
+    """
+    raw = arguments.get("regulation_year")
+    if raw is None or isinstance(raw, bool):
+        return False
+    try:
+        year = int(raw)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return False
+    return not MIN_REGULATION_YEAR <= year <= MAX_REGULATION_YEAR
+
+
 def _error_text(exc: Exception) -> str:
     """예외 → 고정 문구. **원문을 쓰지 않는다.**
 
@@ -509,6 +533,10 @@ async def run_tool(
         and (current_year_only or arguments.get("regulation_year") is None)
     ):
         arguments = {**arguments, "regulation_year": current_year}
+
+    # `#2480` — 범위 밖 해는 서비스로 내려가지 않고 정해진 문장으로 답한다.
+    if name in _YEAR_DEFAULT_TOOLS and _year_out_of_range(arguments):
+        return ToolOutcome(envelope(name, error=_YEAR_OUT_OF_RANGE_TEXT))
 
     try:
         if name == TOOL_SEARCH_VESSEL:

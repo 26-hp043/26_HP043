@@ -167,6 +167,13 @@ _IGNORED_LITERALS: frozenset[str] = frozenset(
 #: ``%``가 붙으면 그것은 **판단에 쓰이는 값**이다.
 _UNIT_SUFFIX = re.compile(r"\s*%")
 
+#: 먼 해(2041~2100)의 연도 예외 (`#2480`). 조회·계산이 받는 범위(``2019~2100``)에서
+#: 표에 없는 해를 정직하게 답한 문장 — 「2045년 값은 표에 없습니다」 — 이 수치 조작으로
+#: 버려지던 것을 푼다. 넓히는 구간은 **수 바로 뒤(공백 없이)에 「년」이 붙을 때만** 뺀다.
+#: 「2,050 nm」·「2045 nm」·「2045t」는 판단에 쓰이는 값일 수 있어 계속 대조한다.
+_FAR_YEAR_LITERALS: frozenset[str] = frozenset(str(y) for y in range(2041, 2101))
+_YEAR_SUFFIX = re.compile(r"년")
+
 
 def extract_numbers(text: str) -> list[str]:
     """문장에서 수치를 뽑아 **정규화**한다.
@@ -177,10 +184,18 @@ def extract_numbers(text: str) -> list[str]:
     text = _NOT_NUMBERS.sub(" ", text)
     found: list[str] = []
     for match in _NUMBER.finditer(text):
-        token = match.group().replace(",", "")
+        raw = match.group()
+        token = raw.replace(",", "")
         # `#1334` ⑶ — 뒤에 `%`가 붙으면 무시 목록을 적용하지 않는다.
         unit_bound = _UNIT_SUFFIX.match(text, match.end()) is not None
         if not unit_bound and token in _IGNORED_LITERALS:
+            continue
+        # `#2480` — 쉼표가 든 수(「2,050」)는 연도가 아니다. 「년」이 바로 붙어야 뺀다.
+        if (
+            token in _FAR_YEAR_LITERALS
+            and "," not in raw
+            and _YEAR_SUFFIX.match(text, match.end()) is not None
+        ):
             continue
         if "." in token:
             token = token.rstrip("0").rstrip(".")

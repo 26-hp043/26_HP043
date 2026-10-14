@@ -467,3 +467,55 @@ def test_ratio_to_required_is_published_with_the_screen_percent() -> None:
     assert published["ratio_to_required"] == "1.77623 (177.6%)"
     tool_output = json.dumps(published, ensure_ascii=False)
     verify_numbers("연말 예상 CII는 기준 CII의 177.6%입니다.", [tool_output])
+
+
+@pytest.mark.parametrize("year", [2018, 2101, 2150])
+@pytest.mark.parametrize(
+    ("tool_name", "implementation_name"),
+    [
+        (chat_tools.TOOL_LOOKUP_REGULATION, "_lookup_regulation"),
+        (chat_tools.TOOL_PROJECT_YEAR_END, "_project_year_end"),
+        (chat_tools.TOOL_CALC_VOYAGE_CII, "_calc_voyage_cii"),
+        (chat_tools.TOOL_COMPARE_SCENARIOS, "_compare_scenarios"),
+    ],
+)
+async def test_year_outside_the_lookup_range_never_reaches_the_service(
+    monkeypatch, tool_name, implementation_name, year
+):
+    """`#2480` — 2019~2100 밖의 해는 서비스를 부르지 않고 정해진 문장으로 답한다."""
+    calls: list[dict[str, object]] = []
+
+    async def _spy(_session, arguments, _vessel_id):
+        calls.append(arguments)
+        return "{}"
+
+    monkeypatch.setattr(chat_tools, implementation_name, _spy)
+    outcome = await chat_tools.run_tool(
+        None,
+        name=tool_name,
+        arguments={"regulation_year": year},
+        vessel_id="selected",
+    )
+    body = json.loads(outcome.envelope)
+    assert calls == []
+    assert body["ok"] is False
+    assert body["error"] == "규제연도는 2019~2100 사이로 물어 주세요."
+
+
+@pytest.mark.parametrize("year", [2019, 2100])
+async def test_year_on_the_range_edge_still_reaches_the_service(monkeypatch, year):
+    """`#2480` — 범위 경계의 해는 막지 않는다."""
+    calls: list[dict[str, object]] = []
+
+    async def _spy(_session, arguments, _vessel_id):
+        calls.append(arguments)
+        return "{}"
+
+    monkeypatch.setattr(chat_tools, "_project_year_end", _spy)
+    await chat_tools.run_tool(
+        None,
+        name=chat_tools.TOOL_PROJECT_YEAR_END,
+        arguments={"regulation_year": year},
+        vessel_id="selected",
+    )
+    assert len(calls) == 1
