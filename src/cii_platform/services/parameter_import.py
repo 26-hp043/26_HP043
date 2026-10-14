@@ -59,6 +59,7 @@ from cii_platform.services.voyage_import import (
     _check_limits,
     column_length,
     open_csv,
+    reject_nul_cells,
 )
 
 if TYPE_CHECKING:
@@ -598,6 +599,7 @@ async def import_parameters(
     for index, row in enumerate(rows):
         number = _row_number(index)
         try:
+            reject_nul_cells(row)
             item = _PARSERS[kind](row)
         except RowError as error:
             errors.append({"row": number, "field": error.field, "message": error.message})

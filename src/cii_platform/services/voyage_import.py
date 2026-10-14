@@ -150,6 +150,24 @@ class RowError(Exception):
         self.message = message
 
 
+#: 셀에 NUL이 든 행의 사유 (#2501). DB 드라이버가 NUL 문자열을 거부해 500이 되는 것을
+#: 파서 앞에서 끊는다.
+NUL_CELL_MESSAGE = "쓸 수 없는 문자(NUL)가 들어 있습니다."
+
+
+def reject_nul_cells(row: dict[str, object]) -> None:
+    """행의 어느 셀에든 NUL이 있으면 그 칸의 :class:`RowError`로 돌린다 (#2501).
+
+    세 CSV 파서(항차·정박·파라미터)가 행 파싱 첫머리에서 부른다 — 칸마다 따로 막으면
+    새 칸이 생길 때 구멍이 된다. 초과 칸(``DictReader``의 ``None`` 키)은 열 이름이 없어
+    빈 이름이 된다.
+    """
+    for column, value in row.items():
+        cells = value if isinstance(value, list) else [value]
+        if any(isinstance(cell, str) and "\x00" in cell for cell in cells):
+            raise RowError(column or "", NUL_CELL_MESSAGE)
+
+
 #: 저장 단계가 행을 거부했을 때 사용자에게 보일 문구. **드라이버 메시지를 그대로
 #: 내보내지 않는다** — ``Cannot coerce '10000' to type numeric. (errno=-494)``는
 #: 사용자가 고칠 칸을 알려 주지 않고 내부 구조를 드러낸다.
@@ -402,6 +420,7 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     걸리면 ``ValidationError``가 되어 **어느 행인지**가 사라진다. 행 번호를 붙일 수 있는
     자리에서 먼저 본다.
     """
+    reject_nul_cells(row)
     fuel_type = (row.get("fuel_type") or "").strip()
     if fuel_type == "":
         raise RowError("fuel_type", "값을 입력해 주세요.")
