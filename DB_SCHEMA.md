@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-13 |
+| 최종 수정일 | 2026-10-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -406,7 +406,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `parameters_used` | JSONB | NOT NULL | TECH_SPEC §5.2.1 스키마 |
 | `warnings_json` | JSONB | NULL | 경고 목록 배열 |
 | `duration_ms` | INTEGER | NULL | 계산 소요 시간 (ms) |
-| `needs_recalc` | BOOLEAN | NOT NULL DEFAULT false **[#283]** | 재계산 필요 표시. 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다 (PRD §8.4 · #944) |
+| `needs_recalc` | BOOLEAN | NOT NULL DEFAULT false **[#283]** | 재계산 필요 표시. 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다 (PRD §8.4 · #944). 저장 연간 실행(`ANNUAL_MONTE_CARLO`)은 해당 선박의 항차·정박 계산 입력이 바뀔 때도 같은 방향으로만 플립한다(변경과 같은 트랜잭션 · #2304). #2304 배포 전에 바뀐 실행은 스냅샷과 지금 입력을 견주는 한 번의 소급 처리가 플립한다(`maintenance/annual_needs_recalc.py` · #2373) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -2418,3 +2418,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-09 | `#2374` | §2.1·§2.3·§2.18·§7.1·§7.4 참조 중인 연료 부모 DELETE 보호069 반영. 세 참조/삭제 이력 거부·미참조 허용·seed UPDATE/INSERT 설명. head069·트리거178·그래프와 현재 제외 사유를 맞춤 (#2308) |
 | 2026-10-09 | `#2390` | §3.1~§3.3 각주에 **규제값 원문 대조 확인자 기록** — 신하늘(`sky01170851`) 2026-10-09 재확인 셋(z-factor 8/8 · CF 9값 · Reference Line 20/20, 모두 불일치 0건). §3.1에 `source_ref` 보충 규칙(같은 값이 여러 문서에 있으면 **현행 표가 인쇄된 문서**), §3.2에 `Ethane` 2.927 제외 판정, §3.3의 「팀원 확인 없음」 ⚠️ 문단을 확인 기록으로 교체. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#773) |
 | 2026-10-13 | `#2421` | **§2.2 `voyage.regulation_year` 설명 보강** — 값은 출항 또는 도착 시각의 UTC 해 중 하나이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3`). 대조는 서비스가 쓰기 때 하는 것이라 DB 제약이 아니고, 규칙 전에 저장된 행은 어긋난 채 남을 수 있다. 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#2133) |
+| 2026-10-15 | `#2488` | §2.5 `calculation_run.needs_recalc` 설명에 항차·정박 입력 변경(#2304)과 배포 전 변경을 메우는 한 번의 소급 처리(#2373)를 추가 |
