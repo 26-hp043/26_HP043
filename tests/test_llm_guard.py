@@ -374,3 +374,29 @@ def test_user_number_forms_cover_every_turn_and_their_rounding():
     assert {"7.3456", "7.346", "7.35", "7.3", "1234.5", "1235"} <= forms
     assert "8.58" not in forms  # 두 수의 합 같은 파생값은 사용자가 친 수가 아니다
     assert user_number_forms([]) == set()
+
+
+def test_far_years_pass_only_when_followed_directly_by_nyeon():
+    """`#2480` — 표에 없는 먼 해(2041~2100)를 정직하게 답한 문장을 버리지 않는다.
+
+    넓힌 구간은 「년」이 수 바로 뒤에 붙을 때만 뺀다. 그렇지 않은 수는 판단에 쓰이는
+    값일 수 있어 계속 대조한다.
+    """
+    tool = ['{"v": "4.98"}']
+    verify_numbers("2045년 값은 표에 없습니다.", tool)
+    verify_numbers("2100년 값은 표에 없습니다.", tool)
+    # 종전 동작 — 2019~2040은 접미사와 무관하게 빠진다.
+    verify_numbers("2040년 값은 표에 없습니다.", tool)
+    verify_numbers("2040 기준입니다.", tool)
+
+    for blocked in (
+        "거리 2,050 nm로 계산됩니다.",
+        "2045 nm입니다.",
+        "2045t입니다.",
+        "2045 년입니다.",
+        "2,045년입니다.",
+        "2101년 값은 표에 없습니다.",
+        "2045 기준입니다.",
+    ):
+        with pytest.raises(NumberFabricationError):
+            verify_numbers(blocked, tool)
