@@ -152,6 +152,11 @@ async def test_an_unseeded_regulation_year_is_409(migrated_db, app_fresh_engine)
             )
             assert created.status_code == 409, created.text
             assert created.json()["error"]["code"] == "PARAMETER_ERROR"
+            # 정본 문구 (PRD §9.1 VAL-005 · API_SPEC §11) — 바꾸려면 PRD 개정이 먼저다.
+            # 종전에는 이 자리만 「…없습니다: 2031」 꼴이었다 (#2478).
+            assert created.json()["error"]["message"] == (
+                f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {UNSEEDED_YEAR})"
+            )
 
             # 수정 경로도 같다 — 한쪽만 막으면 「만들 때는 안 되는데 고칠 때는 되는」
             # 상태가 된다.
@@ -167,6 +172,7 @@ async def test_an_unseeded_regulation_year_is_409(migrated_db, app_fresh_engine)
                 headers=_csrf(client),
             )
             assert patched.status_code == 409, patched.text
+            assert patched.json()["error"]["message"] == created.json()["error"]["message"]
     finally:
         if vessel_id:
             await _cleanup(vessel_id)

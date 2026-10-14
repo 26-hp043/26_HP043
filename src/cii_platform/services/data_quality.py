@@ -77,6 +77,7 @@ from cii_platform.port_calls.reconcile import (
     classify_voyage,
     mismatches_of,
 )
+from cii_platform.services.calc_errors import regulation_year_missing
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
     UNAVAILABLE_MISSING_SPEC,
@@ -455,7 +456,7 @@ async def get_fleet_data_quality(
         )
         is None
     ):
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
+        raise regulation_year_missing(year)
 
     # 공적 기록 대조의 재료 (`#1197`) — 호출부호가 있는 배만. 바깥 서비스를 부르지 않고
     # 수집기가 받아 둔 표만 읽는다(``port_calls/collect.py``).

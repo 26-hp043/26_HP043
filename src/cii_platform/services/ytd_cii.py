@@ -88,7 +88,12 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.services import applicability
-from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
+from cii_platform.services.calc_errors import (
+    log_calculation_failure,
+    regulation_year_missing,
+    selection_error,
+    spec_error,
+)
 from cii_platform.services.request_cache import as_of_key, cached
 
 if TYPE_CHECKING:
@@ -784,7 +789,7 @@ async def _load_regulation_year(session: AsyncSession, year: int):
         session, ("regulation_year", year), lambda: param_repo.get_regulation_year(session, year)
     )
     if row is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
+        raise regulation_year_missing(year)
     return row
 
 

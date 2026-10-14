@@ -16,11 +16,11 @@ from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import (
     ConflictError,
     NotFoundError,
-    ParameterError,
     StateTransitionError,
     ValidationError,
 )
 from cii_platform.reports.labels import inclusion_policy_label, voyage_status_label
+from cii_platform.services.calc_errors import regulation_year_missing
 from cii_platform.services.pagination import normalize_limit
 
 if TYPE_CHECKING:
@@ -186,7 +186,7 @@ def attribution_message(allowed: list[int], *, subject: str) -> str:
 async def _require_regulation_params(session: AsyncSession, year: int) -> None:
     """그 해의 규정 파라미터가 있는지만 본다 — :func:`_require_regulation_year`의 ⑴."""
     if await param_repo.get_regulation_year(session, year) is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다: {year}")
+        raise regulation_year_missing(year)
 
 
 async def _require_regulation_year(

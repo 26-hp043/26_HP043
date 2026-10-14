@@ -39,6 +39,22 @@ SPEC_FALLBACK = (
 #: :func:`selection_error`가 받는 대상 → 목적격 조사를 붙인 꼴.
 _WITH_OBJECT_PARTICLE: dict[str, str] = {"기준선": "기준선을", "등급 경계": "등급 경계를"}
 
+#: ``PRD §9.1`` VAL-005 원문 — 호출부가 「(기준연도 {년})」을 덧붙인다(정본이 그렇게 적는다).
+REGULATION_YEAR_MISSING = "해당 연도의 규정 파라미터가 없습니다."
+
+
+def regulation_year_missing(year: int) -> ParameterError:
+    """표에 없는 규제연도의 409 (`#2478`).
+
+    문구는 「해당 연도의 규정 파라미터가 없습니다. (기준연도 2031)」이다.
+
+    종전에는 여섯 자리가 각자 f-string으로 조립했고, 항차 생성·수정 한 곳만
+    「…없습니다: 2031」 꼴이었다 — 사용자가 연도를 자유롭게 넣는 바로 그 칸이다.
+    「(기준연도 2031)」은 고칠 칸을 가리키고 「: 2031」은 가리키지 않는다.
+    """
+    return ParameterError(f"{REGULATION_YEAR_MISSING} (기준연도 {year})")
+
+
 #: ``API_SPEC §11`` VAL-008 원문.
 CALCULATION_FAILED = "계산 오류: 입력값을 확인하세요."
 
