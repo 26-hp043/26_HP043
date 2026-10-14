@@ -1490,8 +1490,10 @@ def test_basis_difference_is_carried_only_when_the_two_assemblies_disagree():
         d_vector = DVector(Decimal("0.86"), Decimal("0.94"), Decimal("1.06"), Decimal("1.18"))
 
     class _Inputs:
-        completed = CompletedTotals(co2_g=float(Decimal("1930680000")), distance_nm=4300.0)
-        remaining = [RemainingVoyage(distance_nm=2300.0, fuel_ton=331.0, cf=3.114)]
+        completed = CompletedTotals(co2_g=Decimal("1930680000"), distance_nm=Decimal(4300))
+        remaining = [
+            RemainingVoyage(distance_nm=Decimal(2300), fuel_ton=Decimal(331), cf=Decimal("3.114"))
+        ]
         voyages_json = [
             {
                 "voyage_id": "current",
@@ -1514,7 +1516,11 @@ def test_basis_difference_is_carried_only_when_the_two_assemblies_disagree():
     # ⑴을 ⑶의 조립 그대로 다시 만든 값 — 확정분 + 경과분.
     same_basis = project_deterministic(
         completed=_Inputs.completed,
-        remaining=[RemainingVoyage(distance_nm=2300.0, fuel_ton=250.444, cf=3.114)],
+        remaining=[
+            RemainingVoyage(
+                distance_nm=Decimal(2300), fuel_ton=Decimal("250.444"), cf=Decimal("3.114")
+            )
+        ],
         transport_capacity=_Context.transport_capacity,
         required_cii=_Context.required_cii,
         d_vector=_Context.d_vector,

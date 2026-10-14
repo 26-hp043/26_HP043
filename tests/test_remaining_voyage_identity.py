@@ -1,4 +1,4 @@
-"""``RemainingVoyage`` 재생성 6곳의 ``voyage_id`` 보존과 ``MIN_SPEED_KN`` 단일 정의 (#2098).
+"""``RemainingVoyage`` 재생성 6곳의 ``voyage_id`` 보존과 ``MIN_SPEED_KN`` 단일 정의 (#2098 · #2448).
 
 DB 없이 돈다. 재생성이 필드를 하나씩 옮겨 적으면 필드가 늘 때마다 빠진다 — ``voyage_id``가
 그렇게 빠졌다(`#1671`).
@@ -29,17 +29,17 @@ from cii_platform.calc.rating_engine import DVector
 from cii_platform.services import scenario_compare
 
 D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
-COMPLETED = CompletedTotals(co2_g=1.0e9, distance_nm=1000.0)
+COMPLETED = CompletedTotals(co2_g=Decimal(10**9), distance_nm=Decimal(1000))
 
 
-def _voyage(speed: float = 12.0) -> RemainingVoyage:
+def _voyage(speed: str = "12") -> RemainingVoyage:
     return RemainingVoyage(
-        distance_nm=500.0,
-        fuel_ton=20.0,
-        cf=3.114,
-        speed_kn=speed,
-        reference_speed_kn=14.0,
-        base_daily_foc_ton=30.0,
+        distance_nm=Decimal(500),
+        fuel_ton=Decimal(20),
+        cf=Decimal("3.114"),
+        speed_kn=Decimal(speed),
+        reference_speed_kn=Decimal(14),
+        base_daily_foc_ton=Decimal(30),
         voyage_id="v-1",
     )
 
@@ -57,15 +57,15 @@ def test_feedback_keeps_voyage_id():
 
 
 def test_shift_fuel_keeps_voyage_id():
-    assert _shift_fuel([_voyage()], 1.1)[0].voyage_id == "v-1"
+    assert _shift_fuel([_voyage()], Decimal("1.1"))[0].voyage_id == "v-1"
 
 
 def test_shift_distance_keeps_voyage_id():
-    assert _shift_distance([_voyage()], 1.05)[0].voyage_id == "v-1"
+    assert _shift_distance([_voyage()], Decimal("1.05"))[0].voyage_id == "v-1"
 
 
 def test_shift_speed_keeps_voyage_id():
-    assert _shift_speed([_voyage()], 1.0)[0].voyage_id == "v-1"
+    assert _shift_speed([_voyage()], Decimal(1))[0].voyage_id == "v-1"
 
 
 def test_alternative_fuel_keeps_voyage_id(monkeypatch):
@@ -92,31 +92,34 @@ def test_alternative_fuel_keeps_voyage_id(monkeypatch):
 def test_apply_slowdown_keeps_voyage_id():
     result = apply_slowdown([_voyage()], [_leg("12")], Decimal("10"))
     assert result.remaining[0].voyage_id == "v-1"
-    assert result.remaining[0].speed_kn != 12.0  # 감속이 실제로 적용됐다
+    assert result.remaining[0].speed_kn != Decimal(12)  # 감속이 실제로 적용됐다
 
 
 def test_rebuilt_voyage_keeps_every_other_field():
     """바꾸지 않는 필드는 원본 그대로다 — 필드를 옮겨 적다 빠뜨리지 않는다."""
     original = _voyage()
-    assert _shift_fuel([original], 1.0)[0] == original
+    assert _shift_fuel([original], Decimal(1))[0] == original
 
 
 def test_speed_shift_clamps_to_floor():
     """``speed + delta < 1.0``이면 하한 1.0에 붙는다."""
-    shifted = _shift_speed([_voyage(speed=1.5)], -1.0)[0]
-    assert shifted.speed_kn == engine.MIN_SPEED_KN == 1.0
+    shifted = _shift_speed([_voyage(speed="1.5")], Decimal(-1))[0]
+    assert shifted.speed_kn == engine.MIN_SPEED_KN == Decimal(1)
 
 
 def test_slowdown_clamps_to_floor():
     """``speed × factor < 1.0``이면 하한에 붙는다."""
-    result = apply_slowdown([_voyage(speed=1.5)], [_leg("1.5")], Decimal("50"))
-    assert result.remaining[0].speed_kn == 1.0
+    result = apply_slowdown([_voyage(speed="1.5")], [_leg("1.5")], Decimal("50"))
+    assert result.remaining[0].speed_kn == Decimal(1)
 
 
 def test_min_speed_has_one_definition():
-    """정의처는 ``fuel_estimator``(Decimal)이고 float 경로는 거기서 파생한다."""
+    """정의처는 ``fuel_estimator``(Decimal)이고 엔진·서비스는 그 객체를 그대로 쓴다 (#2448).
+
+    종전에는 엔진이 ``float`` 사본을 들었다 — 속력이 Decimal로 오면서(`#2448`) 사본이 필요 없다.
+    """
     assert Decimal("1.0") == fuel_estimator.MIN_SPEED_KN
-    assert engine.MIN_SPEED_KN == float(fuel_estimator.MIN_SPEED_KN) == 1.0
+    assert engine.MIN_SPEED_KN is fuel_estimator.MIN_SPEED_KN
     assert scenario_compare.MIN_SPEED_KN is fuel_estimator.MIN_SPEED_KN
 
 

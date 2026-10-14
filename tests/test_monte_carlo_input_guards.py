@@ -26,8 +26,8 @@ from cii_platform.calc.rating_engine import DVector
 from cii_platform.calc.rng import create_rng
 
 D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
-COMPLETED = CompletedTotals(co2_g=1.0e9, distance_nm=1000.0)
-REMAINING = [RemainingVoyage(distance_nm=500.0, fuel_ton=20.0, cf=3.114)]
+COMPLETED = CompletedTotals(co2_g=Decimal(10**9), distance_nm=Decimal(1000))
+REMAINING = [RemainingVoyage(distance_nm=Decimal(500), fuel_ton=Decimal(20), cf=Decimal("3.114"))]
 
 
 def _kwargs(capacity: str = "50000", required: str = "5.0") -> dict:

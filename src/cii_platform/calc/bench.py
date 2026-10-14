@@ -103,7 +103,7 @@ def cii_calculation_workload():
 
 
 # ── PERF-003 · PERF-004 기능③ — 단일 선박 · 12개월 항차 ───────────────────────
-_CF_HFO = 3.114
+_CF_HFO = Decimal("3.114")
 _CAPACITY = Decimal("50000")
 _REQUIRED = Decimal("5.045066")
 #: `PRD §3.3.6` d-vector (BULK_CARRIER).
@@ -111,15 +111,17 @@ _D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), 
 _SEED = 12345
 
 #: 상반기 6개월은 확정 실적, 하반기 6개월은 잔여 계획 — 「12개월 항차 데이터」.
-_COMPLETED = CompletedTotals(co2_g=6 * 250 * _CF_HFO * 1e6, distance_nm=6 * 3000.0)
+_COMPLETED = CompletedTotals(
+    co2_g=Decimal(6 * 250) * _CF_HFO * Decimal(1_000_000), distance_nm=Decimal(6 * 3000)
+)
 _REMAINING = [
     RemainingVoyage(
-        distance_nm=3000.0,
-        fuel_ton=250.0,
+        distance_nm=Decimal(3000),
+        fuel_ton=Decimal(250),
         cf=_CF_HFO,
-        speed_kn=14.0,
-        reference_speed_kn=14.0,
-        base_daily_foc_ton=30.0,
+        speed_kn=Decimal(14),
+        reference_speed_kn=Decimal(14),
+        base_daily_foc_ton=Decimal(30),
     )
     for _ in range(6)
 ]

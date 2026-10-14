@@ -56,21 +56,21 @@ ROOT = Path(__file__).resolve().parents[1]
 PRD = ROOT / "PRD.md"
 TECH_SPEC = ROOT / "TECH_SPEC.md"
 
-CF = 3.114
+CF = Decimal("3.114")
 CAPACITY = Decimal("50000")
 REQUIRED = Decimal("5.0")
 D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
 SEED = 12345
 
-COMPLETED = CompletedTotals(co2_g=400 * CF * 1e6, distance_nm=5000.0)
+COMPLETED = CompletedTotals(co2_g=400 * CF * 1_000_000, distance_nm=Decimal(5000))
 REMAINING = [
     RemainingVoyage(
-        distance_nm=3000.0,
-        fuel_ton=250.0,
+        distance_nm=Decimal(3000),
+        fuel_ton=Decimal(250),
         cf=CF,
-        speed_kn=14.0,
-        reference_speed_kn=14.0,
-        base_daily_foc_ton=30.0,
+        speed_kn=Decimal(14),
+        reference_speed_kn=Decimal(14),
+        base_daily_foc_ton=Decimal(30),
     )
     for _ in range(4)
 ]

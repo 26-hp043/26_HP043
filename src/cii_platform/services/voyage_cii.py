@@ -622,11 +622,8 @@ async def _annual_impact(
     except (NotFoundError, ParameterError, ValidationError):
         return None
 
-    extra = RemainingVoyage(
-        distance_nm=float(payload.distance_nm),
-        fuel_ton=float(fuel_ton),
-        cf=float(cf),
-    )
+    # Decimal 그대로 넘긴다 (`#2448`) — 결정론 계산이라 float로 내릴 자리가 아니다.
+    extra = RemainingVoyage(distance_nm=payload.distance_nm, fuel_ton=fuel_ton, cf=cf)
     try:
         before, after = _impact_layer1(context, inputs.completed, inputs.remaining, extra)
     except ValueError:

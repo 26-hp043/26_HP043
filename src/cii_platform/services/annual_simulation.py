@@ -490,12 +490,9 @@ def _inputs_from_snapshot(
     skipped_no_fuel = 0
     confirmed_without_fuel = 0
 
-    reference_speed_kn = (
-        None if vessel.reference_speed_kn is None else float(vessel.reference_speed_kn)
-    )
-    base_daily_foc_ton = (
-        None if vessel.reference_daily_foc_ton is None else float(vessel.reference_daily_foc_ton)
-    )
+    # 제원도 Decimal 그대로 넘긴다 (`#2448`) — 속도 지렛대가 Decimal 연료에 속력 비를 곱한다.
+    reference_speed_kn = vessel.reference_speed_kn
+    base_daily_foc_ton = vessel.reference_daily_foc_ton
 
     for row in rows:
         fuel_uses = row.get("fuel_uses") or []
@@ -519,12 +516,12 @@ def _inputs_from_snapshot(
             )
             continue
 
-        planned_distance = float(Decimal(row.get("planned_distance_nm") or "0"))
+        planned_distance = Decimal(row.get("planned_distance_nm") or "0")
         planned_speed = row.get("planned_speed_kn")
 
-        # 연료를 CO₂ 기여로 합친다. Decimal로 더한 뒤 마지막에 한 번만 float로
-        # 내린다 — 줄마다 float로 바꿔 더하면 오차가 연료 종류 수만큼 쌓인다.
-        # 합·나눗셈은 작업 정밀도 안에서 한다(`mass_weighted_cf` · `#2254`).
+        # 연료를 CO₂ 기여로 합친다. 합·나눗셈은 작업 정밀도 안에서 한다(`mass_weighted_cf` ·
+        # `#2254`). **float로 내리지 않는다** (`#2448`) — 결정론 계산은 이 Decimal을 끝까지
+        # 쓰고, Monte Carlo 진입점(`simulate_annual`)이 자기 자리에서 float로 내린다.
         fuel_ton, cf_eff = mass_weighted_cf(
             (Decimal(fuel_use.get("planned_fuel_ton") or "0"), Decimal(fuel_use["cf_used"]))
             for fuel_use in fuel_uses
@@ -546,9 +543,9 @@ def _inputs_from_snapshot(
         remaining.append(
             RemainingVoyage(
                 distance_nm=planned_distance,
-                fuel_ton=float(fuel_ton),
-                cf=float(cf_eff),
-                speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
+                fuel_ton=fuel_ton,
+                cf=cf_eff,
+                speed_kn=None if planned_speed is None else Decimal(planned_speed),
                 reference_speed_kn=reference_speed_kn,
                 base_daily_foc_ton=base_daily_foc_ton,
                 voyage_id=row.get("voyage_id"),
@@ -566,9 +563,8 @@ def _inputs_from_snapshot(
             )
         completed_distance_nm += Decimal(not_underway.get("distance_nm") or "0")
 
-    completed = CompletedTotals(
-        co2_g=float(completed_co2_g), distance_nm=float(completed_distance_nm)
-    )
+    # 확정 누계도 Decimal 그대로다 (`#2448`) — 같은 자리에서 float로 내리던 값이다.
+    completed = CompletedTotals(co2_g=completed_co2_g, distance_nm=completed_distance_nm)
     warnings = [WARNING_PLAN_NO_FUEL] if skipped_no_fuel else []
     if confirmed_without_fuel:
         warnings.append(WARNING_COMPLETED_FUEL_UNFILLED)
@@ -1117,10 +1113,10 @@ def _build_sensitivity(
     )
 
     shifted_for = {
-        "speed_minus_1kn": lambda: _shift_speed(remaining, -1.0),
-        "speed_plus_1kn": lambda: _shift_speed(remaining, +1.0),
-        "fuel_minus_10pct": lambda: _shift_fuel(remaining, 0.90),
-        "fuel_plus_10pct": lambda: _shift_fuel(remaining, 1.10),
+        "speed_minus_1kn": lambda: _shift_speed(remaining, Decimal(-1)),
+        "speed_plus_1kn": lambda: _shift_speed(remaining, Decimal(1)),
+        "fuel_minus_10pct": lambda: _shift_fuel(remaining, Decimal("0.90")),
+        "fuel_plus_10pct": lambda: _shift_fuel(remaining, Decimal("1.10")),
     }
 
     block: dict[str, object] = {"interaction_note": INTERACTION_NOTE}

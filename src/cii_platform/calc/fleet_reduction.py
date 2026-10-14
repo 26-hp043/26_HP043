@@ -27,6 +27,7 @@ from decimal import Decimal
 
 from cii_platform.calc.annual_simulation import RemainingVoyage
 from cii_platform.calc.fuel_estimator import MIN_SPEED_KN
+from cii_platform.calc.precision import layer1_context
 
 #: ``PRD §12.3.2`` — 감속률 상한(%). 이보다 크면 요청 검증에서 막는다.
 #:
@@ -79,6 +80,7 @@ def _applicable(voyage: RemainingVoyage) -> bool:
     )
 
 
+@layer1_context
 def apply_slowdown(
     remaining: Sequence[RemainingVoyage],
     legs: Sequence[PlannedLeg],
@@ -91,6 +93,10 @@ def apply_slowdown(
         v'        = max(v × (1 − p/100), 1.0kn)
         fuel'     = fuel × (v'/v)²                      ← cubic model, 거리 고정
         extra_day = distance/(v'×24) − distance/(v×24)
+
+    작업 정밀도 안에서 한다 (`#2448`) — 다시 낸 ``fuel_ton``이 Decimal 그대로 결정론 계산에
+    들어간다. 서비스(`_evaluate_vessel`)가 이미 컨텍스트를 깔고 부르지만, 엔진을 직접 부르는
+    경로(테스트·다른 호출자)에서도 같은 정밀도여야 한다.
 
     :raises ValueError: 두 목록 길이가 다르거나 감속률이 범위 밖일 때.
     """
@@ -115,16 +121,11 @@ def apply_slowdown(
             skipped += 1
             shifted.append(voyage)
             continue
-        speed = Decimal(str(voyage.speed_kn))
+        # 속력·연료가 Decimal이라 (`#2448`) 되읽기 없이 그대로 곱한다.
+        speed = voyage.speed_kn
         new_speed = max(speed * factor, MIN_SPEED_KN)
         ratio = (new_speed / speed) ** 2
-        shifted.append(
-            replace(
-                voyage,
-                fuel_ton=float(Decimal(str(voyage.fuel_ton)) * ratio),
-                speed_kn=float(new_speed),
-            )
-        )
+        shifted.append(replace(voyage, fuel_ton=voyage.fuel_ton * ratio, speed_kn=new_speed))
         extra_days += leg.distance_nm / (new_speed * _HOURS_PER_DAY) - leg.distance_nm / (
             speed * _HOURS_PER_DAY
         )
