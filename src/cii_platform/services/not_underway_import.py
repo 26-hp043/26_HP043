@@ -30,8 +30,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
@@ -55,9 +53,9 @@ from cii_platform.services.voyage_import import (
     MAX_ROWS,
     RowError,
     _check_limits,
-    _decode,
     _skipped_count,
     column_length,
+    open_csv,
     save_stage_row_error,
 )
 from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
@@ -274,9 +272,9 @@ def _port_name(row: dict[str, str]) -> str | None:
 def read_rows(content: bytes, *, content_type: str | None = None) -> tuple[list[dict], int]:
     """파일을 행 목록으로. 파일 단위 한계는 항차 CSV와 **같은 함수**를 쓴다."""
     _check_limits(content, content_type)
-    reader = csv.DictReader(io.StringIO(_decode(content), newline=""))
+    fieldnames, source_rows = open_csv(content)
 
-    missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
+    missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
     if missing:
         raise ValidationError(
             f"필수 컬럼이 없습니다: {', '.join(missing)}",
@@ -286,7 +284,7 @@ def read_rows(content: bytes, *, content_type: str | None = None) -> tuple[list[
 
     rows: list[dict[str, str]] = []
     truncated = 0
-    for row in reader:
+    for row in source_rows:
         if len(rows) >= MAX_ROWS:
             truncated += 1
             continue
