@@ -22,6 +22,7 @@ from cii_platform.validation.bounds import (
     SPEED,
     STORED_REGULATION_YEAR,
     VOYAGE_FUEL,
+    stored,
 )
 
 #: 계획 거리의 출처 (#1256 · `DB_SCHEMA §2.2` `planned_distance_source`).
@@ -77,7 +78,7 @@ class VoyageFuelUseCreateRequest(BaseModel):
 
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # VAL-002: > 0. 상·하한은 DB 저장 범위 `NUMERIC(12,4)`에서 온다 (#1086 · `schemas/bounds.py`).
-    planned_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
+    planned_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL), stored(4)]
     source: ClientFuelSource = "USER_INPUT"
 
 
@@ -88,18 +89,18 @@ class VoyageCreateRequest(BaseModel):
 
     voyage_no: Annotated[str | None, Field(max_length=100)] = None
     departure_port_name: Annotated[str, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)]
-    departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
     arrival_port_name: Annotated[str, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)]
-    arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
     # VAL-002 / VAL-009. 상·하한은 DB 저장 범위에서 온다 (#1086 · `schemas/bounds.py`) —
     # `0.001`은 0.00으로 반올림돼 `chk_distance_positive` 위반, `10000` kn은 `NUMERIC(6,2)` 초과.
-    planned_distance_nm: Annotated[Decimal, Field(**DISTANCE)]
+    planned_distance_nm: Annotated[Decimal, Field(**DISTANCE), stored(2)]
     # #1256 — 위 거리가 어디서 왔는가. 화면은 항상 보낸다(좌표로 채웠으면
     # `COORDINATE_ESTIMATE`, 사용자가 고쳤으면 `USER_INPUT`). 생략 = `null` = 「모른다」.
     planned_distance_source: DistanceSource | None = None
-    planned_speed_kn: Annotated[Decimal, Field(**SPEED)]
+    planned_speed_kn: Annotated[Decimal, Field(**SPEED), stored(2)]
     planned_departure_at: Instant | None = None
     planned_arrival_at: Instant | None = None
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부(VAL-005)는 서비스가 본다.
@@ -124,19 +125,19 @@ class VoyageUpdateRequest(BaseModel):
     departure_port_name: Annotated[
         str | None, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)
     ] = None
-    departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
     arrival_port_name: Annotated[
         str | None, Field(min_length=1, max_length=PORT_NAME_MAX_LENGTH)
     ] = None
-    arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    planned_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
+    arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None
+    planned_distance_nm: Annotated[Decimal | None, Field(**DISTANCE), stored(2)] = None
     # #1256 — `planned_distance_nm`을 바꾸면서 이 키를 생략하면 출처는 **`null`로 돌아간다**
     # (옛 「추정」 표시가 새 숫자에 붙어 있으면 거짓말이다 · `services/voyage.py`). 함께 보내면
     # 그 값으로, 명시적 `null`은 지움이다(#312 규약과 같다).
     planned_distance_source: DistanceSource | None = None
-    planned_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
+    planned_speed_kn: Annotated[Decimal | None, Field(**SPEED), stored(2)] = None
     planned_departure_at: Instant | None = None
     planned_arrival_at: Instant | None = None
     regulation_year: Annotated[int | None, Field(**STORED_REGULATION_YEAR)] = None
@@ -188,7 +189,7 @@ class VoyageFuelActualRequest(BaseModel):
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     #: `chk_actual_fuel_positive` — DB도 같은 조건을 건다. 0을 「안 썼다」로 쓰려면
     #: 그 행을 넣지 않는 것이 맞다.
-    actual_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
+    actual_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL), stored(4)]
     #: 생략은 「변경 없음」이다 — 기존 행의 출처를 그대로 둔다(``services/voyage``).
     source: ClientFuelSource | None = None
 
@@ -202,10 +203,10 @@ class VoyageActualsRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    actual_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
+    actual_distance_nm: Annotated[Decimal | None, Field(**DISTANCE), stored(2)] = None
     #: `chk_actual_speed_min` — DB가 1.0 이상을 요구한다. 스키마가 더 느슨하면
     #: 사용자는 422가 아니라 500(제약 위반)을 받는다.
-    actual_avg_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
+    actual_avg_speed_kn: Annotated[Decimal | None, Field(**SPEED), stored(2)] = None
     actual_departure_at: Instant | None = None
     actual_arrival_at: Instant | None = None
     # #1923 — 시각을 바꾸면서 이 키를 생략하면 출처는 **`null`로 돌아간다**(옛 「공적 기록에서

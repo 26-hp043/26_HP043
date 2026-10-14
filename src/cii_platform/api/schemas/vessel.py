@@ -17,7 +17,13 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cii_platform.imo_number import IMO_CHECK_DIGIT_MESSAGE, imo_check_digit_ok
-from cii_platform.validation.bounds import DAILY_FOC, REFERENCE_SPEED, storable, storable_from
+from cii_platform.validation.bounds import (
+    DAILY_FOC,
+    REFERENCE_SPEED,
+    storable,
+    storable_from,
+    stored,
+)
 
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:
@@ -118,14 +124,14 @@ class VesselCreateRequest(BaseModel):
     # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.
     ship_type: Annotated[str, Field(min_length=1, max_length=50)]
     # VAL-002: > 0. None 허용(선택 입력). 상·하한은 DB 저장 범위에서 온다 (`_storable`, #860).
-    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE)] = None
-    deadweight: Annotated[Decimal | None, Field(**_TONNAGE)] = None
+    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE), stored(2)] = None
+    deadweight: Annotated[Decimal | None, Field(**_TONNAGE), stored(2)] = None
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
-    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
-    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
+    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED), stored(2)] = None
+    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC), stored(2)] = None
     # #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. 모르면 보내지
     # 않는다 — 그때는 선종 기본값 + CB_ESTIMATED 경고가 계약이다.
-    block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
+    block_coefficient: Annotated[Decimal | None, Field(**_CB), stored(3)] = None
     # #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
     # 질의하므로 교차 대조의 키다. 모르면 보내지 않는다 — 그 배는 대조 대상이 아닐 뿐이다.
     # ``max_length``는 접은 **뒤**의 값에 걸린다(검증기가 ``mode="before"``) — 그래서
@@ -164,12 +170,12 @@ class VesselUpdateRequest(BaseModel):
     name: Annotated[str | None, Field(min_length=1, max_length=100)] = None
     # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.
     ship_type: Annotated[str | None, Field(min_length=1, max_length=50)] = None
-    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE)] = None
-    deadweight: Annotated[Decimal | None, Field(**_TONNAGE)] = None
+    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE), stored(2)] = None
+    deadweight: Annotated[Decimal | None, Field(**_TONNAGE), stored(2)] = None
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
-    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
-    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
-    block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
+    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED), stored(2)] = None
+    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC), stored(2)] = None
+    block_coefficient: Annotated[Decimal | None, Field(**_CB), stored(3)] = None
     # #1197 — 빈 문자열은 None으로 접히므로 「안 바꾼다」가 된다. 지우는 경로는 GT와
     # 마찬가지로 PATCH에 없다.
     call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None
@@ -201,5 +207,5 @@ class VesselPositionUpdateRequest(BaseModel):
 
     underway_state: Annotated[str | None, Field(max_length=20)] = None
     detail_status: Annotated[str | None, Field(max_length=20)] = None
-    current_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
-    current_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    current_lat: Annotated[Decimal | None, Field(ge=-90, le=90), stored(6)] = None
+    current_lon: Annotated[Decimal | None, Field(ge=-180, le=180), stored(6)] = None

@@ -22,7 +22,7 @@ ORM 모델의 ``Numeric(precision, scale)``에서 기대 범위를 계산해 스
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 from pydantic import ValidationError
@@ -87,7 +87,7 @@ def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
     [
         ("deadweight", "0.01"),  # 저장 가능한 가장 작은 양수
         ("deadweight", "9999999999.99"),  # 저장 가능한 가장 큰 값
-        ("deadweight", "50000.125"),  # 소수 셋째 자리 — 막지 않는다. DB가 반올림한다
+        ("deadweight", "50000.125"),  # 소수 셋째 자리 — 막지 않는다. 스키마가 반올림한다(#2502)
         ("reference_speed_kn", "12.5"),
         ("reference_speed_kn", "0.01"),  # 하한은 저장 형식 — VAL-002
         ("reference_speed_kn", "60"),  # 상한은 VAL-009 — 고속선(58.1 kn)을 막지 않는다
@@ -101,4 +101,7 @@ def test_저장할_수_있는_값은_그대로_받는다(name, value):
     """⚠️ **소수 셋째 자리를 막지 않는다** — ``decimal_places``로 거부하면 멀쩡한 입력까지
     422가 된다. 종전처럼 받아서 DB가 반올림하게 둔다."""
     base = {"imo_number": "9123453", "name": "BOUNDS", "ship_type": "BULK_CARRIER"}
-    assert getattr(VesselCreateRequest(**base, **{name: value}), name) == Decimal(value)
+    got = getattr(VesselCreateRequest(**base, **{name: value}), name)
+    # #2502 — 컬럼 scale로 반올림해 넘긴다(0에서 먼 쪽). 값이 scale 안이면 그대로다.
+    scale = Vessel.__table__.c[name].type.scale
+    assert got == Decimal(value).quantize(Decimal(1).scaleb(-scale), rounding=ROUND_HALF_UP)
