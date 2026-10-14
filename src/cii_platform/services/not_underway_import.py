@@ -56,6 +56,7 @@ from cii_platform.services.voyage_import import (
     _skipped_count,
     column_length,
     open_csv,
+    reject_nul_cells,
     save_stage_row_error,
 )
 from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
@@ -171,6 +172,7 @@ def _instant(row: dict[str, str], column: str, *, label: str, required: bool) ->
 
 def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     """한 행을 구간 하나로 읽는다. 값이 안 되면 :class:`RowError`."""
+    reject_nul_cells(row)
     period_type = _text(row, "period_type").upper()
     if period_type not in PERIOD_TYPES:
         raise RowError(

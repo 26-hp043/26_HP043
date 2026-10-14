@@ -427,6 +427,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 재현(§6.4) 시 `model_version`이 원본과 다르고 결과도 다름 — 약속 밖의 변화(`TECH_SPEC §10.3` · #833) |
 | 409 Conflict | `CONFLICT` | 리소스 중복 (예: 동일 IMO 번호 선박 재등록) |
 | 422 Unprocessable Entity | `VALIDATION_ERROR` | `§11`의 VAL-001~011 위반(409로 나가는 VAL-005 제외). **JSON 파싱 오류**(「요청 본문이 올바른 JSON이 아닙니다.」)와 **잘못된 Content-Type**(「요청 본문 형식이 올바르지 않습니다.」)도 여기다 — `§1.3.2`가 이미 422로 서술하며, 실측도 같다 (`#1366`) |
+| 422 Unprocessable Entity | `VALIDATION_ERROR` | **문자열에 NUL(`\x00`)이 든 요청** — JSON 본문·쿼리 문자열·경로 어디서든 라우트 앞에서 한 번에 거절한다(`#2501`). 문구는 「입력에 쓸 수 없는 문자(NUL)가 들어 있습니다.」, `details[].field`는 본문 필드 경로 또는 쿼리 파라미터 이름이다. DB 드라이버가 NUL 문자열을 거부해 500이 되던 것을 막는 자리이며, 비로그인 경로(`/auth/login` · `/auth/signup`)도 같다. 인증이 없는 보호 경로는 401이 먼저다. CSV 파일 셀의 NUL은 이 거절이 아니라 `§8.2`의 행 오류(`errors[]`)로 나간다 |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
 | 422 Unprocessable Entity | `MODEL_BREAKDOWN_ERROR` | BN > 8, ΔV/V ≥ 100% |
 | 422 Unprocessable Entity | `STATE_TRANSITION_ERROR` | 허용되지 않은 상태 전환 (PRD §8.1.1) |
@@ -5506,3 +5507,4 @@ POST /api/v1/chat
 | 2026-10-15 | `#2506` | **§2.10 `started_at`에 시간대 범위 -12:00~+14:00** (#2503). 정박 구간은 받은 표기를 그대로 저장하는데(`#1333`) DB(`DATETIMETZ`)가 그 밖의 오프셋을 받지 않아 `+23:59` · `-13:00` 같은 값이 **500**이었다(생성·수정·CSV · 목록 쿼리 필터). 이제 본문·CSV는 422 · 행 오류, 목록 쿼리의 시각 필터는 같은 순간의 UTC로 맞춰 거른다. `AGENTS §4.3`상 행 보강이라 버전은 올리지 않는다 |
 | 2026-10-15 | `#2507` | **§3.4 `[#2504]` — 비울 수 없는 칸 넷의 명시적 `null`은 422** (#2504). `PATCH /voyages/{id}`에 `departure_port_name`·`arrival_port_name`·`planned_distance_nm`·`planned_speed_kn`을 `null`로 보내면 NOT NULL 열 위반으로 500이었다. `null` = 클리어(#312)는 NULL을 받는 열(`voyage_no`·`notes`·`regulation_year`·`planned_distance_source`)에만 성립하므로 넷은 스키마에서 `missing` 422(`details[].field` = 필드 이름)로 거절한다. 오기 정정 수준이라 버전은 올리지 않고 최종 수정일은 이미 2026-10-15다 |
 | 2026-10-15 | `#2508` | **§8.2 제한 표에 「한 칸 길이」 행** (#2505). CSV 한 칸이 131,072자(`csv.field_size_limit`)를 넘으면 `_csv.Error`가 `read_rows`에서 잡히지 않아 `POST /vessels/{id}/import`(항차·정박)와 `POST /parameters/import`가 500이었다. 이제 파일 단위 422이며 세 가져오기가 한 헬퍼를 쓴다. 오기 정정 수준이라 버전은 올리지 않고 최종 수정일은 이미 2026-10-15다 |
+| 2026-10-15 | `#2509` | §1.4 `VALIDATION_ERROR` 행 추가 — 문자열의 NUL(`\x00`)은 라우트 앞에서 422로 거절한다. 종전에는 DB 드라이버 오류가 잡히지 않아 비로그인 로그인·가입을 포함한 문자열 입력 전반이 500이었다. CSV 셀의 NUL은 행 오류 (#2501) |

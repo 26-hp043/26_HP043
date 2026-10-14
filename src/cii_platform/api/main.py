@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
+from cii_platform.api.nul_guard import NulGuardMiddleware
 from cii_platform.api.rate_limit import (
     RateLimiter,
     RateLimits,
@@ -160,7 +161,7 @@ app = FastAPI(
 )
 
 # 미들웨어 스택 (#238 · #275 · #307) — 바깥 → 안쪽 순서:
-#   SecurityHeaders → (CORS) → RequestContext → rate_limit → auth → 라우트
+#   SecurityHeaders → (CORS) → RequestContext → rate_limit → auth → NulGuard → 라우트
 # Starlette의 add_middleware는 user_middleware.insert(0, …)라 **나중에 등록한
 # 미들웨어가 바깥**에서 실행된다 (등록 방식과 무관 — middleware("http") 데코레이터도
 # 내부적으로 add_middleware를 쓴다). 따라서 아래는 안쪽 것부터 등록한다.
@@ -171,6 +172,10 @@ app = FastAPI(
 #   포함된다.
 # - auth가 가장 안쪽: 세션을 검증하고 request.state에 사용자·세션을 주입한다.
 #   공개 경로(health · auth/*)는 통과한다 (auth/dependencies.py PUBLIC_PATHS).
+# NUL 거절 (#2501) — 가장 안쪽(auth보다도). 보호 경로의 401 우선순위를 건드리지 않고,
+# 공개 경로(로그인·가입)와 인증된 요청의 JSON 본문·쿼리·경로를 라우트 앞에서 본다.
+# 순수 ASGI라 아래 `names == [...]` 검사(BaseHTTPMiddleware 목록)에 끼지 않는다.
+app.add_middleware(NulGuardMiddleware)
 app.middleware("http")(auth_middleware)
 # 버킷별 한도 — 인증 10 / 계산 60 / 그 밖 300 (API_SPEC §13.2 · #811).
 # 종전에는 단일 한도 300 하나였다: 로그인 무차별 대입에 300회/분은 방어가 아니고,
