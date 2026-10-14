@@ -32,18 +32,23 @@ from cii_platform.validation.messages import korean_message
 EDGES = [
     pytest.param("0001-01-01T00:00:00+09:00", id="0001년+09:00"),
     pytest.param("9999-12-31T23:59:59-05:00", id="9999년-05:00"),
+    # `#2487` — UTC로는 멀쩡하지만 한국 시간(+9시간)으로 옮기면 10000년이 되는 값과, UTC 첫날
+    pytest.param("9999-12-31T15:00:00Z", id="9999년-KST로-넘침"),
+    pytest.param("0001-01-01T00:00:00Z", id="0001년-첫날"),
 ]
 
 #: 같은 달력 끝이라도 UTC로 와서 옮길 것이 없으면 그대로 받는다 — 대조군.
-EDGES_IN_UTC = ["0001-01-01T00:00:00Z", "9999-12-31T23:59:59Z"]
+EDGES_IN_UTC = ["0001-01-02T00:00:00Z", "9999-12-30T23:59:59Z"]
 
 
 @pytest.mark.parametrize("raw", EDGES)
 def test_to_utc_turns_overflow_into_a_korean_value_error(raw: str) -> None:
-    with pytest.raises(ValueError, match="범위를 벗어나는 시각") as caught:
+    with pytest.raises(ValueError) as caught:
         to_utc(datetime.fromisoformat(raw))
-    # 원인은 남긴다 — 로그에서 「무엇이 넘쳤나」를 볼 수 있게.
-    assert isinstance(caught.value.__cause__, OverflowError)
+    assert str(caught.value) == OUT_OF_RANGE_MESSAGE
+    # UTC 변환 자체가 넘친 경우는 원인을 남긴다 — 로그에서 「무엇이 넘쳤나」를 볼 수 있게.
+    if raw.endswith(("+09:00", "-05:00")):
+        assert isinstance(caught.value.__cause__, OverflowError)
 
 
 @pytest.mark.parametrize("raw", EDGES_IN_UTC)
@@ -164,6 +169,25 @@ def test_resolve_as_of_raises_a_domain_validation_error(raw: str) -> None:
         resolve_as_of(datetime.fromisoformat(raw))
     assert caught.value.field == "as_of"
     assert caught.value.message == OUT_OF_RANGE_MESSAGE
+
+
+def test_naive_as_of_goes_through_the_same_range_check() -> None:
+    """시간대 없는 ``as_of``(UTC로 간주)도 같은 검사를 지난다 (`#2487`).
+
+    종전에는 그 갈래가 검사를 건너뛰어, 이어지는 한국 시간 변환에서 넘쳤다.
+    """
+    with pytest.raises(ValidationError) as caught:
+        resolve_as_of(datetime.fromisoformat("9999-12-31T23:00:00"))
+    assert caught.value.field == "as_of"
+
+
+@pytest.mark.parametrize("raw", EDGES_IN_UTC)
+def test_the_default_year_survives_the_edges_that_are_accepted(raw: str) -> None:
+    """받는 범위의 끝 값은 한국 시간으로 옮겨도 넘치지 않는다 — 기본 연도 판정이 돈다."""
+    from cii_platform.services.simulation_clock import current_regulation_year
+
+    year = current_regulation_year(resolve_as_of(datetime.fromisoformat(raw)))
+    assert year in (1, 9999)
 
 
 def test_resolve_as_of_still_normalises_ordinary_values() -> None:

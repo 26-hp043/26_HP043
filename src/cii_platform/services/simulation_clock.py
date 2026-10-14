@@ -70,12 +70,14 @@ def resolve_as_of(as_of: datetime | None) -> datetime:
     if as_of is None:
         return datetime.now(UTC)
     if as_of.tzinfo is None:
-        return as_of.replace(tzinfo=UTC)
+        as_of = as_of.replace(tzinfo=UTC)
     try:
         return to_utc(as_of)
     except ValueError as exc:
         # 쿼리 ``as_of``는 ``Instant``를 지나지 않는다 — 달력 끝의 시각이 여기서
-        # ``OverflowError``로 500이 되던 자리다 (`#2474`).
+        # ``OverflowError``로 500이 되던 자리다 (`#2474`). 시간대 없는 값도 UTC로 간주한 뒤
+        # **같은 범위 검사를 지난다** (`#2487`) — 종전에는 그 갈래가 검사를 건너뛰어, 이어지는
+        # 한국 시간 변환(:func:`current_regulation_year`)에서 넘쳤다.
         raise ValidationError(OUT_OF_RANGE_MESSAGE, field="as_of") from exc
 
 
