@@ -26,12 +26,12 @@ from cii_platform.calc.fleet_reduction import (
 )
 
 VOYAGE = RemainingVoyage(
-    distance_nm=2880.0,
-    fuel_ton=100.0,
-    cf=3.114,
-    speed_kn=12.0,
-    reference_speed_kn=12.0,
-    base_daily_foc_ton=24.0,
+    distance_nm=Decimal(2880),
+    fuel_ton=Decimal(100),
+    cf=Decimal("3.114"),
+    speed_kn=Decimal(12),
+    reference_speed_kn=Decimal(12),
+    base_daily_foc_ton=Decimal(24),
 )
 LEG = PlannedLeg(
     distance_nm=Decimal("2880"), speed_kn=Decimal("12"), fuel_ton_by_type={"HFO": Decimal("100")}
@@ -51,8 +51,9 @@ def test_ten_percent_follows_the_cubic_model():
     """연료는 **속력의 제곱**으로 준다(거리 고정) — 선형이면 절감이 절반으로 잡힌다."""
     result = apply_slowdown([VOYAGE], [LEG], Decimal(10))
 
-    assert result.remaining[0].fuel_ton == pytest.approx(81.0)
-    assert result.remaining[0].speed_kn == pytest.approx(10.8)
+    # Decimal이라 (`#2448`) 정확히 같다 — 0.9² = 0.81.
+    assert result.remaining[0].fuel_ton == Decimal(81)
+    assert result.remaining[0].speed_kn == Decimal("10.8")
     assert result.fuel_saved_ton_by_type["HFO"] == pytest.approx(Decimal(19), abs=Decimal("1e-20"))
 
 
@@ -72,14 +73,17 @@ def test_the_slowdown_matches_the_annual_speed_lever():
     from cii_platform.calc.annual_simulation import _shift_speed
 
     ours = apply_slowdown([VOYAGE], [LEG], Decimal(10)).remaining[0].fuel_ton
-    theirs = _shift_speed([VOYAGE], -1.2)[0].fuel_ton
+    theirs = _shift_speed([VOYAGE], Decimal("-1.2"))[0].fuel_ton
 
-    assert ours == pytest.approx(theirs)
+    # 같은 식 · 같은 입력 · 같은 작업 정밀도(`#2448`)라 정확히 같다.
+    assert ours == theirs
 
 
 def test_voyages_without_a_speed_model_are_skipped_and_counted():
     """제원이 없으면 감속을 적용하지 못한다 — **조용히 0%로 두지 않고** 센다."""
-    bare = RemainingVoyage(distance_nm=2880.0, fuel_ton=100.0, cf=3.114, speed_kn=12.0)
+    bare = RemainingVoyage(
+        distance_nm=Decimal(2880), fuel_ton=Decimal(100), cf=Decimal("3.114"), speed_kn=Decimal(12)
+    )
 
     result = apply_slowdown([bare], [LEG], Decimal(10))
 
@@ -116,12 +120,12 @@ def test_the_speed_floor_also_drives_fuel_and_sailing_days():
         항해일   2,880 ÷ (1.0 × 24) − 2,880 ÷ (1.6 × 24) = 120 − 75 = 45일   (잘리기 전이면 75일)
     """
     slow = RemainingVoyage(
-        distance_nm=2880.0,
-        fuel_ton=100.0,
-        cf=3.114,
-        speed_kn=1.6,
-        reference_speed_kn=12.0,
-        base_daily_foc_ton=24.0,
+        distance_nm=Decimal(2880),
+        fuel_ton=Decimal(100),
+        cf=Decimal("3.114"),
+        speed_kn=Decimal("1.6"),
+        reference_speed_kn=Decimal(12),
+        base_daily_foc_ton=Decimal(24),
     )
     leg = PlannedLeg(
         distance_nm=Decimal("2880"),
@@ -133,7 +137,7 @@ def test_the_speed_floor_also_drives_fuel_and_sailing_days():
 
     speed, floor = Fraction(16, 10), Fraction(1)
     ratio = (floor / speed) ** 2
-    assert result.remaining[0].speed_kn == 1.0
+    assert result.remaining[0].speed_kn == Decimal(1)
     assert Fraction(result.remaining[0].fuel_ton) == 100 * ratio
     assert Fraction(result.fuel_saved_ton_by_type["HFO"]) == 100 * (1 - ratio)
     assert Fraction(result.extra_days) == Fraction(2880) / (floor * 24) - Fraction(2880) / (
@@ -231,12 +235,12 @@ def test_slowed_fuel_equals_route_comparison_at_the_new_speed():
         base_daily_foc_ton=Decimal("24"),
     )
     voyage = RemainingVoyage(
-        distance_nm=2880.0,
-        fuel_ton=float(planned),
-        cf=3.114,
-        speed_kn=12.0,
-        reference_speed_kn=12.0,
-        base_daily_foc_ton=24.0,
+        distance_nm=Decimal(2880),
+        fuel_ton=planned,
+        cf=Decimal("3.114"),
+        speed_kn=Decimal(12),
+        reference_speed_kn=Decimal(12),
+        base_daily_foc_ton=Decimal(24),
     )
     leg = PlannedLeg(
         distance_nm=Decimal("2880"), speed_kn=Decimal("12"), fuel_ton_by_type={"HFO": planned}
@@ -250,7 +254,8 @@ def test_slowed_fuel_equals_route_comparison_at_the_new_speed():
         base_daily_foc_ton=Decimal("24"),
     )
 
-    assert slowed == pytest.approx(float(route_comparison))
+    # 둘 다 Decimal이라 (`#2448`) 작업 정밀도 안에서 그대로 견준다 — 같은 식·같은 입력이다.
+    assert slowed.quantize(Decimal("1e-20")) == route_comparison.quantize(Decimal("1e-20"))
 
 
 def test_publish_cii_truncates_and_quantities_round():

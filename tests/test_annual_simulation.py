@@ -67,24 +67,24 @@ from cii_platform.services.annual_simulation import (
     parameters_schema_version,
 )
 
-CF = 3.114
+CF = Decimal("3.114")
 CAPACITY = Decimal("50000")
 REQUIRED = Decimal("5.0")
 D_VECTOR = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
 SEED = 12345
 
 # 50,000 DWT 벌크선 — 5,000 nm · 400 t 확정, 3,000 nm · 250 t 짜리 잔여 4항차.
-COMPLETED = CompletedTotals(co2_g=400 * CF * 1e6, distance_nm=5000.0)
+COMPLETED = CompletedTotals(co2_g=400 * CF * GRAMS_PER_TON, distance_nm=Decimal(5000))
 
 
 def _voyage(**over) -> RemainingVoyage:
     fields = {
-        "distance_nm": 3000.0,
-        "fuel_ton": 250.0,
+        "distance_nm": Decimal(3000),
+        "fuel_ton": Decimal(250),
         "cf": CF,
-        "speed_kn": 14.0,
-        "reference_speed_kn": 14.0,
-        "base_daily_foc_ton": 30.0,
+        "speed_kn": Decimal(14),
+        "reference_speed_kn": Decimal(14),
+        "base_daily_foc_ton": Decimal(30),
     }
     fields.update(over)
     return RemainingVoyage(**fields)
@@ -128,7 +128,7 @@ def test_deterministic_projection_combines_completed_and_planned():
     """`(completed_M + planned_M) / (completed_W + planned_W)`."""
     result = _project()
 
-    expected_co2 = Decimal(str(COMPLETED.co2_g)) + Decimal(str(4 * 250 * CF * 1e6))
+    expected_co2 = COMPLETED.co2_g + 4 * 250 * CF * GRAMS_PER_TON
     expected_distance = Decimal("5000") + Decimal("12000")
     expected = expected_co2 / (CAPACITY * expected_distance)
     assert float(result.attained_cii) == pytest.approx(float(expected), rel=1e-12)
@@ -142,7 +142,7 @@ def test_deterministic_uses_no_randomness():
 
 def test_planned_only_when_no_completed_record():
     """`AC-F3-005` 인접 — 누적 실적이 없어도 잔여 계획만으로 예측한다."""
-    result = _project(completed=CompletedTotals(co2_g=0.0, distance_nm=0.0))
+    result = _project(completed=CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0)))
     assert result.attained_cii > 0
 
 
@@ -151,15 +151,13 @@ def test_completed_only_when_no_remaining_plan():
     result = _project(remaining=[])
     assert result.planned_distance_nm == Decimal(0)
     # 확정분만 남으므로 그 자체가 연말 값이다.
-    assert float(result.attained_cii) == pytest.approx(
-        COMPLETED.co2_g / (float(CAPACITY) * COMPLETED.distance_nm), rel=1e-12
-    )
+    assert result.attained_cii == COMPLETED.co2_g / (CAPACITY * COMPLETED.distance_nm)
 
 
 def test_zero_total_distance_is_rejected():
     """`PRD §12.8` — `completed_W + planned_W = 0`이면 계산 중단."""
     with pytest.raises(ValueError, match="거리가 없어"):
-        _project(completed=CompletedTotals(co2_g=0.0, distance_nm=0.0), remaining=[])
+        _project(completed=CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0)), remaining=[])
 
 
 def test_non_positive_capacity_is_rejected():
@@ -178,8 +176,8 @@ def _voyage_without_specs(**over) -> RemainingVoyage:
     검사가 실제로는 「전부 빠졌다」를 보고 있었다.
     """
     kwargs = {
-        "distance_nm": 3000.0,
-        "fuel_ton": 250.0,
+        "distance_nm": Decimal(3000),
+        "fuel_ton": Decimal(250),
         "cf": CF,
         "speed_kn": None,
         "reference_speed_kn": None,
@@ -192,9 +190,9 @@ def _voyage_without_specs(**over) -> RemainingVoyage:
 @pytest.mark.parametrize(
     "bad",
     [
-        pytest.param({"distance_nm": 0.0}, id="distance-0"),
-        pytest.param({"fuel_ton": 0.0}, id="fuel-0"),
-        pytest.param({"distance_nm": -1.0}, id="distance-negative"),
+        pytest.param({"distance_nm": Decimal(0)}, id="distance-0"),
+        pytest.param({"fuel_ton": Decimal(0)}, id="fuel-0"),
+        pytest.param({"distance_nm": Decimal(-1)}, id="distance-negative"),
     ],
 )
 def test_deterministic_projection_rejects_non_positive_plan_values(bad):
@@ -211,7 +209,7 @@ def test_deterministic_projection_rejects_non_positive_plan_values(bad):
 def test_monte_carlo_rejects_non_positive_plan_values_before_sampling():
     """결정론과 같은 가드가 Monte Carlo에도 걸린다 — 두 경로가 다른 입력을 받으면 안 된다."""
     with pytest.raises(ValueError, match=r"잔여 항차 0의 계획값이 0 이하"):
-        _simulate(remaining=[_voyage_without_specs(distance_nm=0.0)])
+        _simulate(remaining=[_voyage_without_specs(distance_nm=Decimal(0))])
 
 
 def test_monte_carlo_stops_when_there_is_no_distance_at_all():
@@ -220,7 +218,7 @@ def test_monte_carlo_stops_when_there_is_no_distance_at_all():
     결정론 경로의 같은 가드는 검사가 있었고 Monte Carlo 쪽 줄은 CI에서 실행된 적이 없다.
     가드가 빠지면 0으로 나눈 `nan`이 등급 확률로 집계된다.
     """
-    nothing = CompletedTotals(co2_g=0.0, distance_nm=0.0)
+    nothing = CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0))
     with pytest.raises(ValueError, match=r"completed_W \+ planned_W = 0"):
         _simulate(completed=nothing, remaining=[])
 
@@ -404,20 +402,20 @@ def test_percentiles_are_ordered():
 
 def test_more_fuel_makes_cii_worse():
     """CII는 **낮을수록 좋다.** 연료가 늘면 값이 커져야 한다."""
-    heavy = [_voyage(fuel_ton=300.0) for _ in range(4)]
+    heavy = [_voyage(fuel_ton=Decimal(300)) for _ in range(4)]
     assert _project(remaining=heavy).attained_cii > _project().attained_cii
 
 
 def test_more_distance_at_same_intensity_does_not_worsen():
     """같은 강도로 더 가는 것은 CII를 악화시키지 않는다 — 분자·분모가 함께 는다."""
-    longer = [_voyage(distance_nm=6000.0, fuel_ton=500.0) for _ in range(4)]
+    longer = [_voyage(distance_nm=Decimal(6000), fuel_ton=Decimal(500)) for _ in range(4)]
     base = _project().attained_cii
     # 확정분과의 혼합비만 달라지므로 큰 차이가 나면 안 된다.
     assert abs(_project(remaining=longer).attained_cii - base) < base * Decimal("0.1")
 
 
 def test_worse_plan_lowers_the_target_probability():
-    heavy = [_voyage(fuel_ton=320.0) for _ in range(4)]
+    heavy = [_voyage(fuel_ton=Decimal(320)) for _ in range(4)]
     assert (
         _simulate(remaining=heavy).target_success_probability
         < _simulate().target_success_probability
@@ -470,7 +468,7 @@ def test_runs_are_clamped_not_refused():
 
 
 def test_no_completed_record_is_reported():
-    result = _simulate(completed=CompletedTotals(co2_g=0.0, distance_nm=0.0))
+    result = _simulate(completed=CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0)))
     assert WARNING_NO_COMPLETED in result.warnings
 
 
@@ -540,9 +538,12 @@ def test_per_voyage_sampling_not_a_single_multiplier():
 
     합계에 배수를 한 번만 곱하면 항차 40건짜리와 1건짜리가 같은 변동폭을 갖는다.
     """
-    one = _simulate(remaining=[_voyage(distance_nm=12000.0, fuel_ton=1000.0)], runs=5000)
+    one = _simulate(
+        remaining=[_voyage(distance_nm=Decimal(12000), fuel_ton=Decimal(1000))], runs=5000
+    )
     many = _simulate(
-        remaining=[_voyage(distance_nm=300.0, fuel_ton=25.0) for _ in range(40)], runs=5000
+        remaining=[_voyage(distance_nm=Decimal(300), fuel_ton=Decimal(25)) for _ in range(40)],
+        runs=5000,
     )
 
     assert (many.p90 - many.p10) < (one.p90 - one.p10)
@@ -623,19 +624,20 @@ def test_distance_lever_moves_fuel_with_distance():
     움직이면 잔여분만 있을 때 **정확히 같다.**
     거리만 움직이도록 바뀌면 두 값이 약 10% 벌어져 여기서 실패한다.
     """
-    down, up = _distance_rows(CompletedTotals(co2_g=0.0, distance_nm=0.0))
+    down, up = _distance_rows(CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0)))
     assert abs(down - up) < Decimal("1e-9")
 
 
-def _completed_at(intensity_ratio: float, distance_nm: float) -> CompletedTotals:
+def _completed_at(intensity_ratio: str, distance_nm: int) -> CompletedTotals:
     """잔여분과 강도비가 ``intensity_ratio``인 확정 실적."""
-    remaining_intensity = (4 * 250.0 * CF * 1e6) / (4 * 3000.0)
+    remaining_intensity = (4 * 250 * CF * GRAMS_PER_TON) / (4 * 3000)
     return CompletedTotals(
-        co2_g=remaining_intensity * intensity_ratio * distance_nm, distance_nm=distance_nm
+        co2_g=remaining_intensity * Decimal(intensity_ratio) * distance_nm,
+        distance_nm=Decimal(distance_nm),
     )
 
 
-@pytest.mark.parametrize("completed_distance", [0.0, 1000.0, 5000.0, 200_000.0])
+@pytest.mark.parametrize("completed_distance", [0, 1000, 5000, 200_000])
 def test_distance_lever_is_exactly_zero_when_intensities_match(completed_distance):
     """⚠️ 강도가 같으면 **혼합비와 무관하게 정확히 0**이다 (#756 · 2026-09-13 정정).
 
@@ -654,7 +656,7 @@ def test_distance_lever_is_exactly_zero_when_intensities_match(completed_distanc
     문구가 무조건으로 적혀 있었고, 실적이 계획에서 벌어져 이 행이 움직이는 날 화면이
     사실과 다른 말을 하게 된다.
     """
-    down, up = _distance_rows(_completed_at(1.0, completed_distance))
+    down, up = _distance_rows(_completed_at("1.0", completed_distance))
     assert abs(down - up) < Decimal("1e-9")
 
 
@@ -665,7 +667,7 @@ def test_distance_lever_moves_when_intensities_diverge():
     늘릴수록 연말 CII가 나빠진다. 「거리 행은 언제나 무의미하다」가 아니라는 것이
     여기서 고정된다.
     """
-    down, up = _distance_rows(_completed_at(0.7, 5000.0))
+    down, up = _distance_rows(_completed_at("0.7", 5000))
     assert down != up
     # 잔여가 상대적으로 더 더러우므로 거리를 늘리면(+5%) 값이 커진다.
     assert up > down
@@ -776,7 +778,7 @@ def test_sensitivity_always_warns_about_interaction():
 def test_sensitivity_survives_a_lever_that_breaks_the_math():
     """항차 1건에서 -1이면 거리가 0이 된다 — 그 줄만 건너뛰고 나머지는 낸다."""
     entries, _ = analyze_sensitivity(
-        completed=CompletedTotals(co2_g=0.0, distance_nm=0.0),
+        completed=CompletedTotals(co2_g=Decimal(0), distance_nm=Decimal(0)),
         remaining=[_voyage()],
         transport_capacity=CAPACITY,
         required_cii=REQUIRED,
@@ -1057,7 +1059,7 @@ def _cut_allowed_m(target: str) -> Fraction:
 
 
 def _cut_case(fuel_ton: int, target: str):
-    remaining = [_voyage(fuel_ton=float(fuel_ton)) for _ in range(4)]
+    remaining = [_voyage(fuel_ton=Decimal(fuel_ton)) for _ in range(4)]
     projection = _project(remaining=remaining)
     return _cut(projection=projection, remaining=remaining, target_rating=target)
 
@@ -1126,7 +1128,7 @@ def test_fuel_conversion_keeps_the_planned_fuel_mix():
     """
     projection = _project()
     plan = _cut(target_rating="A")
-    planned_fuel = sum(Decimal(str(v.fuel_ton)) for v in REMAINING)
+    planned_fuel = sum(v.fuel_ton for v in REMAINING)
 
     # ⚠️ 기대값을 **같은 자릿수로 맞춰** 비교한다. 함수는 `@layer1_context`(작업 정밀도
     # 50자리 이상) 안에서 나누고 이 검사는 기본 컨텍스트(28자리)라, 값이 같아도 마지막
@@ -1152,7 +1154,7 @@ def test_unreachable_target_is_flagged():
 
     그 경우 「n톤 줄이세요」는 거짓이 된다 — 확정 실적만으로 이미 넘겼기 때문이다.
     """
-    heavy = CompletedTotals(co2_g=4000 * CF * 1e6, distance_nm=5000.0)
+    heavy = CompletedTotals(co2_g=4000 * CF * GRAMS_PER_TON, distance_nm=Decimal(5000))
     projection = _project(completed=heavy)
     plan = _cut(projection=projection, target_rating="A")
 
@@ -1241,7 +1243,7 @@ def test_feedback_changes_only_the_fuel():
     [before] = REMAINING[:1]
     [after] = apply_feedback([before], Decimal("1.1"))
 
-    assert after.fuel_ton == pytest.approx(before.fuel_ton * 1.1)
+    assert after.fuel_ton == before.fuel_ton * Decimal("1.1")
     assert after.distance_nm == before.distance_nm
     assert after.speed_kn == before.speed_kn
     assert after.base_daily_foc_ton == before.base_daily_foc_ton
@@ -1262,7 +1264,7 @@ def test_fuel_cf_alternative_scales_with_cf():
     """
     completed = CompletedTotals(co2_g=100_000 * GRAMS_PER_TON, distance_nm=1_000)
     remaining = [
-        RemainingVoyage(distance_nm=1_000, fuel_ton=100.0, cf=3.114),
+        RemainingVoyage(distance_nm=Decimal(1_000), fuel_ton=Decimal(100), cf=Decimal("3.114")),
     ]
 
     base = fuel_cf_alternative_projection(
@@ -1277,9 +1279,7 @@ def test_fuel_cf_alternative_scales_with_cf():
     assert base.co2_change_ratio < 0, "더 낮은 CF인데 총 CO₂가 늘었다"
     # 잔여 연료 100t × (2.750 − 3.114) × 10⁶ g — 확정분에 대한 비율로 나뉜다.
     planned_delta_g = Decimal("100") * (Decimal("2.750") - Decimal("3.114")) * GRAMS_PER_TON
-    total_before_g = Decimal("100") * Decimal("3.114") * GRAMS_PER_TON + Decimal(
-        str(completed.co2_g)
-    )
+    total_before_g = Decimal("100") * Decimal("3.114") * GRAMS_PER_TON + completed.co2_g
     assert abs(base.co2_change_ratio - planned_delta_g / total_before_g) < Decimal("1e-12")
 
 

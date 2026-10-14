@@ -447,7 +447,7 @@ def _year_end_drivers(
     elapsed: list[RemainingVoyage] = []
     if contribution is not None:
         # ⑶의 조립(`_inputs_from_snapshot`)과 같은 모양이다 — 연료를 CO₂ 기여로 합쳐
-        # 유효 CF 하나로 만들고(작업 정밀도 안 · `#2254`) 마지막에 float로 내린다.
+        # 유효 CF 하나로 만든다(작업 정밀도 안 · `#2254`). Decimal 그대로 넘긴다 (`#2448`).
         fuel_ton, cf_eff = mass_weighted_cf(
             (ton, cf_by_fuel[code]) for code, ton in contribution.fuel_uses
         )
@@ -455,11 +455,7 @@ def _year_end_drivers(
             # 종전에는 `co2 / fuel_ton`이 0 나눗셈으로 예외를 냈다 — 같은 종류로 유지한다.
             raise InvalidOperation("진행 중 항차 경과분의 연료 합이 0 이하다")
         elapsed.append(
-            RemainingVoyage(
-                distance_nm=float(contribution.distance_nm),
-                fuel_ton=float(fuel_ton),
-                cf=float(cf_eff),
-            )
+            RemainingVoyage(distance_nm=contribution.distance_nm, fuel_ton=fuel_ton, cf=cf_eff)
         )
 
     current_rows = [

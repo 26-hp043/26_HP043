@@ -23,6 +23,12 @@ bit-exact 재현이 안 된다.**
 않는 값(수송능력·연도에 의존)이라 루프 안에서 다시 만들 이유가 없고, Layer 1이
 확정한 값을 그대로 쓰는 편이 결정론 결과와 어긋나지 않는다.
 
+**입력도 Decimal로 받는다** (`#2448`). :class:`RemainingVoyage`·:class:`CompletedTotals`는
+십진수를 들고, float 변환은 :func:`simulate_annual` 진입점 **한 곳**에서만 한다
+(``TECH_SPEC §1.1`` [ORACLE-S-2 정정]). 종전에는 서비스가 유효 CF·연료량을 float로 내려
+넘기고 결정론 계산이 그것을 ``Decimal(str(float))``로 다시 읽어, 여섯째 자리가 드물게
+참값과 1 어긋났다(`9.133949` ↔ 참값 `9.133950`).
+
 ## 속도는 표본추출하지 않는다 — 정본이 그렇게 정했다 (``#1346``)
 
 이 모듈은 **거리·연료만 표본추출한다.** CII는 ``M / (transport_capacity × Dt)``이고 **속도는 이 식에
@@ -121,8 +127,9 @@ PROBABILITY_DIGITS = 4
 
 #: ``PRD §12.4.1`` [ORACLE 삼각분포 가드] — 속도 하한. 계획 1.5kn이면 min이 0.5kn이
 #: 되므로 floor를 적용한다.
-#: 정의처는 ``fuel_estimator.MIN_SPEED_KN``(Decimal)이다 — float 경로는 거기서 파생한다 (#2098).
-MIN_SPEED_KN = float(_MIN_SPEED_KN_DECIMAL)
+#: 정의처는 ``fuel_estimator.MIN_SPEED_KN``(Decimal)이다 (#2098). 속력이 Decimal로 오므로
+#: (`#2448`) float 사본을 두지 않고 그 객체를 그대로 쓴다.
+MIN_SPEED_KN = _MIN_SPEED_KN_DECIMAL
 
 #: 톤 → 그램. ``PRD §3.3.1``의 ``M`` 단위.
 GRAMS_PER_TON = 1_000_000
@@ -176,15 +183,20 @@ class RemainingVoyage:
 
     ``cf``를 항차마다 받는 이유는 항차별 연료 종류가 다를 수 있기 때문이다
     (``PRD §12.4.1`` — 연료 종류는 MVP에서 고정이지만 항차마다 다를 수 있다).
+
+    **값은 전부 Decimal이다** (`#2448`). 결정론 계산이 이 값을 그대로 쓰고, Monte Carlo는
+    :func:`simulate_annual` 진입점에서 float로 내린다. 속력·제원까지 Decimal인 것은
+    :func:`_shift_speed`가 속력 비로 ``fuel_ton``을 다시 내기 때문이다 — 한쪽만 float면
+    Decimal과 섞여 곱할 수 없다.
     """
 
-    distance_nm: float
-    fuel_ton: float
-    cf: float
+    distance_nm: Decimal
+    fuel_ton: Decimal
+    cf: Decimal
     #: 민감도 분석의 속도 지렛대에만 쓴다. 없으면 그 항목을 건너뛴다.
-    speed_kn: float | None = None
-    reference_speed_kn: float | None = None
-    base_daily_foc_ton: float | None = None
+    speed_kn: Decimal | None = None
+    reference_speed_kn: Decimal | None = None
+    base_daily_foc_ton: Decimal | None = None
     #: 이 줄이 어느 항차에서 왔는가 (`#1671`). **엔진은 읽지 않는다** — 누적 CII 추이가
     #: 잔여 항차를 도착 예정 순으로 한 건씩 더해 가며 점을 찍을 때 점과 항차를 잇는
     #: 이름표다. 스냅샷·``input_hash``의 재료는 ``voyages_json``이라 이 필드가 생겨도
@@ -194,10 +206,10 @@ class RemainingVoyage:
 
 @dataclass(frozen=True)
 class CompletedTotals:
-    """확정·완료 항차의 누계. **변하지 않는다** (``PRD §12.4.1``)."""
+    """확정·완료 항차의 누계. **변하지 않는다** (``PRD §12.4.1``). Decimal이다 (`#2448`)."""
 
-    co2_g: float
-    distance_nm: float
+    co2_g: Decimal
+    distance_nm: Decimal
 
 
 # ─── 출력 ────────────────────────────────────────────────────────────────────
@@ -363,18 +375,19 @@ def project_deterministic(
     ``W = capacity × distance``이고 capacity가 선박 상수라 분모에서 한 번만 곱한다.
 
     **난수를 쓰지 않는다.** 같은 입력이면 언제나 같은 값이므로 Monte Carlo와 달리
-    ``Decimal``로 계산해 표시·저장값으로 그대로 쓴다.
+    ``Decimal``로 계산해 표시·저장값으로 그대로 쓴다. 입력도 Decimal 그대로 쓴다 —
+    float를 거쳐 ``Decimal(str(float))``로 되읽던 종전 경로는 `#2448`에서 없앴다.
     """
     _reject_non_positive_capacity_or_required(transport_capacity, required_cii)
     _reject_non_positive_plans(remaining)
 
-    completed_co2 = Decimal(str(completed.co2_g))
-    completed_distance = Decimal(str(completed.distance_nm))
+    completed_co2 = completed.co2_g
+    completed_distance = completed.distance_nm
     planned_co2 = sum(
-        (Decimal(str(v.fuel_ton)) * Decimal(str(v.cf)) * Decimal(GRAMS_PER_TON) for v in remaining),
+        (v.fuel_ton * v.cf * Decimal(GRAMS_PER_TON) for v in remaining),
         Decimal(0),
     )
-    planned_distance = sum((Decimal(str(v.distance_nm)) for v in remaining), Decimal(0))
+    planned_distance = sum((v.distance_nm for v in remaining), Decimal(0))
 
     total_distance = completed_distance + planned_distance
     if total_distance <= 0:
@@ -470,6 +483,7 @@ def feedback_factor(pairs: Sequence[CompletedPair]) -> FeedbackFactor:
     return FeedbackFactor(factor=actual_intensity / planned_intensity, sample_size=len(usable))
 
 
+@layer1_context
 def apply_feedback(remaining: Sequence[RemainingVoyage], factor: Decimal) -> list[RemainingVoyage]:
     """잔여 계획의 **연료만** 계수로 보정한다. 거리·속력·제원은 그대로다.
 
@@ -479,14 +493,11 @@ def apply_feedback(remaining: Sequence[RemainingVoyage], factor: Decimal) -> lis
     기준 일일 연료가 바뀌었다」로 읽히는데, 바뀐 것은 제원이 아니라 계획의 신뢰도다.
 
     새 목록을 돌려준다 — 원본을 고치면 같은 실행 안에서 보정 전 값을 다시 볼 수 없다.
+
+    곱은 작업 정밀도 안에서 한다 (`#2448`) — 결과가 Decimal 그대로 결정론 계산에 들어가므로
+    호출 스레드의 정밀도(기본 28)로 곱하면 그 자리에서 깎인다(`TECH_SPEC §1.2.1`).
     """
-    return [
-        replace(
-            v,
-            fuel_ton=float(Decimal(str(v.fuel_ton)) * factor),
-        )
-        for v in remaining
-    ]
+    return [replace(v, fuel_ton=v.fuel_ton * factor) for v in remaining]
 
 
 @layer1_context
@@ -547,7 +558,7 @@ def backsolve_required_cut(
     allowed = target_cii * total_w - projection.completed_co2_g
     required_cut = max(Decimal(0), projection.planned_co2_g - allowed)
 
-    planned_fuel_ton = sum((Decimal(str(v.fuel_ton)) for v in remaining), Decimal(0))
+    planned_fuel_ton = sum((v.fuel_ton for v in remaining), Decimal(0))
     if projection.planned_co2_g > 0 and planned_fuel_ton > 0:
         cut_ton: Decimal | None = planned_fuel_ton * (required_cut / projection.planned_co2_g)
     else:
@@ -681,6 +692,14 @@ def simulate_annual(
     ``(runs, voyages)`` 배열로 한 번에 뽑는다 — 파이썬 루프로 돌면 5,000회 × 항차 수
     만큼 인터프리터를 오가고, ``PERF-004``(p95 < 3초)를 맞출 수 없다.
 
+    ## float 변환은 여기서만 한다
+
+    ``TECH_SPEC §1.1`` [ORACLE-S-2 정정] — Layer 1↔Layer 2 경계의 Decimal→float 변환은 명시적
+    변환 지점에서만 한다. 입력은 Decimal로 받고(`#2448`) 이 함수 안에서 ``float()``로 내린다.
+    종전에는 서비스가 미리 float로 내려 넘겼는데, 그 값은 결정론 계산에도 그대로 흘러 들어갔다.
+    ``float(Decimal)``은 ``float(str)``과 같은 값이라 Monte Carlo 입력은 변환 자리를 옮겨도
+    비트 단위로 같다.
+
     :param seed: ``PRD §12.4.3`` — 동일 seed·동일 입력이면 동일 결과여야 한다.
     :raises ValueError: 목표 등급이 E이거나(``§12.8``) 잔여 항차가 상한을 넘을 때.
     """
@@ -723,12 +742,15 @@ def simulate_annual(
     )
 
     capacity = float(transport_capacity)
+    # Layer 1 → Layer 2 변환 지점. 확정 누계도 여기서 내린다.
+    completed_co2_g = float(completed.co2_g)
+    completed_distance_nm = float(completed.distance_nm)
     rng = create_rng(seed)
 
     if remaining:
-        plan_distance = np.array([v.distance_nm for v in remaining], dtype=np.float64)
-        plan_fuel = np.array([v.fuel_ton for v in remaining], dtype=np.float64)
-        cf = np.array([v.cf for v in remaining], dtype=np.float64)
+        plan_distance = np.array([float(v.distance_nm) for v in remaining], dtype=np.float64)
+        plan_fuel = np.array([float(v.fuel_ton) for v in remaining], dtype=np.float64)
+        cf = np.array([float(v.cf) for v in remaining], dtype=np.float64)
 
         # 계획값이 항차마다 다르므로 bounds도 배열이다.
         size = (runs, len(remaining))
@@ -741,11 +763,11 @@ def simulate_annual(
         planned_co2 = np.zeros(runs, dtype=np.float64)
         planned_distance = np.zeros(runs, dtype=np.float64)
 
-    total_distance = completed.distance_nm + planned_distance
+    total_distance = completed_distance_nm + planned_distance
     if np.any(total_distance <= 0):
         raise ValueError("completed_W + planned_W = 0 — 거리가 없어 CII를 낼 수 없습니다.")
 
-    attained = (completed.co2_g + planned_co2) / (capacity * total_distance)
+    attained = (completed_co2_g + planned_co2) / (capacity * total_distance)
 
     index = _classify(attained, bounds)
     counts = np.bincount(index, minlength=len(RATINGS))
@@ -824,18 +846,19 @@ def rng_metadata(seed: int) -> dict[str, object]:
 
 
 # ─── 민감도 분석 (PRD §12.6) ─────────────────────────────────────────────────
+#
+# 지렛대 함수 셋(`_shift_fuel` · `_shift_distance` · `_shift_speed`)과 `apply_feedback`은
+# Decimal 계획값을 곱해 새 Decimal 계획값을 만든다 (`#2448`). 결과가 결정론 계산에 그대로
+# 들어가므로 **작업 정밀도 안에서** 곱한다 — 데코레이터가 없으면 호출 스레드의 기본 정밀도
+# (28)로 깎인 값이 50자리 계산의 입력이 된다(`TECH_SPEC §1.2.1` · `#2254`와 같은 구조).
 
 
-def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: float):
-    return [
-        replace(
-            v,
-            fuel_ton=v.fuel_ton * factor,
-        )
-        for v in remaining
-    ]
+@layer1_context
+def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: Decimal):
+    return [replace(v, fuel_ton=v.fuel_ton * factor) for v in remaining]
 
 
+@layer1_context
 def fuel_cf_alternative_projection(
     *,
     completed: CompletedTotals,
@@ -855,13 +878,7 @@ def fuel_cf_alternative_projection(
     만큼 전체 대비 변화율은 잔여 비중에 따라 작아진다. 「CO₂가 얼마나 주나」를
     연말 규모로 답하는 것이 이 지렛대의 목적이다.
     """
-    shifted = [
-        replace(
-            v,
-            cf=float(alternative_cf),
-        )
-        for v in remaining
-    ]
+    shifted = [replace(v, cf=alternative_cf) for v in remaining]
     projection = project_deterministic(
         completed=completed,
         remaining=shifted,
@@ -891,7 +908,8 @@ def fuel_cf_alternative_projection(
     )
 
 
-def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
+@layer1_context
+def _shift_distance(remaining: Sequence[RemainingVoyage], factor: Decimal):
     """거리와 연료를 **같은 배율로** 움직인다 (``PRD §12.6`` 각주 · `#756`).
 
     ## 이 지렛대가 실제로 재는 것
@@ -917,11 +935,7 @@ def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
     벌어지면 이 행도 함께 움직인다.
     """
     return [
-        replace(
-            v,
-            distance_nm=v.distance_nm * factor,
-            fuel_ton=v.fuel_ton * factor,
-        )
+        replace(v, distance_nm=v.distance_nm * factor, fuel_ton=v.fuel_ton * factor)
         for v in remaining
     ]
 
@@ -940,7 +954,8 @@ def _has_speed_model(v: RemainingVoyage) -> bool:
     )
 
 
-def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
+@layer1_context
+def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: Decimal):
     """속도를 바꾸고 **cubic model로 연료를 다시 낸다** (``TECH_SPEC §4.1``).
 
     ``fuel ∝ speed² × distance``다(``daily_foc × (v/v_ref)³ × distance/(v·24)``).
@@ -957,15 +972,10 @@ def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
         if not _has_speed_model(v):
             shifted.append(v)
             continue
+        # `calc/fleet_reduction.apply_slowdown`과 같은 식·같은 하한이다 (#513 · #2448).
         new_speed = max(v.speed_kn + delta_kn, MIN_SPEED_KN)
         ratio = (new_speed / v.speed_kn) ** 2
-        shifted.append(
-            replace(
-                v,
-                fuel_ton=v.fuel_ton * ratio,
-                speed_kn=new_speed,
-            )
-        )
+        shifted.append(replace(v, fuel_ton=v.fuel_ton * ratio, speed_kn=new_speed))
     return shifted
 
 
@@ -991,12 +1001,12 @@ def analyze_sensitivity(
     # ``speed_minus_1kn``·``fuel_minus_10pct``로 고정이라(``API_SPEC §6.1``)
     # 운영자가 폭을 바꾸면 **키가 거짓말을 한다.**
     levers: list[tuple[str, str, Sequence[RemainingVoyage]]] = [
-        ("fuel", "-10%", _shift_fuel(remaining, 0.90)),
-        ("fuel", "+10%", _shift_fuel(remaining, 1.10)),
-        ("distance", "-5%", _shift_distance(remaining, 0.95)),
-        ("distance", "+5%", _shift_distance(remaining, 1.05)),
-        ("speed", "-1kn", _shift_speed(remaining, -1.0)),
-        ("speed", "+1kn", _shift_speed(remaining, +1.0)),
+        ("fuel", "-10%", _shift_fuel(remaining, Decimal("0.90"))),
+        ("fuel", "+10%", _shift_fuel(remaining, Decimal("1.10"))),
+        ("distance", "-5%", _shift_distance(remaining, Decimal("0.95"))),
+        ("distance", "+5%", _shift_distance(remaining, Decimal("1.05"))),
+        ("speed", "-1kn", _shift_speed(remaining, Decimal(-1))),
+        ("speed", "+1kn", _shift_speed(remaining, Decimal(1))),
     ]
 
     # `§12.6` 「잔여 항차 1개 취소/추가」 — 항차가 있을 때만 성립한다.

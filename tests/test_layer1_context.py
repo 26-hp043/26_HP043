@@ -1264,13 +1264,16 @@ async def test_ytd_total_fuel_at_a_transport_boundary_is_sent_as_the_exact_value
 # ─── #2254 유효 CF — 연료 질량가중 평균을 작업 정밀도 안에서 낸다 ─────────────────
 #
 # 세 자리(`_inputs_from_snapshot` · `_year_end_drivers` · `_effective_cf`)가 `Σ(톤×CF)/Σ톤`을
-# 호출 스레드의 정밀도로 내고 있었다. 그 몫은 `float`로 내려 `RemainingVoyage`에 담기므로
-# 응답 값은 달라지지 않지만(`float`이 17자리라 28자리 꼬리가 사라진다), 계산이 호출 경로의
-# 정밀도에 매달려 있다는 점이 `TECH_SPEC §1.2.1`의 「파생값 계산도 적용 지점 안에서」와 어긋난다.
-# 호출 스레드를 6자리로 좁히면 데코레이터가 빠진 구현은 `float`에도 6자리만 남아 드러난다.
+# 호출 스레드의 정밀도로 내고 있었다. `#2254` 당시에는 그 몫을 `float`로 내려 `RemainingVoyage`에
+# 담았고, `#2448`부터는 Decimal 그대로 담아 결정론 계산이 끝까지 쓴다 — 그래서 호출 스레드를
+# 6자리로 좁히면 데코레이터가 빠진 구현은 유효 CF 자체가 6자리로 깎여 드러난다
+# (`TECH_SPEC §1.2.1` 「파생값 계산도 적용 지점 안에서」).
 
 _CF_ROW_FUELS = [("HFO", "100"), ("LNG", "200")]
 _CF_EXACT = Fraction("861.4") / 300  # (100×3.114 + 200×2.75) / 300 — 비종결 소수
+with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+    #: 같은 값을 작업 정밀도로 나눈 것 — `RemainingVoyage.cf`에 담기는 그대로다 (`#2448`).
+    _CF_EXACT_WORKING = Decimal("861.4") / Decimal(300)
 
 
 def _narrowed(fn, *args, **kwargs):
@@ -1317,14 +1320,14 @@ def test_snapshot_effective_cf_is_derived_inside_the_context():
     row = _snapshot_row([("HFO", "100", "3.114"), ("LNG", "200", "2.75")])
     _c, default, _w = _inputs_from_snapshot([row], vessel)
     _c, narrowed, _w = _narrowed(_inputs_from_snapshot, [row], vessel)
-    assert narrowed[0].cf == default[0].cf == float(_CF_EXACT)
-    assert narrowed[0].fuel_ton == default[0].fuel_ton == 300.0
+    assert narrowed[0].cf == default[0].cf == _CF_EXACT_WORKING
+    assert narrowed[0].fuel_ton == default[0].fuel_ton == Decimal(300)
 
 
 def test_year_end_driver_effective_cf_is_derived_inside_the_context(monkeypatch):
     from cii_platform.services import cii_current
 
-    seen: list[tuple[float, float]] = []
+    seen: list[tuple[Decimal, Decimal]] = []
 
     class _Stop(Exception):
         pass
@@ -1369,7 +1372,7 @@ def test_year_end_driver_effective_cf_is_derived_inside_the_context(monkeypatch)
     default = run()
     with localcontext(prec=6, rounding=ROUND_HALF_UP):
         narrowed = run()
-    assert narrowed == default == [(300.0, float(_CF_EXACT))]
+    assert narrowed == default == [(Decimal(300), _CF_EXACT_WORKING)]
 
 
 def test_voyage_effective_cf_is_derived_inside_the_context():
