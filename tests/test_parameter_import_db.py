@@ -93,7 +93,11 @@ def client(migrated_db, app_fresh_engine, monkeypatch: pytest.MonkeyPatch):
         assert resp.status_code == 201, resp.text
         # 최초 관리자는 인증을 마친 뒤에 관리자가 된다 (#2108) — 인증 링크를 눌러 올린다.
         token = asyncio.run(issue_email_verify_token(office))
-        confirmed = c.post(f"{API_V1_PREFIX}/auth/verify-email/confirm", json={"token": token})
+        confirmed = c.post(
+            f"{API_V1_PREFIX}/auth/verify-email/confirm",
+            json={"token": token},
+            headers={"X-CSRF-Token": c.cookies["csrf"]},
+        )
         assert confirmed.status_code == 200, confirmed.text
         yield c
 

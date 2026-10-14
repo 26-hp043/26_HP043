@@ -99,7 +99,10 @@ _BASE_PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/v1/auth/tour-login",
         # 메일 링크로 진입하므로 세션이 없다 (#408 · `API_SPEC §1.2`).
         "/api/v1/auth/verify-email/request",
-        "/api/v1/auth/verify-email/confirm",
+        # ⚠️ `/auth/verify-email/confirm`은 여기에 없다 (#2327) — 인증 확인은 **그 계정으로
+        # 로그인한 세션**에서만 받는다. 토큰만으로 받으면 비밀번호는 먼저 가입한 사람이,
+        # 메일함은 주인이 가진 계정이 「인증됨」이 되고, 최초 관리자 주소면 관리자가 된다.
+        # 목록에 없으면 세션이 없을 때 미들웨어가 라우트 전에 401로 끊어 토큰도 그대로다.
         "/api/v1/auth/password-reset/request",
         "/api/v1/auth/password-reset/confirm",
     }

@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router'
 import { AuthAlert, AuthShell } from '../features/auth/AuthShell'
 import {
   AuthRequestError,
   LOGIN_PATH,
+  probeSessionOnce,
+  useAuthResolved,
   useAuthUser,
 } from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
@@ -28,12 +30,28 @@ import { verifyOnce } from './verifyEmailRequests'
  * 받아 **성공한 인증이 실패 화면으로 덮였다.** 토큰별로 진행 중·끝난 요청을 기억해 두 번째
  * 효과가 **같은 요청의 결과를 받게** 한다. 실패한 요청은 기억에서 지운다 — 연결이 끊겨 실패한
  * 링크를 다시 열었을 때 옛 실패가 되살아나면 안 된다.
+ *
+ * ## 로그인한 세션에서만 보낸다 (`#2327`)
+ *
+ * 서버는 인증 확인을 **그 계정으로 로그인한 세션**에서만 받는다(`API_SPEC §1.2`). 그래서
+ * 세션을 먼저 확인하고, 없으면 토큰을 보내지 않고 로그인으로 보낸다. `next`에 지금 주소를
+ * 토큰째 실어, 로그인하면 이 화면으로 돌아와 그대로 이어 간다. 가입한 브라우저에서 링크를
+ * 여는 평소 흐름은 세션이 이미 있어 달라지지 않는다.
  */
 
 export function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
   const user = useAuthUser()
+  const resolved = useAuthResolved()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (token) probeSessionOnce()
+  }, [token])
+
+  // 세션이 확인된 뒤에만 토큰을 보낸다 — 비인증이면 아래에서 로그인으로 보낸다.
+  const ready = Boolean(token) && resolved && user !== null
 
   const [state, setState] = useState<'idle' | 'working' | 'ok' | 'failed'>(
     token ? 'working' : 'idle',
@@ -41,7 +59,7 @@ export function VerifyEmailPage() {
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!token) return
+    if (!token || !ready) return
     let alive = true
 
     verifyOnce(token)
@@ -63,7 +81,7 @@ export function VerifyEmailPage() {
     return () => {
       alive = false
     }
-  }, [token])
+  }, [token, ready])
 
   if (!token) {
     return (
@@ -79,14 +97,18 @@ export function VerifyEmailPage() {
     )
   }
 
+  if (resolved && !user) {
+    const next = `${location.pathname}${location.search}`
+    return <Navigate to={`${LOGIN_PATH}?next=${encodeURIComponent(next)}`} replace />
+  }
+
   return (
     <AuthShell
       title="이메일 인증"
       footer={
-        state === 'ok' ? (
-          <Link to={user ? DEFAULT_PATH : LOGIN_PATH}>
-            {user ? '대시보드로 이동' : '로그인하기'}
-          </Link>
+        // 결과는 로그인한 세션에서만 나온다(#2327) — 확인 중에도 돌아갈 곳은 앱이다.
+        user ? (
+          <Link to={DEFAULT_PATH}>대시보드로 이동</Link>
         ) : (
           <Link to={LOGIN_PATH}>로그인으로 돌아가기</Link>
         )
@@ -104,7 +126,7 @@ export function VerifyEmailPage() {
         <>
           <AuthAlert tone="error">{message}</AuthAlert>
           <p className="auth-description" style={{ marginTop: 'var(--spacing-lg)' }}>
-            로그인하시면 상단 배너에서 인증 메일을 다시 받을 수 있습니다.
+            상단 배너에서 인증 메일을 다시 받을 수 있습니다.
           </p>
         </>
       ) : null}
