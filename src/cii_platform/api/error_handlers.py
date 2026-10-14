@@ -252,6 +252,22 @@ _FRAMEWORK_DEFAULT_MESSAGES: dict[int, str] = {
 #: 위 표에 없는 status(미등록 status)의 범용 문구 (#182 §1.4 정책 노트).
 _HTTP_ERROR_MESSAGE = "요청을 처리할 수 없습니다."
 
+#: 프레임워크가 **문자열 detail로** 던지는 영어 문장의 머리 → 한국어 (#2517). status phrase가
+#: 아니라 아래 :func:`_is_framework_default`로는 걸리지 않고, 「라우트가 넣은 문구」로 보존돼
+#: 영어 그대로 나갔다. 깨진 multipart를 FastAPI(``"There was an error parsing the body"`` — 예:
+#: 아주 긴 파일명)와 Starlette(``MultiPartException`` → ``HTTPException(400, exc.message)``)가
+#: 400으로 끝낼 때다. Starlette 문장은 숫자가 들어가 머리로 맞춘다.
+_BODY_PARSE_MESSAGE = "요청 본문을 읽을 수 없습니다. 파일과 형식을 확인해 주세요."
+_FRAMEWORK_DETAIL_PREFIXES: tuple[str, ...] = (
+    "There was an error parsing the body",
+    "Missing boundary in multipart",
+    "Too many files.",
+    "Too many fields.",
+    "Part exceeded maximum size",
+    "Field exceeded maximum size",
+    'The Content-Disposition header field "name" must be provided',
+)
+
 
 def _resolve_error_code(status: int) -> str:
     """HTTPException의 status를 error_code로 변환한다 (#183).
@@ -295,6 +311,8 @@ def _resolve_message(exc: StarletteHTTPException) -> str:
     if _is_framework_default(exc):
         return _FRAMEWORK_DEFAULT_MESSAGES.get(exc.status_code, _HTTP_ERROR_MESSAGE)
     if isinstance(exc.detail, str):
+        if exc.status_code == 400 and exc.detail.startswith(_FRAMEWORK_DETAIL_PREFIXES):
+            return _BODY_PARSE_MESSAGE
         return exc.detail
     return _HTTP_ERROR_MESSAGE
 
