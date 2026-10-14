@@ -200,3 +200,32 @@ async def test_비교_요청의_기준_일일_연료는_저장_범위_밖이면_
             )
             assert response.status_code == 422, f"{bad}: {response.text}"
             assert response.json()["error"]["details"][0]["field"] == "base_daily_foc_ton"
+
+
+async def test_비교_요청의_거리가_아주_길어_소요시간이_열을_넘으면_422다(
+    migrated_db, app_fresh_engine
+):
+    """#2513 — 거리는 ``NUMERIC(12,2)`` 안이지만 소요시간 ``NUMERIC(10,2)``가 넘쳐 종전에는 500."""
+    from cii_platform.db.demo_seed import VESSEL_ID_BULK
+
+    body = {
+        "vessel_id": VESSEL_ID_BULK,
+        "regulation_year": 2026,
+        "current_speed_kn": 12,
+        "fuel_type": "HFO",
+        "direct_distance_nm": 1000,
+    }
+    with TestClient(app, base_url=_BASE) as client:
+        assert client.post("/api/v1/auth/dev-login").status_code == 200
+        for extra in (
+            {"direct_distance_nm": 2147483648},
+            {"detour_distance_nm": 4294967296},
+        ):
+            response = client.post(
+                "/api/v1/scenarios/compare", headers=_csrf(client), json={**body, **extra}
+            )
+            assert response.status_code == 422, f"{extra}: {response.text}"
+            assert response.json()["error"]["details"][0]["field"] == "direct_distance_nm"
+        # 대조군 — 보통 거리는 그대로 계산된다.
+        ok = client.post("/api/v1/scenarios/compare", headers=_csrf(client), json=body)
+        assert ok.status_code == 200, ok.text
