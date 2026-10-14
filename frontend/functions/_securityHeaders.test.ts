@@ -8,6 +8,8 @@ const expected = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  // 문서가 아닌 응답의 정책 (#2368) — 백엔드 security_headers.py와 같은 값이다.
+  'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
 }
 function assertHeaders(response: Response) {
   for (const [name, value] of Object.entries(expected)) expect(response.headers.get(name)).toBe(value)

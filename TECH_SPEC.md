@@ -2242,28 +2242,54 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 | `X-Content-Type-Options` | `nosniff` · 적용 | 선언한 MIME을 존중하게 한다. 특히 script/style의 잘못된 MIME 실행을 막는다. 모든 콘텐츠 주입을 막는 정책은 아니다 |
 | `X-Frame-Options` | `DENY` · 적용 | 다른 문서의 프레임 안에서 화면을 띄우는 것을 거부한다 |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` · 적용 | 다른 출처에는 출처만 보내며 HTTPS→HTTP에는 Referrer를 보내지 않는다 |
-| `Content-Security-Policy` | **실측 대기 · 이번에 추가하지 않음** | 인라인 테마 스크립트·MapLibre 스타일·PMTiles worker/blob·자체 폰트의 실제 요청을 확인한 뒤 별도 결정한다. 후속 #2368에서 추적한다 |
+| `Content-Security-Policy` | **강제(enforce) · 적용** — 화면 응답은 §20.3의 정책, API·Function 응답은 `default-src 'none'; frame-ancestors 'none'` | `#2368`이 실제 화면을 돌려 측정한 뒤 확정했다(결정 [#2368 코멘트](https://github.com/26-hp043/26_HP043/issues/2368#issuecomment-6167829636)). 측정·근거·운영 확인은 §20.3 |
 | `Strict-Transport-Security` · `Permissions-Policy` | 이번 변경으로 추가하지 않음 | D-8은 세 헤더와 CSP의 유예를 결정했다. 이 둘의 영구 불채택을 결정한 것은 아니며 TLS·사용 기능 정책을 따로 검토한다 |
 
 ### 20.1 배포 경로와 적용 위치
 
 | 응답 경로 | 적용 위치 | 보존할 동작 |
 |---|---|---|
-| Cloudflare Pages 정적 HTML·JS/CSS·폰트 | `frontend/public/_headers`의 `/*` | 기존 index·assets·basemap 캐시 규칙 |
+| Cloudflare Pages 정적 HTML·JS/CSS·폰트 | `frontend/public/_headers`의 `/*` (CSP 포함 — 화면 정책) | 기존 index·assets·basemap 캐시 규칙 |
 | Pages API·지도 Function | 각 디렉터리 `_middleware.ts` → `_securityHeaders.ts` | 상류와 Function이 반환한 오류, 여러 `Set-Cookie`, 본문 스트림·Range(206/416)·캐시 헤더. 정적 응답 전체를 Function으로 바꾸지 않는다 |
-| 단일 호스트 nginx | `server`의 `add_header … always` 및 하위 `add_header`가 있는 `/assets/`·`= /index.html`에서 같은 세 줄 반복 | 오류 응답에도 적용. `/api/`는 백엔드의 같은 헤더를 `proxy_hide_header`로 숨겨 중복 값을 내보내지 않는다 |
+| 단일 호스트 nginx | `server`의 `add_header … always` 및 하위 `add_header`가 있는 `/assets/`·`= /index.html`에서 같은 줄 반복(CSP는 화면 정책). `/api/`는 `add_header`가 있어 상속이 끊기므로 API 정책을 직접 적는다 | 오류 응답에도 적용. `/api/`는 백엔드의 같은 헤더를 `proxy_hide_header`로 숨겨 중복 값을 내보내지 않는다 |
 | 직접 백엔드 API | `SecurityHeadersMiddleware`를 CORS·요청 문맥·한도·인증 밖에 등록 | ASGI `http.response.start`만 수정하며 응답 본문·쿠키를 보존한다. 사용자 미들웨어 밖의 미처리 500은 `unhandled_error_handler`가 같은 상수로 적용한다 |
 
 nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 상속하지 않는다. `always`는 오류 상태도 포함한다. 최신 nginx의 별도 상속 확장에 의존하지 않는다. Pages `_headers`는 Function이 생성한 응답에 적용되지 않으므로 Function 경로에도 직접 적용한다. 동일 헤더는 추가로 쌓지 않고 세 정책 값으로 덮어쓴다.
 
 ### 20.2 검증과 출처
 
-`tests/test_security_headers.py`는 정본 값과 정적·nginx·Function 배선, 실제 앱의 인증/한도 조기 오류와 미들웨어·외곽 500·다운로드를 검사한다. `functions/_securityHeaders.test.ts`는 API 설정 오류·상류 상태·쿠키·지도 부분 응답 보존을 검사한다. 운영 확인은 `docs/OPERATIONS.md §8.5`를 따른다. 헤더 존재 확인은 브라우저 공격 실험이나 CSP 적용의 완료를 뜻하지 않는다.
+`tests/test_security_headers.py`는 정본 값과 정적·nginx·Function 배선, 실제 앱의 인증/한도 조기 오류와 미들웨어·외곽 500·다운로드를 검사한다. `functions/_securityHeaders.test.ts`는 API 설정 오류·상류 상태·쿠키·지도 부분 응답 보존을 검사한다. 운영 확인은 `docs/OPERATIONS.md §8.5`를 따른다. 헤더 존재 확인은 브라우저 공격 실험이 아니다. CSP는 `test_security_headers.py`가 정책의 네 자리 일치와 테마 스크립트 해시를 검사하며, 실제 브라우저의 정상·거부 동작은 §20.3의 측정과 `OPERATIONS §8.5`의 운영 확인이 맡는다.
 
 - [Cloudflare 정적 헤더](https://developers.cloudflare.com/pages/configuration/headers/) · [Function middleware](https://developers.cloudflare.com/pages/functions/middleware/).
 - [nginx add_header](https://nginx.org/en/docs/http/ngx_http_headers_module.html) · [1.27.5 OSS 구현](https://github.com/nginx/nginx/blob/release-1.27.5/src/http/modules/ngx_http_headers_filter_module.c).
 - [Starlette middleware](https://starlette.dev/middleware/) · [OSS 스택 구성](https://github.com/Kludex/starlette/blob/main/starlette/applications.py).
 - MDN: [nosniff](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Content-Type-Options) · [프레임 금지](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Frame-Options) · [Referrer 정책](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Referrer-Policy).
+
+### 20.3 Content-Security-Policy (#2368)
+
+**강제 방식**(`Content-Security-Policy`)으로 적용한다. 보고 전용(`-Report-Only`)은 위반을 받을 창구가 저장소에 없어 택하지 않았다. 정책은 두 벌이다 — 문서(화면)에는 아래 정책을, **문서가 아닌 응답**(백엔드 API·Pages Function·nginx `/api/`)에는 아무것도 불러오지 않는 `default-src 'none'; frame-ancestors 'none'`을 쓴다. 두 정책 모두 `X-Frame-Options: DENY`와 함께 둔다(`frame-ancestors`를 모르는 오래된 브라우저 대비).
+
+```
+default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6nUM/TnVqg='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://open.er-api.com https://api.frankfurter.dev; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+```
+
+| 지시어 | 값 | 허용이 필요한 이유 (측정) |
+|---|---|---|
+| `script-src` | `'self'` + 해시 1개 | 번들은 같은 출처 모듈 스크립트다. 해시는 `frontend/index.html`의 인라인 테마 스크립트(첫 페인트 전에 저장된 테마를 `<html data-theme>`에 반영 — 다크 모드 깜빡임 방지) 본문의 SHA-256이다. 해시를 뺀 정책으로 돌리면 이 스크립트가 막혀 저장된 다크 테마가 첫 화면에 적용되지 않음을 확인했다. `unsafe-inline`·`unsafe-eval`은 쓰지 않는다 |
+| `style-src` | `'self' 'unsafe-inline'` | 화면 코드의 `style` 속성과 지도 라이브러리가 넣는 스타일 때문이다(결정 3). 스크립트 실행을 허용하지 않으므로 위험이 좁다 |
+| `img-src` | `'self' data:` | 로고·마스코트 등 같은 출처 이미지, 지도 라이브러리 CSS가 컨트롤 아이콘을 `data:image/svg+xml`로 넣는다. `blob:`은 측정에서 필요하지 않아 뺐다 |
+| `font-src` | `'self'` | 자체 폰트(Pretendard·Noto Sans Mono `/fonts/*.woff2`). 지도 글리프(`/basemap/fonts/*.pbf`)는 폰트 요청이 아니라 `fetch`라 `connect-src`의 `'self'`가 덮는다 |
+| `connect-src` | `'self'` + 환율 2곳 | 같은 출처 API·PMTiles(`/basemap/bluelog.pmtiles`, Range 요청)·글리프. 바깥 호출은 함대 감축 계획의 환율 조회 두 곳(`features/fleet-reduction/apiProvider.ts`의 `KRW_SOURCES`)뿐이다(결정 4). 환율 주소를 바꾸면 이 정책도 함께 고친다 |
+| `worker-src` | `'self'` | MapLibre 워커는 `mapLibreWorker.ts`가 **빌드가 내보낸 자산**(`/assets/maplibre-gl-worker-*.js`)으로 고정한다. 측정에서 blob 워커는 생기지 않았다 — `blob:`·`child-src`를 두지 않는다 |
+| `object-src` · `base-uri` · `form-action` · `frame-ancestors` | `'none'` · `'self'` · `'self'` · `'none'` | 플러그인 금지 · `<base>` 주입 금지 · 폼 제출 대상 제한 · 다른 문서의 프레임 안 표시 금지 |
+
+**측정 범위.** 운영과 같은 빌드(`npm run build` → `vite preview`)와 실제 백엔드로 Chromium에서 로그인(다크 첫 화면 포함) · 대시보드 지도 · 항만 3D 장면 · 선박 상세 지도 · 항로 비교 · 보고서 미리보기(`srcdoc` + `sandbox` iframe) · CSV·PDF 내려받기 · 함대 감축 계획 환율 조회를 돌아 `securitypolicyviolation`과 콘솔을 모았다. 위 정책에서 위반은 **0건**이었고, 같은 방법이 실제로 위반을 잡는지는 해시를 뺀 정책(인라인 스크립트 위반 보고)과 허용하지 않은 자원 요청으로 확인했다.
+
+**테마 스크립트 해시는 스크립트와 함께 움직인다.** `index.html`의 인라인 스크립트를 한 글자라도 고치면 해시가 달라져 테마가 막힌다. `tests/test_security_headers.py`의 `test_csp_hash_matches_inline_theme_script_in_all_frontend_places`가 `index.html`에서 해시를 계산해 `_headers`·`nginx.conf`의 정책과 대조하고, 인라인 스크립트가 둘 이상이 되어도 실패한다. 값을 바꿀 때는 `_headers`와 `nginx.conf`의 세 곳을 같은 값으로 고친다. 이 검사는 **빌드 결과가 아니라 소스**를 본다 — 배포 도구가 HTML을 다시 쓰면(압축 등) 소스와 응답이 달라질 수 있어 운영 확인 항목으로 남긴다(`docs/OPERATIONS.md §8.5`).
+
+**Cloudflare가 끼워 넣는 것은 로컬에서 재현되지 않는다.** 이 저장소의 소스·`functions/`·`wrangler.toml`에는 Web Analytics 비콘·이메일 난독화·Rocket Loader 설정이 없다. (정황 — 대시보드 설정은 저장소에서 볼 수 없다) Pages(`*.pages.dev`)에서 Web Analytics 자동 주입이 켜져 있으면 비콘 스크립트(`static.cloudflareinsights.com`)가 `script-src`·`connect-src`에 막혀 콘솔에 위반이 남는다 — 화면 동작에는 영향이 없다. 켜져 있다면 끄거나 정책에 해당 출처를 더할지 별도로 정한다(`OPERATIONS §8.5` 확인 항목).
+
+**되돌림.** 운영 화면에서 깨진 것이 있으면 되돌림 PR부터 올린다. 임시 완화가 필요하면 `_headers`에서 `Content-Security-Policy` 한 줄만 `Content-Security-Policy-Report-Only`로 바꿀 수 있다(보호 없이 화면만 복구).
 
 ---
 
@@ -2361,3 +2387,4 @@ nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 
 | 2026-10-08 | `#2369` | **v1.16 — §20 보안 응답 헤더 신설**. 세 헤더의 값·배포 경로·오류/쿠키/Range 보존·CSP 실측 유예와 검증·출처 명시 (#2111) |
 | 2026-10-08 | `#2370` | **v1.17 — §16.2·§16.3·§16.5 계층 경계 정리**. 공용 검증 모듈 중립 이동·라우트 DB 예외와 주입/원자 커밋 구분·AST 가드·health 서비스 경유 명시 (#2101) |
 | 2026-10-14 | `#2445` | **§19.1 보고서 문서 모델의 섹션 종류를 코드에 맞춤** (`#2303`). 「`KeyValueSection` 또는 `TableSection` 둘뿐」 → **셋**(`ChartSection` — 표를 품은 차트 · `#2002`). 「섹션 형태를 둘로 제한한 것은…」 문단을 차트가 들어온 뒤의 규칙으로 다시 적었다 — `ChartSection`은 표(`table`) 없이는 만들 수 없고, CSV는 그 표를, PDF·미리보기는 차트와 같은 표를 함께 싣는다. 정본이 이름으로 적는 섹션과 코드의 `Section` 타입을 `tests/test_reports.py`가 대조한다. `§4.3`상 서술 정정이라 버전은 올리지 않는다 (#2303) |
+| 2026-10-14 | `#2484` | **§20 CSP 확정** — `Content-Security-Policy`를 강제 방식으로 적용(화면 정책·API 정책 두 벌), §20.3 신설(지시어별 측정 근거 · 테마 스크립트 해시 · Cloudflare 주입 미재현 · 되돌림). 「실측 대기」 행 해소 (#2368) |
