@@ -391,3 +391,38 @@ def test_schema_validation_label_follows_route_for_not_underway_distance() -> No
     ][0]
     assert other["field_label"] == plain
     assert str(other["message"]).startswith(plain)
+
+
+def test_framework_body_parse_error_is_korean() -> None:
+    """`#2517` — 깨진 multipart를 FastAPI가 400 「There was an error parsing the body」로 끝낸다.
+
+    문자열 detail이라 「라우트가 넣은 문구」로 보존돼 영어 그대로 나갔다. 실제 업로드 라우트와
+    같은 ``UploadFile`` 파라미터에 깨진 본문을 보내 프레임워크 경로 그대로 확인한다.
+    """
+    from fastapi import File, UploadFile
+
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+
+    @app.post("/upload")
+    async def upload(file: UploadFile = File(...)) -> dict[str, str]:  # noqa: B008
+        return {"name": file.filename or ""}
+
+    register_exception_handlers(app)
+    client = TestClient(app)
+    broken = (
+        # FastAPI — 아주 긴 파일명(하니스 재현 입력)
+        {"files": {"file": ("a" * 5000 + ".csv", b"x")}},
+        # Starlette ``MultiPartException`` — 경계(boundary) 없음
+        {"content": b"x", "headers": {"Content-Type": "multipart/form-data"}},
+    )
+    for kwargs in broken:
+        resp = client.post("/upload", **kwargs)
+        assert resp.status_code == 400, resp.text
+        payload = resp.json()
+        assert payload["error"]["code"] == "BAD_REQUEST"
+        message = payload["error"]["message"]
+        assert re.search(r"[가-힣]", message) and not re.search(r"[A-Za-z]{4,}", message), message
+    # 대조군 — 정상 업로드는 그대로다.
+    ok = client.post("/upload", files={"file": ("a.csv", b"x")})
+    assert ok.status_code == 200 and ok.json() == {"name": "a.csv"}
