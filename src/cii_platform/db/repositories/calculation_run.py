@@ -134,6 +134,23 @@ async def mark_annual_needs_recalc(session: AsyncSession, vessel_id: UUID) -> in
     return result.rowcount or 0
 
 
+async def mark_run_needs_recalc(session: AsyncSession, run_id: UUID) -> int:
+    """계산 이력 1건에 입력 변경 표시를 세운다 — 한 번의 소급 처리용 (PRD §8.4, #2373).
+
+    ``mark_annual_needs_recalc``가 선박 단위로 일괄 표시하는 것과 달리 **실행 하나**만
+    고른다. ``needs_recalc = false``인 행만 갱신하고(0→1만 허용하는 가드 트리거 024와
+    같은 방향), **UPDATE문은 ``needs_recalc``만 세팅한다.**
+
+    반환값은 표시된 행 수(이미 표시됐으면 0).
+    """
+    result = await session.execute(
+        sa.update(CalculationRun)
+        .where(CalculationRun.id == run_id, CalculationRun.needs_recalc == 0)
+        .values(needs_recalc=True)
+    )
+    return result.rowcount or 0
+
+
 async def insert_voyage_estimate(
     session: AsyncSession,
     *,
