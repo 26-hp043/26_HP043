@@ -102,7 +102,10 @@ export function VerifyEmailPage() {
     )
   }
 
-  if (resolved && !user) {
+  // 로그인으로 보내는 것은 **결과가 나오기 전**뿐이다 (#2499). 성공 뒤 사용자 재조회(#2489)가
+  // 실패하면 캐시가 비는데, 그때 보내면 다시 로그인해 돌아온 같은 링크가 「이미 사용됨」으로 끝나
+  // 성공한 인증이 실패 화면이 된다.
+  if (resolved && !user && state === 'working') {
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`${LOGIN_PATH}?next=${encodeURIComponent(next)}`} replace />
   }

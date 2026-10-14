@@ -182,6 +182,28 @@ describe('로그인한 세션에서만 토큰을 보낸다 (#2327)', () => {
     await rtl.waitFor(() => expect(session.getCachedUser()?.emailVerifiedAt).toBeTruthy())
   })
 
+  it('성공 뒤 재조회가 실패해도 성공 화면이 남고 로그인으로 가지 않는다 (#2499)', async () => {
+    let meCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith(ME_URL_TAIL)) {
+        meCalls += 1
+        // 첫 확인은 로그인 상태, 성공 뒤 재조회는 실패(서버 일시 오류)
+        return meCalls === 1
+          ? meOk()
+          : new Response(JSON.stringify({ error: { code: 'X', message: 'x' } }), { status: 503 })
+      }
+      return ok('[인증 완료 문구]')
+    })
+    const rtl = await fresh()
+
+    await rtl.waitFor(() =>
+      expect(rtl.screen.getByRole('status').textContent).toBe('[인증 완료 문구]'),
+    )
+    await rtl.waitFor(() => expect(meCalls).toBeGreaterThanOrEqual(2))
+    expect(rtl.screen.queryByTestId('login')).toBeNull()
+    expect(rtl.screen.getByRole('status').textContent).toBe('[인증 완료 문구]')
+  })
+
   it('세션이 있으면 그 세션으로 한 번 보낸다', async () => {
     routeFetch(async () => ok('[인증 완료 문구]'))
     const rtl = await fresh()
