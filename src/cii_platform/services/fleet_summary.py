@@ -51,6 +51,7 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
 from cii_platform.services.applicability import STATE_NOT_APPLICABLE, applicability_state
+from cii_platform.services.calc_errors import regulation_year_missing
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.pagination import normalize_limit
@@ -863,7 +864,7 @@ async def compute_fleet_rows(
         )
         is None
     ):
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
+        raise regulation_year_missing(year)
 
     # 진행 중 항차의 출발·도착 좌표 — 지도가 항로선을 그리는 근거다 (`#763`).
     # **쿼리 한 번**으로 선대 전체를 모은다. 척마다 물으면 200척에 200쿼리가 붙는데,

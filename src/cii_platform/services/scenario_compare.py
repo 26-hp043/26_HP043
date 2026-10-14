@@ -45,7 +45,12 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.db.repositories import voyage_scenario as scenario_repo
 from cii_platform.errors import NotFoundError, ParameterError, ValidationError
-from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
+from cii_platform.services.calc_errors import (
+    log_calculation_failure,
+    regulation_year_missing,
+    selection_error,
+    spec_error,
+)
 from cii_platform.services.voyage import PLANNING_STATUSES
 from cii_platform.services.voyage_cii import (
     DISCLAIMER,
@@ -478,7 +483,7 @@ async def _load_vessel(session, vessel_id: UUID):
 async def _load_regulation_year(session, year: int):
     row = await param_repo.get_regulation_year(session, year)
     if row is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
+        raise regulation_year_missing(year)
     return row
 
 
