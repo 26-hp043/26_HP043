@@ -1,8 +1,10 @@
-# TECH_SPEC §20 — 정적 응답 정책 (#2111). Function 응답은 별도 middleware가 붙인다.
+# TECH_SPEC §20 — 정적 응답 정책 (#2111 · CSP #2368). Function 응답은 별도 middleware가 붙인다.
+# CSP의 해시는 index.html의 인라인 테마 스크립트 본문과 맞아야 한다 — tests/test_security_headers.py가 대조한다.
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6nUM/TnVqg='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://open.er-api.com https://api.frankfurter.dev; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 # Cloudflare Pages 응답 헤더.
 # SPA fallback을 위해 index.html은 캐시하지 않는다.

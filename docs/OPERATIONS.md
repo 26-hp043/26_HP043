@@ -1334,7 +1334,7 @@ sudo journalctl --vacuum-size=200M
 
 ### 8.5 보안 응답 헤더 확인 (#2111)
 
-정책의 정본은 `TECH_SPEC §20`이다. 아래 응답에 세 헤더가 **각각 한 번씩** 있어야 한다: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. 기존 캐시·쿠키·지도 Range 헤더가 유지돼야 한다. CSP는 후속 #2368에서 실측 후 별도 결정하며 이번 배포에 추가하지 않는다.
+정책의 정본은 `TECH_SPEC §20`이다. 아래 응답에 세 헤더가 **각각 한 번씩** 있어야 한다: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. 기존 캐시·쿠키·지도 Range 헤더가 유지돼야 한다. `Content-Security-Policy`는 `#2368`이 확정했다 — 화면 응답은 화면 정책, API·Function 응답은 `default-src 'none'; frame-ancestors 'none'`이다(값·근거는 `TECH_SPEC §20.3`). 아래 「CSP 배포 직후 확인」을 따른다.
 
 ```bash
 # HTML·SPA 진입·정적 해시 자산(실제 현재 HTML의 경로 사용)
@@ -1353,9 +1353,31 @@ curl -sS -D - -o /dev/null -H 'Range: bytes=0-15' https://bluelog-bx7.pages.dev/
 
 지도 경로는 현재 `basemap.ts`의 실제 PMTiles 경로로 대조한다. 자산이 없는 404도 헤더를 확인하지만 206 검증으로 보고하지 않는다. 세 헤더 외에 `Content-Type`, `Cache-Control`, `Content-Range`를 함께 기록한다. 인증된 내보내기 검사는 계정 쿠키·본문·토큰을 공개 로그에 남기지 않는다.
 
-단일 호스트는 운영의 Pages와 다른 배포 경로다. 해당 nginx에서 `/`, `/index.html`, 현재 `/assets/...`, `/basemap/...`의 200/404, `/api/v1/health`를 위와 같이 확인한다. 특히 캐시 location은 상위 `add_header`를 상속하지 않으므로 같은 세 헤더를 반복한다. API는 백엔드 헤더를 숨긴 뒤 nginx가 한 번만 붙인다. 단일 호스트의 격리 검증을 OCI의 실제 배포 검증과 구분해 기록한다.
+단일 호스트는 운영의 Pages와 다른 배포 경로다. 해당 nginx에서 `/`, `/index.html`, 현재 `/assets/...`, `/basemap/...`의 200/404, `/api/v1/health`를 위와 같이 확인한다. 특히 캐시 location은 상위 `add_header`를 상속하지 않으므로 같은 헤더(CSP 포함)를 반복한다. API는 백엔드 헤더를 숨긴 뒤 nginx가 한 번만 붙이며, `/api/`는 화면 정책이 아니라 API 정책을 쓴다. 단일 호스트의 격리 검증을 OCI의 실제 배포 검증과 구분해 기록한다.
 
 확인은 배포 Actions 성공·health의 머지 commit 일치를 확인한 뒤 수행한다. 플랫폼 자체 장애 페이지의 헤더는 앱 정책과 구분하고, 일시 502를 배포 성공이라고 적지 않는다.
+
+#### CSP 배포 직후 확인 (#2368)
+
+CSP는 강제 방식이라 깨지면 화면이 멈춘다. 머지·배포 직후 **운영 화면에서 아래를 한 번씩** 확인한다. 개발자 도구 콘솔에 `Content Security Policy` 위반 문구가 없어야 하고, 깨진 것이 있으면 되돌림 PR부터 올린다(`TECH_SPEC §20.3`).
+
+```bash
+# 화면 응답: 화면 정책 한 줄, API 응답: API 정책 한 줄 (각각 한 번씩 있어야 한다)
+curl -sI https://bluelog-bx7.pages.dev/ | grep -i content-security-policy
+curl -sI https://bluelog-bx7.pages.dev/index.html | grep -i content-security-policy
+curl -sS -D - -o /dev/null https://bluelog-bx7.pages.dev/api/v1/health | grep -i content-security-policy
+curl -sS -D - -o /dev/null https://bluelog-api.kpubdata.com/api/v1/health | grep -i content-security-policy
+```
+
+1. 응답의 `script-src` 해시가 현재 배포된 HTML의 인라인 `<script>` 본문 해시와 같다(HTML을 내려받아 `sha256`을 계산해 대조 — 배포 도구가 HTML을 다시 쓰면 달라진다).
+2. 로그인 화면이 정상이고 마스코트 이미지가 보인다. 로그인한다.
+3. 다크 모드를 저장한 뒤 새로고침 — 첫 화면이 흰색으로 번쩍이지 않는다(테마 스크립트가 해시로 통과했다).
+4. 대시보드 지도: 지도 배경·글자(글리프)·선박·항로가 보이고 줌·이동이 된다(워커 · PMTiles Range · 글리프).
+5. 항만 핀(부산·싱가포르)에서 항만 3D 장면이 열린다. 선박 상세의 지도도 보인다.
+6. 항로 비교를 실행한다. 함대 감축 계획을 열면 환율 칸이 자동으로 채워진다(`open.er-api.com` — `connect-src`).
+7. 보고서: 미리보기가 오른쪽에 그려지고, CSV·PDF 내려받기가 각각 파일을 만든다.
+8. 콘솔에 Cloudflare 비콘(`static.cloudflareinsights.com`)·난독화 스크립트가 막혔다는 문구가 있으면 Web Analytics 자동 주입이 켜진 것이다 — 화면 동작과 무관하지만 끌지 정책에 더할지 정한다.
+9. 지도 Range(`curl -H 'Range: bytes=0-15' …/basemap/bluelog.pmtiles`)가 206이고 응답에 API 정책 CSP 한 줄이 있다.
 
 ## 9. 문제 해결
 
@@ -1724,3 +1746,4 @@ DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검
 | 2026-10-09 | `#2378` | §3.1·§3.3 배포/롤백 SSH stdin·공개 Git 토큰 제거·Python3.6/CCI DB 인증/health·시간 한도·환경/메모리 접근과 범위 구분 (#2117) |
 | 2026-10-13 | `#2419` | §9.2.2 데이터 파일 소유권 신설(재현 표 · 장치 셋 · 맞추는 순서 · 되돌림) · §3.6.6에 교체 전후 소유권 대조 각주 (#2379) |
 | 2026-10-14 | `#2475` | §4.5 「남은 위험 — 인증 확인은 토큰만 본다」 단락을 해소 서술로 — 인증 확인은 그 계정으로 로그인한 세션에서만 받는다. 첫 관리자 확인은 가입한 브라우저(또는 그 계정으로 로그인한 뒤)에서 링크를 연다 (#2327) |
+| 2026-10-14 | `#___` | §8.5에 CSP 적용 반영 + 「CSP 배포 직후 확인」 신설(응답 헤더 · 해시 대조 · 화면 아홉 항목). 종전 「이번 배포에 추가하지 않는다」 문구 정정 (#2368) |
