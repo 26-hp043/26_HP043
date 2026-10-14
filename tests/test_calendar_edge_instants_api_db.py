@@ -195,3 +195,31 @@ async def test_calendar_edge_instants_are_422_on_every_path(migrated_db, app_fre
         assert all(code == 422 for code in seen.values()), seen
     finally:
         await _cleanup(vessel_id)
+
+
+@pytest.mark.parametrize("offset", ["+23:59", "-13:00"])
+async def test_not_underway_offsets_out_of_range_are_422(migrated_db, app_fresh_engine, offset):
+    """정박 생성 본문 · 목록 쿼리의 범위 밖 오프셋이 500이 아니라 422다 (`#2503`)."""
+    vessel_id, _ = await _seed()
+    try:
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
+            created = client.post(
+                base,
+                json={
+                    "period_type": "AT_ANCHOR",
+                    "started_at": f"2026-08-10T00:00:00{offset}",
+                    "port_name": "Busan",
+                    "distance_nm": "0",
+                    "fuel_uses": [],
+                },
+                headers=_csrf(client),
+            )
+            listed = client.get(base, params={"started_from": f"2026-08-10T00:00:00{offset}"})
+        assert created.status_code == 422, created.text
+        assert created.json()["error"]["details"][0]["field"] == "started_at"
+        # 쿼리 필터는 같은 순간의 UTC로 맞춰 거른다 — 오프셋이 달라도 오류가 아니다.
+        assert listed.status_code == 200, listed.text
+    finally:
+        await _cleanup(vessel_id)

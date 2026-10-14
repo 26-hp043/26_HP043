@@ -194,3 +194,35 @@ def test_resolve_as_of_still_normalises_ordinary_values() -> None:
     """대조군 — 평범한 값은 종전대로 UTC로 맞춘다."""
     moment = datetime.fromisoformat("2026-06-01T09:00:00+09:00")
     assert resolve_as_of(moment) == datetime(2026, 6, 1, 0, 0, tzinfo=UTC)
+
+
+#: DB(CUBRID)가 받지 않는 UTC 오프셋 — 정박 구간은 표기를 그대로 저장한다 (`#2503`).
+BAD_OFFSETS = ["+14:01", "+15:00", "+23:59", "-12:01", "-13:00", "-23:59"]
+
+
+@pytest.mark.parametrize("offset", BAD_OFFSETS)
+def test_not_underway_rejects_offsets_the_database_cannot_store(offset: str) -> None:
+    """🔴 종전에는 스키마를 통과해 드라이버의 「Invalid utc offset」으로 500이었다."""
+    with pytest.raises(PydanticValidationError) as caught:
+        NotUnderwayPeriodCreateRequest(
+            period_type="AT_ANCHOR", started_at=f"2026-08-10T00:00:00{offset}"
+        )
+    errors = [e for e in caught.value.errors() if e["loc"] == ("started_at",)]
+    assert errors and errors[0]["type"] == "value_error", caught.value.errors()
+
+
+@pytest.mark.parametrize("offset", ["+14:00", "-12:00", "+09:00", "+00:00"])
+def test_not_underway_keeps_offsets_inside_the_range(offset: str) -> None:
+    request = NotUnderwayPeriodCreateRequest(
+        period_type="AT_ANCHOR", started_at=f"2026-08-10T00:00:00{offset}"
+    )
+    assert request.started_at.isoformat().endswith(offset)
+
+
+@pytest.mark.parametrize("offset", ["+15:00", "-13:00"])
+def test_not_underway_csv_turns_a_bad_offset_into_a_row_error(offset: str) -> None:
+    with pytest.raises(not_underway_import.RowError) as caught:
+        not_underway_import.parse_row(
+            _period_row(started_at=f"2026-08-10T00:00:00{offset}"), {"HFO"}
+        )
+    assert caught.value.field == "started_at"
