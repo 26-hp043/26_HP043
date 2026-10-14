@@ -32,8 +32,6 @@
 
 from __future__ import annotations
 
-import csv
-import io
 import logging
 import re
 import uuid
@@ -59,8 +57,8 @@ from cii_platform.services.parameters import VALID_SHIP_TYPES
 from cii_platform.services.voyage_import import (
     RowError,
     _check_limits,
-    _decode,
     column_length,
+    open_csv,
 )
 
 if TYPE_CHECKING:
@@ -167,9 +165,9 @@ def read_rows(
     규약으로 ``ValidationError`` — 그 경우 한 행도 읽지 않는다.
     """
     _check_limits(content, content_type)
-    reader = csv.DictReader(io.StringIO(_decode(content), newline=""))
+    fieldnames, source_rows = open_csv(content)
     required = _SPECS[kind].required + (_FUEL_OPTIONAL if kind == "fuel_types" else ())
-    missing = [column for column in required if column not in (reader.fieldnames or [])]
+    missing = [column for column in required if column not in fieldnames]
     if missing:
         raise ValidationError(
             f"필수 컬럼이 없습니다: {', '.join(missing)}",
@@ -178,7 +176,7 @@ def read_rows(
         )
     rows: list[dict[str, str]] = []
     truncated = 0
-    for row in reader:
+    for row in source_rows:
         if len(rows) >= MAX_ROWS:
             truncated += 1
             continue

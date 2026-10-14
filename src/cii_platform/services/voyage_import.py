@@ -57,6 +57,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -208,6 +209,44 @@ def _decode(content: bytes) -> str:
             field="file",
             field_label="파일",
         ) from exc
+
+
+#: CSV 구문 자체를 읽을 수 없을 때의 파일 단위 문구 (``API_SPEC §8.2`` · #2505).
+CSV_TOO_LONG_CELL_MESSAGE = "CSV 형식을 읽을 수 없습니다. 한 칸이 너무 깁니다."
+CSV_UNREADABLE_MESSAGE = "CSV 형식을 읽을 수 없습니다. 파일 내용을 확인해 주세요."
+
+
+def _csv_file_error(exc: csv.Error) -> ValidationError:
+    """``csv.Error``를 파일 단위 ``ValidationError``로 — 영문 원문은 내보내지 않는다."""
+    too_long = "field larger than field limit" in str(exc)
+    return ValidationError(
+        CSV_TOO_LONG_CELL_MESSAGE if too_long else CSV_UNREADABLE_MESSAGE,
+        field="file",
+        field_label="파일",
+    )
+
+
+def _iter_rows(reader: csv.DictReader) -> Iterator[dict[str, str]]:
+    """행을 하나씩 낸다. 순회 중 ``csv.Error``는 파일 단위 422로 바꾼다."""
+    try:
+        yield from reader
+    except csv.Error as exc:
+        raise _csv_file_error(exc) from exc
+
+
+def open_csv(content: bytes) -> tuple[list[str], Iterator[dict[str, str]]]:
+    """디코딩한 CSV를 열어 ``(헤더, 행 순회자)``를 돌려준다 (#2505).
+
+    ``csv`` 모듈은 한 칸이 131,072자(``field_size_limit``)를 넘으면 ``_csv.Error``를
+    올린다. 항차·정박·규제 파라미터 CSV 가져오기 셋이 이 한 곳을 쓰므로, 예외가
+    라우트까지 올라가 500이 되는 자리가 없다. 헤더 줄이 길어도 같다.
+    """
+    reader = csv.DictReader(io.StringIO(_decode(content), newline=""))
+    try:
+        fieldnames = list(reader.fieldnames or [])
+    except csv.Error as exc:
+        raise _csv_file_error(exc) from exc
+    return fieldnames, _iter_rows(reader)
 
 
 def _check_limits(content: bytes, content_type: str | None) -> None:
@@ -423,9 +462,9 @@ def _read_rows(
     보호)이 사라진다.
     """
     _check_limits(content, content_type)
-    reader = csv.DictReader(io.StringIO(_decode(content), newline=""))
+    fieldnames, source_rows = open_csv(content)
 
-    missing = [column for column in REQUIRED_COLUMNS if column not in (reader.fieldnames or [])]
+    missing = [column for column in REQUIRED_COLUMNS if column not in fieldnames]
     if missing:
         raise ValidationError(
             f"필수 컬럼이 없습니다: {', '.join(missing)}",
@@ -437,7 +476,7 @@ def _read_rows(
     truncated = 0
     retained_numbers: set[str] = set()
     incomplete_numbers: set[str] = set()
-    for row in reader:
+    for row in source_rows:
         number = sanitize((row.get("voyage_no") or "").strip())
         if len(rows) >= MAX_ROWS:
             truncated += 1
