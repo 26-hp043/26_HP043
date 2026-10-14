@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-10-14 |
+| 최종 수정일 | 2026-10-15 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -2235,7 +2235,7 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 
 ## 20. 보안 응답 헤더 (#2111)
 
-[2026-10-07 D-8 결정](https://github.com/26-hp043/26_HP043/issues/2111#issuecomment-6032520950)에 따라 아래 세 헤더를 모든 앱 HTTP 응답에 적용한다. 성공뿐 아니라 인증·한도·CORS 사전 요청·검증·404/405·500·CSV/PDF·지도 부분 응답도 대상이다. 프록시 연결 전에 Cloudflare 자체가 만드는 장애 페이지는 앱의 응답과 구분한다.
+[2026-10-07 D-8 결정](https://github.com/26-hp043/26_HP043/issues/2111#issuecomment-6032520950)에 따라 아래 세 헤더를 모든 앱 HTTP 응답에 적용하고, `#2368`부터 `Content-Security-Policy`를 더해 네 헤더를 적용한다(값은 §20.3). 성공뿐 아니라 인증·한도·CORS 사전 요청·검증·404/405·500·CSV/PDF·지도 부분 응답도 대상이다. 프록시 연결 전에 Cloudflare 자체가 만드는 장애 페이지는 앱의 응답과 구분한다.
 
 | 헤더 | 값·현재 정책 | 근거 |
 |---|---|---|
@@ -2254,7 +2254,7 @@ Pages가 주는 주소와 터널이 주는 호스트명이 **둘 다 HTTPS이고
 | 단일 호스트 nginx | `server`의 `add_header … always` 및 하위 `add_header`가 있는 `/assets/`·`= /index.html`에서 같은 줄 반복(CSP는 화면 정책). `/api/`는 `add_header`가 있어 상속이 끊기므로 API 정책을 직접 적는다 | 오류 응답에도 적용. `/api/`는 백엔드의 같은 헤더를 `proxy_hide_header`로 숨겨 중복 값을 내보내지 않는다 |
 | 직접 백엔드 API | `SecurityHeadersMiddleware`를 CORS·요청 문맥·한도·인증 밖에 등록 | ASGI `http.response.start`만 수정하며 응답 본문·쿠키를 보존한다. 사용자 미들웨어 밖의 미처리 500은 `unhandled_error_handler`가 같은 상수로 적용한다 |
 
-nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 상속하지 않는다. `always`는 오류 상태도 포함한다. 최신 nginx의 별도 상속 확장에 의존하지 않는다. Pages `_headers`는 Function이 생성한 응답에 적용되지 않으므로 Function 경로에도 직접 적용한다. 동일 헤더는 추가로 쌓지 않고 세 정책 값으로 덮어쓴다.
+nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 상속하지 않는다. `always`는 오류 상태도 포함한다. 최신 nginx의 별도 상속 확장에 의존하지 않는다. Pages `_headers`는 Function이 생성한 응답에 적용되지 않으므로 Function 경로에도 직접 적용한다. 동일 헤더는 추가로 쌓지 않고 정책 값(세 헤더 + CSP · `#2368`)으로 덮어쓴다.
 
 ### 20.2 검증과 출처
 
@@ -2267,7 +2267,7 @@ nginx 1.27은 하위 `add_header`가 하나라도 있으면 상위의 헤더를 
 
 ### 20.3 Content-Security-Policy (#2368)
 
-**강제 방식**(`Content-Security-Policy`)으로 적용한다. 보고 전용(`-Report-Only`)은 위반을 받을 창구가 저장소에 없어 택하지 않았다. 정책은 두 벌이다 — 문서(화면)에는 아래 정책을, **문서가 아닌 응답**(백엔드 API·Pages Function·nginx `/api/`)에는 아무것도 불러오지 않는 `default-src 'none'; frame-ancestors 'none'`을 쓴다. 두 정책 모두 `X-Frame-Options: DENY`와 함께 둔다(`frame-ancestors`를 모르는 오래된 브라우저 대비).
+**강제 방식**(`Content-Security-Policy`)으로 적용한다. 보고 전용(`-Report-Only`)은 위반을 받을 창구가 저장소에 없어 택하지 않았다. 정책은 두 벌이다 — 문서(화면)에는 아래 정책을, **문서가 아닌 응답**(백엔드 API·Pages Function·nginx `/api/`)에는 아무것도 불러오지 않는 `default-src 'none'; frame-ancestors 'none'`을 쓴다. 두 정책 모두 `X-Frame-Options: DENY`와 함께 둔다(`frame-ancestors`를 모르는 오래된 브라우저 대비). **예외는 개발 전용 Swagger 경로 셋**(`/docs` · `/redoc` · `/docs/oauth2-redirect` — `api/security_headers.py` `_CSP_EXEMPT_PATHS`)뿐이다 — Swagger UI가 외부·인라인 스크립트를 쓰기 때문이며, 운영은 이 경로를 만들지 않는다(`#593`). 나머지 세 헤더는 그 경로에도 붙는다.
 
 ```
 default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6nUM/TnVqg='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://open.er-api.com https://api.frankfurter.dev; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
@@ -2388,3 +2388,4 @@ default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6
 | 2026-10-08 | `#2370` | **v1.17 — §16.2·§16.3·§16.5 계층 경계 정리**. 공용 검증 모듈 중립 이동·라우트 DB 예외와 주입/원자 커밋 구분·AST 가드·health 서비스 경유 명시 (#2101) |
 | 2026-10-14 | `#2445` | **§19.1 보고서 문서 모델의 섹션 종류를 코드에 맞춤** (`#2303`). 「`KeyValueSection` 또는 `TableSection` 둘뿐」 → **셋**(`ChartSection` — 표를 품은 차트 · `#2002`). 「섹션 형태를 둘로 제한한 것은…」 문단을 차트가 들어온 뒤의 규칙으로 다시 적었다 — `ChartSection`은 표(`table`) 없이는 만들 수 없고, CSV는 그 표를, PDF·미리보기는 차트와 같은 표를 함께 싣는다. 정본이 이름으로 적는 섹션과 코드의 `Section` 타입을 `tests/test_reports.py`가 대조한다. `§4.3`상 서술 정정이라 버전은 올리지 않는다 (#2303) |
 | 2026-10-14 | `#2484` | **§20 CSP 확정** — `Content-Security-Policy`를 강제 방식으로 적용(화면 정책·API 정책 두 벌), §20.3 신설(지시어별 측정 근거 · 테마 스크립트 해시 · Cloudflare 주입 미재현 · 되돌림). 「실측 대기」 행 해소 (#2368) |
+| 2026-10-15 | `#___` | §20 도입부 「세 헤더」 · §20.1 「세 정책 값」을 CSP를 더한 서술로, §20.3에 개발 전용 Swagger 경로의 CSP 예외(`_CSP_EXEMPT_PATHS`)를 적었다 — `#2368`(PR #2484)이 고치지 않은 옆자리다 (#2495). `AGENTS §4.3`상 정정이라 버전은 올리지 않는다 |
