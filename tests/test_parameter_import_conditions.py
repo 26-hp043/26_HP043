@@ -252,3 +252,18 @@ def test_a_decimal_beyond_six_places_is_a_row_error():
 
 def test_a_decimal_within_six_places_passes():
     assert str(_parse_reference_line(_ref_row(a_raw="9.827"))["a_decimal"]) == "9.827"
+
+
+def test_exponent_notation_becomes_fixed_point_without_rounding():
+    """`#2515` — `3.114E+0`은 같은 값의 고정 소수로 바뀐다. 자릿수 거절 정책은 그대로다."""
+    from decimal import Decimal
+
+    from cii_platform.services import parameter_import as pi
+
+    spec = pi._SPECS["fuel_types"]
+    value = pi._numeric({"cf": "3.114E+0"}, "cf", spec)
+    assert value == Decimal("3.114") and str(value) == "3.114000"
+    assert str(pi._numeric({"cf": "3E+0"}, "cf", spec)) == "3.000000"
+    # 소수 7자리는 반올림하지 않고 거절한다 — 규제값 정책.
+    with pytest.raises(RowError):
+        pi._numeric({"cf": "3.1140001"}, "cf", spec)

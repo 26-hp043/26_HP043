@@ -46,7 +46,7 @@ def storable_from(floor: Decimal, precision: int, scale: int) -> dict[str, Decim
     return {"ge": floor, "le": largest(precision, scale)}
 
 
-def _to_scale(value: Decimal | None, scale: int) -> Decimal | None:
+def to_scale(value: Decimal | None, scale: int) -> Decimal | None:
     """값을 컬럼 소수 자릿수(``scale``)의 **고정 소수 표기**로 맞춘다 (`#2502`).
 
     드라이버가 파라미터를 SQL 리터럴로 인라인하므로 ``1E+1``·``1E-7`` 같은 지수 표기와
@@ -74,7 +74,7 @@ def stored(scale: int) -> AfterValidator:
 
     ``Field`` 제약 **뒤에** 둔다(범위를 먼저 본 뒤 표기를 맞춘다). ``None``은 그대로 통과한다.
     """
-    return AfterValidator(lambda v: _to_scale(v, scale))
+    return AfterValidator(lambda v: to_scale(v, scale))
 
 
 #: 규제연도 입력의 **하한** — 조회·계산·저장이 모두 같다 (`#2190` 결정 1). BlueLog의 입력

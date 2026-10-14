@@ -59,7 +59,7 @@ from cii_platform.services.voyage_import import (
     reject_nul_cells,
     save_stage_row_error,
 )
-from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL
+from cii_platform.validation.bounds import NOT_UNDERWAY_FUEL, to_scale
 from cii_platform.validation.instants import (
     OFFSET_OUT_OF_RANGE_MESSAGE,
     OUT_OF_RANGE_MESSAGE,
@@ -137,7 +137,9 @@ def _decimal(row: dict[str, str], column: str, *, label: str, positive: bool = F
         raise RowError(
             column, _with_raw(_MESSAGES["less_than_equal"](label, {"le": _NUMERIC_MAX}), raw)
         )
-    return value
+    # `#2515` — API(#2502)와 같이 ``NUMERIC(12,2)``의 고정 소수로 맞춘다. 지수 표기·긴 소수가
+    # 드라이버의 인라인 CAST에서 「저장 단계에서 거부」 행 오류가 되던 자리다.
+    return to_scale(value, 2)
 
 
 def _instant(row: dict[str, str], column: str, *, label: str, required: bool) -> datetime | None:
@@ -252,7 +254,7 @@ def _optional_decimal(row: dict[str, str], column: str, *, label: str) -> Decima
         raise RowError(
             column, f"{josa(label, '은', '는')} {low} 이상 {high} 이하여야 합니다: {raw}"
         )
-    return value
+    return to_scale(value, 6)  # 위경도 ``NUMERIC(9,6)`` (#2515)
 
 
 def _port_name(row: dict[str, str]) -> str | None:
