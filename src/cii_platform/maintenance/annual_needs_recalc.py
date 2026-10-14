@@ -37,10 +37,26 @@
   가를 수 없다. (**다른 항목에서 이미 차이가 확인됐으면** 이 불확실성과 무관하게 대상이다.)
 * 지금 입력을 모을 수 없다 — 선박이 없거나 연료 종류가 비활성이다
 
+* 스냅샷이 **규칙 변경 이전**에 만들어졌다 — :data:`SNAPSHOT_RULE_CUTOFF` 아래 참조 (#2491)
+
+## 스냅샷 규칙 변경 이전의 실행 (#2491)
+
+스냅샷에 담기는 항차 집합의 규칙이 저장 실행이 만들어진 뒤에 두 번 바뀌었다.
+
+* ``66fde107`` — #816(PR #1213) · 2026-09-18 04:31 KST 머지: ``as_of``가 확정 항차를 자름
+* ``572fc3d7`` — #1323(PR #1408) · 2026-09-20 15:17 KST 머지: 도착 예정 지난 계획 항차 복귀
+
+도구는 **지금 규칙**으로 모은 입력과 견주므로, 이 시각 이전의 실행은 데이터가 바뀌지 않았어도
+「항차 지금 새로 포함됨 / 포함되지 않음」으로 잡혀 대상이 된다. 두 머지 뒤 배포까지의 시차를
+넉넉히 덮도록 기준을 2026-09-21 00:00 KST로 잡았고, 그 이전에 만든 스냅샷은 견줄 수 없는
+실행으로 둔다. (이미 표시된 실행은 그대로 먼저 판정한다.)
+
 ## 기본은 미리 보기
 
-쓰기는 ``--apply``일 때만이다. 적용하면 **대상 실행 번호 목록을 파일로 먼저 남기고**
-(복구 자료) 그 뒤에 표시한다. 표시는 ``needs_recalc``만 세팅하고 결과·스냅샷은 건드리지 않는다.
+쓰기는 ``--apply``일 때만이다. 적용은 **승인한 미리 보기 JSON**(``--approved``)이 필수이고, 그
+목록의 대상 실행만 표시한다 — 미리 보기와 적용은 별개 실행이라 적용 때 다시 평가하면 승인한
+목록과 달라질 수 있다. 적용하면 **표시할 실행 번호 목록을 파일로 먼저 남기고**(복구 자료) 그
+뒤에 표시한다. 표시는 ``needs_recalc``만 세팅하고 결과·스냅샷은 건드리지 않는다.
 
 진입점을 패키지 안에 둔 이유는 ``db.demo_seed`` · ``port_calls.collect``와 같다 — 운영 이미지는
 wheel만 설치하므로 ``scripts/``를 배포 절차의 명령으로 쓸 수 없다.
@@ -56,6 +72,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
 
@@ -82,6 +99,17 @@ STATUS_ALREADY = "ALREADY_MARKED"  # 이미 needs_recalc = 1
 STATUS_CURRENT = "CURRENT"  # 입력이 같다
 STATUS_UNCOMPARABLE = "UNCOMPARABLE"  # 견줄 수 없다 — 건드리지 않는다
 
+#: 이 시각 **이전**에 만든 스냅샷은 지금 규칙으로 모은 항차 집합과 견줄 수 없다 (#2491).
+#: 근거는 모듈 머리말. aware끼리 비교한다 — DB의 UTC naive 값은 ``resolve_as_of``로 맞춘다.
+SNAPSHOT_RULE_CUTOFF = datetime(2026, 9, 21, 0, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+
+#: 미리 보기 JSON의 형식 버전. 적용이 읽을 때 확인한다 (#2491).
+REPORT_FORMAT_VERSION = 1
+
+_PRE_CUTOFF_REASON = (
+    "스냅샷 규칙 변경(#816 · #1323) 이전 실행 — 지금 규칙으로 모은 항차 집합과 견줄 수 없음"
+)
+
 _STATUS_LABEL = {
     STATUS_TARGET: "대상",
     STATUS_ALREADY: "이미 표시됨",
@@ -101,6 +129,8 @@ class RunCheck:
     regulation_year: int
     as_of: str
     status: str
+    #: 스냅샷을 만든 시각(UTC ISO) — 규칙 변경 이전 여부를 사람이 가늠하는 자료 (#2491).
+    snapshot_created_at: str = ""
     #: ``STATUS_TARGET``의 차이 목록 — 「항목: 저장 → 지금」.
     differences: list[str] = field(default_factory=list)
     #: ``STATUS_UNCOMPARABLE``의 사유 (대상인데 불확실한 항목이 있었으면 그것도 싣는다).
@@ -243,6 +273,7 @@ async def _stored_runs(session: AsyncSession):
 
 async def check_run(session: AsyncSession, row) -> RunCheck:
     """실행 1건을 지금 입력과 견준다. 쓰지 않는다."""
+    created_at = resolve_as_of(row.snapshot_created_at)
     as_of = resolve_as_of(row.as_of or row.snapshot_created_at)
     check = RunCheck(
         simulation_id=str(row.simulation_id),
@@ -252,9 +283,14 @@ async def check_run(session: AsyncSession, row) -> RunCheck:
         regulation_year=row.regulation_year,
         as_of=as_of.isoformat(),
         status=STATUS_CURRENT,
+        snapshot_created_at=created_at.isoformat(),
     )
     if row.needs_recalc:
         check.status = STATUS_ALREADY
+        return check
+    if created_at < SNAPSHOT_RULE_CUTOFF:
+        check.status = STATUS_UNCOMPARABLE
+        check.reasons.append(_PRE_CUTOFF_REASON)
         return check
     if row.vessel_json is None:
         check.status = STATUS_UNCOMPARABLE
@@ -317,6 +353,61 @@ async def apply(session: AsyncSession, checks: Sequence[RunCheck]) -> int:
     return marked
 
 
+@dataclass
+class ApprovalSplit:
+    """승인 목록과 지금 판정을 맞춘 결과 (#2491)."""
+
+    #: 승인 목록에 있고 지금도 대상 — 표시한다.
+    to_mark: list[RunCheck] = field(default_factory=list)
+    #: 지금 대상이지만 승인 목록 밖 — 표시하지 않는다.
+    outside: list[RunCheck] = field(default_factory=list)
+    #: 승인 목록에 있지만 지금은 대상이 아님(또는 사라짐) — 건너뛴다. 실행 번호.
+    changed: list[str] = field(default_factory=list)
+
+
+def load_approved(path: str) -> set[str]:
+    """승인한 미리 보기 JSON에서 대상(TARGET) 실행 번호(simulation_id)를 읽는다.
+
+    형식 버전이 다르거나 ``runs``가 없으면 ``ValueError`` — 모르는 형식을 추측해 읽지 않는다.
+    """
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict) or data.get("format_version") != REPORT_FORMAT_VERSION:
+        raise ValueError(
+            f"승인 목록의 형식 버전이 맞지 않음 (필요 {REPORT_FORMAT_VERSION}) — "
+            "이 도구의 미리 보기 --json 출력을 쓴다"
+        )
+    runs = data.get("runs")
+    if not isinstance(runs, list):
+        raise ValueError("승인 목록에 runs가 없음")
+    return {str(run["simulation_id"]) for run in runs if run.get("status") == STATUS_TARGET}
+
+
+def split_by_approval(checks: Sequence[RunCheck], approved: set[str]) -> ApprovalSplit:
+    """지금 판정을 승인 목록과 맞춘다. 쓰지 않는다."""
+    split = ApprovalSplit()
+    now_target = set()
+    for check in checks:
+        if check.status != STATUS_TARGET:
+            continue
+        now_target.add(check.simulation_id)
+        (split.to_mark if check.simulation_id in approved else split.outside).append(check)
+    split.changed = sorted(approved - now_target)
+    return split
+
+
+async def apply_approved(
+    session: AsyncSession,
+    checks: Sequence[RunCheck],
+    approved: set[str],
+    recovery_path: str,
+) -> tuple[ApprovalSplit, int]:
+    """승인 목록 안의 대상만 표시한다. 복구 자료를 **먼저** 남긴다. 커밋은 호출부가 한다."""
+    split = split_by_approval(checks, approved)
+    write_recovery_file(recovery_path, split.to_mark)
+    return split, await apply(session, split.to_mark)
+
+
 # ─── 출력 ────────────────────────────────────────────────────────────────────
 
 
@@ -329,11 +420,11 @@ def summarize(checks: Sequence[RunCheck]) -> dict[str, int]:
 
 def format_table(checks: Sequence[RunCheck]) -> str:
     """사람이 읽는 표 — 대상과 견줄 수 없는 실행은 항목·사유를 줄마다 적는다."""
-    lines = [f"{'상태':<8}  {'실행 번호':<36}  {'연도':>4}  선박"]
+    lines = [f"{'상태':<8}  {'실행 번호':<36}  {'연도':>4}  {'스냅샷 생성(UTC)':<32}  선박"]
     for check in checks:
         lines.append(
             f"{_STATUS_LABEL[check.status]:<8}  {check.simulation_id:<36}  "
-            f"{check.regulation_year:>4}  {check.vessel}"
+            f"{check.regulation_year:>4}  {check.snapshot_created_at:<32}  {check.vessel}"
         )
         for item in check.differences:
             lines.append(f"{'':<8}    · {item}")
@@ -350,6 +441,7 @@ def format_table(checks: Sequence[RunCheck]) -> str:
 
 def report_json(checks: Sequence[RunCheck], *, applied: bool, marked: int) -> dict[str, object]:
     return {
+        "format_version": REPORT_FORMAT_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "mode": "apply" if applied else "dry-run",
         "marked": marked,
@@ -359,7 +451,7 @@ def report_json(checks: Sequence[RunCheck], *, applied: bool, marked: int) -> di
 
 
 def write_recovery_file(path: str, checks: Sequence[RunCheck]) -> list[str]:
-    """적용 **전에** 대상 실행 번호를 파일로 남긴다 (복구 자료). 대상 번호 목록을 돌려준다.
+    """적용 **전에** 표시할 실행 번호를 파일로 남긴다 (복구 자료). 대상 번호 목록을 돌려준다.
 
     ``needs_recalc``는 되돌릴 수 없으므로 이 목록이 「무엇을 표시했나」의 유일한 기록이다.
     """
@@ -380,15 +472,9 @@ def write_recovery_file(path: str, checks: Sequence[RunCheck]) -> list[str]:
 # ─── 진입점 ──────────────────────────────────────────────────────────────────
 
 
-async def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - 프로세스 진입점
-    """엔진을 열어 견주고(기본), ``--apply``면 표시한다. 종료 코드를 돌려준다."""
+def parse_args(argv: Sequence[str] | None = None):
+    """인자를 읽는다. ``--apply``에 ``--approved``가 없으면 DB를 열기 전에 거부한다 (#2491)."""
     import argparse
-
-    from sqlalchemy import pool
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-    from cii_platform.config import DATABASE_URL
-    from cii_platform.db.url import normalize_to_async
 
     parser = argparse.ArgumentParser(
         prog="python -m cii_platform.maintenance.annual_needs_recalc",
@@ -404,7 +490,33 @@ async def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - 
         "--json", dest="json_path", default=None, help="JSON 보고 경로 (- = 표준출력)"
     )
     parser.add_argument("--vessel-id", type=UUID, default=None, help="이 선박의 실행만")
+    parser.add_argument(
+        "--approved",
+        default=None,
+        help="--apply 필수: 승인한 미리 보기 JSON. 이 파일의 대상 실행만 표시한다",
+    )
     args = parser.parse_args(argv)
+    if args.apply and not args.approved:
+        parser.error("--apply는 --approved <승인한 미리 보기 JSON>이 필요하다")
+    return args
+
+
+async def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - 프로세스 진입점
+    """엔진을 열어 견주고(기본), ``--apply``면 승인 목록의 대상만 표시한다. 종료 코드를 돌려준다."""
+    from sqlalchemy import pool
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    from cii_platform.config import DATABASE_URL
+    from cii_platform.db.url import normalize_to_async
+
+    args = parse_args(argv)
+    approved: set[str] = set()
+    if args.apply:
+        try:
+            approved = load_approved(args.approved)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"승인 목록을 읽을 수 없음 — {exc}", file=sys.stderr)
+            return 2
 
     engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
@@ -415,11 +527,15 @@ async def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - 
             if args.apply:
                 stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
                 path = args.recovery_file or f"annual_needs_recalc_{stamp}.json"
-                ids = write_recovery_file(path, checks)
-                print(f"복구 자료: {path} (대상 {len(ids)}건)")
+                split, marked = await apply_approved(session, checks, approved, path)
+                ids = [check.calculation_run_id for check in split.to_mark]
+                print(f"복구 자료: {path} (표시할 대상 {len(ids)}건)")
                 print("대상 calculation_run 번호: " + (", ".join(ids) or "(없음)"))
-                marked = await apply(session, checks)
                 await session.commit()
+                for check in split.outside:
+                    print(f"승인 목록 밖 — 표시하지 않음: {check.simulation_id} ({check.vessel})")
+                for simulation_id in split.changed:
+                    print(f"승인 뒤 상태가 바뀜 — 건너뜀: {simulation_id}")
     finally:
         await engine.dispose()
 
