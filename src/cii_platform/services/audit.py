@@ -49,6 +49,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # 되돌리기 전환(`VOYAGE_TRANSITION`)은 상태만 말하고 **어떤 값이 어떤 값으로** 바뀌었는지는
         # 어느 행에도 없었다 — 이 액션이 그 자리다.
         "VOYAGE_ACTUALS_FILL",
+        # `#2420` — 실적 확정 항차의 **연간 반영 여부만** 바꾼 것. 상태가 그대로라 전환
+        # (`VOYAGE_TRANSITION`)이 아니고, 확정 실적이 어느 해의 누적에 들어가는지를 바꾸므로
+        # 누가 언제 바꿨는지가 남아야 한다.
+        "VOYAGE_INCLUSION_CHANGE",
         "CHAT_MESSAGE",
         "CHAT_TOOL_CALL",
         # `#1973` — 챗봇이 답을 **폐기한** 턴. 종전에는 앱 로그에만 남아 컨테이너를 바꾸면
@@ -363,6 +367,38 @@ async def record_voyage_transition(
             "from_status": from_status,
             "to_status": to_status,
             "annual_inclusion_policy": annual_inclusion_policy,
+        },
+        ip_address=ip_address,
+    )
+
+
+async def record_voyage_inclusion_change(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    voyage_id: UUID,
+    from_policy: str,
+    to_policy: str,
+    regulation_year: int | None,
+    ip_address: str | None = None,
+) -> None:
+    """실적 확정 항차의 연간 반영 여부 변경 (`#2420` · `API_SPEC §3.13`).
+
+    확정 항차는 연간 실적의 근거다(:func:`record_voyage_confirm`). 그 실적이 어느 해의 누적에
+    들어가는지·빠지는지를 바꾸는 일이라 확정·되돌리기와 같은 무게로 남긴다. 연도는 바뀌지
+    않지만 **어느 해의 누적이 달라졌는지** 읽을 수 있게 함께 싣는다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="VOYAGE_INCLUSION_CHANGE",
+        user_id=user_id,
+        entity_type="voyage",
+        entity_id=voyage_id,
+        details={
+            "status": "CONFIRMED",
+            "from_policy": from_policy,
+            "to_policy": to_policy,
+            "regulation_year": regulation_year,
         },
         ip_address=ip_address,
     )

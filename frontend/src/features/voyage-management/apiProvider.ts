@@ -259,6 +259,11 @@ export interface VoyageManagementProvider {
    */
   setRegulationYear(voyageId: string, year: number): Promise<ManagedVoyage>
   /**
+   * 실적 확정 항차의 연간 반영 여부만 바꾼다 (`PUT /voyages/{id}/annual-inclusion` · #2420).
+   * 기준연도는 보내지 않는다 — 서버가 저장된 연도를 그대로 쓴다.
+   */
+  setInclusion(voyageId: string, policy: InclusionPolicy): Promise<ManagedVoyage>
+  /**
    * CSV 가져오기 (`API_SPEC §8.2`).
    *
    * `dryRun`이면 **검증만 하고 아무것도 저장하지 않는다.** 화면은 이 걸음을 먼저
@@ -474,7 +479,8 @@ export function createApiVoyageManagementProvider(
        * 보정하지 않고 422로 거부한다(`§3.5`). `INCLUDE_AS_PLAN` 항차를 완료로
        * 옮기는 데모 마지막 걸음이 정확히 그 경우다.
        */
-      const policy = explicitPolicy ?? policyForTransition(voyage.inclusionPolicy, to)
+      const policy =
+        explicitPolicy ?? policyForTransition(voyage.inclusionPolicy, to, voyage.regulationYear)
       const body = await call(`/voyages/${voyage.id}/transition`, {
         method: 'POST',
         body: JSON.stringify({
@@ -627,6 +633,14 @@ export function createApiVoyageManagementProvider(
       const body = await call(`/voyages/${voyageId}`, {
         method: 'PATCH',
         body: JSON.stringify({ regulation_year: year }),
+      })
+      return readVoyage(body)
+    },
+
+    async setInclusion(voyageId, policy) {
+      const body = await call(`/voyages/${voyageId}/annual-inclusion`, {
+        method: 'PUT',
+        body: JSON.stringify({ annual_inclusion_policy: policy }),
       })
       return readVoyage(body)
     },

@@ -17,6 +17,7 @@ from cii_platform.api.schemas.voyage import (
     PublicRecordFillRequest,
     VoyageActualsRequest,
     VoyageCreateRequest,
+    VoyageInclusionRequest,
     VoyageTransitionRequest,
     VoyageUpdateRequest,
 )
@@ -34,6 +35,7 @@ from cii_platform.services.voyage import (
     list_voyages,
     require_vessel,
     set_actuals,
+    set_confirmed_inclusion,
     transition_voyage,
     update_voyage,
 )
@@ -230,6 +232,39 @@ async def transition_voyage_route(
         )
 
     # 기록 대상이 아닌 전환도 여기서 커밋한다 — 서비스가 더는 커밋하지 않는다.
+    await session.commit()
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.put("/voyages/{voyage_id}/annual-inclusion")
+async def set_voyage_inclusion_route(
+    request: Request,
+    voyage_id: UUID,
+    payload: VoyageInclusionRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """실적 확정 항차의 연간 반영 여부만 바꾼다 (`API_SPEC §3.13`, #2420).
+
+    **바뀌었으면 감사 기록을 남기고 한 번에 커밋한다** — 전환 라우트와 같은 규약(`#1625`).
+    주체와 IP는 HTTP 개념이라 라우트가 뽑는다(`TECH_SPEC §16.1`).
+    """
+    data = await set_confirmed_inclusion(
+        session, voyage_id, annual_inclusion_policy=payload.annual_inclusion_policy
+    )
+    from_policy = data.pop("_from_policy")
+    if from_policy != data["annual_inclusion_policy"]:
+        state = getattr(request, "state", None)
+        session_user = getattr(state, "session_user", None)
+        await audit_svc.record_voyage_inclusion_change(
+            session,
+            user_id=str(session_user.id) if session_user is not None else None,
+            voyage_id=voyage_id,
+            from_policy=from_policy,
+            to_policy=data["annual_inclusion_policy"],
+            regulation_year=data["regulation_year"],
+            ip_address=audit_client_ip(request),
+        )
     await session.commit()
     return {"data": data, "meta": _meta(request)}
 

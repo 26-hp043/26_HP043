@@ -880,3 +880,71 @@ def test_total_off_the_storage_grid_is_rejected(total: str):
     """
     with pytest.raises(ValueError):
         _fuel_shares(Decimal(total), [Decimal(1)])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #2420 결정 2 · 채택도 기준연도를 대조한다
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEC_28_2026 = datetime(2026, 12, 28, tzinfo=UTC)
+JAN_3_2027 = datetime(2027, 1, 3, tzinfo=UTC)
+
+
+async def _year_end_plan(session, vessel_id: UUID, *, year: int, duration_hours: str) -> tuple:
+    """12/28 출항 · 1/3 도착 · 기준연도 ``year``인 계획 항차와, 소요 시간을 정한 시나리오."""
+    voyage_id = await _new_voyage(session, vessel_id)
+    await session.execute(
+        text(
+            "UPDATE voyage SET planned_departure_at = :dep, planned_arrival_at = :arr, "
+            "regulation_year = :year WHERE id = :id"
+        ),
+        {"dep": DEC_28_2026, "arr": JAN_3_2027, "year": year, "id": voyage_id},
+    )
+    scenario_id = await _new_scenario(session, vessel_id)
+    await session.execute(
+        text("UPDATE voyage_scenario SET duration_hours = :h WHERE id = :id"),
+        {"h": Decimal(duration_hours), "id": scenario_id},
+    )
+    return voyage_id, scenario_id
+
+
+@pytest.mark.asyncio
+async def test_adopting_refuses_when_the_new_arrival_leaves_the_stored_year(session, vessel_id):
+    """도착이 12/30으로 당겨지면 넣을 수 있는 해는 2026뿐이다 — 2027이 남으면 거절한다 (#2420).
+
+    같은 값이 항차 수정(`§3.4`)으로는 422인데 채택으로는 저장되던 길을 닫는다. 서버가 연도를
+    대신 옮기지 않으므로(`#2133`) 계획도 그대로 남아야 한다.
+    """
+    voyage_id, scenario_id = await _year_end_plan(
+        session, vessel_id, year=2027, duration_hours="48"
+    )
+
+    with pytest.raises(ValidationError) as caught:
+        await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    assert caught.value.field == "regulation_year"
+    message = str(caught.value)
+    assert "(2026)" in message
+    assert "지금 기준연도는 2027입니다" in message
+    row = await _voyage_row(session, voyage_id)
+    assert row.planned_distance_nm == Decimal("1000.00")
+    assert row.planned_arrival_at.replace(tzinfo=UTC) == JAN_3_2027
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("year", "duration_hours"),
+    [(2026, "48"), (2026, "190.5"), (2027, "190.5")],
+)
+async def test_adopting_passes_when_the_stored_year_is_still_spanned(
+    session, vessel_id, year, duration_hours
+):
+    """출항 해를 고른 항차와, 새 도착이 여전히 그 해에 걸친 항차는 그대로 채택된다."""
+    voyage_id, scenario_id = await _year_end_plan(
+        session, vessel_id, year=year, duration_hours=duration_hours
+    )
+
+    await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    row = await _voyage_row(session, voyage_id)
+    assert row.planned_distance_nm == Decimal("2000.00")

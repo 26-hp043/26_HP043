@@ -1,0 +1,12 @@
+{
+  "_comment": "#2420 결정 1 — 넣을 수 있는 기준연도. 서버(services/voyage.spanned_utc_years · tests/test_voyage_regulation_year_attribution_db.py)와 화면(voyageRules.allowedRegulationYears · serverBounds.sync.test.ts)이 같은 사례를 읽는다. years가 null이면 출항 시각이 없어 대조하지 않는다. kst_differs는 한국 시각의 해와 UTC의 해가 갈리는 시각이 끼었는지(화면 안내의 덧붙임)다.",
+  "cases": [
+    {"name": "연말을 걸친 항차", "departure": "2026-12-27T15:00:00Z", "arrival": "2027-01-02T15:00:00Z", "years": [2026, 2027], "kst_differs": false},
+    {"name": "한국 시각 1/1 03:00 출항 · 도착 미정", "departure": "2026-12-31T18:00:00Z", "arrival": null, "years": [2026], "kst_differs": true},
+    {"name": "한국 시각 1/1 03:00 출항 · 도착은 UTC로도 새해", "departure": "2026-12-31T18:00:00Z", "arrival": "2027-01-05T00:00:00Z", "years": [2026, 2027], "kst_differs": true},
+    {"name": "한 해 안의 항차", "departure": "2026-05-10T00:00:00Z", "arrival": "2026-05-20T00:00:00Z", "years": [2026], "kst_differs": false},
+    {"name": "오프셋 표기 — 한국 시각 1/1 08:59는 UTC 전년", "departure": "2027-01-01T08:59:00+09:00", "arrival": null, "years": [2026], "kst_differs": true},
+    {"name": "오프셋 표기 — 한국 시각 1/1 09:00은 UTC로도 새해", "departure": "2027-01-01T09:00:00+09:00", "arrival": null, "years": [2027], "kst_differs": false},
+    {"name": "출항 시각 없음 — 대조하지 않는다", "departure": null, "arrival": "2027-01-05T00:00:00Z", "years": null, "kst_differs": false}
+  ]
+}

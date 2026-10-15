@@ -310,6 +310,19 @@ describe('transition — API_SPEC §3.5', () => {
     })
   })
 
+  it('기준연도가 있는 「반영 안 함」 완료 항차를 확정하면 연간 반영을 싣는다 (#2420 가-1)', async () => {
+    const fetchMock = fakeFetch({ '/transition': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').transition(
+      { ...VOYAGE, status: 'COMPLETED', inclusionPolicy: 'EXCLUDE', regulationYear: 2026 },
+      'CONFIRMED',
+    )
+
+    expect(bodyOf(fetchMock)).toEqual({
+      to_status: 'CONFIRMED',
+      annual_inclusion_policy: 'INCLUDE_AS_ACTUAL',
+    })
+  })
+
   it('목표 상태가 현행을 허용하면 policy를 생략한다', async () => {
     const fetchMock = fakeFetch({ '/transition': ok(VOYAGE_BODY) })
     await createApiVoyageManagementProvider(fetchMock, '').transition(
@@ -366,6 +379,22 @@ describe('saveActuals — API_SPEC §3.6', () => {
     await createApiVoyageManagementProvider(fetchMock, '').saveActuals('f0a1', draft)
 
     expect(bodyOf(fetchMock)).not.toHaveProperty('actual_avg_speed_kn')
+  })
+})
+
+describe('setInclusion — PUT /voyages/{id}/annual-inclusion (#2420)', () => {
+  it('정책 하나만 보낸다 — 기준연도는 싣지 않는다', async () => {
+    const fetchMock = fakeFetch({ '/annual-inclusion': ok(VOYAGE_BODY) })
+    const updated = await createApiVoyageManagementProvider(fetchMock, '').setInclusion(
+      'f0a1',
+      'INCLUDE_AS_ACTUAL',
+    )
+
+    const calls = (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    expect(String(calls[0][0])).toMatch(/\/voyages\/f0a1\/annual-inclusion$/)
+    expect((calls[0][1] as RequestInit).method).toBe('PUT')
+    expect(bodyOf(fetchMock)).toEqual({ annual_inclusion_policy: 'INCLUDE_AS_ACTUAL' })
+    expect(updated.id).toBe(VOYAGE_BODY.data.id)
   })
 })
 

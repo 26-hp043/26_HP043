@@ -1003,7 +1003,11 @@ describe('계획에 반영 (#580)', () => {
    * `comparedVoyageId`는 서버가 이 비교를 **붙였다고 답하는** 항차다 (`API_SPEC §5.1`
    * `data.voyage_id` · `#2217`). 주지 않으면 종전 응답 그대로다 — 키가 없다.
    */
-  function stubAdoptServer(adoptStatus = 200, comparedVoyageId?: string | null) {
+  function stubAdoptServer(
+    adoptStatus = 200,
+    comparedVoyageId?: string | null,
+    adoptError = { code: 'STATE_TRANSITION_ERROR', message: '계획 단계 항차에만 반영할 수 있습니다.' },
+  ) {
     const compareBody =
       comparedVoyageId === undefined
         ? COMPARE_BODY
@@ -1030,7 +1034,7 @@ describe('계획에 반영 (#580)', () => {
                 invalidated_calculation_runs: 7,
               },
             })
-          : jsonResponse({ error: { code: 'STATE_TRANSITION_ERROR', message: '계획 단계 항차에만 반영할 수 있습니다.' } }, 409)
+          : jsonResponse({ error: adoptError }, adoptStatus)
       }
       return jsonResponse({ data: {} })
     })
@@ -1219,6 +1223,26 @@ describe('계획에 반영 (#580)', () => {
     fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
 
     expect(await screen.findByText('계획 단계 항차에만 반영할 수 있습니다.')).toBeTruthy()
+    expect(screen.queryByText(/시나리오를 반영했습니다/)).toBeNull()
+  })
+
+  /*
+   * #2420 결정 2 — 채택으로 도착이 해를 넘나들어 기준연도와 어긋나면 서버가 422로 거절한다. 화면은
+   * 그 사유(고칠 곳 포함)를 그대로 보이고 반영했다고 말하지 않는다. 문구 자체는 서버 정본(`API_SPEC §5.2`)이라
+   * 여기서는 「서버가 보낸 것을 그대로 낸다」는 성질만 본다.
+   */
+  it('기준연도가 새 도착 시각과 맞지 않아 거절되면 서버 사유를 그대로 보인다 (#2420)', async () => {
+    const reason = '서버가 보낸 기준연도 거절 사유'
+    stubAdoptServer(422, undefined, { code: 'VALIDATION_ERROR', message: reason })
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-direct' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-draft' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+
+    expect(await screen.findByText(reason)).toBeTruthy()
     expect(screen.queryByText(/시나리오를 반영했습니다/)).toBeNull()
   })
 

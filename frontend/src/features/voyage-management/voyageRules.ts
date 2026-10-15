@@ -96,7 +96,22 @@ interface TransitionCaution {
   confirm: string
 }
 
-export function transitionCaution(from: VoyageStatus, to: VoyageStatus): TransitionCaution | null {
+export function transitionCaution(
+  from: VoyageStatus,
+  to: VoyageStatus,
+  regulationYear: number | null = null,
+): TransitionCaution | null {
+  /*
+   * 실적 확정 — 기준연도가 있으면 「연간 반영」으로 확정한다(#2420 결정 4 가-1 · `policyForTransition`).
+   * 반영된다는 사실을 확정 **전에** 알린다 — 반영을 원하지 않는 사용자가 모르고 지나가지 않게.
+   * 확정한 뒤 카드의 「연간 반영에서 빼기」로 뺄 수 있다. ⚠️ 문구는 개발 임시안이다(#2366).
+   */
+  if (from === 'COMPLETED' && to === 'CONFIRMED' && regulationYear !== null) {
+    return {
+      message: `이 항차는 ${regulationYear}년 누적에 반영됩니다.`,
+      confirm: '실적 확정하기',
+    }
+  }
   if (from === 'CONFIRMED' && to === 'COMPLETED') {
     return {
       message:
@@ -167,6 +182,117 @@ export function regulationYearEdit(
 }
 
 /**
+ * 연도가 있는 확정 항차의 「연간 반영」 켜기·끄기 (#2420 결정 4 · `PUT /voyages/{id}/annual-inclusion`).
+ *
+ * 연도는 그대로 두고 **반영 여부만** 바꾼다 — 이미 어느 해에 들어간 확정 항차를 옮기지 않는다
+ * (`API_SPEC §3.4` `[#2133]`). 연도가 비어 있는 확정 항차는 「기준연도 넣기」(`regulationYearEdit`의
+ * `fill`)가 같은 일을 하므로 여기서는 `null`이다. 누르면 카드의 확인 줄이 무엇이 달라지는지 묻는다.
+ * ⚠️ 글자와 문구는 개발 임시안이다(#2366).
+ */
+interface InclusionSwitch {
+  /** 보낼 정책 */
+  to: InclusionPolicy
+  /** 펼침 줄의 글자 버튼 */
+  label: string
+  /** 확인 줄의 설명 */
+  message: string
+  /** 확인 버튼 */
+  confirm: string
+}
+
+export function inclusionSwitch(
+  voyage: Pick<ManagedVoyage, 'status' | 'regulationYear' | 'inclusionPolicy'>,
+): InclusionSwitch | null {
+  if (voyage.status !== 'CONFIRMED' || voyage.regulationYear === null) return null
+  const year = voyage.regulationYear
+  if (voyage.inclusionPolicy === 'EXCLUDE') {
+    return {
+      to: 'INCLUDE_AS_ACTUAL',
+      label: '연간 반영으로 바꾸기',
+      message: `이 항차를 ${year}년 누적에 반영합니다.`,
+      confirm: '반영하기',
+    }
+  }
+  return {
+    to: 'EXCLUDE',
+    label: '연간 반영에서 빼기',
+    message: `이 항차를 ${year}년 누적에서 뺍니다.`,
+    confirm: '빼기',
+  }
+}
+
+/**
+ * 이 항차에 넣을 수 있는 기준연도 — 서버 `services/voyage.spanned_utc_years`와 같은 판정 (#2420 결정 1).
+ *
+ * 서버는 기준연도를 출항·도착 시각의 **UTC** 해와 대조한다(`PRD §8.3` `[#2133]` · `#1333`). 화면은 시각을
+ * 한국 시각으로 보이므로, 한국 시각 1월 1일 00:00~08:59의 시각은 화면으로는 새해인데 서버로는 전년이다.
+ * 저장을 눌러 거절당하기 전에 넣을 수 있는 해를 미리 보이려고 같은 판정을 여기서 한 번 더 한다 —
+ * 그래서 둘이 갈라지지 않게 `tests/fixtures/regulation_year/attribution_cases.json`의 같은 사례를
+ * 서버 검사와 화면 검사가 함께 읽는다.
+ *
+ * 출항 시각이 없으면 `null`이다 — 서버가 대조하지 않는다(모르는 것을 틀렸다고 하지 않는다).
+ * 도착이 없으면 출항 해 하나다. 오름차순이다.
+ */
+export function allowedRegulationYears(
+  departureIso: string | null,
+  arrivalIso: string | null,
+): number[] | null {
+  const departure = departureIso === null ? NaN : Date.parse(departureIso)
+  if (Number.isNaN(departure)) return null
+  const years = new Set([new Date(departure).getUTCFullYear()])
+  const arrival = arrivalIso === null ? NaN : Date.parse(arrivalIso)
+  if (!Number.isNaN(arrival)) years.add(new Date(arrival).getUTCFullYear())
+  return [...years].sort((a, b) => a - b)
+}
+
+/** 한국 시각의 해와 UTC의 해가 다른 시각인가 — 한국 시각 1월 1일 09시 이전이다. */
+function kstYearDiffers(iso: string | null): boolean {
+  const at = iso === null ? NaN : Date.parse(iso)
+  if (Number.isNaN(at)) return false
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+  return new Date(at + KST_OFFSET_MS).getUTCFullYear() !== new Date(at).getUTCFullYear()
+}
+
+/**
+ * 기준연도 칸 아래 안내 한 줄 (#2420 결정 1) — 넣을 수 있는 해가 정해지지 않으면 `null`.
+ *
+ * 연말을 걸친 항차는 두 해 중 하나를 고른다는 사실도 이 줄이 알린다(「2026 또는 2027」 · `PRD §8.3`).
+ * 한국 시각과 UTC의 해가 갈리는 시각이 끼면 왜 그 해인지를 덧붙인다. ⚠️ 문구와 자리는 개발 임시안이다(#2366).
+ */
+export function regulationYearHint(
+  departureIso: string | null,
+  arrivalIso: string | null,
+): string | null {
+  const years = allowedRegulationYears(departureIso, arrivalIso)
+  if (years === null) return null
+  const base = `넣을 수 있는 해: ${years.join(' 또는 ')}`
+  if (kstYearDiffers(departureIso) || kstYearDiffers(arrivalIso)) {
+    return `${base} — 기준연도는 UTC 시각의 해를 따릅니다(한국 시각 1월 1일 09시 이전은 전년입니다).`
+  }
+  return base
+}
+
+/**
+ * 카드의 「기준연도 고치기·넣기」가 대조받는 시각 — 서버 `services/voyage._attribution_times`의
+ * 계획 단계 밖 갈래와 같다 (#2420 결정 1). 진행·완료는 실제 출항 시각이 있을 때만 실제 시각, 없으면
+ * 대조하지 않는다(`null`). 확정은 실제 시각, 없으면 계획 시각이다.
+ */
+export function attributionTimes(
+  voyage: Pick<
+    ManagedVoyage,
+    'status' | 'plannedDepartureAt' | 'plannedArrivalAt' | 'actualDepartureAt' | 'actualArrivalAt'
+  >,
+): { departure: string | null; arrival: string | null } {
+  if (voyage.actualDepartureAt !== null) {
+    return { departure: voyage.actualDepartureAt, arrival: voyage.actualArrivalAt }
+  }
+  if (voyage.status === 'CONFIRMED') {
+    return { departure: voyage.plannedDepartureAt, arrival: voyage.plannedArrivalAt }
+  }
+  return { departure: null, arrival: null }
+}
+
+/**
  * 기준연도 한 칸의 입력 검증. 빈 칸은 오류다(이 경로는 값을 **넣는** 일뿐이다).
  * 형식 문구는 `validateDraft`와 같은 것을 쓴다.
  */
@@ -223,8 +349,17 @@ export function validateRegulationYearInput(raw: string): { year: number | null;
 export function policyForTransition(
   current: InclusionPolicy,
   to: VoyageStatus,
+  regulationYear: number | null = null,
 ): InclusionPolicy | null {
   const allowed = POLICY_BY_STATUS[to]
+  /*
+   * 실적을 확정하는 까닭은 그 값을 연간 누적의 근거로 쓰기 위해서다 (#2420 결정 4 가-1). 기준연도가
+   * 있으면 「연간 반영」으로 확정한다 — 종전에는 정책을 보내지 않아 「반영 안 함」인 채로 확정된
+   * 항차가 누적에서 빠졌다. 기준연도가 없으면 반영할 해가 없으므로 종전대로 둔다.
+   */
+  if (to === 'CONFIRMED' && regulationYear !== null && current !== 'INCLUDE_AS_ACTUAL') {
+    return 'INCLUDE_AS_ACTUAL'
+  }
   if (allowed.includes(current)) return null
 
   // 계획으로 잡아 둔 것은 실적으로 이어 간다. 그 외에는 반영을 끈다.
@@ -251,7 +386,7 @@ export function transitionBlocker(
   if (shortage !== null) return shortage
 
   // policy를 켜는 전환은 regulation_year가 있어야 한다 (#150)
-  const policy = policyForTransition(voyage.inclusionPolicy, to)
+  const policy = policyForTransition(voyage.inclusionPolicy, to, voyage.regulationYear)
   const effective = policy ?? voyage.inclusionPolicy
   if (effective !== 'EXCLUDE' && voyage.regulationYear === null) {
     return '연간 반영을 하려면 기준연도가 필요합니다.'
@@ -510,13 +645,20 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
 }
 
 /**
+ * 실적 시각이 지금보다 뒤여도 받아 주는 여유(분) — 서버 `services/voyage.py`의
+ * `FUTURE_ACTUAL_TOLERANCE`와 같다 (#2420 결정 3). 서버 시계와 이 기기의 시계가 몇 분 어긋날 수
+ * 있다. `serverBounds.sync.test.ts`가 서버 값과 대조한다.
+ */
+export const FUTURE_ACTUAL_TOLERANCE_MINUTES = 5
+
+/**
  * 실적 폼 검증 — `API_SPEC §3.6`.
  *
  * **모든 항목이 선택이다.** 생략은 「변경 없음」이고, 실거리만 먼저 알고 연료가
  * 나중에 오는 경우가 실제로 있다. 그래서 「비어 있음」은 오류가 아니다 —
  * 값이 들어왔을 때 그 값이 서버 제약을 어기는지만 본다.
  */
-export function validateActuals(draft: ActualsDraft): FieldErrors {
+export function validateActuals(draft: ActualsDraft, now: Date = new Date()): FieldErrors {
   const errors: FieldErrors = {}
 
   const distance = readNumber(draft.actualDistanceNm)
@@ -555,6 +697,19 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
     { departure: 'actualDepartureAt', arrival: 'actualArrivalAt' },
     errors,
   )
+
+  /*
+   * 지금보다 뒤의 실적 시각은 저장 전에 그 칸에서 알린다 (#2420 결정 3 · `API_SPEC §3.6`). 실적은 이미
+   * 일어난 일의 기록이라, 뒤의 시각은 날짜를 잘못 넣은 것이다. 서버가 같은 검사를 한다 — 여기서는
+   * 먼저 말할 뿐이다. 이미 다른 오류가 붙은 칸은 덮지 않는다.
+   */
+  const limit = now.getTime() + FUTURE_ACTUAL_TOLERANCE_MINUTES * 60_000
+  for (const key of ['actualDepartureAt', 'actualArrivalAt'] as const) {
+    const iso = draft[key].trim() === '' ? null : toIsoInstant(draft[key])
+    if (iso !== null && errors[key] === undefined && Date.parse(iso) > limit) {
+      errors[key] = '실적 시각은 현재보다 뒤일 수 없습니다.'
+    }
+  }
 
   return errors
 }

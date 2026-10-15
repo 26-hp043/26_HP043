@@ -74,7 +74,7 @@ const EXPECTED: Record<string, number> = {
   'features/vessel-management/apiProvider.ts': 2,
   'features/vessel-registration/apiProvider.ts': 1,
   'features/voyage-cii/apiProvider.ts': 1,
-  'features/voyage-management/apiProvider.ts': 5, // #2133 기준연도 PATCH 추가
+  'features/voyage-management/apiProvider.ts': 6, // #2133 기준연도 PATCH · #2420 연간 반영 전환 PUT(call 헬퍼가 csrfHeaders를 싣는다)
 }
 
 const FOUND = new Map<string, { count: number; source: string }>()

@@ -9,6 +9,8 @@ import {
   hasErrors,
   nextStatuses,
   policyForTransition,
+  attributionTimes,
+  inclusionSwitch,
   regulationYearEdit,
   validateRegulationYearInput,
   toIsoInstant,
@@ -17,6 +19,7 @@ import {
   transitionCaution,
   isRevert,
   validateActuals,
+  FUTURE_ACTUAL_TOLERANCE_MINUTES,
   validateDraft,
 } from './voyageRules'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageStatus } from './types'
@@ -111,6 +114,54 @@ describe('policyForTransition — 데모 마지막 한 걸음이 여기서 막�
 
   it('EXCLUDE only 상태로 가면 반영을 끈다', () => {
     expect(policyForTransition('INCLUDE_AS_PLAN', 'CANCELLED')).toBe('EXCLUDE')
+  })
+
+  // #2420 결정 4 가-1 — 확정할 때 기준연도가 있으면 「연간 반영」으로 확정한다.
+  it('기준연도가 있는 「반영 안 함」 항차를 확정하면 연간 반영을 싣는다', () => {
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED', 2026)).toBe('INCLUDE_AS_ACTUAL')
+  })
+
+  it('기준연도가 없으면 종전대로 생략한다 — 반영할 해가 없다', () => {
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED', null)).toBeNull()
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED')).toBeNull()
+  })
+
+  it('이미 연간 반영이면 생략한다 — 현행 유지가 같은 값이다', () => {
+    expect(policyForTransition('INCLUDE_AS_ACTUAL', 'CONFIRMED', 2026)).toBeNull()
+  })
+
+  it('확정이 아닌 전환에는 연도가 있어도 손대지 않는다', () => {
+    expect(policyForTransition('EXCLUDE', 'COMPLETED', 2026)).toBeNull()
+  })
+})
+
+describe('transitionCaution — 실적 확정의 확인 줄 (#2420 가-1)', () => {
+  it('기준연도가 있으면 확정 전에 그 해 누적에 반영된다고 묻는다', () => {
+    expect(transitionCaution('COMPLETED', 'CONFIRMED', 2027)?.message).toContain('2027')
+  })
+
+  it('기준연도가 없으면 묻지 않는다', () => {
+    expect(transitionCaution('COMPLETED', 'CONFIRMED', null)).toBeNull()
+    expect(transitionCaution('COMPLETED', 'CONFIRMED')).toBeNull()
+  })
+})
+
+describe('inclusionSwitch — 연도가 있는 확정 항차의 반영 켜기·끄기 (#2420 결정 4)', () => {
+  const confirmed = { status: 'CONFIRMED' as const, regulationYear: 2026 }
+
+  it('반영 안 함이면 반영으로, 반영 중이면 빼기로 — 확인 줄은 그 해를 말한다', () => {
+    const on = inclusionSwitch({ ...confirmed, inclusionPolicy: 'EXCLUDE' })
+    const off = inclusionSwitch({ ...confirmed, inclusionPolicy: 'INCLUDE_AS_ACTUAL' })
+    expect(on?.to).toBe('INCLUDE_AS_ACTUAL')
+    expect(off?.to).toBe('EXCLUDE')
+    expect(on?.message).toContain('2026')
+    expect(off?.message).toContain('2026')
+    expect(on?.label).not.toBe(off?.label)
+  })
+
+  it('연도가 빈 확정 항차와 확정이 아닌 항차에는 없다', () => {
+    expect(inclusionSwitch({ status: 'CONFIRMED', regulationYear: null, inclusionPolicy: 'EXCLUDE' })).toBeNull()
+    expect(inclusionSwitch({ status: 'COMPLETED', regulationYear: 2026, inclusionPolicy: 'EXCLUDE' })).toBeNull()
   })
 })
 
@@ -306,6 +357,47 @@ describe('validateActuals — 모든 항목이 선택이다', () => {
   it('들어온 값이 서버 제약을 어기면 잡는다', () => {
     expect(validateActuals(actuals({ actualFuelTon: { HFO: '0' } }))['actualFuelTon.HFO']).toBeDefined()
     expect(validateActuals(actuals({ actualAvgSpeedKn: '0.9' })).actualAvgSpeedKn).toBeDefined()
+  })
+})
+
+describe('validateActuals — 지금보다 뒤의 실적 시각 (#2420 결정 3)', () => {
+  // 한국 시각 2026-10-15 12:00 = UTC 03:00
+  const now = new Date('2026-10-15T03:00:00Z')
+
+  it('지금보다 뒤의 실제 도착 시각은 그 칸에서 막는다', () => {
+    const found = validateActuals(
+      actuals({ actualDepartureAt: '2026-10-13T09:00', actualArrivalAt: '2026-11-14T09:00' }),
+      now,
+    )
+    expect(found.actualArrivalAt).toBeDefined()
+    expect(found.actualDepartureAt).toBeUndefined()
+  })
+
+  it('실제 출항 시각도 같다', () => {
+    expect(validateActuals(actuals({ actualDepartureAt: '2026-10-16T09:00' }), now).actualDepartureAt).toBeDefined()
+  })
+
+  it('시계 차 몇 분은 받아 준다 — 여유 안은 통과, 넘으면 막는다', () => {
+    const within = `2026-10-15T12:0${FUTURE_ACTUAL_TOLERANCE_MINUTES - 1}`
+    const beyond = `2026-10-15T12:${String(FUTURE_ACTUAL_TOLERANCE_MINUTES + 1).padStart(2, '0')}`
+    expect(validateActuals(actuals({ actualArrivalAt: within }), now).actualArrivalAt).toBeUndefined()
+    expect(validateActuals(actuals({ actualArrivalAt: beyond }), now).actualArrivalAt).toBeDefined()
+  })
+
+  it('지난 시각과 빈 칸은 오류가 아니다', () => {
+    expect(
+      hasErrors(validateActuals(actuals({ actualDepartureAt: '2026-10-01T09:00', actualArrivalAt: '' }), now)),
+    ).toBe(false)
+  })
+
+  it('순서 오류가 이미 붙은 칸은 덮지 않는다 — 고칠 것이 먼저 보인다', () => {
+    const found = validateActuals(
+      actuals({ actualDepartureAt: '2026-12-08T09:00', actualArrivalAt: '2026-12-01T09:00' }),
+      now,
+    )
+    const futureOnly = validateActuals(actuals({ actualArrivalAt: '2026-12-01T09:00' }), now)
+    expect(found.actualArrivalAt).toBeDefined()
+    expect(found.actualArrivalAt).not.toBe(futureOnly.actualArrivalAt)
   })
 })
 
@@ -738,5 +830,30 @@ describe('저장 범위 경계 (#2457)', () => {
     // 네 자리 숫자가 아닌 값은 형식 오류다
     expect(validateRegulationYearInput('26').error).toBe(format)
     expect(validateRegulationYearInput('2051').error).toBe(range)
+  })
+})
+
+describe('attributionTimes — 카드의 기준연도가 대조받는 시각 (#2420 결정 1 · 서버 _attribution_times)', () => {
+  const base = {
+    plannedDepartureAt: '2026-12-20T00:00:00Z',
+    plannedArrivalAt: '2026-12-28T00:00:00Z',
+    actualDepartureAt: null,
+    actualArrivalAt: null,
+  }
+
+  it('실제 출항 시각이 있으면 실제 시각이다', () => {
+    const sailed = { ...base, status: 'COMPLETED' as const, actualDepartureAt: '2027-01-02T00:00:00Z' }
+    expect(attributionTimes(sailed)).toEqual({ departure: '2027-01-02T00:00:00Z', arrival: null })
+  })
+
+  it('진행·완료에서 실제 출항 시각이 없으면 대조하지 않는다', () => {
+    expect(attributionTimes({ ...base, status: 'IN_PROGRESS' })).toEqual({ departure: null, arrival: null })
+  })
+
+  it('확정은 실제 시각이 없으면 계획 시각이다', () => {
+    expect(attributionTimes({ ...base, status: 'CONFIRMED' })).toEqual({
+      departure: base.plannedDepartureAt,
+      arrival: base.plannedArrivalAt,
+    })
   })
 })
