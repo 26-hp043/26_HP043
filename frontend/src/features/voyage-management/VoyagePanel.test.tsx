@@ -88,6 +88,7 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
     transition: vi.fn(async () => IN_PROGRESS),
     saveActuals: vi.fn(async () => IN_PROGRESS),
     setRegulationYear: vi.fn(async () => IN_PROGRESS),
+    setInclusion: vi.fn(async () => IN_PROGRESS),
     importCsv: vi.fn(async () => ({
       importedCount: 0,
       skippedCount: 0,
@@ -1492,5 +1493,115 @@ describe('기준연도 수정 줄 (#2133)', () => {
 
     expect(screen.queryByLabelText('기준연도')).toBeNull()
     expect(document.activeElement).toBe(screen.getByRole('button', { name: YEAR_TOGGLE }))
+  })
+})
+
+/**
+ * 연도가 있는 확정 항차의 연간 반영 켜기·끄기와, 실적 확정 확인 줄 (#2420 결정 4 · 가-1).
+ *
+ * 버튼·확인 줄 글자는 표시 문구라(`AGENTS §4.6`) 리터럴로 잠그지 않는다 — 버튼이 있다·없다, 확인을
+ * 거친다, 무엇을 보낸다, 확인 줄이 그 해를 말한다는 **성질**을 본다.
+ */
+describe('확정 항차의 연간 반영 (#2420)', () => {
+  const INCLUSION_TOGGLE = /^연간 반영(으로 바꾸기|에서 빼기)$/
+  const CONFIRMED_EXCLUDED: ManagedVoyage = {
+    ...IN_PROGRESS,
+    status: 'CONFIRMED',
+    inclusionPolicy: 'EXCLUDE',
+    regulationYear: 2027,
+    actualDistanceNm: 2290,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 320 }],
+  }
+
+  function renderOne(voyage: ManagedVoyage, over: Partial<VoyageManagementProvider> = {}) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+          ...over,
+        })}
+      />,
+    )
+  }
+
+  const confirmLine = () => document.querySelector<HTMLElement>('.vy__caution')
+
+  it('연도가 있는 「반영 안 함」 확정 항차는 확인을 거쳐 반영으로 바뀐다 — 연도는 보내지 않는다', async () => {
+    const setInclusion = vi.fn(async (_id: string, _policy: string) => ({
+      ...CONFIRMED_EXCLUDED,
+      inclusionPolicy: 'INCLUDE_AS_ACTUAL' as const,
+    }))
+    renderOne(CONFIRMED_EXCLUDED, { setInclusion })
+    await expandRow()
+    const toggle = screen.getByRole('button', { name: INCLUSION_TOGGLE })
+    const before = toggle.textContent
+    fireEvent.click(toggle)
+
+    expect(setInclusion).not.toHaveBeenCalled()
+    expect(confirmLine()?.textContent).toContain('2027')
+    const group = within(confirmLine()!)
+    // 초점은 안전한 쪽에 먼저 간다
+    expect(document.activeElement).toBe(group.getByRole('button', { name: '그만두기' }))
+    const buttons = group.getAllByRole('button')
+    fireEvent.click(buttons.find((b) => b.textContent !== '그만두기')!)
+
+    await waitFor(() => expect(setInclusion).toHaveBeenCalledWith('v-1', 'INCLUDE_AS_ACTUAL'))
+    await waitFor(() => expect(confirmLine()).toBeNull())
+    // 반영된 뒤에는 반대쪽(빼기) 버튼이 선다 — 글자가 바뀐다
+    expect(screen.getByRole('button', { name: INCLUSION_TOGGLE }).textContent).not.toBe(before)
+  })
+
+  it('반영 중인 확정 항차에는 빼기가 있고 EXCLUDE를 보낸다', async () => {
+    const setInclusion = vi.fn(async () => CONFIRMED_EXCLUDED)
+    renderOne({ ...CONFIRMED_EXCLUDED, inclusionPolicy: 'INCLUDE_AS_ACTUAL' }, { setInclusion })
+    await expandRow()
+    fireEvent.click(screen.getByRole('button', { name: INCLUSION_TOGGLE }))
+    const group = within(confirmLine()!)
+    fireEvent.click(group.getAllByRole('button').find((b) => b.textContent !== '그만두기')!)
+    await waitFor(() => expect(setInclusion).toHaveBeenCalledWith('v-1', 'EXCLUDE'))
+  })
+
+  it('「그만두기」는 아무것도 보내지 않는다', async () => {
+    const setInclusion = vi.fn(async () => CONFIRMED_EXCLUDED)
+    renderOne(CONFIRMED_EXCLUDED, { setInclusion })
+    await expandRow()
+    fireEvent.click(screen.getByRole('button', { name: INCLUSION_TOGGLE }))
+    fireEvent.click(within(confirmLine()!).getByRole('button', { name: '그만두기' }))
+    expect(confirmLine()).toBeNull()
+    expect(setInclusion).not.toHaveBeenCalled()
+  })
+
+  it('연도가 빈 확정 항차와 확정 전 항차에는 없다 — 연도 빈 확정은 「기준연도 넣기」가 같은 일을 한다', async () => {
+    for (const voyage of [
+      { ...CONFIRMED_EXCLUDED, regulationYear: null },
+      { ...CONFIRMED_EXCLUDED, status: 'COMPLETED' as const },
+    ]) {
+      renderOne(voyage)
+      await expandRow()
+      expect(screen.queryByRole('button', { name: INCLUSION_TOGGLE })).toBeNull()
+      cleanup()
+    }
+  })
+
+  it('가-1 — 연도가 있는 완료 항차의 실적 확정은 그 해에 반영된다고 묻고, 확인하면 전환한다', async () => {
+    const completed: ManagedVoyage = { ...CONFIRMED_EXCLUDED, status: 'COMPLETED' }
+    const transition = vi.fn(async () => ({ ...completed, status: 'CONFIRMED' as const }))
+    renderOne(completed, { transition })
+    fireEvent.click(await screen.findByRole('button', { name: '실적 확정으로' }))
+
+    expect(transition).not.toHaveBeenCalled()
+    expect(confirmLine()?.textContent).toContain('2027')
+    const group = within(confirmLine()!)
+    fireEvent.click(group.getAllByRole('button').find((b) => b.textContent !== '그만두기')!)
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(completed, 'CONFIRMED'))
+  })
+
+  it('가-1 — 연도가 없는 완료 항차는 종전대로 바로 확정한다(반영할 해가 없다)', async () => {
+    const completed: ManagedVoyage = { ...CONFIRMED_EXCLUDED, status: 'COMPLETED', regulationYear: null }
+    const transition = vi.fn(async () => ({ ...completed, status: 'CONFIRMED' as const }))
+    renderOne(completed, { transition })
+    fireEvent.click(await screen.findByRole('button', { name: '실적 확정으로' }))
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(completed, 'CONFIRMED'))
   })
 })

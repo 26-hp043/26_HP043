@@ -15,6 +15,7 @@ import {
   hasErrors,
   isRevert,
   nextStatuses,
+  inclusionSwitch,
   regulationYearEdit,
   toLocalInput,
   transitionBlocker,
@@ -402,6 +403,20 @@ function VoyageRow({
    * `--radius-modal` 사용처 0 · `§16` 항목 17 겹침 순서 미결), 확인할 대상(이 카드의 값)이
    * 줄 바로 위에 보여야 판단할 수 있다.
    */
+  /*
+   * 연도가 있는 확정 항차의 연간 반영 켜기·끄기 (#2420 결정 4 · `inclusionSwitch`). 전환 확인 줄과
+   * 같은 모양의 확인 줄을 거친다 — 확정 실적이 어느 해의 누적에 들어가는지를 바꾸는 일이다.
+   */
+  const [inclusionOpen, setInclusionOpen] = useState(false)
+  const inclusionTrigger = useRef<HTMLButtonElement>(null)
+  const inclusionKeepRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (inclusionOpen) inclusionKeepRef.current?.focus()
+  }, [inclusionOpen])
+  const closeInclusion = () => {
+    setInclusionOpen(false)
+    inclusionTrigger.current?.focus()
+  }
   const [pending, setPending] = useState<VoyageStatus | null>(null)
   const pendingTrigger = useRef<HTMLButtonElement | null>(null)
   const keepRef = useRef<HTMLButtonElement>(null)
@@ -416,7 +431,7 @@ function VoyageRow({
   }
   /** 확인이 필요한 전환이면 줄을 열고, 아니면 바로 돌린다. */
   const request = (to: VoyageStatus, trigger: HTMLButtonElement) => {
-    if (transitionCaution(voyage.status, to) === null) {
+    if (transitionCaution(voyage.status, to, voyage.regulationYear) === null) {
       void run(() => api.transition(voyage, to))
       return
     }
@@ -480,10 +495,13 @@ function VoyageRow({
     (to) => to !== primaryTo && to !== 'CANCELLED' && !isRevert(voyage.status, to),
   )
   const revertTo = nextStatuses(voyage.status).find((to) => isRevert(voyage.status, to)) ?? null
-  const caution = pending === null ? null : transitionCaution(voyage.status, pending)
+  const caution =
+    pending === null ? null : transitionCaution(voyage.status, pending, voyage.regulationYear)
   const cautionId = `vy-caution-${voyage.id}`
   const canCancel = nextStatuses(voyage.status).includes('CANCELLED')
   const yearEdit = regulationYearEdit(voyage)
+  const inclusion = inclusionSwitch(voyage)
+  const inclusionId = `vy-inclusion-${voyage.id}`
 
   /*
     펼침 줄 (#1729) — 속력 · 정책 · 나머지 전환 · 실적 입력 · 확인 줄이 여기 있다.
@@ -491,7 +509,8 @@ function VoyageRow({
     그 내용이 보이지 않으면 사용자는 아무 일도 일어나지 않았다고 읽는다.
   */
   const [detailOpen, setDetailOpen] = useState(openOnMount)
-  const open = detailOpen || actualsOpen || rowError !== null || pending !== null
+  const open =
+    detailOpen || actualsOpen || rowError !== null || pending !== null || inclusionOpen
   const detailId = `vy-detail-${voyage.id}`
 
   /** 상태 전환 버튼 하나 — 행(주 버튼)과 펼침 줄(나머지)이 같은 모양을 쓴다 (#1729). */
@@ -506,7 +525,9 @@ function VoyageRow({
           disabled={busy || blocker !== null}
           /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
           aria-describedby={blocker ? blockerId : undefined}
-          aria-expanded={transitionCaution(voyage.status, to) ? pending === to : undefined}
+          aria-expanded={
+            transitionCaution(voyage.status, to, voyage.regulationYear) ? pending === to : undefined
+          }
           onClick={(event) => request(to, event.currentTarget)}
         >
           {withRo(STATUS_LABELS[to])}
@@ -790,6 +811,63 @@ function VoyageRow({
               >
                 {yearEdit === 'fill' ? '기준연도 넣기' : '기준연도 고치기'}
               </button>
+            </div>
+          ) : null}
+
+          {inclusion !== null ? (
+            <div className="vy__row-actions">
+              <button
+                type="button"
+                ref={inclusionTrigger}
+                className="vy__text-action"
+                disabled={busy}
+                aria-expanded={inclusionOpen}
+                onClick={() => setInclusionOpen((value) => !value)}
+              >
+                {inclusion.label}
+              </button>
+            </div>
+          ) : null}
+
+          {inclusion !== null && inclusionOpen ? (
+            <div
+              className="vy__caution"
+              role="group"
+              aria-labelledby={inclusionId}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') closeInclusion()
+              }}
+            >
+              <p id={inclusionId} className="vy__caution-text">
+                {inclusion.message}
+              </p>
+              <div className="vy__caution-actions">
+                <button
+                  type="button"
+                  className="vy__transition"
+                  disabled={busy}
+                  onClick={async () => {
+                    const to = inclusion.to
+                    // 성공하면 버튼의 글자가 바뀐다 — 초점이 문서 머리로 떨어지지 않게 행에 둔다.
+                    if (await run(() => api.setInclusion(voyage.id, to))) {
+                      setInclusionOpen(false)
+                      const row = rowRef.current
+                      row?.setAttribute('tabindex', '-1')
+                      row?.focus({ preventScroll: true })
+                    }
+                  }}
+                >
+                  {inclusion.confirm}
+                </button>
+                <button
+                  type="button"
+                  ref={inclusionKeepRef}
+                  className="vy__text-action"
+                  onClick={closeInclusion}
+                >
+                  그만두기
+                </button>
+              </div>
             </div>
           ) : null}
 

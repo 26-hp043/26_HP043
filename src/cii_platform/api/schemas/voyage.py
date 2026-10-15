@@ -176,6 +176,18 @@ class VoyageTransitionRequest(BaseModel):
     annual_inclusion_policy: Annotated[str | None, Field(max_length=30)] = None
 
 
+class VoyageInclusionRequest(BaseModel):
+    """``PUT /api/v1/voyages/{voyage_id}/annual-inclusion`` (`API_SPEC §3.13`, #2420).
+
+    **연간 반영 여부 하나만** 받는다 — 기준연도는 받지 않는다. 확정 항차의 연도를 옮기는 길을
+    열지 않는다(`§3.4` `[#2133]`). 값의 허용 여부는 서비스가 상태와 함께 본다(`§3.5`와 같다).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    annual_inclusion_policy: Annotated[str, Field(min_length=1, max_length=30)]
+
+
 class VoyageFuelActualRequest(BaseModel):
     """``PUT /voyages/{id}/actuals``의 ``fuel_uses[]`` 한 건 (#440).
 

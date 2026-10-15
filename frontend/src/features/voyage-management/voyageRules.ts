@@ -96,7 +96,22 @@ interface TransitionCaution {
   confirm: string
 }
 
-export function transitionCaution(from: VoyageStatus, to: VoyageStatus): TransitionCaution | null {
+export function transitionCaution(
+  from: VoyageStatus,
+  to: VoyageStatus,
+  regulationYear: number | null = null,
+): TransitionCaution | null {
+  /*
+   * 실적 확정 — 기준연도가 있으면 「연간 반영」으로 확정한다(#2420 결정 4 가-1 · `policyForTransition`).
+   * 반영된다는 사실을 확정 **전에** 알린다 — 반영을 원하지 않는 사용자가 모르고 지나가지 않게.
+   * 확정한 뒤 카드의 「연간 반영에서 빼기」로 뺄 수 있다. ⚠️ 문구는 개발 임시안이다(#2366).
+   */
+  if (from === 'COMPLETED' && to === 'CONFIRMED' && regulationYear !== null) {
+    return {
+      message: `이 항차는 ${regulationYear}년 누적에 반영됩니다.`,
+      confirm: '실적 확정하기',
+    }
+  }
   if (from === 'CONFIRMED' && to === 'COMPLETED') {
     return {
       message:
@@ -167,6 +182,46 @@ export function regulationYearEdit(
 }
 
 /**
+ * 연도가 있는 확정 항차의 「연간 반영」 켜기·끄기 (#2420 결정 4 · `PUT /voyages/{id}/annual-inclusion`).
+ *
+ * 연도는 그대로 두고 **반영 여부만** 바꾼다 — 이미 어느 해에 들어간 확정 항차를 옮기지 않는다
+ * (`API_SPEC §3.4` `[#2133]`). 연도가 비어 있는 확정 항차는 「기준연도 넣기」(`regulationYearEdit`의
+ * `fill`)가 같은 일을 하므로 여기서는 `null`이다. 누르면 카드의 확인 줄이 무엇이 달라지는지 묻는다.
+ * ⚠️ 글자와 문구는 개발 임시안이다(#2366).
+ */
+interface InclusionSwitch {
+  /** 보낼 정책 */
+  to: InclusionPolicy
+  /** 펼침 줄의 글자 버튼 */
+  label: string
+  /** 확인 줄의 설명 */
+  message: string
+  /** 확인 버튼 */
+  confirm: string
+}
+
+export function inclusionSwitch(
+  voyage: Pick<ManagedVoyage, 'status' | 'regulationYear' | 'inclusionPolicy'>,
+): InclusionSwitch | null {
+  if (voyage.status !== 'CONFIRMED' || voyage.regulationYear === null) return null
+  const year = voyage.regulationYear
+  if (voyage.inclusionPolicy === 'EXCLUDE') {
+    return {
+      to: 'INCLUDE_AS_ACTUAL',
+      label: '연간 반영으로 바꾸기',
+      message: `이 항차를 ${year}년 누적에 반영합니다.`,
+      confirm: '반영하기',
+    }
+  }
+  return {
+    to: 'EXCLUDE',
+    label: '연간 반영에서 빼기',
+    message: `이 항차를 ${year}년 누적에서 뺍니다.`,
+    confirm: '빼기',
+  }
+}
+
+/**
  * 기준연도 한 칸의 입력 검증. 빈 칸은 오류다(이 경로는 값을 **넣는** 일뿐이다).
  * 형식 문구는 `validateDraft`와 같은 것을 쓴다.
  */
@@ -223,8 +278,17 @@ export function validateRegulationYearInput(raw: string): { year: number | null;
 export function policyForTransition(
   current: InclusionPolicy,
   to: VoyageStatus,
+  regulationYear: number | null = null,
 ): InclusionPolicy | null {
   const allowed = POLICY_BY_STATUS[to]
+  /*
+   * 실적을 확정하는 까닭은 그 값을 연간 누적의 근거로 쓰기 위해서다 (#2420 결정 4 가-1). 기준연도가
+   * 있으면 「연간 반영」으로 확정한다 — 종전에는 정책을 보내지 않아 「반영 안 함」인 채로 확정된
+   * 항차가 누적에서 빠졌다. 기준연도가 없으면 반영할 해가 없으므로 종전대로 둔다.
+   */
+  if (to === 'CONFIRMED' && regulationYear !== null && current !== 'INCLUDE_AS_ACTUAL') {
+    return 'INCLUDE_AS_ACTUAL'
+  }
   if (allowed.includes(current)) return null
 
   // 계획으로 잡아 둔 것은 실적으로 이어 간다. 그 외에는 반영을 끈다.
@@ -251,7 +315,7 @@ export function transitionBlocker(
   if (shortage !== null) return shortage
 
   // policy를 켜는 전환은 regulation_year가 있어야 한다 (#150)
-  const policy = policyForTransition(voyage.inclusionPolicy, to)
+  const policy = policyForTransition(voyage.inclusionPolicy, to, voyage.regulationYear)
   const effective = policy ?? voyage.inclusionPolicy
   if (effective !== 'EXCLUDE' && voyage.regulationYear === null) {
     return '연간 반영을 하려면 기준연도가 필요합니다.'

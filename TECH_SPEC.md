@@ -1699,7 +1699,7 @@ class SimulationSnapshot:
 | `status` | SUCCESS, FAILED, PARTIAL |
 | `warnings_count` | 발생한 warning 수 |
 
-파라미터 변경, 항차 확정(`CONFIRMED` 전환), **확정 뒤의 정정·보관 전환**(`CONFIRMED → COMPLETED` · `CONFIRMED → ARCHIVED`), **공적 기록으로 채우기**(`VOYAGE_ACTUALS_FILL` · `API_SPEC §3.12` · #1923), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다. **필수 감사 로그는 원본 변경과 같은 트랜잭션에서 확정한다**(`§16.3` · `#1625`) — 원본만 남고 감사가 빠진 행을 만들지 않는다.
+파라미터 변경, 항차 확정(`CONFIRMED` 전환), **확정 뒤의 정정·보관 전환**(`CONFIRMED → COMPLETED` · `CONFIRMED → ARCHIVED`), **공적 기록으로 채우기**(`VOYAGE_ACTUALS_FILL` · `API_SPEC §3.12` · #1923), **확정 항차의 연간 반영 여부 변경**(`VOYAGE_INCLUSION_CHANGE` · `API_SPEC §3.13` · #2420), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다. **필수 감사 로그는 원본 변경과 같은 트랜잭션에서 확정한다**(`§16.3` · `#1625`) — 원본만 남고 감사가 빠진 행을 만들지 않는다.
 
 > **[#1328] 뒤의 둘이 빠져 있었다.** `PRD §8.1.1`과 `API_SPEC §3.5`는 두 전환에 **「audit log 필수」**를 정하는데 이 문장은 확정만 들었고, 코드가 이 문장을 근거로 확정만 기록했다 — **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에는 「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다. `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 이 문장을 상위 정본에 맞췄다.
 >
@@ -2389,3 +2389,4 @@ default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6
 | 2026-10-14 | `#2445` | **§19.1 보고서 문서 모델의 섹션 종류를 코드에 맞춤** (`#2303`). 「`KeyValueSection` 또는 `TableSection` 둘뿐」 → **셋**(`ChartSection` — 표를 품은 차트 · `#2002`). 「섹션 형태를 둘로 제한한 것은…」 문단을 차트가 들어온 뒤의 규칙으로 다시 적었다 — `ChartSection`은 표(`table`) 없이는 만들 수 없고, CSV는 그 표를, PDF·미리보기는 차트와 같은 표를 함께 싣는다. 정본이 이름으로 적는 섹션과 코드의 `Section` 타입을 `tests/test_reports.py`가 대조한다. `§4.3`상 서술 정정이라 버전은 올리지 않는다 (#2303) |
 | 2026-10-14 | `#2484` | **§20 CSP 확정** — `Content-Security-Policy`를 강제 방식으로 적용(화면 정책·API 정책 두 벌), §20.3 신설(지시어별 측정 근거 · 테마 스크립트 해시 · Cloudflare 주입 미재현 · 되돌림). 「실측 대기」 행 해소 (#2368) |
 | 2026-10-15 | `#2498` | §20 도입부 「세 헤더」 · §20.1 「세 정책 값」을 CSP를 더한 서술로, §20.3에 개발 전용 Swagger 경로의 CSP 예외(`_CSP_EXEMPT_PATHS`)를 적었다 — `#2368`(PR #2484)이 고치지 않은 옆자리다 (#2495). `AGENTS §4.3`상 정정이라 버전은 올리지 않는다 |
+| 2026-10-15 | `#___` | §13.1 감사 대상에 **확정 항차의 연간 반영 여부 변경(`VOYAGE_INCLUSION_CHANGE` · `API_SPEC §3.13`)** 추가 — 상태는 그대로지만 확정 실적이 어느 해의 누적에 들어가는지를 바꾼다. 원본 변경과 같은 트랜잭션(`#1625`). `§4.3`상 항목 추가라 버전은 올리지 않는다 (#2420) |

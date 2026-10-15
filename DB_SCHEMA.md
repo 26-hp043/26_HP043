@@ -896,7 +896,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_DISCARD`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `EXPIRED_PURGE`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_ACTUALS_FILL`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328 · #1923 · #1973 · #2328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_DISCARD`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `EXPIRED_PURGE`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_ACTUALS_FILL`, `VOYAGE_CONFIRM`, `VOYAGE_INCLUSION_CHANGE`, `VOYAGE_TRANSITION` **[#1343 · #1328 · #1923 · #1973 · #2328 · #2420]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -907,6 +907,8 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 > **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
 >
 > **[#1328] `VOYAGE_TRANSITION`이 들어왔다.** 위 각주가 「`#1328`이 기록을 넣을 때 값과 이 목록을 함께 늘린다」로 자리를 비워 뒀던 것이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다 — `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정한 것이다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양(`from_status`·`to_status`·`annual_inclusion_policy`)이다.
+>
+> **[#2420] `VOYAGE_INCLUSION_CHANGE`가 들어왔다** — 실적 확정 항차의 연간 반영 여부만 바꾼 것이다(`API_SPEC §3.13`). 상태가 그대로라 전환(`VOYAGE_TRANSITION`)이 아니다. `entity_type` = `voyage` · `entity_id` = 항차 · `details_json`은 `status`(`CONFIRMED`) · `from_policy` · `to_policy` · `regulation_year`(바뀌지 않는다 — 어느 해의 누적이 달라졌는지 읽으려고 싣는다). 같은 값을 다시 보낸 요청은 남기지 않는다. 원본 변경과 **같은 트랜잭션**으로 남는다(`TECH_SPEC §13.1`).
 >
 > **[#1923] `VOYAGE_ACTUALS_FILL`이 들어왔다** — 「이 값으로 채우기」(`API_SPEC §3.12`)가 공적 재항 기록의 시각을 항차·정박 구간에 옮긴 것이다. `entity_type` = `voyage` · `entity_id` = 항차. `details_json`은 `field`(칸) · `target`(`voyage` 또는 `not_underway_period`) · `period_id` · `before` · `after`(ISO 8601) · `source`(`PUBLIC_RECORD`) · `public_record`(`source` · `port_authority_code` · `call_year` · `call_seq` · `fetched_at`) · `reverted_from_status`(확정을 되돌렸으면 `CONFIRMED`, 아니면 `null`). `VOYAGE_TRANSITION`은 상태만 말하고 **어떤 값이 어떤 값으로** 바뀌었는지는 어느 행에도 없었다 — 완료 항차는 되돌림이 없어 아무 기록도 남지 않았다. 확정 항차를 되돌려 채우면 두 행(`VOYAGE_TRANSITION` · `VOYAGE_ACTUALS_FILL`)이 원본 변경과 **같은 트랜잭션**으로 남는다(`TECH_SPEC §13.1`).
 >
@@ -2419,3 +2421,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-09 | `#2390` | §3.1~§3.3 각주에 **규제값 원문 대조 확인자 기록** — 신하늘(`sky01170851`) 2026-10-09 재확인 셋(z-factor 8/8 · CF 9값 · Reference Line 20/20, 모두 불일치 0건). §3.1에 `source_ref` 보충 규칙(같은 값이 여러 문서에 있으면 **현행 표가 인쇄된 문서**), §3.2에 `Ethane` 2.927 제외 판정, §3.3의 「팀원 확인 없음」 ⚠️ 문단을 확인 기록으로 교체. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#773) |
 | 2026-10-13 | `#2421` | **§2.2 `voyage.regulation_year` 설명 보강** — 값은 출항 또는 도착 시각의 UTC 해 중 하나이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3`). 대조는 서비스가 쓰기 때 하는 것이라 DB 제약이 아니고, 규칙 전에 저장된 행은 어긋난 채 남을 수 있다. 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#2133) |
 | 2026-10-15 | `#2488` | §2.5 `calculation_run.needs_recalc` 설명에 항차·정박 입력 변경(#2304)과 배포 전 변경을 메우는 한 번의 소급 처리(#2373)를 추가 |
+| 2026-10-15 | `#___` | §2.14 `action`에 **`VOYAGE_INCLUSION_CHANGE`** 추가와 각주 — 실적 확정 항차의 연간 반영 여부만 바꾼 기록이다(`API_SPEC §3.13` · `details_json`은 `status` · `from_policy` · `to_policy` · `regulation_year`). 컬럼·제약 변경은 없다. `§4.3`상 값 추가·각주 보강이라 버전은 올리지 않는다 (#2420) |

@@ -9,6 +9,7 @@ import {
   hasErrors,
   nextStatuses,
   policyForTransition,
+  inclusionSwitch,
   regulationYearEdit,
   validateRegulationYearInput,
   toIsoInstant,
@@ -114,6 +115,53 @@ describe('policyForTransition — 데모 마지막 한 걸음이 여기서 막�
     expect(policyForTransition('INCLUDE_AS_PLAN', 'CANCELLED')).toBe('EXCLUDE')
   })
 
+  // #2420 결정 4 가-1 — 확정할 때 기준연도가 있으면 「연간 반영」으로 확정한다.
+  it('기준연도가 있는 「반영 안 함」 항차를 확정하면 연간 반영을 싣는다', () => {
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED', 2026)).toBe('INCLUDE_AS_ACTUAL')
+  })
+
+  it('기준연도가 없으면 종전대로 생략한다 — 반영할 해가 없다', () => {
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED', null)).toBeNull()
+    expect(policyForTransition('EXCLUDE', 'CONFIRMED')).toBeNull()
+  })
+
+  it('이미 연간 반영이면 생략한다 — 현행 유지가 같은 값이다', () => {
+    expect(policyForTransition('INCLUDE_AS_ACTUAL', 'CONFIRMED', 2026)).toBeNull()
+  })
+
+  it('확정이 아닌 전환에는 연도가 있어도 손대지 않는다', () => {
+    expect(policyForTransition('EXCLUDE', 'COMPLETED', 2026)).toBeNull()
+  })
+})
+
+describe('transitionCaution — 실적 확정의 확인 줄 (#2420 가-1)', () => {
+  it('기준연도가 있으면 확정 전에 그 해 누적에 반영된다고 묻는다', () => {
+    expect(transitionCaution('COMPLETED', 'CONFIRMED', 2027)?.message).toContain('2027')
+  })
+
+  it('기준연도가 없으면 묻지 않는다', () => {
+    expect(transitionCaution('COMPLETED', 'CONFIRMED', null)).toBeNull()
+    expect(transitionCaution('COMPLETED', 'CONFIRMED')).toBeNull()
+  })
+})
+
+describe('inclusionSwitch — 연도가 있는 확정 항차의 반영 켜기·끄기 (#2420 결정 4)', () => {
+  const confirmed = { status: 'CONFIRMED' as const, regulationYear: 2026 }
+
+  it('반영 안 함이면 반영으로, 반영 중이면 빼기로 — 확인 줄은 그 해를 말한다', () => {
+    const on = inclusionSwitch({ ...confirmed, inclusionPolicy: 'EXCLUDE' })
+    const off = inclusionSwitch({ ...confirmed, inclusionPolicy: 'INCLUDE_AS_ACTUAL' })
+    expect(on?.to).toBe('INCLUDE_AS_ACTUAL')
+    expect(off?.to).toBe('EXCLUDE')
+    expect(on?.message).toContain('2026')
+    expect(off?.message).toContain('2026')
+    expect(on?.label).not.toBe(off?.label)
+  })
+
+  it('연도가 빈 확정 항차와 확정이 아닌 항차에는 없다', () => {
+    expect(inclusionSwitch({ status: 'CONFIRMED', regulationYear: null, inclusionPolicy: 'EXCLUDE' })).toBeNull()
+    expect(inclusionSwitch({ status: 'COMPLETED', regulationYear: 2026, inclusionPolicy: 'EXCLUDE' })).toBeNull()
+  })
 })
 
 describe('transitionBlocker', () => {

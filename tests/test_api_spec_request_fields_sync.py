@@ -88,6 +88,7 @@ from cii_platform.api.schemas.voyage import (
     PublicRecordFillRequest,
     VoyageActualsRequest,
     VoyageCreateRequest,
+    VoyageInclusionRequest,
     VoyageTransitionRequest,
     VoyageUpdateRequest,
 )
@@ -133,6 +134,8 @@ TABLES: dict[str, type[BaseModel]] = {
     "15.1": ChatRequest,
     # `#1923` — 「이 값으로 채우기」. 기항 열쇠(`record.*`)가 중첩이라 하위 행까지 적는다.
     "3.12": PublicRecordFillRequest,
+    # `#2420` — 확정 항차의 연간 반영 여부. 연도를 받지 않는다는 것이 표의 요점이다.
+    "3.13": VoyageInclusionRequest,
 }
 
 #: `#1523` 시점 실측 행 수. 파싱이 깨져 0행이 되면 아래 대조가 「빈 것끼리 같다」로
@@ -157,6 +160,7 @@ MIN_ROWS: dict[str, int] = {
     "6.1": 9,
     "15.1": 3,
     "3.12": 9,
+    "3.13": 1,
 }
 
 #: 표 대신 요청 예시 JSON만 있는 절 → 스키마. 키 집합만 대조한다.

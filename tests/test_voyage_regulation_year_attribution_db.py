@@ -42,6 +42,7 @@ from cii_platform.services.voyage import (
     create_voyage,
     get_voyage,
     set_actuals,
+    set_confirmed_inclusion,
     spanned_utc_years,
     update_voyage,
 )
@@ -427,6 +428,65 @@ async def test_a_confirmed_voyage_that_already_has_a_year_cannot_be_moved(sessio
         await update_voyage(session, excluded_with_year, regulation_year=2027)
 
 
+async def test_a_confirmed_voyage_with_a_year_can_join_the_year_without_moving(session, vessel_id):
+    """#2420 결정 4 — 연도가 있는 「반영 안 함」 확정 항차를 반영으로. 연도는 그대로다.
+
+    `API_SPEC §3.4`의 「이미 어느 해에 들어간 확정 항차는 옮기지 않는다」는 이 길로도 깨지지
+    않는다 — 요청에 연도가 없고, 바뀌는 것은 반영 여부 하나다.
+    """
+    voyage_id = await _insert_voyage(
+        session,
+        vessel_id,
+        status="CONFIRMED",
+        policy="EXCLUDE",
+        year=2027,
+        actual=(DEC_28_2026, JAN_3_2027),
+    )
+    assert await count_excluded_confirmed_voyages(session, vessel_id=vessel_id) == 1
+
+    data = await set_confirmed_inclusion(session, voyage_id, "INCLUDE_AS_ACTUAL")
+
+    assert data["annual_inclusion_policy"] == "INCLUDE_AS_ACTUAL"
+    assert data["regulation_year"] == 2027
+    assert data["status"] == "CONFIRMED"
+    assert data["_from_policy"] == "EXCLUDE"
+    assert await count_excluded_confirmed_voyages(session, vessel_id=vessel_id) == 0
+
+    back = await set_confirmed_inclusion(session, voyage_id, "EXCLUDE")
+    assert back["annual_inclusion_policy"] == "EXCLUDE"
+    assert back["regulation_year"] == 2027
+
+
+async def test_the_same_policy_changes_nothing(session, vessel_id):
+    """같은 값이면 바꾸지 않는다 — 라우트는 「변경 전」이 같으면 감사 기록을 남기지 않는다."""
+    voyage_id = await _insert_voyage(
+        session, vessel_id, status="CONFIRMED", policy="INCLUDE_AS_ACTUAL", year=2026
+    )
+    data = await set_confirmed_inclusion(session, voyage_id, "INCLUDE_AS_ACTUAL")
+    assert data["_from_policy"] == data["annual_inclusion_policy"] == "INCLUDE_AS_ACTUAL"
+
+
+@pytest.mark.parametrize(
+    ("status", "policy", "year", "asked"),
+    [
+        # 확정이 아니면 이 길이 아니다 — 전환(`§3.5`)이 정책을 정한다.
+        ("COMPLETED", "EXCLUDE", 2026, "INCLUDE_AS_ACTUAL"),
+        # 확정 상태가 받지 않는 정책
+        ("CONFIRMED", "EXCLUDE", 2026, "INCLUDE_AS_PLAN"),
+        ("CONFIRMED", "EXCLUDE", 2026, "NOT_A_POLICY"),
+        # 연도가 없으면 반영할 해가 없다 — `§3.4`의 「처음 넣기」를 쓴다
+        ("CONFIRMED", "EXCLUDE", None, "INCLUDE_AS_ACTUAL"),
+    ],
+)
+async def test_the_inclusion_switch_refuses_what_it_cannot_do(
+    session, vessel_id, status, policy, year, asked
+):
+    voyage_id = await _insert_voyage(session, vessel_id, status=status, policy=policy, year=year)
+    with pytest.raises(StateTransitionError):
+        await set_confirmed_inclusion(session, voyage_id, asked)
+    assert (await get_voyage(session, voyage_id))["annual_inclusion_policy"] == policy
+
+
 @pytest.mark.parametrize("status", ["IN_PROGRESS", "COMPLETED", "CONFIRMED"])
 async def test_other_plan_values_stay_locked_after_departure(session, vessel_id, status):
     """연 것은 기준연도 **하나**다 — 거리·시각은 종전대로 잠근다. 함께 보내도 거부한다."""
@@ -640,6 +700,45 @@ async def test_http_create_rejects_and_history_carries_the_excluded_count(
             )
             assert moved_again.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
 
+            # #2420 결정 4 — 연도가 있는 확정 항차는 반영 여부만 오간다. 연도는 그대로다.
+            inclusion = f"{voyage_url}/annual-inclusion"
+            excluded = client.put(
+                inclusion, json={"annual_inclusion_policy": "EXCLUDE"}, headers=_csrf(client)
+            )
+            assert excluded.status_code == 200, excluded.text
+            assert excluded.json()["data"]["annual_inclusion_policy"] == "EXCLUDE"
+            assert client.get(history).json()["data"]["excluded_confirmed_voyage_count"] == 1
+            included = client.put(
+                inclusion,
+                json={"annual_inclusion_policy": "INCLUDE_AS_ACTUAL"},
+                headers=_csrf(client),
+            )
+            assert included.status_code == 200, included.text
+            assert included.json()["data"]["annual_inclusion_policy"] == "INCLUDE_AS_ACTUAL"
+            assert included.json()["data"]["regulation_year"] == 2026
+            assert included.json()["data"]["status"] == "CONFIRMED"
+            assert client.get(history).json()["data"]["excluded_confirmed_voyage_count"] == 0
+            # 연도를 실어 보내면 받지 않는다 — 이 길로 확정 항차를 옮기지 못한다.
+            with_year = client.put(
+                inclusion,
+                json={"annual_inclusion_policy": "INCLUDE_AS_ACTUAL", "regulation_year": 2027},
+                headers=_csrf(client),
+            )
+            assert with_year.status_code == 422, with_year.text
+
+            from cii_platform.db.session import get_sessionmaker
+
+            async with get_sessionmaker()() as s:
+                rows = (
+                    await s.execute(
+                        text(
+                            'SELECT details_json FROM audit_log WHERE "action" = '
+                            "'VOYAGE_INCLUSION_CHANGE' AND entity_id = :v"
+                        ),
+                        {"v": uuid.UUID(voyage_id)},
+                    )
+                ).all()
+            assert len(rows) == 2, "바꾼 두 번이 감사 기록에 남아야 한다"
     finally:
         if vessel_id is not None:
             from cii_platform.db.session import get_sessionmaker

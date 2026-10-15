@@ -1885,6 +1885,13 @@ ROUTE_COVERAGE: dict[str, str] = {
     # `API_SPEC §3.12` (#1923) — 요청이 **공적 재항 기록 한 건과 어긋난 항차**를 전제하고, 데모
     # 시드의 어긋난 항차는 확정(`CONFIRMED`)이라 보내면 되돌려진다 — 공용 데이터를 바꾸는 요청을
     # 계약 표에서 보낼 수 없다. 그 파일이 자기 선박·기록으로 응답 키 전부와 404·409·422를 본다.
+    # `API_SPEC §3.13` (#2420) — 요청이 **실적 확정 항차**를 전제하고 반영 여부를 바꾼다. 공용
+    # 데이터를 바꾸는 요청이라 계약 표에서 보낼 수 없다. 그 파일이 자기 선박으로 확정까지 간 항차에
+    # 두 방향을 보내 응답 · 연도 불변 · 감사 기록 · 연도를 실은 요청의 422를 본다.
+    "PUT /voyages/{}/annual-inclusion": (
+        "tests/test_voyage_regulation_year_attribution_db.py::"
+        "test_http_create_rejects_and_history_carries_the_excluded_count"
+    ),
     "POST /voyages/{}/public-record-fill": (
         "tests/test_public_record_fill_db.py::test_completed_voyage_departure_is_filled"
     ),

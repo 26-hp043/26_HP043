@@ -796,6 +796,58 @@ async def transition_voyage(
     return {**to_dict(voyage, fuel_uses), "_from_status": current}
 
 
+async def set_confirmed_inclusion(
+    session: AsyncSession,
+    voyage_id: UUID,
+    annual_inclusion_policy: str,
+) -> dict[str, object]:
+    """실적 확정 항차의 연간 반영 여부만 바꾼다 (`API_SPEC §3.13`, #2420 결정 4). 없으면 404.
+
+    ## 왜 따로 두는가
+
+    확정 항차의 정책을 바꾸는 길이 없었다. 화면의 상태 전환이 정책을 보내지 않아
+    「연간 반영 안 함」인 채로 확정된 항차가 생기는데, 기준연도가 이미 있으면 「기준연도 넣기」
+    (`§3.4` `[#2133]`)도 나오지 않아 **누적에 넣을 방법이 화면에 없었다.** API로는 확정을
+    되돌렸다가 정책을 실어 다시 확정할 수 있지만, 그것은 실적 정정용 전환(`PRD §8.1.1`)이다.
+
+    ## 연도는 옮기지 않는다
+
+    **반영 여부만 바꾼다.** 요청에 연도가 없고 저장된 ``regulation_year``를 그대로 쓴다 —
+    「이미 어느 해에 들어간 확정 항차는 옮기지 않는다」(`§3.4` `[#2133]`)를 이 길로 우회하지
+    못한다. 연도가 비어 있는데 반영으로 바꾸려면 `§3.4`의 「처음 넣기」를 쓴다.
+
+    받는 정책은 확정 상태가 허용하는 둘(``EXCLUDE`` · ``INCLUDE_AS_ACTUAL``)이다. 같은 값이면
+    아무것도 바꾸지 않는다 — 반환 dict의 ``_from_policy``가 바뀐 값과 같으면 라우트가 감사
+    기록을 남기지 않는다. 커밋은 라우트가 감사 기록을 넣은 뒤 한 번 한다(`#1625`).
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
+    if voyage is None:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+    if voyage.status != "CONFIRMED":
+        raise StateTransitionError(
+            "연간 반영 여부는 「실적 확정」 항차에서만 따로 바꿀 수 있습니다 "
+            f"(현재 상태: {voyage_status_label(voyage.status)})."
+        )
+    if annual_inclusion_policy not in _POLICY_BY_STATUS["CONFIRMED"]:
+        raise StateTransitionError(
+            f"「{voyage_status_label('CONFIRMED')}」 상태에서는 "
+            f"「{inclusion_policy_label(annual_inclusion_policy)}」을 고를 수 없습니다."
+        )
+    if annual_inclusion_policy != "EXCLUDE" and voyage.regulation_year is None:
+        raise StateTransitionError(
+            f"「{inclusion_policy_label(annual_inclusion_policy)}」으로 바꾸려면 "
+            "기준연도가 필요합니다."
+        )
+
+    before = voyage.annual_inclusion_policy
+    if before != annual_inclusion_policy:
+        voyage.annual_inclusion_policy = annual_inclusion_policy
+        await calc_run_repo.mark_annual_needs_recalc(session, voyage.vessel_id)
+        await session.flush()
+    fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+    return {**to_dict(voyage, fuel_uses), "_from_policy": before}
+
+
 async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> None:
     """실적(actual) 가드 — API_SPEC §3.5 전환 규칙 (ORACLE-C-4, #326).
 
