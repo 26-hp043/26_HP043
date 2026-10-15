@@ -778,4 +778,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-09 | `#2385` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.39**(§2.2.1 중립 단계 체계 #2383) |
 | 2026-10-09 | `#2402` | 문서 구조 표의 DESIGN_SYSTEM.md **v2.40**(§7.1 본문 최대 폭 1920 하나 #2401) |
 | 2026-10-14 | `#2444` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.54**로 — `§15.8` `GET /chat/sessions/{session_id}/messages`(저장된 대화 다시 불러오기) 신설. 챗봇 대화가 새로고침하면 사라졌다 — 서버에 90일 남는 대화에 닿을 경로가 없었다 (#1981) |
-| 2026-10-15 | `#___` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.55**로 — `§3.13` `PUT /voyages/{id}/annual-inclusion`(실적 확정 항차의 연간 반영 여부만 바꾼다) 신설 (#2420) |
+| 2026-10-15 | `#2526` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.55**로 — `§3.13` `PUT /voyages/{id}/annual-inclusion`(실적 확정 항차의 연간 반영 여부만 바꾼다) 신설 (#2420) |
