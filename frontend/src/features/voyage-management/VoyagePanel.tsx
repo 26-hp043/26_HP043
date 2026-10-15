@@ -15,8 +15,11 @@ import {
   hasErrors,
   isRevert,
   nextStatuses,
+  attributionTimes,
   inclusionSwitch,
   regulationYearEdit,
+  regulationYearHint,
+  toIsoInstant,
   toLocalInput,
   transitionBlocker,
   transitionCaution,
@@ -910,6 +913,13 @@ function VoyageRow({
                 onChange={setYearValue}
                 error={yearError}
                 inputMode="numeric"
+                // #2420 결정 1 — 서버가 대조하는 시각으로 넣을 수 있는 해를 미리 보인다.
+                hint={
+                  regulationYearHint(
+                    attributionTimes(voyage).departure,
+                    attributionTimes(voyage).arrival,
+                  ) ?? undefined
+                }
               />
               <div className="vy__form-actions">
                 <button type="submit" className="vy__submit" disabled={busy}>
@@ -1360,7 +1370,16 @@ function VoyageForm({
         onChange={set('regulationYear')}
         error={errors.regulationYear}
         inputMode="numeric"
-        hint="연간 등급에 반영하려면 필요합니다. 나중에 지정해도 됩니다."
+        hint={[
+          '연간 등급에 반영하려면 필요합니다. 나중에 지정해도 됩니다.',
+          // #2420 결정 1 — 계획 시각을 넣으면 넣을 수 있는 해를 미리 보인다(서버와 같은 판정).
+          regulationYearHint(
+            toIsoInstant(draft.plannedDepartureAt),
+            toIsoInstant(draft.plannedArrivalAt),
+          ),
+        ]
+          .filter((line) => line !== null)
+          .join(' ')}
       />
 
       <div className="vy__form-actions">

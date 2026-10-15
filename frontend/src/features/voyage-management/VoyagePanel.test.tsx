@@ -1605,3 +1605,69 @@ describe('확정 항차의 연간 반영 (#2420)', () => {
     await waitFor(() => expect(transition).toHaveBeenCalledWith(completed, 'CONFIRMED'))
   })
 })
+
+/**
+ * 기준연도 칸 아래 「넣을 수 있는 해」 (#2420 결정 1). 판정은 서버와 같은 사례 파일로
+ * `serverBounds.sync.test.ts`가 보고, 여기서는 **두 자리에 실제로 나오는가**를 본다. 안내는 표시
+ * 문구라(`AGENTS §4.6`) 그 해가 칸의 설명(`aria-describedby`)에 닿는지만 본다.
+ */
+describe('기준연도 칸의 넣을 수 있는 해 (#2420)', () => {
+  const describedBy = (field: HTMLElement) =>
+    (field.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ')
+
+  it('항차 추가 — 한국 시각 1월 1일 03:00 출항이면 전년이 넣을 수 있는 해로 보인다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    const year = screen.getByLabelText('기준연도 (선택)')
+    const before = describedBy(year)
+    expect(before).not.toMatch(/2026|2027/)
+
+    fireEvent.change(screen.getByLabelText('계획 출항 시각'), {
+      target: { value: '2027-01-01T03:00' },
+    })
+    const after = describedBy(screen.getByLabelText('기준연도 (선택)'))
+    expect(after).toContain('2026')
+    expect(after).not.toContain('2027')
+  })
+
+  it('항차 추가 — 연말을 걸치면 두 해가 함께 보인다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    fireEvent.change(screen.getByLabelText('계획 출항 시각'), { target: { value: '2026-12-28T09:00' } })
+    fireEvent.change(screen.getByLabelText('계획 도착 시각'), { target: { value: '2027-01-03T09:00' } })
+    const text = describedBy(screen.getByLabelText('기준연도 (선택)'))
+    expect(text).toContain('2026')
+    expect(text).toContain('2027')
+  })
+
+  it('카드의 기준연도 고치기 — 저장된 실제 시각으로 넣을 수 있는 해를 보인다', async () => {
+    const sailed: ManagedVoyage = {
+      ...IN_PROGRESS,
+      actualDepartureAt: '2026-12-31T18:00:00+00:00',
+      actualArrivalAt: null,
+    }
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [sailed], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+        })}
+      />,
+    )
+    await expandRow()
+    fireEvent.click(await screen.findByRole('button', { name: /^기준연도 (고치기|넣기)$/ }))
+    const text = describedBy(await screen.findByLabelText('기준연도'))
+    expect(text).toContain('2026')
+    expect(text).toContain('UTC')
+  })
+
+  it('카드 — 실제 출항 시각이 없는 진행 중 항차는 서버가 대조하지 않으므로 해를 말하지 않는다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    await expandRow()
+    fireEvent.click(await screen.findByRole('button', { name: /^기준연도 (고치기|넣기)$/ }))
+    expect(describedBy(await screen.findByLabelText('기준연도'))).not.toMatch(/20\d\d/)
+  })
+})

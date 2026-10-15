@@ -9,6 +9,7 @@ import {
   hasErrors,
   nextStatuses,
   policyForTransition,
+  attributionTimes,
   inclusionSwitch,
   regulationYearEdit,
   validateRegulationYearInput,
@@ -829,5 +830,30 @@ describe('저장 범위 경계 (#2457)', () => {
     // 네 자리 숫자가 아닌 값은 형식 오류다
     expect(validateRegulationYearInput('26').error).toBe(format)
     expect(validateRegulationYearInput('2051').error).toBe(range)
+  })
+})
+
+describe('attributionTimes — 카드의 기준연도가 대조받는 시각 (#2420 결정 1 · 서버 _attribution_times)', () => {
+  const base = {
+    plannedDepartureAt: '2026-12-20T00:00:00Z',
+    plannedArrivalAt: '2026-12-28T00:00:00Z',
+    actualDepartureAt: null,
+    actualArrivalAt: null,
+  }
+
+  it('실제 출항 시각이 있으면 실제 시각이다', () => {
+    const sailed = { ...base, status: 'COMPLETED' as const, actualDepartureAt: '2027-01-02T00:00:00Z' }
+    expect(attributionTimes(sailed)).toEqual({ departure: '2027-01-02T00:00:00Z', arrival: null })
+  })
+
+  it('진행·완료에서 실제 출항 시각이 없으면 대조하지 않는다', () => {
+    expect(attributionTimes({ ...base, status: 'IN_PROGRESS' })).toEqual({ departure: null, arrival: null })
+  })
+
+  it('확정은 실제 시각이 없으면 계획 시각이다', () => {
+    expect(attributionTimes({ ...base, status: 'CONFIRMED' })).toEqual({
+      departure: base.plannedDepartureAt,
+      arrival: base.plannedArrivalAt,
+    })
   })
 })

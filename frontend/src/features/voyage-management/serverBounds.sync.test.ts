@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest'
 import { NOT_UNDERWAY_DISTANCE_RANGE, NOT_UNDERWAY_FUEL_RANGE } from '../not-underway/periodRules'
 import { storableRange } from '../vessel-registration/formRules'
 import { DISTANCE_RANGE, FUEL_RANGE } from '../voyage-cii/formRules'
-import { FUTURE_ACTUAL_TOLERANCE_MINUTES, STORED_YEAR_MAX, STORED_YEAR_MIN } from './voyageRules'
+import {
+  FUTURE_ACTUAL_TOLERANCE_MINUTES,
+  STORED_YEAR_MAX,
+  STORED_YEAR_MIN,
+  allowedRegulationYears,
+  regulationYearHint,
+} from './voyageRules'
 
 /**
  * 항차·항로 비교·정박 구간의 입력 범위 — 화면 ↔ 서버 `validation/bounds.py` 대조 (#2457).
@@ -69,5 +75,45 @@ describe('화면 범위 ↔ 서버 validation/bounds.py (#2457)', () => {
     const match = /^FUTURE_ACTUAL_TOLERANCE\s*=\s*timedelta\(minutes=(\d+)\)$/m.exec(voyagePy)
     expect(match, 'FUTURE_ACTUAL_TOLERANCE 선언 꼴이 바뀌었습니다').not.toBeNull()
     expect(FUTURE_ACTUAL_TOLERANCE_MINUTES).toBe(Number(match![1]))
+  })
+
+  /*
+   * #2420 결정 1 — 「넣을 수 있는 해」는 서버 `spanned_utc_years`의 판정을 화면이 한 번 더 한다. 같은 사례
+   * 파일을 서버 검사(`tests/test_voyage_regulation_year_attribution_db.py`)도 읽는다 — 한쪽만 바뀌면
+   * 어느 한쪽이 실패한다. 안내 문구는 표시 문구라(`AGENTS §4.6`) 해가 들어 있는지·덧붙임이 있는지만 본다.
+   */
+  const cases = (
+    JSON.parse(
+      readFileSync(
+        new URL('../../../../tests/fixtures/regulation_year/attribution_cases.json', import.meta.url),
+        'utf-8',
+      ),
+    ) as {
+      cases: {
+        name: string
+        departure: string | null
+        arrival: string | null
+        years: number[] | null
+        kst_differs: boolean
+      }[]
+    }
+  ).cases
+
+  it('사례 파일이 비어 있지 않다', () => {
+    expect(cases.length).toBeGreaterThanOrEqual(5)
+  })
+
+  it.each(cases)('넣을 수 있는 해 — $name', (c) => {
+    expect(allowedRegulationYears(c.departure, c.arrival)).toEqual(c.years)
+    const hint = regulationYearHint(c.departure, c.arrival)
+    if (c.years === null) {
+      expect(hint).toBeNull()
+      return
+    }
+    for (const year of c.years) expect(hint).toContain(String(year))
+    // 한국 시각과 UTC의 해가 갈리는 시각이 끼었을 때만 UTC를 따른다는 이유를 덧붙인다
+    const plain = regulationYearHint('2026-05-10T00:00:00Z', null)!
+    expect(hint!.includes('UTC')).toBe(c.kst_differs)
+    expect(plain.includes('UTC')).toBe(false)
   })
 })

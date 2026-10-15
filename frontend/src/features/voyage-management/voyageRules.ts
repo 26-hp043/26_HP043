@@ -222,6 +222,77 @@ export function inclusionSwitch(
 }
 
 /**
+ * 이 항차에 넣을 수 있는 기준연도 — 서버 `services/voyage.spanned_utc_years`와 같은 판정 (#2420 결정 1).
+ *
+ * 서버는 기준연도를 출항·도착 시각의 **UTC** 해와 대조한다(`PRD §8.3` `[#2133]` · `#1333`). 화면은 시각을
+ * 한국 시각으로 보이므로, 한국 시각 1월 1일 00:00~08:59의 시각은 화면으로는 새해인데 서버로는 전년이다.
+ * 저장을 눌러 거절당하기 전에 넣을 수 있는 해를 미리 보이려고 같은 판정을 여기서 한 번 더 한다 —
+ * 그래서 둘이 갈라지지 않게 `tests/fixtures/regulation_year/attribution_cases.json`의 같은 사례를
+ * 서버 검사와 화면 검사가 함께 읽는다.
+ *
+ * 출항 시각이 없으면 `null`이다 — 서버가 대조하지 않는다(모르는 것을 틀렸다고 하지 않는다).
+ * 도착이 없으면 출항 해 하나다. 오름차순이다.
+ */
+export function allowedRegulationYears(
+  departureIso: string | null,
+  arrivalIso: string | null,
+): number[] | null {
+  const departure = departureIso === null ? NaN : Date.parse(departureIso)
+  if (Number.isNaN(departure)) return null
+  const years = new Set([new Date(departure).getUTCFullYear()])
+  const arrival = arrivalIso === null ? NaN : Date.parse(arrivalIso)
+  if (!Number.isNaN(arrival)) years.add(new Date(arrival).getUTCFullYear())
+  return [...years].sort((a, b) => a - b)
+}
+
+/** 한국 시각의 해와 UTC의 해가 다른 시각인가 — 한국 시각 1월 1일 09시 이전이다. */
+function kstYearDiffers(iso: string | null): boolean {
+  const at = iso === null ? NaN : Date.parse(iso)
+  if (Number.isNaN(at)) return false
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000
+  return new Date(at + KST_OFFSET_MS).getUTCFullYear() !== new Date(at).getUTCFullYear()
+}
+
+/**
+ * 기준연도 칸 아래 안내 한 줄 (#2420 결정 1) — 넣을 수 있는 해가 정해지지 않으면 `null`.
+ *
+ * 연말을 걸친 항차는 두 해 중 하나를 고른다는 사실도 이 줄이 알린다(「2026 또는 2027」 · `PRD §8.3`).
+ * 한국 시각과 UTC의 해가 갈리는 시각이 끼면 왜 그 해인지를 덧붙인다. ⚠️ 문구와 자리는 개발 임시안이다(#2366).
+ */
+export function regulationYearHint(
+  departureIso: string | null,
+  arrivalIso: string | null,
+): string | null {
+  const years = allowedRegulationYears(departureIso, arrivalIso)
+  if (years === null) return null
+  const base = `넣을 수 있는 해: ${years.join(' 또는 ')}`
+  if (kstYearDiffers(departureIso) || kstYearDiffers(arrivalIso)) {
+    return `${base} — 기준연도는 UTC 시각의 해를 따릅니다(한국 시각 1월 1일 09시 이전은 전년입니다).`
+  }
+  return base
+}
+
+/**
+ * 카드의 「기준연도 고치기·넣기」가 대조받는 시각 — 서버 `services/voyage._attribution_times`의
+ * 계획 단계 밖 갈래와 같다 (#2420 결정 1). 진행·완료는 실제 출항 시각이 있을 때만 실제 시각, 없으면
+ * 대조하지 않는다(`null`). 확정은 실제 시각, 없으면 계획 시각이다.
+ */
+export function attributionTimes(
+  voyage: Pick<
+    ManagedVoyage,
+    'status' | 'plannedDepartureAt' | 'plannedArrivalAt' | 'actualDepartureAt' | 'actualArrivalAt'
+  >,
+): { departure: string | null; arrival: string | null } {
+  if (voyage.actualDepartureAt !== null) {
+    return { departure: voyage.actualDepartureAt, arrival: voyage.actualArrivalAt }
+  }
+  if (voyage.status === 'CONFIRMED') {
+    return { departure: voyage.plannedDepartureAt, arrival: voyage.plannedArrivalAt }
+  }
+  return { departure: null, arrival: null }
+}
+
+/**
  * 기준연도 한 칸의 입력 검증. 빈 칸은 오류다(이 경로는 값을 **넣는** 일뿐이다).
  * 형식 문구는 `validateDraft`와 같은 것을 쓴다.
  */

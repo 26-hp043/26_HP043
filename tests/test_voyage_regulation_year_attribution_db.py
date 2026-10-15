@@ -22,9 +22,11 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -123,6 +125,29 @@ def test_spanned_years_are_utc_years_of_both_ends():
     assert spanned_utc_years(MARCH_2026, MARCH_2026_END) == [2026]
     assert spanned_utc_years(DEC_28_2026, JAN_3_2027) == [2026, 2027]
     assert spanned_utc_years(MARCH_2026, None) == [2026]
+
+
+_SHARED_CASES = Path(__file__).parent / "fixtures" / "regulation_year" / "attribution_cases.json"
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(_SHARED_CASES.read_text(encoding="utf-8"))["cases"],
+    ids=lambda case: case["name"],
+)
+def test_shared_cases_match_the_screen_hint(case):
+    """화면의 「넣을 수 있는 해」와 같은 사례로 서버 판정을 본다 (#2420 결정 1).
+
+    화면(`voyageRules.allowedRegulationYears`)이 판정을 한 번 더 하므로 둘이 갈라지지 않게 같은
+    사례 파일을 함께 읽는다 — 화면 쪽은 `serverBounds.sync.test.ts`. 출항 시각이 없으면 서버는
+    대조하지 않는다(`years`가 ``null``).
+    """
+    if case["departure"] is None:
+        assert case["years"] is None
+        return
+    departure = datetime.fromisoformat(case["departure"])
+    arrival = None if case["arrival"] is None else datetime.fromisoformat(case["arrival"])
+    assert spanned_utc_years(departure, arrival) == case["years"]
 
 
 def test_spanned_years_read_the_utc_year_not_the_local_one():
