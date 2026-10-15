@@ -18,7 +18,7 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -83,6 +83,19 @@ PLAN_LIST_LIMIT = 20
 PLAN_LIST_MAX = 100
 
 
+def _result_too_large() -> ValidationError:
+    """응답 자릿수에 담을 수 없는 값 — 500이 아니라 422 (#2521).
+
+    단가에 상한이 없어 아주 큰 값이 들어오면 곱한 결과가 Decimal 컨텍스트 자릿수를 넘어
+    ``quantize``가 ``InvalidOperation``으로 선다. 고칠 수 있는 입력이므로 단가 칸을 가리킨다.
+    """
+    return ValidationError(
+        "단가가 너무 커서 비용을 계산할 수 없습니다. 용선료와 연료 단가를 줄여 주세요.",
+        field="prices",
+        field_label=field_label("prices"),
+    )
+
+
 def _publish(value: Decimal | None, digits: int) -> str | None:
     """CII가 아닌 값(연료·일수·금액·감속률)을 문자열로 — ``API_SPEC §1.7``.
 
@@ -90,7 +103,10 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+    try:
+        return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+    except InvalidOperation as exc:
+        raise _result_too_large() from exc
 
 
 def _publish_measure(value: Decimal | None, digits: int) -> str | None:
@@ -104,8 +120,11 @@ def _publish_measure(value: Decimal | None, digits: int) -> str | None:
     """
     if value is None:
         return None
-    canonical = publish_layer1_canonical(value)
-    return str(canonical.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
+    try:
+        canonical = publish_layer1_canonical(value)
+        return str(canonical.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
+    except InvalidOperation as exc:
+        raise _result_too_large() from exc
 
 
 def _publish_cii(value: Decimal | None) -> str | None:
