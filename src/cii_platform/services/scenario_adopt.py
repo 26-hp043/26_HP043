@@ -65,7 +65,12 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
-from cii_platform.services.voyage import PLANNING_STATUSES, create_voyage
+from cii_platform.services.voyage import (
+    PLANNING_STATUSES,
+    attribution_message,
+    create_voyage,
+    spanned_utc_years,
+)
 from cii_platform.validation.bounds import VOYAGE_FUEL
 
 if TYPE_CHECKING:
@@ -140,6 +145,33 @@ async def _compared_voyage_id(session: AsyncSession, scenario: VoyageScenario) -
         session, vessel_id=scenario.vessel_id, scenario_id=scenario.id
     )
     return None if run is None else run.voyage_id
+
+
+def _require_year_still_spanned(target, arrival_at: datetime | None) -> None:
+    """새 도착 예정 시각으로도 저장된 기준연도가 항차가 걸친 해인지 본다 (#2420 결정 2).
+
+    채택은 출항 시각을 두고 도착 시각만 옮긴다. 연말을 걸친 계획(12/28 출항 · 1/3 도착 ·
+    기준연도 2027)이 속력을 올려 12/30에 도착하게 되면 넣을 수 있는 해는 2026 하나인데,
+    종전에는 대조 없이 2027이 남았다 — 같은 값이 항차 수정(`§3.4`)으로는 422이고 채택으로는
+    저장됐다. **서버가 연도를 대신 옮기지 않는다**(`#2133` — 사용자가 넣은 값이 말없이
+    바뀐다). 거절하고 고칠 길을 말한다.
+
+    출항 시각이나 기준연도가 없으면 대조하지 않는다(`§3.3` `[#2133]`과 같은 쪽). 도착 시각을
+    건드리지 않는 경우(``arrival_at is None``)도 시각이 그대로라 보지 않는다.
+    """
+    year = target.regulation_year
+    if year is None or target.planned_departure_at is None or arrival_at is None:
+        return
+    allowed = spanned_utc_years(target.planned_departure_at, arrival_at)
+    if year not in allowed:
+        raise ValidationError(
+            "이 시나리오를 채택하면 도착 예정 시각이 바뀝니다. "
+            + attribution_message(allowed, subject="항차가", label="기준연도")
+            + f" 지금 기준연도는 {year}입니다 — 항차 관리에서 기준연도를 고친 뒤 "
+            "다시 채택해 주세요.",
+            field="regulation_year",
+            field_label="기준연도",
+        )
 
 
 async def _clear_previous_adoption(session: AsyncSession, voyage_id: UUID) -> None:
@@ -236,6 +268,8 @@ async def adopt_scenario(
                 f"계획 단계 항차에만 반영할 수 있습니다 (현재 상태: {target.status}). "
                 f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
             )
+        # 계획값을 바꾸기 **전에** 본다 (#2420 결정 2).
+        _require_year_still_spanned(target, _arrival_at(target, scenario))
         before_plan = (
             target.planned_distance_nm,
             target.planned_speed_kn,
