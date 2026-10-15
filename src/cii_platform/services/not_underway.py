@@ -232,7 +232,7 @@ def _resolve_regulation_year(
         return require_storable_year(utc_year(started_at))
     if requested not in allowed:
         raise ValidationError(
-            attribution_message(allowed, subject="구간이"),
+            attribution_message(allowed, subject="구간이", label="규제연도"),
             field="regulation_year",
             field_label="규제연도",
         )

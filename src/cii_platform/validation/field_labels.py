@@ -141,6 +141,10 @@ _FIELD_LABELS: dict[str, str] = {
     "period_type": "구간 유형",
     # 정박 구간의 거리는 항차의 항해거리와 구분한다 (#2101).
     "not_underway.distance_nm": "이동 거리",
+    # 정박 구간의 연료 줄은 화면에서 「연료량」이다 — 항차·CII 예측의 「연료 사용량」과 구분(#2469).
+    "not_underway.fuel_uses[].fuel_ton": "연료량",
+    # 항차의 연도는 화면에서 「기준연도」다 — 선박·연간 계산의 「규제연도」와 구분한다 (#2469).
+    "voyage.regulation_year": "기준연도",
     "started_at": "시작 시각",
     "ended_at": "종료 시각",
     "started_from": "시작 시각(부터)",
@@ -214,21 +218,29 @@ def field_label(field: str) -> str:
 
 #: 요청 경로에 따라 **다른 이름으로 불리는** 필드 — (경로에 든 조각, 필드 → 라벨 키).
 #: 같은 필드명이 자원마다 다른 것을 뜻할 때만 적는다. 정박 구간의 ``distance_nm``은
-#: 항차의 항해거리가 아니라 구간 안의 이동 거리다(#2101).
+#: 항차의 항해거리가 아니라 구간 안의 이동 거리다(#2101). 키는 **인덱스를 지운 필드 경로**다.
 _ROUTE_SCOPED_LABELS: tuple[tuple[str, dict[str, str]], ...] = (
-    ("/not-underway-periods", {"distance_nm": "not_underway.distance_nm"}),
+    (
+        "/not-underway-periods",
+        {
+            "distance_nm": "not_underway.distance_nm",
+            "fuel_uses[].fuel_ton": "not_underway.fuel_uses[].fuel_ton",
+        },
+    ),
+    ("/voyages", {"regulation_year": "voyage.regulation_year"}),
 )
 
 
 def field_label_for_route(path: str, field: str) -> str:
-    """요청 경로를 함께 보고 고른 라벨 (#2467).
+    """요청 경로를 함께 보고 고른 라벨 (#2467 · #2469).
 
     스키마 검증(Pydantic) 오류는 필드명만 알고 **어느 자원의 필드인지**를 모른다. 그대로
     :func:`field_label`을 부르면 정박 구간의 거리도 「항해거리」가 되어, 같은 칸의 오류가
     서비스 경로에서는 「이동 거리」로, 스키마 경로에서는 「항해거리」로 나갔다.
     해당하는 경로가 아니면 :func:`field_label`과 같다.
     """
+    bare = _ARRAY_INDEX.sub("[]", field)
     for fragment, scoped in _ROUTE_SCOPED_LABELS:
-        if fragment in path and field in scoped:
-            return field_label(scoped[field])
+        if fragment in path and bare in scoped:
+            return field_label(scoped[bare])
     return field_label(field)

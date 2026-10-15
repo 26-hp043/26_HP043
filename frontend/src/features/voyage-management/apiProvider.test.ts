@@ -390,7 +390,7 @@ describe('setRegulationYear — PATCH /voyages/{id} (#2133)', () => {
     const fetchMock = fakeFetch({
       '/voyages/f0a1': fail(422, {
         error: {
-          message: '규제연도는 항차가 걸친 연도(2027)여야 합니다.',
+          message: '기준연도는 항차가 걸친 연도(2027)여야 합니다.',
           details: [{ field: 'regulation_year' }],
         },
       }),
@@ -398,7 +398,7 @@ describe('setRegulationYear — PATCH /voyages/{id} (#2133)', () => {
     await expect(
       createApiVoyageManagementProvider(fetchMock, '').setRegulationYear('f0a1', 2026),
     ).rejects.toMatchObject({
-      message: '규제연도는 항차가 걸친 연도(2027)여야 합니다.',
+      message: '기준연도는 항차가 걸친 연도(2027)여야 합니다.',
       field: 'regulation_year',
     })
   })
