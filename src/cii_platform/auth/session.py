@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from cii_platform.db.models.user_session import UserSession
+
 if TYPE_CHECKING:
     pass
 
@@ -23,6 +25,23 @@ CSRF_TOKEN_BYTES = 32
 
 #: 세션 토큰 길이 (바이트).
 SESSION_TOKEN_BYTES = 32
+
+#: ``user_session.user_agent`` 칸 길이 — 모델에서 가져와 숫자를 중복하지 않는다 (#2520).
+USER_AGENT_MAX_LENGTH: int = UserSession.__table__.c.user_agent.type.length
+
+
+def _fit_user_agent(user_agent: str | None) -> str | None:
+    """칸 길이에 맞춘 User-Agent — **UTF-8 바이트 수**로 센다 (#2520).
+
+    헤더는 latin-1로 풀려 한글 한 글자가 0x80 이상의 글자 셋이 되고, 그 글자는 DB로 갈 때
+    UTF-8로 2바이트가 된다. 글자 수로 자르면 255글자가 510바이트가 되어 다시 넘친다.
+    """
+    if user_agent is None:
+        return None
+    encoded = user_agent.encode("utf-8")
+    if len(encoded) <= USER_AGENT_MAX_LENGTH:
+        return user_agent
+    return encoded[:USER_AGENT_MAX_LENGTH].decode("utf-8", errors="ignore")
 
 
 def generate_session_token() -> str:
@@ -63,7 +82,8 @@ def create_session_fields(
         "csrf_token_hash": hash_token(csrf_token),
         "expires_at": expires_at,
         "revoked_at": None,
-        "user_agent": user_agent,
+        # 칸(255)보다 긴 User-Agent는 INSERT가 500이 되므로 저장 전에 자른다 (#2520).
+        "user_agent": _fit_user_agent(user_agent),
         "ip_address": ip_address,
     }
     return db_fields, session_token, csrf_token

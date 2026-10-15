@@ -1013,7 +1013,7 @@ CREATE INDEX idx_user_token_user_purpose ON user_token (user_id, purpose);
 | `csrf_token_hash` | VARCHAR(64) | NOT NULL | CSRF 토큰의 SHA-256 hex |
 | `expires_at` | TIMESTAMPTZ | NOT NULL | 만료 시각 |
 | `revoked_at` | TIMESTAMPTZ | NULL | 로그아웃 시각. NOT NULL이면 무효 |
-| `user_agent` | VARCHAR(255) | NULL | 요청 User-Agent (감사용) |
+| `user_agent` | VARCHAR(255) | NULL | 요청 User-Agent (감사용). UTF-8로 255바이트를 넘는 값은 **저장 전에 앞 255바이트로 자른다**(`create_session_fields` — 글자 수가 아니라 바이트다: 헤더는 latin-1로 풀려 한글 한 글자가 0x80 이상 글자 셋이 되고 DB로는 UTF-8 2바이트씩 간다 — 자르지 않으면 INSERT가 실패해 로그인이 500이 된다, #2520) |
 | `ip_address` | VARCHAR(45) | NULL | 발급 시 IP |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
@@ -2422,3 +2422,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-13 | `#2421` | **§2.2 `voyage.regulation_year` 설명 보강** — 값은 출항 또는 도착 시각의 UTC 해 중 하나이며 연말을 걸친 항차는 고른 한 해에 통째로 귀속한다(`PRD §8.3`). 대조는 서비스가 쓰기 때 하는 것이라 DB 제약이 아니고, 규칙 전에 저장된 행은 어긋난 채 남을 수 있다. 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#2133) |
 | 2026-10-15 | `#2488` | §2.5 `calculation_run.needs_recalc` 설명에 항차·정박 입력 변경(#2304)과 배포 전 변경을 메우는 한 번의 소급 처리(#2373)를 추가 |
 | 2026-10-15 | `#2526` | §2.14 `action`에 **`VOYAGE_INCLUSION_CHANGE`** 추가와 각주 — 실적 확정 항차의 연간 반영 여부만 바꾼 기록이다(`API_SPEC §3.13` · `details_json`은 `status` · `from_policy` · `to_policy` · `regulation_year`). 컬럼·제약 변경은 없다. `§4.3`상 값 추가·각주 보강이라 버전은 올리지 않는다 (#2420) |
+| 2026-10-15 | `#2524` | §2.16 `user_session.user_agent` 설명에 **UTF-8 255바이트 초과 값은 저장 전에 앞 255바이트로 자른다**는 규칙 추가(글자 수로 자르면 한글 UA가 여전히 500 — 실측) — 종전에는 256자 이상 User-Agent로 로그인·가입·둘러보기·개발 로그인이 500이었다(#2520). 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 |
