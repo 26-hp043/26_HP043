@@ -218,6 +218,19 @@ def proxy_client_ip_enabled() -> bool:
     return bool(_PROXY_CLIENT_IP_SECRET)
 
 
+def _parse_ip_without_scope(raw: str) -> str:
+    """IP 문자열을 정규화해 돌려준다. IPv6 스코프 ID(``%eth0``)는 버린다 (#2522).
+
+    ``ipaddress.ip_address``는 ``fe80::1%eth0``을 받아 스코프 ID를 그대로 돌려준다. 스코프
+    ID는 길이 제한이 없어 감사 로그·세션의 ``VARCHAR(45)`` 칸을 넘길 수 있고, 한도 키에서도
+    같은 주소를 다른 키로 나눈다. IP가 아니면 ``ValueError``다.
+    """
+    parsed = ipaddress.ip_address(raw)
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.scope_id:
+        parsed = ipaddress.IPv6Address(int(parsed))
+    return str(parsed)
+
+
 def _signed_proxy_ip(request: Request) -> str | None:
     """프록시가 서명한 원 클라이언트 IP. 서명이 없거나 틀리거나 값이 IP가 아니면 ``None``.
 
@@ -236,7 +249,7 @@ def _signed_proxy_ip(request: Request) -> str | None:
     try:
         # 서명이 맞아도 값은 IP여야 한다. 프록시에 결함이 생겨 빈 값이나 목록이 오면
         # 그것을 카운터 키로 삼지 않고 종전 규칙으로 내려간다.
-        return str(ipaddress.ip_address(raw))
+        return _parse_ip_without_scope(raw)
     except ValueError:
         return None
 
@@ -283,7 +296,7 @@ def client_ip(request: Request) -> str:
             # **IP여야 한다** (#1889) — 서명 헤더와 같은 규칙. 이 값은 감사 로그·세션의
             # `VARCHAR(45)` 칸에도 들어가므로, 형식이 아니면 쓰지 않고 소켓 상대로 내려간다.
             try:
-                return str(ipaddress.ip_address(forwarded.split(",", 1)[0].strip()))
+                return _parse_ip_without_scope(forwarded.split(",", 1)[0].strip())
             except ValueError:
                 pass
     if request.client is not None:
