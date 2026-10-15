@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -22,6 +22,7 @@ from cii_platform.errors import (
 from cii_platform.reports.labels import inclusion_policy_label, voyage_status_label
 from cii_platform.services.calc_errors import regulation_year_missing
 from cii_platform.services.pagination import normalize_limit
+from cii_platform.services.simulation_clock import resolve_as_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -915,6 +916,44 @@ def reset_stale_sources(
         fields[source_key] = None
 
 
+#: 실적 시각이 지금보다 뒤여도 받아 주는 여유 (#2420 결정 3). 서버 시계와 사용자 기기의 시계가
+#: 몇 분 어긋날 수 있다 — 방금 도착한 항차를 「지금」으로 넣었는데 거절하면 안 된다. 화면
+#: (`voyageRules.ts`의 `FUTURE_ACTUAL_TOLERANCE_MINUTES`)이 같은 값을 쓴다.
+FUTURE_ACTUAL_TOLERANCE = timedelta(minutes=5)
+
+#: 실적 시각 칸 → 오류가 가리키는 칸 이름.
+_ACTUAL_TIME_LABELS: dict[str, str] = {
+    "actual_departure_at": "실제 출항 시각",
+    "actual_arrival_at": "실제 도착 시각",
+}
+
+
+def require_actual_times_not_future(fields: dict[str, object], now: datetime) -> None:
+    """요청에 실린 실제 출항·도착 시각이 지금보다 뒤면 422 (#2420 결정 3 · `API_SPEC §3.6`).
+
+    실적은 이미 일어난 일의 기록이다. 지금보다 뒤의 실제 도착 시각은 뜻이 성립하지 않으므로
+    날짜를 잘못 넣은 것이다 — 받아 두면 그 항차는 항해 완료가 되는데 누적 계산은 기준 시각까지
+    도착한 항차만 세어, 선박 개요가 「올해 등록된 항차 실적이 없습니다」라고 말했다. 그 시각은
+    기준연도 대조(`§3.6` `[#2133]`)에도 쓰인다.
+
+    **요청에 실린 칸만 본다** — 이미 저장된 미래 시각의 행은 그 시각이 지나면 스스로 누적에
+    들어가고, 연료만 고치는 요청까지 막지 않는다(#2090과 같은 쪽). 값이 ``None``(지움)이면
+    보지 않는다. 시간대 없는 값은 UTC로 본다(:func:`time_order_violation`과 같다).
+    """
+    limit = now + FUTURE_ACTUAL_TOLERANCE
+    for key, label in _ACTUAL_TIME_LABELS.items():
+        value = fields.get(key)
+        if not isinstance(value, datetime):
+            continue
+        moment = value if value.tzinfo else value.replace(tzinfo=UTC)
+        if moment > limit:
+            raise ValidationError(
+                "실적 시각은 현재보다 뒤일 수 없습니다.",
+                field=key,
+                field_label=label,
+            )
+
+
 async def set_actuals(
     session: AsyncSession,
     voyage_id: UUID,
@@ -978,6 +1017,9 @@ async def set_actuals(
             fields.get("actual_departure_at", voyage.actual_departure_at),
             fields.get("actual_arrival_at", voyage.actual_arrival_at),
         )
+        # #2420 결정 3 — 지금보다 뒤의 실적 시각은 입력에서 막는다. 「현재」는 시뮬레이션
+        # 시계와 같은 시각(`resolve_as_of`)이다 — 누적 계산이 쓰는 기준 시각과 한 잣대다.
+        require_actual_times_not_future(fields, resolve_as_of(None))
         # #2133(2026-10-08 결정) — 실제 시각이 기준연도와 맞는지 본다. 계획보다 늦게 떠나
         # 해가 바뀌었는데 그대로 받으면 **다른 해의 누적과 등급이 사용자가 모르게 바뀐다.**
         # 서버가 연도를 대신 옮기지 않는다 — 해를 걸친 항차는 두 해 중 사용자가 고른다

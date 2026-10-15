@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { NOT_UNDERWAY_DISTANCE_RANGE, NOT_UNDERWAY_FUEL_RANGE } from '../not-underway/periodRules'
 import { storableRange } from '../vessel-registration/formRules'
 import { DISTANCE_RANGE, FUEL_RANGE } from '../voyage-cii/formRules'
-import { STORED_YEAR_MAX, STORED_YEAR_MIN } from './voyageRules'
+import { FUTURE_ACTUAL_TOLERANCE_MINUTES, STORED_YEAR_MAX, STORED_YEAR_MIN } from './voyageRules'
 
 /**
  * 항차·항로 비교·정박 구간의 입력 범위 — 화면 ↔ 서버 `validation/bounds.py` 대조 (#2457).
@@ -59,5 +59,15 @@ describe('화면 범위 ↔ 서버 validation/bounds.py (#2457)', () => {
     expect(STORED_YEAR_MIN).toBe(Number(declaration('MIN_REGULATION_YEAR')))
     expect(STORED_YEAR_MAX).toBe(Number(declaration('MAX_STORED_REGULATION_YEAR')))
     expect(STORED_YEAR_MAX).toBeLessThan(Number(declaration('MAX_REGULATION_YEAR')))
+  })
+
+  it('실적 시각의 시계 여유 — 서버 services/voyage.py FUTURE_ACTUAL_TOLERANCE와 같다 (#2420)', () => {
+    const voyagePy = readFileSync(
+      new URL('../../../../src/cii_platform/services/voyage.py', import.meta.url),
+      'utf-8',
+    )
+    const match = /^FUTURE_ACTUAL_TOLERANCE\s*=\s*timedelta\(minutes=(\d+)\)$/m.exec(voyagePy)
+    expect(match, 'FUTURE_ACTUAL_TOLERANCE 선언 꼴이 바뀌었습니다').not.toBeNull()
+    expect(FUTURE_ACTUAL_TOLERANCE_MINUTES).toBe(Number(match![1]))
   })
 })

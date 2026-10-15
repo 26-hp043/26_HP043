@@ -510,13 +510,20 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
 }
 
 /**
+ * 실적 시각이 지금보다 뒤여도 받아 주는 여유(분) — 서버 `services/voyage.py`의
+ * `FUTURE_ACTUAL_TOLERANCE`와 같다 (#2420 결정 3). 서버 시계와 이 기기의 시계가 몇 분 어긋날 수
+ * 있다. `serverBounds.sync.test.ts`가 서버 값과 대조한다.
+ */
+export const FUTURE_ACTUAL_TOLERANCE_MINUTES = 5
+
+/**
  * 실적 폼 검증 — `API_SPEC §3.6`.
  *
  * **모든 항목이 선택이다.** 생략은 「변경 없음」이고, 실거리만 먼저 알고 연료가
  * 나중에 오는 경우가 실제로 있다. 그래서 「비어 있음」은 오류가 아니다 —
  * 값이 들어왔을 때 그 값이 서버 제약을 어기는지만 본다.
  */
-export function validateActuals(draft: ActualsDraft): FieldErrors {
+export function validateActuals(draft: ActualsDraft, now: Date = new Date()): FieldErrors {
   const errors: FieldErrors = {}
 
   const distance = readNumber(draft.actualDistanceNm)
@@ -555,6 +562,19 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
     { departure: 'actualDepartureAt', arrival: 'actualArrivalAt' },
     errors,
   )
+
+  /*
+   * 지금보다 뒤의 실적 시각은 저장 전에 그 칸에서 알린다 (#2420 결정 3 · `API_SPEC §3.6`). 실적은 이미
+   * 일어난 일의 기록이라, 뒤의 시각은 날짜를 잘못 넣은 것이다. 서버가 같은 검사를 한다 — 여기서는
+   * 먼저 말할 뿐이다. 이미 다른 오류가 붙은 칸은 덮지 않는다.
+   */
+  const limit = now.getTime() + FUTURE_ACTUAL_TOLERANCE_MINUTES * 60_000
+  for (const key of ['actualDepartureAt', 'actualArrivalAt'] as const) {
+    const iso = draft[key].trim() === '' ? null : toIsoInstant(draft[key])
+    if (iso !== null && errors[key] === undefined && Date.parse(iso) > limit) {
+      errors[key] = '실적 시각은 현재보다 뒤일 수 없습니다.'
+    }
+  }
 
   return errors
 }

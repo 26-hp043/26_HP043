@@ -55,6 +55,16 @@ DEC_28_2026 = datetime(2026, 12, 28, tzinfo=UTC)
 JAN_3_2027 = datetime(2027, 1, 3, tzinfo=UTC)
 
 
+#: 이 파일의 실적은 2026년 말~2027년 초 항차다. 실적 입력은 지금보다 뒤의 시각을 거절하므로
+#: (#2420 결정 3) 「지금」을 그 항차들이 모두 지난 시각에 둔다 — 실제 날짜와 무관하게 같은 결과다.
+PINNED_NOW = datetime(2027, 6, 1, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _pin_now(monkeypatch):
+    monkeypatch.setattr("cii_platform.services.voyage.resolve_as_of", lambda _as_of: PINNED_NOW)
+
+
 @pytest_asyncio.fixture
 async def session(conn):
     async with AsyncSession(bind=conn, expire_on_commit=False) as db:
@@ -629,6 +639,7 @@ async def test_http_create_rejects_and_history_carries_the_excluded_count(
                 voyage_url, json={"regulation_year": 2026}, headers=_csrf(client)
             )
             assert moved_again.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+
     finally:
         if vessel_id is not None:
             from cii_platform.db.session import get_sessionmaker

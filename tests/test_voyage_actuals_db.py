@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -23,7 +24,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
-from cii_platform.services.voyage import set_actuals
+from cii_platform.services.voyage import (
+    FUTURE_ACTUAL_TOLERANCE,
+    require_actual_times_not_future,
+    set_actuals,
+)
 
 
 @pytest_asyncio.fixture
@@ -261,3 +266,84 @@ async def test_distance_only_input_is_allowed(session):
     assert data["actual_distance_nm"] == 1100.0
     (row,) = await _fuel_rows(session, voyage_id)
     assert row.actual_fuel_ton is None, "연료를 보내지 않았는데 값이 생겼다"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #2420 결정 3 · 지금보다 뒤의 실적 시각
+# ─────────────────────────────────────────────────────────────────────────────
+
+NOW = datetime(2026, 10, 15, 3, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def pinned_now(monkeypatch):
+    """「지금」을 고정한다 — 서비스가 시뮬레이션 시계(`resolve_as_of`)에서 받는 값이다."""
+    monkeypatch.setattr("cii_platform.services.voyage.resolve_as_of", lambda _as_of: NOW)
+    return NOW
+
+
+@pytest.mark.parametrize("key", ["actual_departure_at", "actual_arrival_at"])
+def test_a_future_actual_time_is_refused_on_the_field_it_names(key):
+    """실적은 일어난 일의 기록이다 — 지금보다 뒤의 실제 시각은 날짜를 잘못 넣은 것이다."""
+    with pytest.raises(ValidationError) as caught:
+        require_actual_times_not_future({key: NOW + timedelta(days=30)}, NOW)
+    assert caught.value.field == key
+
+
+def test_the_clock_tolerance_is_a_few_minutes_and_its_edge_passes():
+    """서버와 기기의 시계 차 몇 분은 받아 준다 — 경계 자체는 통과, 1초 넘으면 거절."""
+    assert timedelta(0) < FUTURE_ACTUAL_TOLERANCE <= timedelta(minutes=10)
+    require_actual_times_not_future({"actual_arrival_at": NOW + FUTURE_ACTUAL_TOLERANCE}, NOW)
+    with pytest.raises(ValidationError):
+        require_actual_times_not_future(
+            {"actual_arrival_at": NOW + FUTURE_ACTUAL_TOLERANCE + timedelta(seconds=1)}, NOW
+        )
+
+
+def test_past_times_cleared_times_and_absent_times_pass():
+    require_actual_times_not_future(
+        {"actual_departure_at": NOW - timedelta(days=3), "actual_arrival_at": None}, NOW
+    )
+    require_actual_times_not_future({"actual_distance_nm": Decimal("10")}, NOW)
+
+
+@pytest.mark.asyncio
+async def test_a_future_arrival_is_not_saved(session, pinned_now):
+    """종전에는 받아 항해 완료가 됐는데 누적에서 빠져, 선박 개요가 「실적이 없다」고 말했다."""
+    vessel_id = await _insert_vessel(session)
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_fuel(session, voyage_id)
+
+    with pytest.raises(ValidationError) as caught:
+        await set_actuals(
+            session,
+            UUID(voyage_id),
+            actual_departure_at=pinned_now - timedelta(days=2),
+            actual_arrival_at=pinned_now + timedelta(days=30),
+        )
+
+    assert caught.value.field == "actual_arrival_at"
+    saved = await session.scalar(
+        text("SELECT actual_arrival_at FROM voyage WHERE id = :id"), {"id": voyage_id}
+    )
+    assert saved is None
+
+
+@pytest.mark.asyncio
+async def test_a_row_already_holding_a_future_time_still_takes_fuel(session, pinned_now):
+    """이미 저장된 미래 시각의 행은 그대로 둔다 — 시각을 보내지 않는 연료 수정까지 막지 않는다."""
+    vessel_id = await _insert_vessel(session)
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_fuel(session, voyage_id)
+    await session.execute(
+        text("UPDATE voyage SET actual_arrival_at = :at WHERE id = :id"),
+        {"at": pinned_now + timedelta(days=30), "id": voyage_id},
+    )
+
+    data = await set_actuals(
+        session,
+        UUID(voyage_id),
+        fuel_uses=[{"fuel_type": "HFO", "actual_fuel_ton": Decimal("90")}],
+    )
+
+    assert data["fuel_uses"][0]["actual_fuel_ton"] == 90.0

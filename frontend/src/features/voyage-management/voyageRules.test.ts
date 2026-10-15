@@ -17,6 +17,7 @@ import {
   transitionCaution,
   isRevert,
   validateActuals,
+  FUTURE_ACTUAL_TOLERANCE_MINUTES,
   validateDraft,
 } from './voyageRules'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageStatus } from './types'
@@ -112,6 +113,7 @@ describe('policyForTransition — 데모 마지막 한 걸음이 여기서 막�
   it('EXCLUDE only 상태로 가면 반영을 끈다', () => {
     expect(policyForTransition('INCLUDE_AS_PLAN', 'CANCELLED')).toBe('EXCLUDE')
   })
+
 })
 
 describe('transitionBlocker', () => {
@@ -306,6 +308,47 @@ describe('validateActuals — 모든 항목이 선택이다', () => {
   it('들어온 값이 서버 제약을 어기면 잡는다', () => {
     expect(validateActuals(actuals({ actualFuelTon: { HFO: '0' } }))['actualFuelTon.HFO']).toBeDefined()
     expect(validateActuals(actuals({ actualAvgSpeedKn: '0.9' })).actualAvgSpeedKn).toBeDefined()
+  })
+})
+
+describe('validateActuals — 지금보다 뒤의 실적 시각 (#2420 결정 3)', () => {
+  // 한국 시각 2026-10-15 12:00 = UTC 03:00
+  const now = new Date('2026-10-15T03:00:00Z')
+
+  it('지금보다 뒤의 실제 도착 시각은 그 칸에서 막는다', () => {
+    const found = validateActuals(
+      actuals({ actualDepartureAt: '2026-10-13T09:00', actualArrivalAt: '2026-11-14T09:00' }),
+      now,
+    )
+    expect(found.actualArrivalAt).toBeDefined()
+    expect(found.actualDepartureAt).toBeUndefined()
+  })
+
+  it('실제 출항 시각도 같다', () => {
+    expect(validateActuals(actuals({ actualDepartureAt: '2026-10-16T09:00' }), now).actualDepartureAt).toBeDefined()
+  })
+
+  it('시계 차 몇 분은 받아 준다 — 여유 안은 통과, 넘으면 막는다', () => {
+    const within = `2026-10-15T12:0${FUTURE_ACTUAL_TOLERANCE_MINUTES - 1}`
+    const beyond = `2026-10-15T12:${String(FUTURE_ACTUAL_TOLERANCE_MINUTES + 1).padStart(2, '0')}`
+    expect(validateActuals(actuals({ actualArrivalAt: within }), now).actualArrivalAt).toBeUndefined()
+    expect(validateActuals(actuals({ actualArrivalAt: beyond }), now).actualArrivalAt).toBeDefined()
+  })
+
+  it('지난 시각과 빈 칸은 오류가 아니다', () => {
+    expect(
+      hasErrors(validateActuals(actuals({ actualDepartureAt: '2026-10-01T09:00', actualArrivalAt: '' }), now)),
+    ).toBe(false)
+  })
+
+  it('순서 오류가 이미 붙은 칸은 덮지 않는다 — 고칠 것이 먼저 보인다', () => {
+    const found = validateActuals(
+      actuals({ actualDepartureAt: '2026-12-08T09:00', actualArrivalAt: '2026-12-01T09:00' }),
+      now,
+    )
+    const futureOnly = validateActuals(actuals({ actualArrivalAt: '2026-12-01T09:00' }), now)
+    expect(found.actualArrivalAt).toBeDefined()
+    expect(found.actualArrivalAt).not.toBe(futureOnly.actualArrivalAt)
   })
 })
 
