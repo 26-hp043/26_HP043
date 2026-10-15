@@ -284,3 +284,19 @@ def test_measures_truncate_but_money_rounds():
     assert _publish_measure(Decimal("12.345"), 2) == "12.34"
     assert _publish_measure(None, 2) is None
     assert _publish(Decimal("80.005"), 2) == "80.01"
+
+
+@pytest.mark.parametrize("publish_name", ["_publish", "_publish_measure"])
+def test_a_value_beyond_the_response_digits_is_a_422_not_a_500(publish_name):
+    """`#2521` — 단가에 상한이 없어 곱이 컨텍스트 자릿수를 넘으면 500이 아니라 422다.
+
+    기대값은 오류 종류·칸이며 표시 문구가 아니다. 자릿수 안의 값은 그대로 나간다(대조군).
+    """
+    from cii_platform.errors import ValidationError
+    from cii_platform.services import fleet_reduction
+
+    publish = getattr(fleet_reduction, publish_name)
+    assert publish(Decimal(10) ** 20, 2) is not None
+    with pytest.raises(ValidationError) as caught:
+        publish(Decimal(10) ** 40, 2)
+    assert caught.value.field == "prices"

@@ -630,3 +630,52 @@ def test_invalid_requests_are_422_not_500(migrated_db, app_fresh_engine):
             detail = response.json()["error"]["details"][0]
             assert detail["field"] == field
             assert detail["field_label"] == label
+
+
+def test_a_huge_price_is_a_422_on_evaluate_and_save_not_a_500(migrated_db, app_fresh_engine):
+    """⚠️ #2521 — 용선료·연료 단가가 커서 비용 곱이 응답 자릿수를 넘어도 500이 아니라 422다.
+
+    평가와 저장 두 경로를 모두 본다(저장도 같은 계산을 먼저 돈다). 저장이 거절되면 계획은
+    남지 않는다. 자릿수 안의 단가는 200으로 대조한다.
+    """
+    from fastapi.testclient import TestClient
+
+    from cii_platform.api.main import API_V1_PREFIX, app
+
+    with TestClient(app, base_url="https://testserver") as client:
+        client.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        headers = {"X-CSRF-Token": client.cookies.get("csrf")}
+        base = f"{API_V1_PREFIX}/fleet/reduction-plans"
+        body = {"regulation_year": YEAR, "target": "ALL_C_OR_BETTER"}
+        rows = client.post(f"{base}/evaluate", headers=headers, json=body).json()["data"]["vessels"]
+        vessel_ids = [row["vessel_id"] for row in rows]
+        slowed = {
+            **body,
+            "adjustments": [
+                {"vessel_id": vid, "speed_reduction_percent": 50} for vid in vessel_ids
+            ],
+        }
+        huge = "1" + "0" * 40
+        fuels = ["HFO", "VLSFO", "MGO", "LNG", "LFO"]
+        prices = {
+            "charter_usd_per_day": {"charter": {vid: huge for vid in vessel_ids}},
+            "fuel_usd_per_ton": {"fuel": {code: huge for code in fuels}},
+        }
+        sane = {
+            "charter_usd_per_day": {vid: "15000" for vid in vessel_ids},
+            "fuel_usd_per_ton": {code: "600" for code in fuels},
+        }
+        ok = client.post(f"{base}/evaluate", headers=headers, json={**slowed, "prices": sane})
+        assert ok.status_code == 200, ok.text
+
+        for kind, key in (("charter", "charter_usd_per_day"), ("fuel", "fuel_usd_per_ton")):
+            priced = {**sane, key: prices[key][kind]}
+            payload = {**slowed, "prices": priced}
+            for url in (f"{base}/evaluate", base):
+                if url == base:
+                    payload = {**payload, "plan_name": "단가 상한 검사"}
+                response = client.post(url, headers=headers, json=payload)
+                assert response.status_code == 422, (kind, url, response.text)
+                detail = response.json()["error"]["details"][0]
+                assert detail["field"] == "prices"
+        assert all(p["plan_name"] != "단가 상한 검사" for p in client.get(base).json()["data"])
