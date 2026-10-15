@@ -393,6 +393,90 @@ def test_schema_validation_label_follows_route_for_not_underway_distance() -> No
     assert str(other["message"]).startswith(plain)
 
 
+def test_schema_validation_label_follows_route_for_voyage_year_and_not_underway_fuel() -> None:
+    """같은 칸이 스키마 검증·서비스·화면에서 같은 이름으로 불린다 (#2469).
+
+    항차의 ``regulation_year``는 화면이 「기준연도」로 부르고(서비스 오류도 그렇다), 정박 구간의
+    ``fuel_uses[].fuel_ton``은 화면이 「연료량」으로 부른다. 스키마 검증 경로만 「규제연도」·
+    「연료 사용량」이었다. 다른 자원의 같은 필드명은 종전 라벨을 그대로 쓴다.
+    """
+    from pydantic import BaseModel, Field
+
+    from cii_platform.validation.field_labels import field_label
+
+    class Fuel(BaseModel):
+        fuel_ton: float = Field(le=10)
+
+    class Body(BaseModel):
+        regulation_year: int = Field(le=2050)
+        fuel_uses: list[Fuel]
+
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    register_exception_handlers(app)
+
+    @app.post("/vessels/{vessel_id}/voyages")
+    async def create_voyage(vessel_id: str, body: Body) -> dict[str, str]:
+        return {}
+
+    @app.patch("/voyages/{voyage_id}")
+    async def update_voyage(voyage_id: str, body: Body) -> dict[str, str]:
+        return {}
+
+    @app.post("/vessels/{vessel_id}/not-underway-periods")
+    async def create_period(vessel_id: str, body: Body) -> dict[str, str]:
+        return {}
+
+    @app.post("/voyage-cii/estimate")
+    async def estimate(body: Body) -> dict[str, str]:
+        return {}
+
+    client = TestClient(app)
+    payload = {"regulation_year": 2051, "fuel_uses": [{"fuel_ton": 11}, {"fuel_ton": 12}]}
+
+    def labels(url: str) -> dict[str, str]:
+        details = client.post(url, json=payload).json()["error"]["details"]
+        for detail in details:
+            assert str(detail["message"]).startswith(str(detail["field_label"]))
+        return {str(d["field"]): str(d["field_label"]) for d in details}
+
+    voyage_year = field_label("voyage.regulation_year")
+    assert voyage_year != field_label("regulation_year")
+    for url in ("/vessels/v1/voyages",):
+        assert labels(url)["regulation_year"] == voyage_year
+    patched = client.patch("/voyages/x1", json=payload).json()["error"]["details"][0]
+    assert patched["field_label"] == voyage_year
+
+    period = labels("/vessels/v1/not-underway-periods")
+    fuel = field_label("not_underway.fuel_uses[].fuel_ton")
+    assert fuel != field_label("fuel_uses[].fuel_ton")
+    # 인덱스가 달라도(0번째·1번째) 같은 라벨이다. 정박 구간의 연도는 종전 「규제연도」다.
+    assert period["fuel_uses[0].fuel_ton"] == fuel
+    assert period["fuel_uses[1].fuel_ton"] == fuel
+    assert period["regulation_year"] == field_label("regulation_year")
+
+    other = labels("/voyage-cii/estimate")
+    assert other["regulation_year"] == field_label("regulation_year")
+    assert other["fuel_uses[0].fuel_ton"] == field_label("fuel_uses[].fuel_ton")
+
+
+def test_attribution_message_uses_the_screen_name_of_each_resource() -> None:
+    """귀속 연도 문구의 칸 이름은 호출하는 쪽이 정한다 (#2469).
+
+    항차는 「기준연도」, 정박 구간은 「규제연도」다.
+
+    문장 틀과 연도 나열은 두 자원이 같다(`#2133`). 이름만 달라야 한다.
+    """
+    from cii_platform.services.voyage import attribution_message
+
+    voyage = attribution_message([2026, 2027], subject="항차가", label="기준연도")
+    period = attribution_message([2026, 2027], subject="구간이", label="규제연도")
+    assert voyage.startswith("기준연도")
+    assert period.startswith("규제연도")
+    assert "2026 또는 2027" in voyage
+    assert "2026 또는 2027" in period
+
+
 def test_framework_body_parse_error_is_korean() -> None:
     """`#2517` — 깨진 multipart를 FastAPI가 400 「There was an error parsing the body」로 끝낸다.
 

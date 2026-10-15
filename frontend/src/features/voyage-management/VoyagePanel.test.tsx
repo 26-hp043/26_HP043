@@ -1460,14 +1460,14 @@ describe('기준연도 수정 줄 (#2133)', () => {
 
   it('저장이 실패하면 입력과 값이 남고 서버 문구가 보인다', async () => {
     const setRegulationYear = vi.fn(async () => {
-      throw new Error('규제연도는 항차가 걸친 연도(2027)여야 합니다.')
+      throw new Error('기준연도는 항차가 걸친 연도(2027)여야 합니다.')
     })
     renderOne(IN_PROGRESS, { setRegulationYear })
     const input = await openAndName()
     fireEvent.change(input, { target: { value: '2025' } })
     fireEvent.click(submit())
 
-    expect(await screen.findByText('규제연도는 항차가 걸친 연도(2027)여야 합니다.')).toBeTruthy()
+    expect(await screen.findByText('기준연도는 항차가 걸친 연도(2027)여야 합니다.')).toBeTruthy()
     expect((screen.getByLabelText('기준연도') as HTMLInputElement).value).toBe('2025')
   })
 

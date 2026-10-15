@@ -98,10 +98,11 @@ def _create_kwargs(**over) -> dict:
 
 def _assert_attribution_error(error: ValidationError, *years: int) -> None:
     assert error.field == "regulation_year"
+    assert error.details[0]["field_label"] == "기준연도"  # 항차 폼의 칸 이름 (#2469)
     # 문구는 허용 연도를 담는다 — 사용자가 무엇을 넣어야 하는지 알 수 있어야 한다.
     expected = " 또는 ".join(str(year) for year in years)
     # 정본 문구 (API_SPEC §3.3 `[#2133]`) — 바꾸려면 API_SPEC 개정이 먼저다.
-    assert str(error) == f"규제연도는 항차가 걸친 연도({expected})여야 합니다."
+    assert str(error) == f"기준연도는 항차가 걸친 연도({expected})여야 합니다."
 
 
 # ── 허용 집합 ───────────────────────────────────────────────────────────────

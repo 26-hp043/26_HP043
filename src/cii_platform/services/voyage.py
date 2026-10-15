@@ -172,15 +172,17 @@ def spanned_utc_years(start: datetime, end: datetime | None) -> list[int]:
     return sorted(years)
 
 
-def attribution_message(allowed: list[int], *, subject: str) -> str:
-    """귀속 연도 오류 문구 — 「규제연도는 {subject} 걸친 연도(2026 또는 2027)여야 합니다.」
+def attribution_message(allowed: list[int], *, subject: str, label: str) -> str:
+    """귀속 연도 오류 문구 — 「{label}는 {subject} 걸친 연도(2026 또는 2027)여야 합니다.」
 
     정박 구간(``subject="구간이"``)과 항차(``subject="항차가"``)가 같은 모양을 쓴다(`#2133`).
+    ``label``은 **화면의 칸 이름**이다 — 항차는 「기준연도」, 정박 구간은 「규제연도」(`#2469`).
+    「는」을 문구에 박아 두므로 ``label``은 받침 없는 낱말로 끝나야 한다(「기준연도」·「규제연도」).
     ``subject``는 **조사까지** 받는다 — 받침 유무로 「이/가」가 갈리는데, 조사를 여기서
     붙이면 「항차이」가 된다(괄호 병기도 쓰지 않는다 · `#2123`).
     """
     years = " 또는 ".join(str(year) for year in allowed)
-    return f"규제연도는 {subject} 걸친 연도({years})여야 합니다."
+    return f"{label}는 {subject} 걸친 연도({years})여야 합니다."
 
 
 async def _require_regulation_params(session: AsyncSession, year: int) -> None:
@@ -231,7 +233,7 @@ async def _require_regulation_year(
     allowed = spanned_utc_years(departure_at, arrival_at)
     if year not in allowed:
         raise ValidationError(
-            attribution_message(allowed, subject="항차가"),
+            attribution_message(allowed, subject="항차가", label="기준연도"),
             field="regulation_year",
             field_label="기준연도",
         )
@@ -990,7 +992,7 @@ async def set_actuals(
             )
             if voyage.regulation_year not in allowed:
                 raise ValidationError(
-                    attribution_message(allowed, subject="항차가")
+                    attribution_message(allowed, subject="항차가", label="기준연도")
                     + f" 지금 기준연도는 {voyage.regulation_year}입니다 — "
                     "기준연도를 먼저 고친 뒤 실적을 입력해 주세요.",
                     field="regulation_year",
