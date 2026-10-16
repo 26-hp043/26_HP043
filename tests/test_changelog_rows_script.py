@@ -424,3 +424,112 @@ def test_두_번_최신화한_PR의_첫_머지가_끌어온_행을_PR의_행으�
     assert len(_git(tmp_path, "rev-list", "--merges", "main..HEAD").split()) == 2
     assert "#2259" in doc.read_text(encoding="utf-8")
     assert rows.check(tmp_path, "main") == []
+
+
+# ── 새 행의 번호 (#2269) ─────────────────────────────────────────────────────
+
+
+def _pr_repo(tmp_path: Path, *new_rows: str, doc_name: str = "TEST_PLAN.md") -> Path:
+    """base 행 하나 위에 PR 커밋이 ``new_rows``를 더한 저장소."""
+    doc = tmp_path / doc_name
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    _git(tmp_path, "init", "-q", "-b", "main")
+    doc.write_text(_table("| 2026-10-15 | `#2523` | base |"), encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "checkout", "-qb", "pr")
+    doc.write_text(_table("| 2026-10-15 | `#2523` | base |", *new_rows), encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "행을 싣는다")
+    return doc
+
+
+def test_새_행이_이_PR_번호면_통과한다(tmp_path):
+    _pr_repo(tmp_path, "| 2026-10-16 | `#2600` | 새 검사 (#2269) |")
+    assert rows.check(tmp_path, "main", pr_number=2600) == []
+    assert rows.main(["--base", "main", "--root", str(tmp_path), "--pr-number", "2600"]) == 0
+
+
+def test_새_행이_이슈_번호면_고칠_행과_넣을_번호를_말한다(tmp_path):
+    """`#2269` — 이슈 번호로 적힌 행이 551개 쌓였다. 문구만 보고 고칠 수 있어야 한다."""
+    summary = "새 행 번호 검사를 더한다 — 커밋 열이 이 PR 번호인지 본다"
+    _pr_repo(tmp_path, f"| 2026-10-16 | `#2269` | {summary} |")
+    assert rows.check(tmp_path, "main", pr_number=2600) == [
+        "TEST_PLAN.md: 이 PR이 더한 변경 이력 행의 커밋 열이 #2269입니다 — "
+        "이 PR 번호 `#2600`를 적으세요(행은 그 PR 자신이 싣는다 · AGENTS §4.1). "
+        "날짜 2026-10-16 · 요약 앞부분 「새 행 번호 검사를 더한다 — 커밋 열이 이 PR 번호」"
+    ]
+    assert rows.main(["--base", "main", "--root", str(tmp_path), "--pr-number", "2600"]) == 1
+
+
+def test_새_행이_다른_PR_번호면_위반이다(tmp_path):
+    """직전 PR의 행을 대신 싣는 방식(`#1522` 폐기)도 같은 모양으로 걸린다."""
+    _pr_repo(tmp_path, "| 2026-10-16 | `#2599` | 직전 PR의 행 |")
+    problems = rows.check(tmp_path, "main", pr_number=2600)
+    assert len(problems) == 1 and "#2599" in problems[0] and "`#2600`" in problems[0]
+
+
+def test_꼬리_붙은_자기_번호는_통과한다(tmp_path):
+    """키는 참조 집합이라 ``⑵`` 꼬리는 보지 않는다 — ``#1081`` ⑼ 선례."""
+    _pr_repo(tmp_path, "| 2026-10-16 | `#2600` | 하나 |", "| 2026-10-16 | `#2600` ⑵ | 둘 |")
+    assert rows.check(tmp_path, "main", pr_number=2600) == []
+
+
+@pytest.mark.parametrize("commit", ["`0fc8263`", "`#2600` · `#2269`"])
+def test_해시나_참조_둘을_적은_새_행은_위반이다(tmp_path, commit):
+    """2026-07-23 이후 행은 PR 번호 하나다(`AGENTS §4.1`). 해시는 squash로 사라진다."""
+    _pr_repo(tmp_path, f"| 2026-10-16 | {commit} | 해시 |")
+    problems = rows.check(tmp_path, "main", pr_number=2600)
+    assert len(problems) == 1 and rows._NEW_ROW in problems[0]
+
+
+def test_채우지_않은_행은_새_행_번호_검사_대상이_아니다(tmp_path):
+    """``#___``는 PR을 연 뒤 채운다. 남은 것은 `test_doc_cross_refs.py`가 잡는다."""
+    _pr_repo(tmp_path, "| 2026-10-16 | `#___` | 아직 |")
+    assert rows.check(tmp_path, "main", pr_number=2600) == []
+
+
+def test_PR_번호를_주지_않으면_새_행_번호를_보지_않는다(tmp_path):
+    """로컬에서 삭제 검사만 돌릴 때 — 종전 동작 그대로다."""
+    _pr_repo(tmp_path, "| 2026-10-16 | `#2269` | 이슈 번호 |")
+    assert rows.check(tmp_path, "main") == []
+    assert rows.main(["--base", "main", "--root", str(tmp_path)]) == 0
+
+
+@pytest.mark.parametrize("doc_name", ["README.md", "docs/OPERATIONS.md"])
+def test_README와_OPERATIONS도_삭제와_새_행을_본다(tmp_path, doc_name):
+    """`#2269` 결정 2 — 변경 이력 표를 가진 문서 전부. 정본 8종만이 아니다."""
+    assert doc_name in rows.DOCS
+    doc = _pr_repo(tmp_path, "| 2026-10-16 | `#2269` | 이슈 번호 |", doc_name=doc_name)
+    assert rows.check(tmp_path, "main", pr_number=2600) == [
+        f"{doc_name}: 이 PR이 더한 변경 이력 행의 커밋 열이 #2269입니다 — "
+        "이 PR 번호 `#2600`를 적으세요(행은 그 PR 자신이 싣는다 · AGENTS §4.1). "
+        "날짜 2026-10-16 · 요약 앞부분 「이슈 번호」"
+    ]
+    doc.write_text(_table("| 2026-10-16 | `#2600` | base 행을 덮어씀 |"), encoding="utf-8")
+    assert f"{doc_name}: base에 있던 행이 사라졌습니다 — #2523" in rows.check(
+        tmp_path, "main", pr_number=2600
+    )
+
+
+def test_머지_커밋으로_끌어온_main의_행은_새_행이_아니다(tmp_path):
+    """base에 이미 있는 남의 행(``#2259``·``#2284``)은 이 PR이 더한 행이 아니다(merged - base)."""
+    _stale_base_repo(tmp_path, pr_adds_row=True, merged_rows=(*_NEW_MAIN, _OWN_ROW))
+    assert rows.check(tmp_path, "main", pr_number=2290) == []
+    problems = rows.check(tmp_path, "main", pr_number=2600)
+    assert [p for p in problems if rows._NEW_ROW in p] == [
+        "API_SPEC.md: 이 PR이 더한 변경 이력 행의 커밋 열이 #2290입니다 — "
+        "이 PR 번호 `#2600`를 적으세요(행은 그 PR 자신이 싣는다 · AGENTS §4.1). "
+        "날짜 2026-10-05 · 요약 앞부분 「pr」"
+    ]
+
+
+def test_리베이스_전_커밋과_섞여도_새_행은_머지_결과와_base만_본다(tmp_path):
+    """``--previous-head``로 읽는 옛 커밋의 행은 삭제 검사 몫이다. 새 행 번호는 merged-base만."""
+    before, _ = _rebase_conflict_repo(tmp_path, keep_own_row=True)
+    assert rows.check(tmp_path, "main", previous_head=before, pr_number=1582) == []
+    problems = rows.check(tmp_path, "main", previous_head=before, pr_number=1600)
+    assert [p for p in problems if rows._NEW_ROW in p] == [
+        "TEST_PLAN.md: 이 PR이 더한 변경 이력 행의 커밋 열이 #1582입니다 — "
+        "이 PR 번호 `#1600`를 적으세요(행은 그 PR 자신이 싣는다 · AGENTS §4.1). "
+        "날짜 2026-09-22 · 요약 앞부분 「pr」"
+    ]

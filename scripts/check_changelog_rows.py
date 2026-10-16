@@ -50,10 +50,31 @@
 직전 푸시의 head)를 주면 그 커밋까지 함께 읽는다. 받아 두지 않은 커밋이면 가져와 보고,
 그래도 없으면 경고만 남기고 넘어간다.
 
+## 새 행의 번호 (#2269)
+
+``--pr-number N``을 주면(CI는 ``github.event.pull_request.number``) **이 PR이 더한 행**의
+커밋 열이 이 PR 번호 ``#N``인지 함께 본다. 행은 그 PR 자신이 싣는다(`AGENTS §4.1`).
+
+이슈 번호를 적으면 안 되는 이유는 둘이다. ⑴ 커밋 열은 ``git log --grep``으로 그 변경을
+되짚는 자리인데, `main`의 커밋 제목에 남는 것은 **PR 번호**라(squash · `AGENTS §7`) 이슈
+번호로 찾으면 그 행을 실은 커밋이 나오지 않는다. ⑵ 이슈 하나에 PR이 여럿일 수 있어 이슈
+번호로는 어느 PR의 기록인지 가를 수 없다. `#2269` 첫 PR(`#2528`)이 이렇게 적힌 지난 행을
+고쳤고, 이 검사는 같은 행이 다시 쌓이지 않게 한다.
+
+「이 PR이 더한 행」은 **머지 결과에서 base보다 늘어난 키**다(``merged - base``). 위 2번처럼
+PR 커밋을 읽지 않는다 — `main`을 머지 커밋으로 끌어왔든 리베이스 전 커밋(``--previous-head``)이
+있든, base에 이미 있는 남의 행은 대상이 되지 않는다. 키가 참조 집합이라 꼬리(``⑵``)는
+상관없고, 커밋 해시나 참조 둘 이상은 위반이다(2026-07-23 이후 행은 PR 번호 하나). 아직
+채우지 않은 ``#___`` 행은 키에서 빠지므로 이 검사도 보지 않는다 — 남은 것은
+`test_doc_cross_refs.py`가 잡는다.
+
+대상은 변경 이력 표를 가진 문서 전부다 — 정본 8종에 ``README.md``·``docs/OPERATIONS.md``.
+
 ## 일부러 지울 때
 
 PR에 ``changelog-row-removal`` 라벨을 붙이고 CI를 다시 돌린다(`ci.yml`). 머지된 이력을
-지우는 일은 드물고, 그렇게 할 때는 **리뷰어가 보는 자리에** 흔적이 남아야 한다.
+지우는 일은 드물고, 그렇게 할 때는 **리뷰어가 보는 자리에** 흔적이 남아야 한다. 라벨을 붙이면
+스크립트 단계 전체가 꺼지므로 새 행 번호 검사도 함께 꺼진다.
 """
 
 from __future__ import annotations
@@ -65,7 +86,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-#: 변경 이력 표를 가진 정본 — `tests/test_doc_cross_refs.py`의 ``TARGETS``와 같다.
+#: 변경 이력 표를 가진 문서 — 정본 8종(`tests/test_doc_cross_refs.py`의 ``TARGETS``)에
+#: ``README.md``·``docs/OPERATIONS.md``를 더했다(#2269 결정 2).
 DOCS: tuple[str, ...] = (
     "UIFLOW.md",
     "DESIGN_SYSTEM.md",
@@ -75,10 +97,12 @@ DOCS: tuple[str, ...] = (
     "DB_SCHEMA.md",
     "TEST_PLAN.md",
     "AGENTS.md",
+    "README.md",
+    "docs/OPERATIONS.md",
 )
 
-#: ``| 2026-09-21 | `#1512` | …`` — 날짜와 커밋 열.
-_ROW = re.compile(r"^\|\s*(?P<date>\d{4}-\d{2}-\d{2})\s*\|(?P<commit>[^|]*)\|")
+#: ``| 2026-09-21 | `#1512` | …`` — 날짜와 커밋 열, 그 뒤가 요약이다.
+_ROW = re.compile(r"^\|\s*(?P<date>\d{4}-\d{2}-\d{2})\s*\|(?P<commit>[^|]*)\|(?P<summary>[^|]*)")
 #: 커밋 열이 가리킬 수 있는 것 — PR·이슈 번호 또는 커밋 해시.
 _REFERENCE = re.compile(r"#[0-9]+|`[0-9a-f]{7,40}`")
 #: ``#`` 뒤에 숫자가 오지 않는 자리 — 아직 채우지 않은 칸.
@@ -87,9 +111,13 @@ _PLACEHOLDER = re.compile(r"#(?![0-9])")
 Key = tuple[str, ...]
 
 
-def row_keys(text: str) -> Counter[Key]:
-    """문서의 변경 이력 행을 **커밋 열의 참조 집합** 키로 센다. 채우지 않은 행은 뺀다."""
-    keys: Counter[Key] = Counter()
+#: 위반 문구에 싣는 요약 앞부분의 길이 — 어느 행인지 알아볼 만큼만.
+_SUMMARY_HEAD = 30
+
+
+def row_entries(text: str) -> list[tuple[Key, str, str]]:
+    """변경 이력 행마다 (참조 집합 키, 날짜, 요약). 채우지 않은 행은 뺀다."""
+    entries: list[tuple[Key, str, str]] = []
     for line in text.splitlines():
         matched = _ROW.match(line)
         if not matched:
@@ -97,8 +125,31 @@ def row_keys(text: str) -> Counter[Key]:
         commit = matched.group("commit").strip()
         if _PLACEHOLDER.search(commit) or not _REFERENCE.search(commit):
             continue
-        keys[tuple(sorted(set(_REFERENCE.findall(commit))))] += 1
-    return keys
+        key = tuple(sorted(set(_REFERENCE.findall(commit))))
+        entries.append((key, matched.group("date"), matched.group("summary").strip()))
+    return entries
+
+
+def row_keys(text: str) -> Counter[Key]:
+    """문서의 변경 이력 행을 **커밋 열의 참조 집합** 키로 센다. 채우지 않은 행은 뺀다."""
+    return Counter(key for key, _, _ in row_entries(text))
+
+
+def misnumbered(
+    base: Counter[Key], merged: list[tuple[Key, str, str]], pr_number: int
+) -> list[tuple[Key, str, str]]:
+    """이 PR이 더한 행(``merged - base``) 가운데 커밋 열이 ``#pr_number`` 하나가 아닌 행 (#2269).
+
+    같은 키의 행이 여럿이면 더한 수만큼 **뒤에서부터** 고른다 — 새 행은 표 끝에 붙는다.
+    """
+    expected: Key = (f"#{pr_number}",)
+    added = Counter(key for key, _, _ in merged) - base
+    found: list[tuple[Key, str, str]] = []
+    for key, count in added.items():
+        if key == expected:
+            continue
+        found += [entry for entry in merged if entry[0] == key][-count:]
+    return found
 
 
 def overwritten(base: Counter[Key], merged: Counter[Key]) -> list[Key]:
@@ -181,8 +232,14 @@ def _previous_commits(root: Path, base: str, previous_head: str | None) -> list[
     return _git(root, "rev-list", f"{base}..{previous_head}").split()
 
 
-def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
-    """위반 목록. 비어 있으면 통과다."""
+#: 새 행 번호 위반 문구의 표지 — :func:`main`이 안내문을 고르는 데 쓴다.
+_NEW_ROW = "이 PR이 더한 변경 이력 행"
+
+
+def check(
+    root: Path, base: str, previous_head: str | None = None, pr_number: int | None = None
+) -> list[str]:
+    """위반 목록. 비어 있으면 통과다. ``pr_number``를 주면 새 행의 번호도 본다 (#2269)."""
     commits = _git(root, "rev-list", f"{base}..HEAD").split()
     commits += _previous_commits(root, base, previous_head)
     parents = {rev: _parents(root, rev) for rev in commits}
@@ -191,9 +248,19 @@ def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
         path = root / doc
         if not path.exists():
             continue
-        merged = row_keys(path.read_text(encoding="utf-8"))
-        for key in overwritten(row_keys(_show(root, base, doc)), merged):
+        merged_entries = row_entries(path.read_text(encoding="utf-8"))
+        merged = Counter(key for key, _, _ in merged_entries)
+        base_keys = row_keys(_show(root, base, doc))
+        for key in overwritten(base_keys, merged):
             problems.append(f"{doc}: base에 있던 행이 사라졌습니다 — {_label(key)}")
+        if pr_number is not None:
+            for key, date, summary in misnumbered(base_keys, merged_entries, pr_number):
+                problems.append(
+                    f"{doc}: {_NEW_ROW}의 커밋 열이 {_label(key)}입니다 — "
+                    f"이 PR 번호 `#{pr_number}`를 적으세요"
+                    "(행은 그 PR 자신이 싣는다 · AGENTS §4.1). "
+                    f"날짜 {date} · 요약 앞부분 「{summary[:_SUMMARY_HEAD]}」"
+                )
 
         seen: Counter[Key] = Counter()
         for rev in commits:
@@ -218,19 +285,33 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="직전 푸시의 head (CI의 github.event.before) — 리베이스 전 커밋도 읽는다",
     )
+    parser.add_argument(
+        "--pr-number",
+        type=int,
+        default=None,
+        help="이 PR의 번호 (CI의 github.event.pull_request.number) — "
+        "이 PR이 더한 행의 커밋 열이 이 번호인지 본다 (#2269)",
+    )
     args = parser.parse_args(argv)
 
-    problems = check(args.root, args.base, args.previous_head)
+    problems = check(args.root, args.base, args.previous_head, args.pr_number)
     for problem in problems:
         print(f"::error::{problem}")
-    if problems:
+    if any(_NEW_ROW not in problem for problem in problems):
         print(
             "변경 이력 행은 지우지 않습니다(`AGENTS §4.1`). 충돌 해결에서 빠졌다면 되살리고, "
             "PR 번호를 받기 전 임시값이었다면 숫자가 아닌 `#___`로 적으세요. "
             "일부러 지운 것이면 PR에 `changelog-row-removal` 라벨을 붙인 뒤 CI를 다시 돌리세요."
         )
+    if any(_NEW_ROW in problem for problem in problems):
+        print(
+            "새 변경 이력 행의 커밋 열에는 이슈 번호가 아니라 그 행을 싣는 이 PR의 번호를 "
+            "적습니다(`AGENTS §4.1`). 이슈 번호는 요약 끝의 괄호에 둡니다."
+        )
+    if problems:
         return 1
-    print(f"변경 이력 행 {len(DOCS)}개 문서 확인 — 사라진 행 없음")
+    tail = f" · 새 행은 모두 `#{args.pr_number}`" if args.pr_number is not None else ""
+    print(f"변경 이력 행 {len(DOCS)}개 문서 확인 — 사라진 행 없음{tail}")
     return 0
 
 
