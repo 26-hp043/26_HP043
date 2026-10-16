@@ -119,6 +119,8 @@ async def test_the_response_keys_are_exactly_what_the_contract_lists(migrated_db
         "tool_calls",
         "discarded",
         "vessel_resolved",
+        # #2405 — 저장된 답의 번호(별 달기 대상). 폐기면 null이지만 키는 늘 있다.
+        "message_id",
     }
     _use(FakeProvider([LLMResponse(text="등급은 화면에서 확인하실 수 있습니다.")]))
     try:
@@ -153,7 +155,10 @@ async def test_a_discarded_turn_carries_the_same_keys(migrated_db, app_fresh_eng
                 "tool_calls",
                 "discarded",
                 "vessel_resolved",
+                "message_id",
             }
+            # #2405 — 버린 답은 저장되지 않아 번호가 없다.
+            assert data["message_id"] is None
     finally:
         await _cleanup()
 
@@ -1497,7 +1502,7 @@ async def test_a_conversation_is_restored_as_the_screen_drew_it(migrated_db, app
             assert data["session_id"] == session_id
             assert data["disclaimer"] == DISCLAIMER
 
-            entry_keys = {"role", "content", "discarded", "tool_calls"}
+            entry_keys = {"role", "content", "discarded", "tool_calls", "message_id"}
             assert all(set(entry) == entry_keys for entry in data["messages"]), data["messages"]
             assert [
                 (m["role"], m["content"], m["discarded"], m["tool_calls"]) for m in data["messages"]

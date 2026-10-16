@@ -1,4 +1,4 @@
-import { ArrowUp, X } from 'lucide-react'
+import { ArrowUp, Star, X } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
@@ -6,12 +6,13 @@ import { currentScreenResult } from './screenResult'
 import { forgetSession, recallSession, rememberSession } from './sessionMemory'
 import { CITE_LABEL, citeLabels } from './toolLabels'
 import { needsVesselNote } from './vesselNote'
-import type { AssistantProvider, ChatTurn } from './types'
+import type { AssistantProvider, ChatFavorite, ChatTurn } from './types'
 import { avatarMood, turnMood, type AvatarMood } from './avatarMood'
 import { stripMarkdown } from './plainText'
 import { closeIntroHint, dismissIntroHint, shouldShowIntroHint } from './introHint'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
+import { NO_TIMESTAMP_TEXT, formatTimestamp } from '../../display/format'
 
 /**
  * AI 어시스턴트 오버레이 (`UIFLOW 2-7` · `#121`).
@@ -238,6 +239,48 @@ const DISCARDED_PREFIX = '답을 드리지 못했습니다 — '
  */
 const VESSEL_UNRESOLVED_NOTE = '선박을 먼저 골라 주세요 — 계산은 선택한 선박으로 돕니다. '
 
+/*
+ * #2405 — 즐겨찾기. 별 버튼 · 목록 버튼의 자리와 모양, 열람 중 강조는 **개발 임시안**이다
+ * (`UIFLOW 2-7` 주요 UI 각주와 같은 처지 — 디자인 검토 대상).
+ *
+ * 별 버튼의 이름은 **고정**이고 상태는 `aria-pressed`가 말한다. 이름과 상태를 함께 바꾸면
+ * 낭독이 한 번 누를 때 두 번 바뀐다(#2323).
+ */
+const FAVORITE_LABEL = '즐겨찾기'
+const FAVORITES_OPEN_LABEL = '즐겨찾기 목록'
+const FAVORITES_TITLE = '즐겨찾기한 답'
+const FAVORITES_LOADING = '즐겨찾기를 불러오고 있습니다…'
+const FAVORITES_EMPTY = '아직 즐겨찾기한 답이 없습니다. 답 옆의 별을 누르면 여기에 모입니다.'
+/*
+ * 목록 조회 실패 — 대화 화면에도 한 줄로 알린다. 별이 사라진 이유를 화면이 말하지 않으면
+ * 사용자는 「즐겨찾기가 지워졌다」로 읽는다. 다시 시도는 목록을 다시 받는다.
+ */
+const FAVORITES_LOAD_FAILED = '즐겨찾기를 불러오지 못했습니다.'
+const FAVORITES_RETRY = '다시 시도'
+/** 목록에서 연 대화가 서버에 없다(404) — 만료로 지워졌거나 다른 탭에서 지웠다. */
+const FAVORITES_GONE = '그 대화는 이미 지워져 열 수 없습니다.'
+const FAVORITE_RECEIVED = '받은 날'
+const FAVORITE_EXPIRES = '지워지는 날'
+const VIEWING_LOADING = '대화를 불러오고 있습니다…'
+/*
+ * 열람 중임을 글자로 말한다 — 입력칸이 사라진 이유를 화면이 말하지 않으면 고장으로 읽힌다.
+ * 열람은 탭이 기억한 대화를 바꾸지 않는다(`sessionMemory.ts`) — 돌아가면 하던 대화가 그대로다.
+ */
+const VIEWING_NOTE = '즐겨찾기한 답이 있는 대화를 보고 있습니다. 여기서는 질문을 보낼 수 없습니다.'
+const VIEWING_TARGET_TAG = '즐겨찾기한 답'
+const BACK_LABEL = '지금 대화로 돌아가기'
+
+/** 패널 본문이 무엇을 그리는가 (#2405). 목록과 열람은 패널 **안**에서 바뀐다 — 오버레이를 떠나지 않는다. */
+type PanelView = 'chat' | 'favorites' | 'viewing'
+
+/** 목록에서 연 대화 (#2405). 이 탭의 대화(`turns` · `sessionId`)와 **따로** 둔다. */
+interface Viewing {
+  readonly turns: readonly ChatTurn[]
+  readonly disclaimer: string
+  /** 목록에서 누른 답 — 이 답으로 옮겨 가 강조한다. */
+  readonly targetId: string
+}
+
 let turnSeq = 0
 function nextId(): string {
   turnSeq += 1
@@ -309,12 +352,39 @@ export function AssistantOverlay({
   /** 한 번이라도 열렸는지. 첫 렌더에서 초점을 빼앗지 않기 위한 표시다. */
   const openedOnceRef = useRef(false)
   const panelId = useId()
+  /** #2405 — 패널 본문이 대화 · 즐겨찾기 목록 · 열람 가운데 무엇인가. */
+  const [view, setView] = useState<PanelView>('chat')
+  /** 별 단 답의 번호. `null`이면 **아직 모른다** — 모르는 동안은 별을 그리지 않는다(빈 별은 「없다」로 읽힌다). */
+  const [favoriteIds, setFavoriteIds] = useState<ReadonlySet<string> | null>(null)
+  /** 목록. `null`이면 불러오는 중이거나 실패했다(`favoritesError`). */
+  const [favoriteList, setFavoriteList] = useState<readonly ChatFavorite[] | null>(null)
+  const [favoritesError, setFavoritesError] = useState<string | null>(null)
+  /** 목록 위의 안내 — 연 대화가 서버에 없었을 때. */
+  const [favoritesNotice, setFavoritesNotice] = useState<string | null>(null)
+  /** 별 달기·떼기 실패. */
+  const [favoriteError, setFavoriteError] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<Viewing | null>(null)
+  /** 같은 답의 별을 두 번 눌러 요청이 엇갈리지 않게 한다. */
+  const favoriteBusyRef = useRef(new Set<string>())
+  /** 가장 나중에 보낸 목록 조회 · 열람 조회만 화면에 옮긴다(`statusSeq`와 같은 이유). */
+  const favoritesSeqRef = useRef(0)
+  const viewSeqRef = useRef(0)
+  /** 열람 중 강조할 답의 줄. 도착하면 그리로 옮기고 초점을 준다. */
+  const viewTargetRef = useRef<HTMLDivElement | null>(null)
+  const prevViewRef = useRef<PanelView>('chat')
 
   /*
    * 렌더마다 새로 만들면 아래 상태 조회 효과가 렌더마다 다시 돈다(#1535) — provider가
    * 바뀔 때만 만든다.
    */
   const client = useMemo(() => provider ?? createApiAssistantProvider(), [provider])
+  /*
+   * #2405 — 둘러보기 계정은 즐겨찾기를 쓰지 않는다(서버가 쓰기를 막는다). provider가 넷 중
+   * 하나라도 갖지 않으면 그리지 않는다 — 별만 있고 목록이 없거나, 목록은 있는데 열 수 없는
+   * 반쪽 기능을 만들지 않는다.
+   */
+  const canFavorite =
+    !tour && Boolean(client.favorites && client.favorite && client.unfavorite && client.history)
 
   /*
    * 상태 조회의 답을 화면에 옮기는 **한 자리**다. 조회는 세 곳(들어올 때 · 열 때 · 숨긴 동안의
@@ -425,9 +495,158 @@ export function AssistantOverlay({
     )
   }, [client, tour])
 
+  const loadFavorites = useCallback(() => {
+    /*
+     * #2405 — 별을 칠할 번호 집합과 목록을 함께 받는다. 메시지 응답에는 별 상태가 없다(서버
+     * 계약 — 메시지 키는 다섯으로 고정) — 이 목록이 별의 유일한 출처다. 실패하면 별을 그리지
+     * 않는다 — 모르는 것을 빈 별로 그리면 「별이 없다」로 읽힌다.
+     */
+    if (!canFavorite || !client.favorites) return
+    const seq = ++favoritesSeqRef.current
+    setFavoriteList(null)
+    setFavoritesError(null)
+    client.favorites().then(
+      (list) => {
+        if (seq !== favoritesSeqRef.current) return
+        setFavoriteList(list)
+        setFavoriteIds(new Set(list.map((item) => item.messageId)))
+      },
+      (error: unknown) => {
+        if (seq !== favoritesSeqRef.current) return
+        setFavoritesError(error instanceof Error ? error.message : FAVORITES_LOAD_FAILED)
+      },
+    )
+  }, [canFavorite, client])
+
+  const toggleFavorite = useCallback(
+    async (messageId: string) => {
+      if (!client.favorite || !client.unfavorite || favoriteIds === null) return
+      if (favoriteBusyRef.current.has(messageId)) return
+      favoriteBusyRef.current.add(messageId)
+      const on = favoriteIds.has(messageId)
+      setFavoriteError(null)
+      try {
+        if (on) await client.unfavorite(messageId)
+        else await client.favorite(messageId)
+        setFavoriteIds((prev) => {
+          if (prev === null) return prev
+          const next = new Set(prev)
+          if (on) next.delete(messageId)
+          else next.add(messageId)
+          return next
+        })
+      } catch (error) {
+        if (error instanceof AssistantError && error.messageGone) {
+          /*
+           * 답이 서버에 없다(404) — 만료됐거나 다른 탭에서 대화를 지웠다. 별 집합·목록을 다시
+           * 받는다. 열람 중이면 그 대화가 통째로 사라진 것이라 「대화가 없다」와 같은 흐름으로
+           * 목록에 돌아가 알린다.
+           */
+          loadFavorites()
+          if (view === 'viewing') {
+            viewSeqRef.current += 1
+            setViewing(null)
+            setView('favorites')
+            setFavoritesNotice(FAVORITES_GONE)
+            return
+          }
+        }
+        setFavoriteError(error instanceof Error ? error.message : '즐겨찾기를 바꾸지 못했습니다.')
+      } finally {
+        favoriteBusyRef.current.delete(messageId)
+      }
+    },
+    [client, favoriteIds, loadFavorites, view],
+  )
+
+  const openFavorites = useCallback(() => {
+    viewSeqRef.current += 1
+    setViewing(null)
+    setFavoritesNotice(null)
+    setFavoriteError(null)
+    setView('favorites')
+    loadFavorites()
+  }, [loadFavorites])
+
+  const openViewing = useCallback(
+    (favorite: ChatFavorite) => {
+      /*
+       * #2405 — 목록에서 누른 대화를 **열람 전용**으로 연다. 탭이 기억한 대화 번호
+       * (`rememberSession`)도, 이 탭의 대화(`turns` · `sessionId`)도 건드리지 않는다 —
+       * 돌아가면 하던 대화가 그대로 있어야 한다(2026-10-16 결정).
+       */
+      if (!client.history) return
+      const seq = ++viewSeqRef.current
+      setFavoritesNotice(null)
+      setFavoriteError(null)
+      setViewing(null)
+      setView('viewing')
+      client.history(favorite.sessionId).then(
+        (history) => {
+          if (seq !== viewSeqRef.current) return
+          if (history === null) {
+            // 만료·삭제 — 목록으로 돌아가 알리고, 지워진 줄이 빠진 목록을 다시 받는다.
+            setView('favorites')
+            setFavoritesNotice(FAVORITES_GONE)
+            loadFavorites()
+            return
+          }
+          setViewing({
+            turns: history.turns.map((turn) => ({ ...turn, id: nextId() })),
+            disclaimer: history.disclaimer,
+            targetId: favorite.messageId,
+          })
+        },
+        (error: unknown) => {
+          if (seq !== viewSeqRef.current) return
+          setView('favorites')
+          setFavoritesNotice(error instanceof Error ? error.message : '대화를 불러오지 못했습니다.')
+        },
+      )
+    },
+    [client, loadFavorites],
+  )
+
+  const backToChat = useCallback(() => {
+    viewSeqRef.current += 1
+    setViewing(null)
+    setFavoritesNotice(null)
+    setFavoriteError(null)
+    setView('chat')
+  }, [])
+
   useEffect(() => {
     onOpenChange?.(open)
   }, [open, onOpenChange])
+
+  useEffect(() => {
+    /*
+     * #2405 — 본문이 바뀌면 초점을 잃지 않게 한다. 대화로 돌아오면 입력칸이(닫혀 있으면
+     * 패널이) 받는다. 목록·열람으로 갈 때는 누른 줄이 사라져 초점이 `body`로 떨어지는 경우만
+     * 패널이 받는다 — 떨어지면 패널의 Escape가 닿지 않는다(#2128과 같은 이유).
+     */
+    if (prevViewRef.current === view) return
+    prevViewRef.current = view
+    if (view === 'chat') {
+      ;(stopped ? panelRef.current : inputRef.current)?.focus()
+      return
+    }
+    const active = document.activeElement
+    if (active === null || active === document.body) panelRef.current?.focus()
+  }, [view, stopped])
+
+  useEffect(() => {
+    /*
+     * #2405 — 열람한 대화가 도착하면 즐겨찾기한 답으로 옮기고 초점을 준다(낭독이 그 답에서 시작한다).
+     * 초점은 **패널 안에 있거나 떨어졌을 때만** 옮긴다 — 기다리는 동안 본문으로 나간 사람의
+     * 자리를 빼앗지 않는다(#2128과 같은 규칙). 스크롤은 늘 한다.
+     */
+    const target = viewTargetRef.current
+    if (!viewing || !target) return
+    target.scrollIntoView?.({ block: 'center' })
+    const active = document.activeElement
+    if (active === null || active === document.body || panelRef.current?.contains(active)) target.focus()
+  }, [viewing])
 
   useEffect(() => {
     if (open) {
@@ -474,9 +693,12 @@ export function AssistantOverlay({
 
   useEffect(() => {
     // 새 말풍선이 생기면 아래로 붙인다 — 사용자가 스크롤을 찾아 내려가지 않게.
+    // #2405 — 열람 중에는 건너뛴다(즐겨찾기한 답으로 옮겨 간 자리를 빼앗지 않는다). 대화로
+    // 돌아오면 다시 맨 아래다.
+    if (view !== 'chat') return
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
-  }, [turns, pending])
+  }, [turns, pending, view])
 
   const send = useCallback(async () => {
     const message = draft.trim()
@@ -508,6 +730,8 @@ export function AssistantOverlay({
           // #1818 — 버린 답에는 싣지 않는다. 답이 아닌 것에 근거를 달면 답으로 읽힌다.
           toolCalls: answer.discarded ? undefined : answer.toolCalls,
           vesselUnresolved: needsVesselNote(answer),
+          // #2405 — 별이 이 번호로 간다. 버린 답에는 싣지 않는다(답이 아닌 것에 별을 달 수 없다).
+          messageId: answer.discarded ? undefined : answer.messageId,
         },
       ])
     } catch (error) {
@@ -632,6 +856,9 @@ export function AssistantOverlay({
             setIntroHint(false)
             setOpen(true)
             restore()
+            // #2405 — 열 때마다 대화 화면으로 시작하고, 별을 칠할 번호를 새로 받는다.
+            backToChat()
+            loadFavorites()
           }}
         >
           {/* 장식 — 버튼의 이름은 위 `aria-label`이 갖는다. */}
@@ -680,6 +907,115 @@ export function AssistantOverlay({
         ))}
       </div>
   )
+
+  /** 말풍선 한 개. `target`은 열람 중 즐겨찾기한 답이다 (#2405). */
+  const renderTurn = (turn: ChatTurn, target: boolean) => {
+    const cites = citeLabels(turn.toolCalls)
+    const bubble = (
+      <p
+        className={[
+          'assistant__turn',
+          `assistant__turn--${turn.role}`,
+          turn.discarded || turn.failed ? 'assistant__turn--discarded' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {/*
+          #1818 — 접두에 **굵기**를 준다. 「답을 드리지 못했습니다」가 그 말풍선에서
+          가장 알려야 할 문장인데 가장 약한 회색이었다. `§8.5`가 *「색 이름을 이 절에
+          적지 않는다 … Figma가 소유한다」*고 적었으므로 **색은 건드리지 않는다** —
+          굵기는 `§14`가 요구하는 색 밖 채널이기도 하다.
+        */}
+        {turn.discarded ? <strong className="assistant__prefix">{DISCARDED_PREFIX}</strong> : null}
+        {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
+        {/*
+          #2064 — 모델 답에 샌 마크다운 기호를 **그리기 직전에** 걷는다.
+          사용자가 친 글자는 그대로 둔다 — 사용자가 별표를 쳤다면 그것은
+          서식이 아니라 그가 친 글자다. 저장된 원문(감사 기록)도 그대로다.
+        */}
+        {turn.role === 'assistant' ? stripMarkdown(turn.text) : turn.text}
+      </p>
+    )
+    /*
+      #1818 — 이 답의 값을 낸 도구를 적는다. 서버가 `tool_calls`로 보내 주고
+      provider가 파싱해 두었는데 화면이 읽지 않고 있었다(`#1783`의 `search`와
+      같은 자리). 버린 답·실패에는 붙지 않는다 — 위 `send()`에서 싣지 않는다.
+    */
+    const cite =
+      cites.length > 0 ? (
+        <p className="assistant__cite">
+          <span className="assistant__cite-label">{CITE_LABEL}</span> {cites.join(' · ')}
+        </p>
+      ) : null
+
+    /*
+      사용자 턴에는 아바타를 붙이지 않는다 (`#2009`) — 말하는 쪽이 누구인지는
+      좌우 정렬과 면 색이 이미 말하고, 양쪽에 얼굴을 두면 누구의 얼굴인지가
+      오히려 흐려진다.
+    */
+    if (turn.role !== 'assistant') {
+      return (
+        <Fragment key={turn.id}>
+          {bubble}
+          {cite}
+        </Fragment>
+      )
+    }
+
+    /*
+      #2405 — 별은 **저장된 답에만** 단다. 버린 답 · 호출 실패는 답이 아니고, 번호가 없는 답은
+      서버가 저장하지 않은 것이다. 별 상태를 아직 모르면(`favoriteIds === null`) 그리지 않는다.
+
+      별 자리(`aria-live="off"`)는 상태를 알기 전부터 둔다 — 로그는 `aria-live="polite"`라,
+      목록이 나중에 도착해 버튼이 끼어들면 답마다 「즐겨찾기 버튼」이 낭독된다. 이 자리 안의
+      변화는 알리지 않고, 말풍선 글자는 자리 밖이라 그대로 낭독된다.
+    */
+    const messageId = turn.messageId
+    const starSlot = canFavorite && messageId && !turn.discarded && !turn.failed
+    const star =
+      starSlot && favoriteIds !== null ? (
+        <button
+          type="button"
+          className="assistant__star"
+          aria-label={FAVORITE_LABEL}
+          aria-pressed={favoriteIds.has(messageId)}
+          onClick={() => {
+            void toggleFavorite(messageId)
+          }}
+        >
+          <Icon glyph={Star} size="inline" />
+        </button>
+      ) : null
+
+    return (
+      <div
+        className={target ? 'assistant__turn-row assistant__turn-row--target' : 'assistant__turn-row'}
+        key={turn.id}
+        ref={target ? viewTargetRef : undefined}
+        // 열람 대상은 프로그램적 초점 대상이다 — 도착하면 낭독이 이 답에서 시작한다.
+        tabIndex={target ? -1 : undefined}
+      >
+        <img
+          className="assistant__avatar"
+          src={TURN_FACE[turnMood(turn)]}
+          alt=""
+          aria-hidden="true"
+        />
+        <div className="assistant__turn-body">
+          {/* 강조는 색만으로 말하지 않는다(`§14`) — 글자 표식과 두꺼운 테두리를 함께 쓴다. */}
+          {target ? <p className="assistant__target-tag">{VIEWING_TARGET_TAG}</p> : null}
+          {bubble}
+          {cite}
+        </div>
+        {starSlot ? (
+          <span className="assistant__star-slot" aria-live="off">
+            {star}
+          </span>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <section
@@ -732,7 +1068,22 @@ export function AssistantOverlay({
           </p>
         </div>
         <span className="assistant__actions">
-          {sessionId && client.forget ? (
+          {canFavorite ? (
+            <button
+              type="button"
+              className="assistant__favorites-toggle"
+              /*
+               * 눌림은 **목록 화면일 때만**이다. 열람 중에 누르면 목록으로 돌아간다 — 대화로
+               * 돌아가는 길은 아래 「지금 대화로 돌아가기」가 따로 갖는다.
+               */
+              aria-pressed={view === 'favorites'}
+              onClick={() => (view === 'favorites' ? backToChat() : openFavorites())}
+            >
+              {FAVORITES_OPEN_LABEL}
+            </button>
+          ) : null}
+          {/* #2405 — 열람·목록 중에는 숨긴다. 지워지는 것은 보고 있는 대화가 아니라 이 탭의 대화다. */}
+          {view === 'chat' && sessionId && client.forget ? (
             <button
               type="button"
               className="assistant__clear"
@@ -761,6 +1112,68 @@ export function AssistantOverlay({
         제자리에 남는다. 대화가 시작되면 로그가 이 높이를 다 받아 종전처럼 로그가 스크롤된다.
       */}
       <div className="assistant__body">
+      {favoriteError ? (
+        <p className="assistant__notice" role="alert">
+          {favoriteError}
+        </p>
+      ) : null}
+      {view === 'favorites' ? (
+        <div className="assistant__favorites" aria-live="polite">
+          <h3 className="assistant__favorites-title">{FAVORITES_TITLE}</h3>
+          {favoritesNotice ? <p className="assistant__notice">{favoritesNotice}</p> : null}
+          {favoritesError ? (
+            <p className="assistant__notice">{favoritesError}</p>
+          ) : favoriteList === null ? (
+            <p className="assistant__empty">{FAVORITES_LOADING}</p>
+          ) : favoriteList.length === 0 ? (
+            <p className="assistant__empty">{FAVORITES_EMPTY}</p>
+          ) : (
+            <ul className="assistant__favorites-list" role="list">
+              {favoriteList.map((item) => (
+                <li key={item.messageId}>
+                  <button
+                    type="button"
+                    className="assistant__favorite-row"
+                    onClick={() => openViewing(item)}
+                  >
+                    {/* 「질문 — 답」 한 덩어리. 길면 CSS가 두 줄에서 말줄임한다. */}
+                    <span className="assistant__favorite-text">
+                      {item.question ? (
+                        <strong className="assistant__favorite-question">{item.question} — </strong>
+                      ) : null}
+                      {stripMarkdown(item.answer)}
+                    </span>
+                    <span className="assistant__favorite-meta">
+                      {FAVORITE_RECEIVED} {formatTimestamp(item.answeredAt) ?? NO_TIMESTAMP_TEXT} ·{' '}
+                      {FAVORITE_EXPIRES} {formatTimestamp(item.expiresAt) ?? NO_TIMESTAMP_TEXT}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : view === 'viewing' ? (
+        <>
+          <p className="assistant__notice">{VIEWING_NOTE}</p>
+          {/*
+            열람 로그는 알리지 않는다(`role="log"`의 암시적 polite를 끈다) — 대화가 통째로 도착하므로
+            알리면 전부 낭독된다. 낭독은 즐겨찾기한 답으로 옮겨 가는 초점이 맡는다.
+          */}
+          <div className="assistant__log" role="log" aria-live="off" aria-label={FAVORITES_TITLE}>
+            {viewing === null ? (
+              <p className="assistant__turn assistant__turn--pending" role="status">
+                {VIEWING_LOADING}
+              </p>
+            ) : (
+              viewing.turns.map((turn) =>
+                renderTurn(turn, turn.messageId !== undefined && turn.messageId === viewing.targetId),
+              )
+            )}
+          </div>
+        </>
+      ) : (
+      <>
       {/*
         #1818 — 안내문도 예시 질문처럼 **대화를 시작하면 걷는다.** 「무엇을 물어볼 수
         있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그 말이 쓰일 때다.
@@ -784,6 +1197,16 @@ export function AssistantOverlay({
             <p>{INTRO}</p>
           </details>
         </div>
+      ) : null}
+
+      {/* #2405 — 목록 조회가 실패하면 별을 그리지 않는다. 왜 없는지를 여기서 말한다. */}
+      {canFavorite && favoritesError ? (
+        <p className="assistant__notice" role="status">
+          {FAVORITES_LOAD_FAILED}{' '}
+          <button type="button" className="assistant__retry" onClick={loadFavorites}>
+            {FAVORITES_RETRY}
+          </button>
+        </p>
       ) : null}
 
       {tour ? (
@@ -813,75 +1236,7 @@ export function AssistantOverlay({
         {turns.length === 0 && !pending && !restoring ? (
           <p className="assistant__empty">{EMPTY_LOG}</p>
         ) : null}
-        {turns.map((turn) => {
-          const cites = citeLabels(turn.toolCalls)
-          const bubble = (
-              <p
-                className={[
-                  'assistant__turn',
-                  `assistant__turn--${turn.role}`,
-                  turn.discarded || turn.failed ? 'assistant__turn--discarded' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {/*
-                  #1818 — 접두에 **굵기**를 준다. 「답을 드리지 못했습니다」가 그 말풍선에서
-                  가장 알려야 할 문장인데 가장 약한 회색이었다. `§8.5`가 *「색 이름을 이 절에
-                  적지 않는다 … Figma가 소유한다」*고 적었으므로 **색은 건드리지 않는다** —
-                  굵기는 `§14`가 요구하는 색 밖 채널이기도 하다.
-                */}
-                {turn.discarded ? <strong className="assistant__prefix">{DISCARDED_PREFIX}</strong> : null}
-                {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
-                {/*
-                  #2064 — 모델 답에 샌 마크다운 기호를 **그리기 직전에** 걷는다.
-                  사용자가 친 글자는 그대로 둔다 — 사용자가 별표를 쳤다면 그것은
-                  서식이 아니라 그가 친 글자다. 저장된 원문(감사 기록)도 그대로다.
-                */}
-                {turn.role === 'assistant' ? stripMarkdown(turn.text) : turn.text}
-              </p>
-          )
-          {/*
-            #1818 — 이 답의 값을 낸 도구를 적는다. 서버가 `tool_calls`로 보내 주고
-            provider가 파싱해 두었는데 화면이 읽지 않고 있었다(`#1783`의 `search`와
-            같은 자리). 버린 답·실패에는 붙지 않는다 — 위 `send()`에서 싣지 않는다.
-          */}
-          const cite =
-            cites.length > 0 ? (
-              <p className="assistant__cite">
-                <span className="assistant__cite-label">{CITE_LABEL}</span> {cites.join(' · ')}
-              </p>
-            ) : null
-
-          /*
-            사용자 턴에는 아바타를 붙이지 않는다 (`#2009`) — 말하는 쪽이 누구인지는
-            좌우 정렬과 면 색이 이미 말하고, 양쪽에 얼굴을 두면 누구의 얼굴인지가
-            오히려 흐려진다.
-          */
-          if (turn.role !== 'assistant') {
-            return (
-              <Fragment key={turn.id}>
-                {bubble}
-                {cite}
-              </Fragment>
-            )
-          }
-
-          return (
-            <div className="assistant__turn-row" key={turn.id}>
-              <img
-                className="assistant__avatar"
-                src={TURN_FACE[turnMood(turn)]}
-                alt=""
-                aria-hidden="true"
-              />
-              <div className="assistant__turn-body">
-                {bubble}
-                {cite}
-              </div>
-            </div>
-          )
-        })}
+        {turns.map((turn) => renderTurn(turn, false))}
         {pending ? (
           <p className="assistant__turn assistant__turn--pending">{PENDING_TEXT}</p>
         ) : null}
@@ -898,14 +1253,28 @@ export function AssistantOverlay({
           {exampleGroups(false)}
         </details>
       ) : null}
+      </>
+      )}
       </div>
 
       {/*
         면책은 **답이 있을 때만** 보인다. 대화가 비어 있을 때 띄우면 무엇에 대한
         면책인지가 없다.
       */}
-      {disclaimer ? <p className="assistant__disclaimer">{disclaimer}</p> : null}
+      {view === 'chat' && disclaimer ? <p className="assistant__disclaimer">{disclaimer}</p> : null}
+      {view === 'viewing' && viewing ? <p className="assistant__disclaimer">{viewing.disclaimer}</p> : null}
 
+      {/*
+        #2405 — 목록·열람 중에는 입력 대신 돌아가는 버튼이다. 열람한 대화에 이어 묻게 하면
+        탭이 기억한 대화가 바뀌어야 하는데, 결정은 「바꾸지 않는다」다.
+      */}
+      {view !== 'chat' ? (
+        <div className="assistant__back-row">
+          <button type="button" className="assistant__back" onClick={backToChat}>
+            {BACK_LABEL}
+          </button>
+        </div>
+      ) : (
       <form
         className="assistant__form"
         onSubmit={(event) => {
@@ -958,6 +1327,7 @@ export function AssistantOverlay({
           <Icon glyph={ArrowUp} size="inline" />
         </button>
       </form>
+      )}
     </section>
   )
 }

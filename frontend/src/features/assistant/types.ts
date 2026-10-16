@@ -2,8 +2,14 @@
 
 /** 화면에 보이는 말풍선 하나. */
 export interface ChatTurn {
-  /** 화면이 목록 key로 쓴다. 서버 id가 아니다 — 서버는 메시지 id를 응답에 싣지 않는다. */
+  /** 화면이 목록 key로 쓴다. 서버 번호가 아니다 — 서버 번호는 아래 `messageId`다. */
   readonly id: string
+  /**
+   * 서버에 저장된 답 행의 번호 (#2405 — `POST /chat`·`GET /chat/sessions/{id}/messages`의
+   * `message_id`). 즐겨찾기(별)가 이 번호로 간다. 저장된 답에만 있다 — 사용자 턴 · 버린 답 ·
+   * 호출 실패에는 없고, 그런 말풍선에는 별을 그리지 않는다.
+   */
+  readonly messageId?: string
   readonly role: 'user' | 'assistant'
   readonly text: string
   /**
@@ -54,6 +60,24 @@ export interface ChatAnswer {
    * 선박 없이는 못 돌았다는 뜻이다.
    */
   readonly vesselResolved?: boolean
+  /** #2405 — 저장된 답 행의 번호. 버린 답처럼 저장되지 않았으면 없다(서버 `null`). */
+  readonly messageId?: string
+}
+
+/**
+ * 즐겨찾기한 답 하나 — `GET /chat/favorites` 항목 (#2405).
+ *
+ * `question`은 그 답 바로 앞의 질문이다. 서버에 없으면 `null`이다.
+ * `expiresAt`은 대화가 지워지는 날이다 — 별은 대화와 함께 지워진다(90일).
+ */
+export interface ChatFavorite {
+  readonly sessionId: string
+  readonly messageId: string
+  readonly question: string | null
+  readonly answer: string
+  readonly answeredAt: string
+  readonly expiresAt: string
+  readonly favoritedAt: string
 }
 
 /**
@@ -95,4 +119,16 @@ export interface AssistantProvider {
    * 이미 없는 대화(404)도 **성공으로 본다** — 지우려던 것이 없는 상태가 곧 원하던 상태다.
    */
   forget?(sessionId: string): Promise<void>
+  /**
+   * 내 즐겨찾기 목록 — `GET /chat/favorites` (#2405). 최근에 단 것이 앞이다. 선택 항목이다 —
+   * 없으면 오버레이는 별·목록 버튼도 그리지 않는다. 실패는 던진다.
+   */
+  favorites?(): Promise<readonly ChatFavorite[]>
+  /** 별 달기 — `PUT /chat/messages/{id}/favorite` (#2405). 이미 달려 있어도 성공이다. */
+  favorite?(messageId: string): Promise<void>
+  /**
+   * 별 떼기 — `DELETE /chat/messages/{id}/favorite` (#2405). 별이 없어도 성공이다.
+   * 404(답이 이미 지워졌다)도 성공으로 본다 — 떼려던 별이 이미 없다(`forget`과 같은 이유).
+   */
+  unfavorite?(messageId: string): Promise<void>
 }

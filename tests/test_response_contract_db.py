@@ -1932,6 +1932,20 @@ ROUTE_COVERAGE: dict[str, str] = {
     "GET /chat/sessions/{}/messages": (
         "tests/test_chat_api_db.py::test_a_conversation_is_restored_as_the_screen_drew_it"
     ),
+    # `API_SPEC §15.9` (#2405) — 목록은 **그 사용자가 단 별**이라 데모 시드로는 볼 수 없다.
+    # 그 파일이 자기 대화를 심고 항목 일곱 키·순서·만료 제외·질문 짝을 단언한다.
+    "GET /chat/favorites": (
+        "tests/test_chat_favorites_db.py::"
+        "test_the_list_is_recent_first_mine_only_and_pairs_the_question"
+    ),
+    # 달기는 `data` 두 키와 멱등(같은 시각)을, 떼기는 **204(본문 없음)**라 비교할 계약이 없어
+    # 204·멱등·행의 값이 실제로 비었는지를 본다.
+    "PUT /chat/messages/{}/favorite": (
+        "tests/test_chat_favorites_db.py::test_star_and_unstar_are_idempotent"
+    ),
+    "DELETE /chat/messages/{}/favorite": (
+        "tests/test_chat_favorites_db.py::test_star_and_unstar_are_idempotent"
+    ),
     # 조회 계약과 같은 모양 — 새 계약을 쓰지 않고 조회 계약과 대조한다
     "POST /vessels": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
     "PATCH /vessels/{}": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",

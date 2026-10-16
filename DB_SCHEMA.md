@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-15 |
+| 최종 수정일 | 2026-10-16 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -1355,7 +1355,7 @@ CREATE INDEX idx_chat_session_user    ON chat_session (user_id, created_at DESC)
 
 ---
 
-### 2.24 `chat_message` — 챗봇 메시지 (#120 · #1080)
+### 2.24 `chat_message` — 챗봇 메시지 (#120 · #1080 · #2405)
 
 세션 안의 **메시지 한 건**(`PRD §7.9`). `role`은 `USER`·`ASSISTANT` 둘뿐이다.
 
@@ -1366,6 +1366,7 @@ CREATE INDEX idx_chat_session_user    ON chat_session (user_id, created_at DESC)
 | `role` | VARCHAR(10) | NOT NULL, CHECK `IN ('USER','ASSISTANT')` | |
 | `content` | TEXT | NOT NULL | **본문을 담는다** — 정본이 *"메시지 본문(인용값 포함)"*으로 정했다. 해시만 남기는 것은 도구 호출의 인자이고 그쪽은 감사 로그 소관이다 |
 | `sent_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+| `favorited_at` | TIMESTAMPTZ | NULL | **즐겨찾기 별을 단 시각** (`#2405` · `070`). NULL이면 별이 없다. 답(`ASSISTANT`) 행에만 서고 질문 행에는 서지 않는다(`API_SPEC §15.9`) |
 
 ```sql
 CREATE TABLE chat_message (
@@ -1374,12 +1375,15 @@ CREATE TABLE chat_message (
     role        VARCHAR(10) NOT NULL,
     content     TEXT NOT NULL,
     sent_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    favorited_at TIMESTAMPTZ,                         -- 070 (#2405)
     CONSTRAINT chk_chat_message_role CHECK (role IN ('USER','ASSISTANT'))
 );
 CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 ```
 
 > ORM 모델 `src/cii_platform/db/models/chat.py`·레포지터리 `src/cii_platform/db/repositories/chat.py`가 이 계약을 구현한다(`RETENTION_DAYS = 90`). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819`에 흡수됐다.
+
+> **[#2405] 별을 따로 된 표가 아니라 이 표의 한 칸으로 둔 이유.** 별은 **대화와 함께 90일 뒤 지워진다**(2026-10-16 결정 2 — `PRD §16.3` 채팅 보존 정책). 메시지 행의 칸이면 세션이 만료·삭제될 때 `ON DELETE CASCADE`로 함께 사라지고, 만료 정리(`scripts/purge_expired.py`)·대화 삭제(`API_SPEC §15.6`)·탈퇴가 **하나도 바뀌지 않는다.** 별도 표를 두면 세 경로가 모두 같은 지우기를 가져야 하고, 하나라도 빠지면 지워진 대화의 별이 남는다. 감사 기록은 남기지 않는다(결정 4).
 
 ### 2.25 `port_call_record` — 공적 재항 기록 원본 (#1197)
 
@@ -1600,7 +1604,7 @@ CREATE INDEX idx_port_call_record_sign ON port_call_record (call_sign, port_auth
 | `simulation_snapshot` | 무기한 |
 | `audit_log` | 최소 5년 |
 | `weather_snapshot` | 30일 — **`fetched_at` 30일 경과 + 아무도 참조하지 않는 행**만 지운다(`§2.13` · `scripts/purge_expired.py`가 `chat_session`과 같은 자리에서 처리한다 · `#1347`) |
-| `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — §2.23·§2.24 · `scripts/purge_expired.py`가 만료 행을 지운다(유예 없음 · `TEST_PLAN §3.21`) [#287 → #1080] |
+| `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — §2.23·§2.24 · `scripts/purge_expired.py`가 만료 행을 지운다(유예 없음 · `TEST_PLAN §3.21`) · **즐겨찾기 별(`favorited_at`)도 메시지와 함께 지워진다 — 예외 없음** [#287 → #1080 · #2405] |
 | `port_call_record` | 보존 의무 없음 — 공적 기록의 사본이라 비워도 수집기가 다시 채운다(`§2.25`) [#1197] |
 
 ---
@@ -2069,7 +2073,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068 → 069
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068 → 069 → 070
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2423,3 +2427,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-15 | `#2488` | §2.5 `calculation_run.needs_recalc` 설명에 항차·정박 입력 변경(#2304)과 배포 전 변경을 메우는 한 번의 소급 처리(#2373)를 추가 |
 | 2026-10-15 | `#2526` | §2.14 `action`에 **`VOYAGE_INCLUSION_CHANGE`** 추가와 각주 — 실적 확정 항차의 연간 반영 여부만 바꾼 기록이다(`API_SPEC §3.13` · `details_json`은 `status` · `from_policy` · `to_policy` · `regulation_year`). 컬럼·제약 변경은 없다. `§4.3`상 값 추가·각주 보강이라 버전은 올리지 않는다 (#2420) |
 | 2026-10-15 | `#2524` | §2.16 `user_session.user_agent` 설명에 **UTF-8 255바이트 초과 값은 저장 전에 앞 255바이트로 자른다**는 규칙 추가(글자 수로 자르면 한글 UA가 여전히 500 — 실측) — 종전에는 256자 이상 User-Agent로 로그인·가입·둘러보기·개발 로그인이 500이었다(#2520). 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 |
+| 2026-10-16 | `#___` | §2.24 `chat_message`에 **`favorited_at`**(TIMESTAMPTZ NULL · 마이그레이션 `070`) — 챗봇 답 한 건에 단 즐겨찾기 별의 시각(`API_SPEC §15.9`). 별도 표가 아니라 메시지 행의 칸이라 대화 만료·삭제·탈퇴 때 CASCADE로 함께 지워진다(2026-10-16 결정 2 — 90일 예외 없음) · 각주 · 보존 정책 표 · §8.1.0 그래프 끝 `070`. 칸만 더해 트리거 합계는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#2405) |

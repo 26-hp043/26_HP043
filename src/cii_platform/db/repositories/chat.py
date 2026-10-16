@@ -176,3 +176,63 @@ async def delete_one(session: AsyncSession, *, session_id: UUID, user_id: UUID) 
         delete(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
     )
     return bool(result.rowcount)
+
+
+async def get_message_row(session: AsyncSession, *, message_id: UUID) -> ChatMessage | None:
+    """메시지 하나. 없으면 ``None`` (#2405 즐겨찾기).
+
+    :func:`get_session_row`와 같은 이유로 **주인·만료·역할 확인은 호출부가 한다.**
+    """
+    stmt = select(ChatMessage).where(ChatMessage.id == message_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def set_favorited_at(
+    session: AsyncSession, *, row: ChatMessage, favorited_at: datetime | None
+) -> None:
+    """별을 달거나(시각) 뗀다(``None``) (#2405). **commit은 호출부가 한다.**"""
+    row.favorited_at = favorited_at
+    await session.flush()
+
+
+async def list_favorites(
+    session: AsyncSession, *, user_id: UUID, now: datetime | None = None
+) -> list[tuple[ChatMessage, ChatSession]]:
+    """그 사용자의 별 단 답을 **최근에 단 것부터 전부** (#2405).
+
+    **건수 상한을 두지 않는다** — 화면이 이 목록의 번호로 별을 칠하므로, 잘라 내면 그 너머의
+    답은 별이 달려 있는데 빈 별로 보인다. 개수는 90일 보존(``RETENTION_DAYS``)이 이미 묶는다.
+
+    **만료된 대화의 것은 뺀다** — 청소(``purge_expired``)가 수동이라 행이 남아 있을 수 있다.
+    경계는 :func:`is_expired`와 같다(``expires_at <= now``면 만료).
+    """
+    cutoff = now or datetime.now(UTC)
+    stmt = (
+        select(ChatMessage, ChatSession)
+        .join(ChatSession, ChatSession.id == ChatMessage.session_id)
+        .where(
+            ChatSession.user_id == user_id,
+            ChatSession.expires_at > cutoff,
+            ChatMessage.favorited_at.is_not(None),
+        )
+        .order_by(ChatMessage.favorited_at.desc())
+    )
+    return [(message, chat) for message, chat in (await session.execute(stmt)).all()]
+
+
+async def list_messages_of_sessions(
+    session: AsyncSession, *, session_ids: list[UUID]
+) -> list[ChatMessage]:
+    """여러 대화의 메시지를 대화별·시간순으로 (#2405 — 별 단 답의 질문 짝 찾기).
+
+    순서는 :func:`list_messages`와 같은 ``sent_at``이다 — 대화 불러오기가 질문과 답을
+    짝짓는 순서와 갈리지 않게 한다.
+    """
+    if not session_ids:
+        return []
+    stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id.in_(session_ids))
+        .order_by(ChatMessage.session_id, ChatMessage.sent_at)
+    )
+    return list((await session.execute(stmt)).scalars())
