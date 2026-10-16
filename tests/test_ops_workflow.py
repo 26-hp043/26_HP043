@@ -21,8 +21,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -368,3 +370,362 @@ def test_no_destructive_commands() -> None:
     text = OPS.read_text(encoding="utf-8")
     for pattern in (r"down\s+-v", r"force_db_init", r"volume\s+rm", r"volume\s+prune", r"deletedb"):
         assert not re.search(pattern, text), f"파괴적 명령 {pattern}이 ops.yml에 있다"
+
+
+# ---------------------------------------------------------------------------
+# recalc-preview · recalc-apply — 저장 연간 실행의 낡음 표시 소급 (#2373)
+# ---------------------------------------------------------------------------
+
+_RECALC_STEPS = {
+    "재계산 미리 보기 (app-01)": "inputs.task == 'recalc-preview'",
+    "재계산 승인 목록 받기 (미리 보기 아티팩트 → 러너)": "inputs.task == 'recalc-apply'",
+    "재계산 적용 (app-01)": "inputs.task == 'recalc-apply'",
+}
+
+#: 공개 Actions 로그에 나가면 안 되는 값 — 가짜 보고 JSON에 심는다.
+_SECRET_VESSEL = "비밀호"
+_SECRET_OTHER = "목록밖호"
+_SECRET_NUMBER = "98765.4321"
+
+
+def _recalc_report(*runs: tuple[str, str, str], mode: str = "dry-run", marked: int = 0) -> str:
+    counts = {"TARGET": 0, "ALREADY_MARKED": 0, "CURRENT": 0, "UNCOMPARABLE": 0}
+    for _, status, _ in runs:
+        counts[status] += 1
+    return json.dumps(
+        {
+            "format_version": 1,
+            "generated_at": "2026-10-16T00:00:00+00:00",
+            "mode": mode,
+            "marked": marked,
+            "counts": counts,
+            "runs": [
+                {
+                    "simulation_id": sim,
+                    "calculation_run_id": f"c-{sim}",
+                    "vessel": vessel,
+                    "status": status,
+                    "differences": [f"항차 V1 planned_distance_nm: 1 → {_SECRET_NUMBER}"],
+                }
+                for sim, status, vessel in runs
+            ],
+        },
+        ensure_ascii=False,
+    )
+
+
+def test_recalc_tasks_are_wired_to_their_own_steps() -> None:
+    """두 작업이 선택지에 있고, 단계는 **정확히 그 작업**으로만 켜진다 (`#2373`)."""
+    wf = _workflow()
+    inputs = (wf.get("on") or wf.get(True))["workflow_dispatch"]["inputs"]
+    assert {"recalc-preview", "recalc-apply"} <= set(inputs["task"]["options"])
+    assert inputs["preview_run"]["default"] == ""
+    for name, condition in _RECALC_STEPS.items():
+        assert _step(name)["if"] == condition, name
+    # 도구를 부르는 단계는 위 둘뿐이고, 다른 작업의 조건에 재계산이 끼지 않는다
+    for step in _steps():
+        run, condition = step.get("run") or "", str(step.get("if", ""))
+        if "annual_needs_recalc" in run:
+            assert step["name"] in _RECALC_STEPS, step["name"]
+        elif "recalc" in condition:
+            uploads = step.get("uses", "").startswith("actions/upload-artifact@")
+            assert step["name"] in _RECALC_STEPS or uploads, step["name"]
+    # 다른 실행의 아티팩트를 받는 데 필요한 권한 — 새 액션 핀 없이 `gh run download`
+    assert wf["permissions"]["actions"] == "read"
+    assert "gh run download" in _step("재계산 승인 목록 받기 (미리 보기 아티팩트 → 러너)")["run"]
+
+
+def test_recalc_results_are_uploaded_encrypted_only() -> None:
+    """선박명·운항 수치가 담긴 보고·복구 자료는 **암호화한 파일만** 올린다 (공개 저장소)."""
+    backup_pin = _step("덤프 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)")["uses"]
+    uploads = {
+        "재계산 미리 보기 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)": (
+            "steps.recalc_preview.outputs.encrypted == 'true'",
+            "recalc-preview-${{ github.run_id }}",
+        ),
+        "재계산 적용 결과 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)": (
+            "always() && steps.recalc_apply.outputs.encrypted == 'true'",
+            "recalc-apply-${{ github.run_id }}",
+        ),
+    }
+    for name, (condition, artifact) in uploads.items():
+        step = _step(name)
+        assert step["if"] == condition
+        assert step["uses"] == backup_pin  # 새 핀을 늘리지 않는다
+        assert step["with"]["name"] == artifact
+        assert step["with"]["path"].endswith("/*.enc")
+        assert step["with"]["retention-days"] == 14
+    # 평문을 올리는 단계가 없다 — 업로드는 위 셋(덤프·미리 보기·적용)뿐이다
+    paths = [s["with"]["path"] for s in _steps() if "upload-artifact" in s.get("uses", "")]
+    assert len(paths) == 3 and all(p.endswith("/*.enc") for p in paths)
+    for name in ("재계산 미리 보기 (app-01)", "재계산 적용 (app-01)"):
+        step = _step(name)
+        assert step["env"]["PASSPHRASE"] == "${{ secrets.BACKUP_ARTIFACT_PASSPHRASE }}"
+        assert "openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt" in step["run"]
+        assert "-pass env:PASSPHRASE" in step["run"]
+
+
+def test_recalc_tool_stdout_never_reaches_the_log() -> None:
+    """도구의 표준출력(표 · 선박명)은 버리고, 보고 JSON은 ssh 출력을 **파일로만** 받는다."""
+    calls = fetches = 0
+    for name in ("재계산 미리 보기 (app-01)", "재계산 적용 (app-01)"):
+        run = _step(name)["run"].replace("\\\n", " ")
+        for line in run.splitlines():
+            if "cii_platform.maintenance.annual_needs_recalc" in line:
+                calls += 1
+                assert line.rstrip().endswith(">/dev/null"), line
+                assert "--json -" not in line
+            # 원격 heredoc 밖에서 결과를 꺼내는 줄 — ssh 출력이 파일로 간다
+            if 'app "cat ' in line:
+                fetches += 1
+                assert re.search(r'> "\$\{plain\}/', line), line
+    assert calls == 2 and fetches == 2
+    # 미리 보기는 원격 heredoc 안에서 꺼낸다 — 그 ssh 호출의 출력 전체가 파일로 간다
+    preview = _step("재계산 미리 보기 (app-01)")["run"]
+    assert "bash -s <<'ENDSSH' > \"${plain}/recalc_preview.json\"" in preview
+
+
+@pytest.mark.parametrize(
+    ("task", "confirm", "preview_run", "ok"),
+    [
+        ("recalc-apply", "cii", "18234567890", True),
+        ("recalc-apply", "", "18234567890", False),
+        ("recalc-apply", "CII", "18234567890", False),
+        ("recalc-apply", "cii", "", False),
+        ("recalc-apply", "cii", "123abc", False),
+        ("recalc-apply", "cii", "1; rm x", False),
+        ("recalc-apply", "cii", "0123", False),
+        ("recalc-preview", "", "", True),
+        ("recalc-preview", "", "123", False),
+        ("purge", "", "123", False),
+    ],
+)
+def test_recalc_apply_validation(task: str, confirm: str, preview_run: str, ok: bool) -> None:
+    """입력 검증을 **실행으로** 본다 (`#2373`).
+
+    `recalc-apply`는 `confirm=cii`와 숫자 실행 번호가 둘 다 있어야 시작하고, `preview_run`은
+    `recalc-apply` 밖에서 받지 않는다.
+    """
+    env = {**os.environ, "TASK": task, "CONFIRM": confirm, "PREVIEW_RUN": preview_run,
+           "IMAGE_SHA": "", "DUMP": ""}  # fmt: skip
+    done = subprocess.run(["bash", "-eo", "pipefail", "-c", _step("입력 검증")["run"]],
+                          env=env, text=True, capture_output=True)  # fmt: skip
+    assert (done.returncode == 0) == ok, done.stdout + done.stderr
+
+
+def _recalc_sandbox(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    """가짜 `ssh`·`gh` 위에서 재계산 단계를 돌릴 환경 — 운영 서버를 건드리지 않는다.
+
+    `ssh`는 원격 명령 모양으로 갈라 ⑴ `bash -s`면 스크립트를 삼키고 `stdout` 파일을 내보내고
+    ⑵ 승인 목록 넣기는 받은 바이트를 `pushed.json`에 적고 ⑶ `cat`은 가짜 결과를 내보내고
+    ⑷ 지우기는 기록만 한다. `FAKE_NO_RECOVERY=1`이면 복구 자료 `cat`이 실패한다.
+    `gh`는 `artifact/`의 파일을 `-D` 디렉터리로 옮긴다. `openssl`은 진짜를 부르되
+    `FAKE_ENC_FAIL=1`이면 복구 자료 암호화만 실패한다.
+    """
+    fake, bin_dir = tmp_path / "fake", tmp_path / "bin"
+    (fake / "artifact").mkdir(parents=True)
+    bin_dir.mkdir()
+    (bin_dir / "ssh").write_text(
+        "#!/bin/bash\n"
+        'cmd="$*"\n'
+        'case "$cmd" in\n'
+        '  *"cat > /tmp/recalc_approved.json"*) cat > "$FAKE/pushed.json" ;;\n'
+        '  *"cat /tmp/recalc_apply.json"*) cat "$FAKE/apply.json" ;;\n'
+        '  *"cat /app/logs/recalc_recovery_"*) echo "$cmd" >> "$FAKE/recovery_cat.log";'
+        ' [ -z "$FAKE_NO_RECOVERY" ] && cat "$FAKE/recovery.json" ;;\n'
+        '  *"rm -f "*) echo "$cmd" >> "$FAKE/rm.log" ;;\n'
+        '  *"bash -s") echo "$cmd" >> "$FAKE/remote_cmd.log"; cat >> "$FAKE/remote.sh";'
+        ' if [ -f "$FAKE/stdout" ]; then cat "$FAKE/stdout"; fi;'
+        ' exit "${FAKE_RC:-0}" ;;\n'
+        '  *) echo "unexpected ssh: $cmd" >&2; exit 99 ;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
+    (bin_dir / "gh").write_text(
+        "#!/bin/bash\n"
+        'echo "$*" >> "$FAKE/gh.log"\n'
+        'while [ $# -gt 0 ]; do [ "$1" = "-D" ] && dest="$2"; shift; done\n'
+        'cp "$FAKE"/artifact/* "$dest"/\n',
+        encoding="utf-8",
+    )
+    real_openssl = shutil.which("openssl")
+    assert real_openssl, "openssl이 없다"
+    (bin_dir / "openssl").write_text(
+        "#!/bin/bash\n"
+        'case "$*" in *recalc_recovery.json*) [ -n "$FAKE_ENC_FAIL" ] && exit 7 ;; esac\n'
+        f'exec {real_openssl} "$@"\n',
+        encoding="utf-8",
+    )
+    for stub in bin_dir.iterdir():
+        stub.chmod(0o755)
+    (tmp_path / "runner").mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "FAKE": str(fake),
+        "RUNNER_TEMP": str(tmp_path / "runner"),
+        "GITHUB_OUTPUT": str(tmp_path / "github_output"),
+        "SSH_USER": "u",
+        "APP_HOST": "h",
+        "GITHUB_RUN_ID": "987",
+        "PASSPHRASE": "pass-for-test",
+        "PREVIEW_RUN": "123",
+        "GH_TOKEN": "x",
+        "GITHUB_REPOSITORY": "o/r",
+    }
+    return fake, env
+
+
+def _run_step(name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["bash", "-eo", "pipefail", "-c", _step(name)["run"]],
+                          env=env, text=True, capture_output=True)  # fmt: skip
+
+
+def _decrypt(path: Path, env: dict[str, str]) -> str:
+    done = subprocess.run(
+        ["openssl", "enc", "-d", "-aes-256-cbc", "-pbkdf2", "-iter", "200000",
+         "-pass", "env:PASSPHRASE", "-in", str(path)],
+        env=env, capture_output=True, check=True,
+    )  # fmt: skip
+    return done.stdout.decode("utf-8")
+
+
+def test_recalc_preview_to_apply_logs_only_counts(tmp_path: Path) -> None:
+    """미리 보기 → 승인 목록 받기 → 적용을 가짜 서버 위에서 **실제로 돌린다** (`#2373`).
+
+    ⑴ 로그(표준출력·표준오류)에 선박명·운항 수치가 없고 건수만 있다 ⑵ 올릴 파일은 암호화본이고
+    같은 `-iter`로 풀린다 ⑶ 허락한 미리 보기의 **바이트 그대로**가 승인 목록으로 들어간다
+    ⑷ 승인 목록 밖 대상의 건수가 로그에 나온다 ⑸ 평문과 컨테이너 `/tmp` 파일을 지운다.
+    """
+    fake, env = _recalc_sandbox(tmp_path)
+    runner = tmp_path / "runner"
+    preview = _recalc_report(("s1", "TARGET", _SECRET_VESSEL), ("s2", "CURRENT", _SECRET_VESSEL))
+    (fake / "stdout").write_text(preview, encoding="utf-8")
+
+    done = _run_step("재계산 미리 보기 (app-01)", env)
+    assert done.returncode == 0, done.stderr
+    log = done.stdout + done.stderr
+    assert _SECRET_VESSEL not in log and _SECRET_NUMBER not in log
+    assert '"TARGET": 1' in log and "marked=0" in log
+    enc = runner / "recalc-preview" / "recalc_preview.json.enc"
+    assert _decrypt(enc, env) == preview
+    assert not (runner / "recalc-plain").exists()
+    assert "encrypted=true" in (tmp_path / "github_output").read_text(encoding="utf-8")
+
+    # 승인 목록 받기 — 미리 보기 실행의 아티팩트를 그 번호로 받는다
+    (fake / "artifact" / enc.name).write_bytes(enc.read_bytes())
+    (fake / "stdout").unlink()
+    done = _run_step("재계산 승인 목록 받기 (미리 보기 아티팩트 → 러너)", env)
+    assert done.returncode == 0, done.stderr
+    assert _SECRET_VESSEL not in done.stdout + done.stderr
+    gh_args = (fake / "gh.log").read_text(encoding="utf-8")
+    assert gh_args.startswith("run download 123 ") and "-n recalc-preview-123" in gh_args
+
+    # 적용 — 승인한 s1 + 승인 목록 밖 s3(지금 새로 대상)
+    applied = _recalc_report(
+        ("s1", "TARGET", _SECRET_VESSEL), ("s3", "TARGET", _SECRET_OTHER), mode="apply", marked=1
+    )
+    recovery = json.dumps({"calculation_run_ids": ["c-s1"], "runs": [{"vessel": _SECRET_VESSEL}]})
+    (fake / "apply.json").write_text(applied, encoding="utf-8")
+    (fake / "recovery.json").write_text(recovery, encoding="utf-8")
+    done = _run_step("재계산 적용 (app-01)", env)
+    assert done.returncode == 0, done.stderr
+    log = done.stdout + done.stderr
+    for secret in (_SECRET_VESSEL, _SECRET_OTHER, _SECRET_NUMBER, "c-s1"):
+        assert secret not in log, secret
+    assert "marked=1" in log
+    assert re.search(r"밖 1건 .* 바뀜 0건", log)
+    assert (fake / "pushed.json").read_text(encoding="utf-8") == preview
+    remote = (fake / "remote.sh").read_text(encoding="utf-8")
+    assert "--approved /tmp/recalc_approved.json" in remote
+    # 복구 자료는 지속 볼륨 /app/logs에 실행 번호로 남긴다
+    assert '--recovery-file "${RECOVERY}"' in remote
+    remote_cmd = (fake / "remote_cmd.log").read_text(encoding="utf-8")
+    assert "RECOVERY='/app/logs/recalc_recovery_987.json' bash -s" in remote_cmd
+    assert "/app/logs/recalc_recovery_987.json" in (fake / "recovery_cat.log").read_text(
+        encoding="utf-8"
+    )
+    out = runner / "recalc-apply"
+    assert _decrypt(out / "recalc_apply.json.enc", env) == applied
+    assert _decrypt(out / "recalc_recovery.json.enc", env) == recovery
+    assert sorted(p.name for p in out.iterdir()) == [
+        "recalc_apply.json.enc",
+        "recalc_recovery.json.enc",
+    ]
+    assert not (runner / "recalc-plain").exists()
+    removed = (fake / "rm.log").read_text(encoding="utf-8")
+    assert "/tmp/recalc_approved.json /tmp/recalc_apply.json" in removed
+    assert "recovery" not in removed  # 복구 자료는 워크플로가 지우지 않는다
+
+
+def test_recalc_apply_failure_still_keeps_recovery_file(tmp_path: Path) -> None:
+    """도구가 실패해도 먼저 남은 복구 자료는 받아 암호화해 두고, 단계는 실패로 끝난다 (`#2373`)."""
+    fake, env = _recalc_sandbox(tmp_path)
+    plain = tmp_path / "runner" / "recalc-plain"
+    plain.mkdir()
+    (plain / "recalc_approved.json").write_text(
+        _recalc_report(("s1", "TARGET", "x")), encoding="utf-8"
+    )
+    (fake / "recovery.json").write_text('{"calculation_run_ids": ["c-s1"]}', encoding="utf-8")
+    done = _run_step("재계산 적용 (app-01)", {**env, "FAKE_RC": "3"})
+    assert done.returncode == 3
+    out = tmp_path / "runner" / "recalc-apply"
+    assert [p.name for p in out.iterdir()] == ["recalc_recovery.json.enc"]
+    assert "encrypted=true" in (tmp_path / "github_output").read_text(encoding="utf-8")
+    assert (fake / "rm.log").exists() and not plain.exists()
+
+
+def _apply_sandbox(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    fake, env = _recalc_sandbox(tmp_path)
+    plain = tmp_path / "runner" / "recalc-plain"
+    plain.mkdir()
+    (plain / "recalc_approved.json").write_text(
+        _recalc_report(("s1", "TARGET", "x")), encoding="utf-8"
+    )
+    (fake / "apply.json").write_text(
+        _recalc_report(("s1", "TARGET", "x"), mode="apply", marked=1), encoding="utf-8"
+    )
+    (fake / "recovery.json").write_text('{"calculation_run_ids": ["c-s1"]}', encoding="utf-8")
+    return fake, env
+
+
+def test_recalc_apply_fails_when_recovery_file_not_received(tmp_path: Path) -> None:
+    """도구가 성공해도 복구 자료를 러너로 받지 못하면 단계가 **실패**한다 (`#2373` 리뷰 HIGH).
+
+    받지 못한 복구 자료는 지우지 않는다 — 컨테이너 `/app/logs`(지속 볼륨)에 남아 사람이 꺼낸다.
+    받은 결과 JSON은 그대로 암호화해 올린다.
+    """
+    fake, env = _apply_sandbox(tmp_path)
+    done = _run_step("재계산 적용 (app-01)", {**env, "FAKE_NO_RECOVERY": "1"})
+    assert done.returncode != 0
+    assert "::error::" in done.stdout + done.stderr
+    assert "/app/logs/recalc_recovery_987.json" in (fake / "recovery_cat.log").read_text(
+        encoding="utf-8"
+    )
+    removed = (fake / "rm.log").read_text(encoding="utf-8")
+    assert "recovery" not in removed and "/app/logs" not in removed
+    out = tmp_path / "runner" / "recalc-apply"
+    assert [p.name for p in out.iterdir()] == ["recalc_apply.json.enc"]
+    assert "encrypted=true" in (tmp_path / "github_output").read_text(encoding="utf-8")
+
+
+def test_recalc_apply_fails_after_partial_encryption(tmp_path: Path) -> None:
+    """두 번째 암호화가 실패해도 이미 만든 `.enc`는 올릴 수 있게 표시하고 실패로 끝난다."""
+    _, env = _apply_sandbox(tmp_path)
+    done = _run_step("재계산 적용 (app-01)", {**env, "FAKE_ENC_FAIL": "1"})
+    assert done.returncode == 7
+    out = tmp_path / "runner" / "recalc-apply"
+    assert [p.name for p in out.iterdir()] == ["recalc_apply.json.enc"]
+    assert "encrypted=true" in (tmp_path / "github_output").read_text(encoding="utf-8")
+
+
+def test_recalc_preview_refuses_without_passphrase(tmp_path: Path) -> None:
+    """암호 시크릿이 없으면 서버에 가기 **전에** 실패한다.
+
+    결과를 볼 길이 없는 실행을 남기지 않는다 (`#2373`).
+    """
+    fake, env = _recalc_sandbox(tmp_path)
+    for name in ("재계산 미리 보기 (app-01)", "재계산 승인 목록 받기 (미리 보기 아티팩트 → 러너)"):
+        done = _run_step(name, {**env, "PASSPHRASE": ""})
+        assert done.returncode != 0, name
+    assert not (fake / "remote.sh").exists() and not (fake / "gh.log").exists()
