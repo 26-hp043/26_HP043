@@ -65,6 +65,20 @@ jobs:
         run: >-
           python scripts/check_changelog_rows.py --base "origin/$BASE_REF"
           --previous-head "$PREVIOUS_HEAD"
+      #
+      # #2269 첫 PR 전용 — 둘째 PR에서 걷어 낸다.
+      #
+      # 지난 변경 이력 행의 커밋 열을 이슈 번호에서 PR 번호로 고치는 PR이다. 위 삭제 검사는
+      # 행을 커밋 열의 참조로 알아보므로 번호가 바뀌면 「사라진 행」으로 읽어, 그 PR에서만
+      # `changelog-row-removal` 라벨로 끈다. 그 공백을 매핑표 대조로 메운다 — 커밋 열 밖은
+      # 바이트 단위로 같고, 바뀐 커밋 열은 `docs/changelog_remap_2269.tsv`와 정확히 같아야 한다.
+      - name: 변경 이력 커밋 열 재매핑이 매핑표와 같은지 (#2269)
+        if: github.head_ref == 'docs/2269-changelog-pr-numbers'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: >-
+          python scripts/verify_changelog_remap.py --base "origin/$BASE_REF"
+          --map docs/changelog_remap_2269.tsv
 
   test:
     runs-on: ubuntu-latest
