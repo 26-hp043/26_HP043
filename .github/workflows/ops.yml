@@ -537,7 +537,10 @@ jobs:
           PY
 
       # 적용은 승인 목록의 대상만 표시하고, 표시 **전에** 복구 자료를 남긴다(도구가 한다).
-      # 도구가 실패해도 복구 자료가 남았을 수 있으므로 받을 수 있는 것은 받아 올린 뒤 실패로 끝낸다.
+      # 복구 자료는 되돌릴 수 없는 표시의 **유일한 기록**이라 컨테이너 `/tmp`가 아니라 지속 볼륨
+      # `/app/logs`(`app-logs` · docker-compose.prod.app.yml)에 `recalc_recovery_<실행번호>.json`으로
+      # 남기고 **워크플로는 지우지 않는다**. 러너로도 받아 암호화해 올리며, 받지 못하면 도구가
+      # 성공했어도 이 단계를 실패로 끝낸다(조용히 성공하면 기록이 서버에만 남은 줄 모른다).
       # 승인 목록은 원격 heredoc(`bash -s`)이 아니라 **따로 연 ssh의 표준입력**으로 넣는다 — 한
       # 표준입력에 스크립트와 파일을 함께 실으면 어느 쪽이 무엇을 읽는지가 꼬인다.
       - name: 재계산 적용 (app-01)
@@ -548,33 +551,40 @@ jobs:
         run: |
           plain="${RUNNER_TEMP:?}/recalc-plain"
           out="${RUNNER_TEMP:?}/recalc-apply"
+          recovery="/app/logs/recalc_recovery_${GITHUB_RUN_ID:?}.json"
           mkdir -p "${out}"
           app() {
             ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" \
               "cd ~/bluelog && docker compose -f docker-compose.prod.app.yml exec -T backend $1"
           }
+          # 지우는 것은 /tmp의 승인 목록·결과뿐이다 — 복구 자료(/app/logs)는 남긴다
           cleanup() {
-            app "rm -f /tmp/recalc_approved.json /tmp/recalc_apply.json /tmp/recalc_recovery.json </dev/null" </dev/null \
+            app "rm -f /tmp/recalc_approved.json /tmp/recalc_apply.json </dev/null" </dev/null \
               || echo "::warning::컨테이너 /tmp의 재계산 파일을 지우지 못했다"
             rm -rf "${plain:?}"
           }
           trap cleanup EXIT
           app "sh -c 'cat > /tmp/recalc_approved.json'" < "${plain}/recalc_approved.json"
           rc=0
-          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" bash -s <<'ENDSSH' || rc=$?
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" "RECOVERY='${recovery}' bash -s" <<'ENDSSH' || rc=$?
           set -euo pipefail
           cd ~/bluelog
           docker compose -f docker-compose.prod.app.yml exec -T backend python -m cii_platform.maintenance.annual_needs_recalc \
             --apply --approved /tmp/recalc_approved.json \
-            --recovery-file /tmp/recalc_recovery.json --json /tmp/recalc_apply.json </dev/null >/dev/null
+            --recovery-file "${RECOVERY}" --json /tmp/recalc_apply.json </dev/null >/dev/null
           ENDSSH
-          for f in recalc_apply.json recalc_recovery.json; do
-            if app "cat /tmp/${f} </dev/null" </dev/null > "${plain}/${f}.part"; then
-              mv "${plain}/${f}.part" "${plain}/${f}"
-            else
-              echo "::warning::${f}를 받지 못했다"
-            fi
-          done
+          if app "cat /tmp/recalc_apply.json </dev/null" </dev/null > "${plain}/recalc_apply.json.part"; then
+            mv "${plain}/recalc_apply.json.part" "${plain}/recalc_apply.json"
+          else
+            echo "::warning::결과 JSON을 받지 못했다"
+          fi
+          # 도구의 성패와 무관하게 복구 자료는 받아야 한다 — 못 받으면 실패로 끝낸다
+          if app "cat ${recovery} </dev/null" </dev/null > "${plain}/recalc_recovery.json.part"; then
+            mv "${plain}/recalc_recovery.json.part" "${plain}/recalc_recovery.json"
+          else
+            echo "::error::복구 자료를 러너로 받지 못했다 — 컨테이너 ${recovery}에 남아 있으면 docker compose cp로 꺼낸다(OPERATIONS §3.8.1)"
+            if [ "${rc}" -eq 0 ]; then rc=1; fi
+          fi
           # 건수만 — 「승인 목록 밖」(지금 대상인데 목록에 없음)·「승인 뒤 상태가 바뀜」(목록에 있는데
           # 지금은 대상이 아님)이 0이 아니면 2단계로 돌아가 새 미리 보기를 허락받는다
           python3 - "${plain}/recalc_approved.json" "${plain}/recalc_apply.json" "${plain}/recalc_recovery.json" <<'PY' \
@@ -597,16 +607,22 @@ jobs:
               if now != wanted:
                   print("::warning::승인 목록과 지금 대상이 다르다 — 2단계로 돌아가 새 미리 보기를 허락받는다(OPERATIONS §3.8.1)")
           PY
+          # 하나가 실패해도 나머지는 암호화하고, 이미 만든 .enc는 올린 뒤 실패로 끝낸다
+          enc_rc=0
           for f in recalc_apply.json recalc_recovery.json; do
             [ -f "${plain}/${f}" ] || continue
             openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
-              -pass env:PASSPHRASE -in "${plain}/${f}" -out "${out}/${f}.enc"
+              -pass env:PASSPHRASE -in "${plain}/${f}" -out "${out}/${f}.enc" || enc_rc=$?
           done
           if compgen -G "${out}/*.enc" >/dev/null; then
             echo "encrypted=true" >> "$GITHUB_OUTPUT"
           fi
+          if [ "${enc_rc}" -ne 0 ]; then
+            echo "::error::결과·복구 자료 암호화에 실패했다(종료 코드 ${enc_rc})"
+            if [ "${rc}" -eq 0 ]; then rc="${enc_rc}"; fi
+          fi
           if [ "${rc}" -ne 0 ]; then
-            echo "::error::적용 도구가 실패했다(종료 코드 ${rc}) — 받은 결과·복구 자료만 올린다"
+            echo "::error::재계산 적용 단계가 실패했다(종료 코드 ${rc}) — 받은 결과·복구 자료만 올린다"
             exit "${rc}"
           fi
 
