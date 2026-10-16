@@ -38,7 +38,10 @@ from cii_platform.llm.provider import LLMProvider, is_enabled
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.chat import DISCLAIMER
 from cii_platform.services.chat import answer as answer_question
+from cii_platform.services.chat import favorite as favorite_answer
+from cii_platform.services.chat import favorites as list_favorites
 from cii_platform.services.chat import history as chat_history
+from cii_platform.services.chat import unfavorite as unfavorite_answer
 
 router = APIRouter(tags=["chat"])
 
@@ -272,5 +275,74 @@ async def delete_chat_session(
         session_id=session_id,
         ip_address=audit_client_ip(request),
     )
+    await session.commit()
+    return Response(status_code=204)
+
+
+@router.get("/chat/favorites")
+async def chat_favorites(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[AppUser, Depends(get_current_user)],
+) -> dict[str, object]:
+    """내 즐겨찾기 답 목록 (``API_SPEC §15.9`` · `#2405`).
+
+    최근에 단 것부터 **전부**이고(건수 상한 없음 — 화면이 이 번호로 별을 칠한다), 만료된
+    대화의 것은 뺀다.
+
+    ## 둘러보기 계정에는 언제나 빈 목록이다
+
+    ``GET``이라 둘러보기 정책(``auth/tour_policy.py``)을 통과한다. 공유 계정이라 「내
+    즐겨찾기」가 성립하지 않으므로 대화 불러오기(``§15.8``)의 404와 같은 이유로 여기서
+    끊는다 — 목록은 「없음」이 정상 상태라 404가 아니라 빈 목록이다.
+    """
+    items = [] if is_tour_user(user) else await list_favorites(session, user_id=user.id)
+
+    state = getattr(request, "state", None)
+    return {
+        "data": {"favorites": items},
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }
+
+
+@router.put("/chat/messages/{message_id}/favorite")
+async def favorite_chat_message(
+    request: Request,
+    message_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[AppUser, Depends(get_current_user)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """답 한 건에 별을 단다 (``API_SPEC §15.9`` · `#2405`).
+
+    이미 달려 있으면 시각을 바꾸지 않고 같은 200이다. 남의 것·만료·질문 행·없는 번호는
+    모두 같은 404다. 감사 기록은 남기지 않는다(결정 4 — 자료를 바꾸지 않는 보기 설정이다).
+    둘러보기 계정의 쓰기는 정책 미들웨어가 어시스턴트 전용 403으로 먼저 막는다.
+    """
+    data = await favorite_answer(session, message_id=message_id, user_id=user.id)
+    await session.commit()
+
+    state = getattr(request, "state", None)
+    return {
+        "data": data,
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }
+
+
+@router.delete("/chat/messages/{message_id}/favorite", status_code=204)
+async def unfavorite_chat_message(
+    message_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[AppUser, Depends(get_current_user)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """답의 별을 뗀다 (``API_SPEC §15.9`` · `#2405`). 달려 있지 않아도 같은 204다."""
+    await unfavorite_answer(session, message_id=message_id, user_id=user.id)
     await session.commit()
     return Response(status_code=204)

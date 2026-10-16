@@ -28,6 +28,8 @@ _FIELD_LABELS: dict[str, str] = {
     # `API_SPEC §15.1` 챗봇 (#121) — 라벨은 화면의 입력칸 이름을 따른다.
     "message": "질문",
     "session_id": "대화",
+    # `API_SPEC §15.9` 즐겨찾기 (#2405) — 경로의 답 번호. 입력칸이 없어 대상(답)으로 적는다.
+    "message_id": "답",
     "regulation_year": "규제연도",
     "distance_nm": "항해거리",  # API_SPEC §1.3.2 예시, §11 VAL-002
     "speed_kn": "속력",  # API_SPEC §11 VAL-009

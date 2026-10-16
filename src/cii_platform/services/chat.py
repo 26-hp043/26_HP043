@@ -537,6 +537,7 @@ async def _answer_turn(
         used_tools,
         discarded=False,
         vessel_resolved=effective_vessel is not None,
+        message_id=answer_row.id,
     )
 
 
@@ -783,7 +784,13 @@ async def _answer_year_end_directly(
         message_id=answer_row.id,
         tool_names=[TOOL_PROJECT_YEAR_END],
     )
-    return _result(reply, [TOOL_PROJECT_YEAR_END], discarded=False, vessel_resolved=True)
+    return _result(
+        reply,
+        [TOOL_PROJECT_YEAR_END],
+        discarded=False,
+        vessel_resolved=True,
+        message_id=answer_row.id,
+    )
 
 
 #: 폐기 기록 한 줄의 **고정 접두어** (`#1985`).
@@ -806,6 +813,7 @@ def _result(
     discard_kind: str | None = None,
     chat_session_id: UUID | None = None,
     blocked_numbers: Sequence[str] | None = None,
+    message_id: UUID | None = None,
 ) -> dict[str, object]:
     """턴 하나의 응답 봉투. **폐기면 여기서 한 줄을 남긴다** (`#1985`).
 
@@ -869,6 +877,9 @@ def _result(
         # #1242 — 서버가 이 대화의 선박을 알고 있는가. **식별자 자체는 안 싣는다**
         # (`PRD §16.3.1` — 모델에게 가는 값이 아니라 화면에게 가는 값이다).
         "vessel_resolved": vessel_resolved,
+        # #2405 — 저장된 답 행의 번호. 화면이 이 답에 별을 달 때 쓴다. 폐기·실패로 저장하지
+        # 않았으면 ``None`` — **키는 늘 있다**(`#1365` 키 집합 규약).
+        "message_id": None if message_id is None else str(message_id),
     }
 
 
@@ -895,8 +906,9 @@ def _tools_by_message(events: Sequence[AuditLog]) -> dict[str, list[str]]:
 async def history(session: AsyncSession, *, chat_session_id: UUID) -> list[dict[str, object]]:
     """저장된 대화를 **화면이 그렸던 모양대로** 되돌린다 (`#1981` · ``API_SPEC §15.8``).
 
-    :returns: ``[{"role", "content", "discarded", "tool_calls"}, …]`` — 시간순. 키는 모든
-        항목에 같다(``POST /chat`` 봉투와 같은 규약 · `#1365`).
+    :returns: ``[{"role", "content", "discarded", "tool_calls", "message_id"}, …]`` — 시간순.
+        키는 모든 항목에 같다(``POST /chat`` 봉투와 같은 규약 · `#1365`). ``message_id``는
+        저장된 답(ASSISTANT 행)만 갖고, 질문과 폐기 자리 항목은 ``None``이다(#2405).
 
     ## 저장된 것과 화면이 본 것은 다르다
 
@@ -931,17 +943,112 @@ async def history(session: AsyncSession, *, chat_session_id: UUID) -> list[dict[
                 )
             continue
         entries.append(
-            _history_entry(ROLE_ASSISTANT, row.content, tool_calls=tools.get(str(row.id), []))
+            _history_entry(
+                ROLE_ASSISTANT,
+                row.content,
+                tool_calls=tools.get(str(row.id), []),
+                message_id=str(row.id),
+            )
         )
     return entries
 
 
 def _history_entry(
-    role: str, content: str, *, discarded: bool = False, tool_calls: list[str] | None = None
+    role: str,
+    content: str,
+    *,
+    discarded: bool = False,
+    tool_calls: list[str] | None = None,
+    message_id: str | None = None,
 ) -> dict[str, object]:
     return {
         "role": role,
         "content": content,
         "discarded": discarded,
         "tool_calls": list(tool_calls or ()),
+        # #2405 — 별 상태는 싣지 않는다(다섯 키 결정). 화면은 즐겨찾기 목록의 번호로 칠한다.
+        "message_id": message_id,
     }
+
+
+# --- 즐겨찾기 (#2405 · ``API_SPEC §15.9``) ---------------------------------------------------
+
+#: 별을 달 수 없는 대상의 404 문구. 남의 것·만료·질문 행·없는 번호가 **모두 같다** — 갈래를
+#: 나누면 「있지만 네 것이 아니다」가 새어 남의 대화가 있는지 알린다(``§15.4`` · ``§15.6``).
+FAVORITE_NOT_FOUND_MESSAGE = "답을 찾을 수 없습니다."
+
+
+def _iso_utc(value: datetime) -> str:
+    """DB 시각을 UTC ISO 8601로. 시간대 없는 값은 UTC로 읽는다(``chat_repo.is_expired``와 같다)."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat()
+
+
+async def _own_live_answer(
+    session: AsyncSession, *, message_id: UUID, user_id: UUID
+) -> ChatMessage:
+    """별을 달·뗄 수 있는 답 — **내 대화의, 만료되지 않은, ASSISTANT 행**. 아니면 404."""
+    row = await chat_repo.get_message_row(session, message_id=message_id)
+    chat_session = (
+        None if row is None else await chat_repo.get_session_row(session, session_id=row.session_id)
+    )
+    if (
+        row is None
+        or row.role != ROLE_ASSISTANT
+        or chat_session is None
+        or chat_session.user_id != user_id
+        or chat_repo.is_expired(chat_session)
+    ):
+        raise NotFoundError(FAVORITE_NOT_FOUND_MESSAGE)
+    return row
+
+
+async def favorite(session: AsyncSession, *, message_id: UUID, user_id: UUID) -> dict[str, object]:
+    """답에 별을 단다. **이미 달려 있으면 시각을 바꾸지 않는다**(멱등). commit은 라우트가 한다."""
+    row = await _own_live_answer(session, message_id=message_id, user_id=user_id)
+    if row.favorited_at is None:
+        # 밀리초로 깎아 넣는다 — CUBRID ``DATETIME``이 밀리초까지만 담아, 깎지 않으면 첫 응답의
+        # 시각과 다시 단(멱등) 응답·목록의 시각이 마이크로초만큼 갈린다.
+        now = datetime.now(UTC)
+        now = now.replace(microsecond=now.microsecond // 1000 * 1000)
+        await chat_repo.set_favorited_at(session, row=row, favorited_at=now)
+    return {"message_id": str(row.id), "favorited_at": _iso_utc(row.favorited_at)}
+
+
+async def unfavorite(session: AsyncSession, *, message_id: UUID, user_id: UUID) -> None:
+    """답의 별을 뗀다. **달려 있지 않아도** 그대로 끝난다(멱등). commit은 라우트가 한다."""
+    row = await _own_live_answer(session, message_id=message_id, user_id=user_id)
+    if row.favorited_at is not None:
+        await chat_repo.set_favorited_at(session, row=row, favorited_at=None)
+
+
+async def favorites(session: AsyncSession, *, user_id: UUID) -> list[dict[str, object]]:
+    """내 즐겨찾기 — 최근에 단 것부터 **전부**, 만료된 대화의 것은 뺀다.
+
+    건수 상한이 없다 — 화면이 이 목록의 번호로 별을 칠하므로 잘라 내면 그 너머의 답이 빈
+    별로 보인다. 개수는 90일 보존이 이미 묶는다(``chat_repo.list_favorites``).
+
+    ``question``은 그 답 **바로 앞 행**이 질문일 때 그 본문이다 — 짝짓는 순서는 대화
+    불러오기(:func:`history`)와 같은 ``sent_at``이다. 앞 행이 없거나 질문이 아니면 ``None``.
+    """
+    rows = await chat_repo.list_favorites(session, user_id=user_id)
+    session_ids = list({message.session_id for message, _ in rows})
+    question_of: dict[str, str | None] = {}
+    previous = None
+    for message in await chat_repo.list_messages_of_sessions(session, session_ids=session_ids):
+        if previous is not None and previous.session_id == message.session_id:
+            question_of[str(message.id)] = previous.content if previous.role == ROLE_USER else None
+        previous = message
+    return [
+        {
+            "session_id": str(chat_session.id),
+            "message_id": str(message.id),
+            "question": question_of.get(str(message.id)),
+            "answer": message.content,
+            "answered_at": _iso_utc(message.sent_at),
+            "expires_at": _iso_utc(chat_session.expires_at),
+            "favorited_at": _iso_utc(message.favorited_at),
+        }
+        for message, chat_session in rows
+    ]

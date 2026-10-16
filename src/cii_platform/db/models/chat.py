@@ -105,6 +105,10 @@ class ChatMessage(Base):
         server_default=sa.text("CURRENT_TIMESTAMP"),
         nullable=False,
     )
+    #: 즐겨찾기(별)를 단 시각 (#2405 · ``070``). ``NULL``이면 별이 없다. **ASSISTANT 행에만**
+    #: 단다 — 서비스가 막는다(``services.chat.favorite``). 별도 표를 두지 않으므로 세션이
+    #: 지워지면(만료 청소·삭제 요청) 메시지와 함께 사라진다 — 별만 남는 고아가 생기지 않는다.
+    favorited_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_message"),

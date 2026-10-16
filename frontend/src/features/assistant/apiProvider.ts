@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
-import type { AssistantProvider, ChatAnswer, ChatHistory, ChatTurn } from './types'
+import type { AssistantProvider, ChatAnswer, ChatFavorite, ChatHistory, ChatTurn } from './types'
 
 /**
  * 챗봇 provider — `POST /api/v1/chat` (`API_SPEC §15.1` · `#121`).
@@ -25,15 +25,21 @@ export class AssistantError extends Error {
    * 다시 물어도 같은 404다. 화면이 번호를 버리고 다음 질문부터 새 대화로 시작한다.
    */
   readonly sessionGone: boolean
+  /**
+   * 별을 달려던 답이 서버에 없다 (#2405 — `PUT /chat/messages/{id}/favorite`의 404). 만료로
+   * 지워졌거나 다른 탭에서 대화를 지웠다. 화면이 별 집합·목록을 다시 받는다.
+   */
+  readonly messageGone: boolean
 
   constructor(
     message: string,
-    options?: { unavailable?: boolean; sessionGone?: boolean; cause?: unknown },
+    options?: { unavailable?: boolean; sessionGone?: boolean; messageGone?: boolean; cause?: unknown },
   ) {
     super(message, { cause: options?.cause })
     this.name = 'AssistantError'
     this.unavailable = options?.unavailable ?? false
     this.sessionGone = options?.sessionGone ?? false
+    this.messageGone = options?.messageGone ?? false
   }
 }
 
@@ -44,6 +50,8 @@ interface ServerData {
   tool_calls?: string[]
   discarded?: boolean
   vessel_resolved?: boolean
+  /** #2405 — 저장된 답 행의 번호. 폐기·실패로 저장되지 않았으면 `null`. */
+  message_id?: string | null
 }
 
 /** `GET /chat/sessions/{id}/messages`의 항목 하나 (`API_SPEC §15.8`). */
@@ -52,6 +60,44 @@ interface ServerMessage {
   content?: string
   discarded?: boolean
   tool_calls?: string[]
+  /** #2405 — 저장된 ASSISTANT 행만 문자열이다. USER 항목·폐기 합성 항목은 `null`. */
+  message_id?: string | null
+}
+
+/** `GET /chat/favorites`의 항목 하나 (#2405). */
+interface ServerFavorite {
+  session_id?: unknown
+  message_id?: unknown
+  question?: unknown
+  answer?: unknown
+  answered_at?: unknown
+  expires_at?: unknown
+  favorited_at?: unknown
+}
+
+/** 서버 항목 → 즐겨찾기 (#2405). 키가 빠졌거나 타입이 다르면 `null` — 호출부가 던진다. */
+function toFavorite(item: ServerFavorite): ChatFavorite | null {
+  const { session_id, message_id, question, answer, answered_at, expires_at, favorited_at } = item
+  if (
+    typeof session_id !== 'string' ||
+    typeof message_id !== 'string' ||
+    !(question === null || typeof question === 'string') ||
+    typeof answer !== 'string' ||
+    typeof answered_at !== 'string' ||
+    typeof expires_at !== 'string' ||
+    typeof favorited_at !== 'string'
+  ) {
+    return null
+  }
+  return {
+    sessionId: session_id,
+    messageId: message_id,
+    question,
+    answer,
+    answeredAt: answered_at,
+    expiresAt: expires_at,
+    favoritedAt: favorited_at,
+  }
 }
 
 /**
@@ -71,6 +117,8 @@ function toTurn(message: ServerMessage): Omit<ChatTurn, 'id'> | null {
     text: message.content,
     discarded,
     toolCalls: discarded ? undefined : (message.tool_calls ?? []),
+    // #2405 — 버린 답에는 번호가 있어도 싣지 않는다. 답이 아닌 것에 별을 달 수 없다.
+    ...(!discarded && typeof message.message_id === 'string' ? { messageId: message.message_id } : {}),
   }
 }
 
@@ -160,6 +208,7 @@ export function createApiAssistantProvider(
         toolCalls: data.tool_calls ?? [],
         discarded: data.discarded === true,
         vesselResolved: data.vessel_resolved === true,
+        ...(typeof data.message_id === 'string' ? { messageId: data.message_id } : {}),
       }
     },
 
@@ -235,6 +284,99 @@ export function createApiAssistantProvider(
       throw new AssistantError(
         body?.error?.message ?? '대화를 지우지 못했습니다.',
       )
+    },
+
+    /*
+     * #2405 — 내 즐겨찾기 목록. 둘러보기 계정은 서버가 빈 목록을 준다. 항목 하나라도 형식이
+     * 어긋나면 던진다 — 일부만 그리면 사용자는 빠진 별을 「지워졌다」로 읽는다.
+     */
+    async favorites(): Promise<readonly ChatFavorite[]> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/chat/favorites`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        })
+      } catch (cause) {
+        throw new AssistantError('서버에 연결하지 못했습니다.', { cause })
+      }
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new AssistantError(SESSION_EXPIRED_MESSAGE)
+      }
+      const body = (await response.json().catch(() => null)) as {
+        data?: { favorites?: ServerFavorite[] }
+        error?: { message?: string }
+      } | null
+      if (!response.ok) {
+        throw new AssistantError(body?.error?.message ?? '즐겨찾기를 불러오지 못했습니다.')
+      }
+      const items = body?.data?.favorites
+      if (!Array.isArray(items)) throw new AssistantError('응답 형식이 올바르지 않습니다.')
+      const favorites: ChatFavorite[] = []
+      for (const item of items) {
+        const favorite = toFavorite(item)
+        if (favorite === null) throw new AssistantError('응답 형식이 올바르지 않습니다.')
+        favorites.push(favorite)
+      }
+      return favorites
+    },
+
+    /* #2405 — 별 달기. 이미 달려 있어도 서버가 200이다(멱등). 404는 「답이 없다」라 `messageGone`으로 던진다. */
+    async favorite(messageId): Promise<void> {
+      let response: Response
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/chat/messages/${encodeURIComponent(messageId)}/favorite`,
+          {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { Accept: 'application/json', ...csrfHeaders() },
+          },
+        )
+      } catch (cause) {
+        throw new AssistantError('서버에 연결하지 못했습니다.', { cause })
+      }
+      if (response.ok) return
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new AssistantError(SESSION_EXPIRED_MESSAGE)
+      }
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+      throw new AssistantError(body?.error?.message ?? '즐겨찾기에 넣지 못했습니다.', {
+        messageGone: response.status === 404,
+      })
+    },
+
+    /*
+     * #2405 — 별 떼기. 204가 성공이고 **404도 성공으로 본다** — 답이 만료·삭제로 이미 없으면
+     * 떼려던 별도 함께 없다(`forget`과 같은 이유).
+     */
+    async unfavorite(messageId): Promise<void> {
+      let response: Response
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/chat/messages/${encodeURIComponent(messageId)}/favorite`,
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { Accept: 'application/json', ...csrfHeaders() },
+          },
+        )
+      } catch (cause) {
+        throw new AssistantError('서버에 연결하지 못했습니다.', { cause })
+      }
+      if (response.status === 204 || response.status === 404) return
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new AssistantError(SESSION_EXPIRED_MESSAGE)
+      }
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+      throw new AssistantError(body?.error?.message ?? '즐겨찾기에서 빼지 못했습니다.')
     },
   }
 }

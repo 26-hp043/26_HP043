@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { AssistantOverlay, STATUS_RECHECK_MS, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
-import type { AssistantProvider, ChatAnswer, ChatHistory } from './types'
+import type { AssistantProvider, ChatAnswer, ChatFavorite, ChatHistory } from './types'
 import { publishScreenResult, resetScreenResult } from './screenResult'
 import { forgetSession, recallSession, rememberSession } from './sessionMemory'
 
@@ -1424,5 +1424,461 @@ describe('차단 중에는 복원하지 않고, 풀리면 같은 탭의 대화�
 
     expect(history).toHaveBeenCalledWith('session-9')
     expect(screen.getByText('전의 답')).toBeTruthy()
+  })
+})
+
+describe('답 즐겨찾기 (#2405)', () => {
+  /*
+   * 표시 문구는 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 버튼은 이름으로 찾고, 성질
+   * (있다·없다 · 눌림 · 어느 대화가 보이는가 · 탭의 기억)을 단언한다.
+   */
+  beforeEach(() => {
+    forgetSession()
+  })
+
+  const SAVED: ChatAnswer = { ...ANSWER, messageId: 'm-1' }
+
+  const OLD_FAVORITE: ChatFavorite = {
+    sessionId: 'session-old',
+    messageId: 'm-old',
+    question: '옛 질문',
+    answer: '옛 답',
+    answeredAt: '2026-10-01T01:00:00Z',
+    expiresAt: '2026-12-30T01:00:00Z',
+    favoritedAt: '2026-10-02T01:00:00Z',
+  }
+
+  const CURRENT: ChatHistory = {
+    sessionId: 'session-cur',
+    disclaimer: '지금 대화의 면책',
+    turns: [
+      { role: 'user', text: '지금 질문' },
+      { role: 'assistant', text: '지금 답', messageId: 'm-cur' },
+    ],
+  }
+
+  const OLD: ChatHistory = {
+    sessionId: 'session-old',
+    disclaimer: '옛 대화의 면책',
+    turns: [
+      { role: 'user', text: '옛 질문' },
+      { role: 'assistant', text: '옛 답', messageId: 'm-old' },
+      { role: 'user', text: '그다음 질문' },
+      { role: 'assistant', text: '그다음 답', messageId: 'm-next' },
+    ],
+  }
+
+  function favoriteProvider(overrides: Partial<AssistantProvider> = {}) {
+    const provider = {
+      ask: vi.fn<AssistantProvider['ask']>(async () => SAVED),
+      history: vi.fn<NonNullable<AssistantProvider['history']>>(async (id) =>
+        id === 'session-cur' ? CURRENT : id === 'session-old' ? OLD : null,
+      ),
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => []),
+      favorite: vi.fn<NonNullable<AssistantProvider['favorite']>>(async () => {}),
+      unfavorite: vi.fn<NonNullable<AssistantProvider['unfavorite']>>(async () => {}),
+      ...overrides,
+    }
+    return provider
+  }
+
+  const stars = () => screen.queryAllByRole('button', { name: '즐겨찾기' })
+  const listToggle = () => screen.queryByRole('button', { name: '즐겨찾기 목록' })
+
+  it('별은 저장된 답에만 있다 — 버린 답 · 호출 실패에는 없다', async () => {
+    const provider = favoriteProvider({
+      ask: vi
+        .fn<AssistantProvider['ask']>()
+        .mockResolvedValueOnce(SAVED)
+        .mockResolvedValueOnce({ ...ANSWER, answer: '버린 답', discarded: true })
+        .mockRejectedValueOnce(new AssistantError('연결 실패')),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    await send('둘')
+    await screen.findByText(/버린 답/)
+    await send('셋')
+    await screen.findByText('연결 실패')
+
+    expect(stars()).toHaveLength(1)
+    expect(stars()[0].getAttribute('aria-pressed')).toBe('false')
+    // 별은 저장된 답의 줄에 붙는다.
+    expect(stars()[0].closest('.assistant__turn-row')!.textContent).toContain(ANSWER.answer)
+  })
+
+  it('목록이 이미 그 답을 갖고 있으면 별이 눌린 채로 그려진다', async () => {
+    const provider = favoriteProvider({
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [
+        { ...OLD_FAVORITE, sessionId: 'session-1', messageId: 'm-1' },
+      ]),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await waitFor(() => expect(provider.favorites).toHaveBeenCalled())
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    expect(stars()[0].getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('별 상태를 모르면(목록 조회 실패) 별을 그리지 않는다 — 빈 별은 「없다」로 읽힌다', async () => {
+    const provider = favoriteProvider({
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => {
+        throw new AssistantError('조회 실패')
+      }),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    expect(stars()).toHaveLength(0)
+  })
+
+  it('목록 조회가 실패하면 대화 화면에도 알리고, 다시 시도하면 목록을 다시 받아 별을 그린다', async () => {
+    const favorites = vi
+      .fn<NonNullable<AssistantProvider['favorites']>>()
+      .mockRejectedValueOnce(new AssistantError('조회 실패'))
+      .mockResolvedValue([])
+    const provider = favoriteProvider({ favorites })
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+
+    // 대화 화면에 안내 한 줄과 다시 시도 버튼이 있다(문구는 표시 문구라 성질만 본다).
+    const retry = await waitFor(() => {
+      const button = container.querySelector<HTMLButtonElement>('.assistant__notice .assistant__retry')
+      expect(button).not.toBeNull()
+      return button!
+    })
+    expect(retry.closest('.assistant__notice')!.textContent!.length).toBeGreaterThan(retry.textContent!.length)
+    expect(stars()).toHaveLength(0)
+    const before = favorites.mock.calls.length
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(stars()).toHaveLength(1))
+    expect(favorites.mock.calls.length).toBe(before + 1)
+    expect(container.querySelector('.assistant__retry')).toBeNull()
+  })
+
+  it('별 버튼은 낭독을 끈 자리 안에 들어간다 — 목록이 늦게 와 별이 끼어들어도 알리지 않고, 말풍선 글자는 그대로 알린다', async () => {
+    let resolveFavorites: (list: readonly ChatFavorite[]) => void = () => {}
+    const provider = favoriteProvider({
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(
+        () => new Promise((resolve) => {
+          resolveFavorites = resolve
+        }),
+      ),
+    })
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    const bubble = await screen.findByText(ANSWER.answer)
+    // 아직 모른다 — 별은 없고, 낭독을 끈 자리만 먼저 있다.
+    expect(stars()).toHaveLength(0)
+    const slot = bubble.closest('.assistant__turn-row')!.querySelector('[aria-live="off"]')
+    expect(slot).not.toBeNull()
+
+    await act(async () => {
+      resolveFavorites([])
+    })
+    expect(stars()).toHaveLength(1)
+    // 별은 그 자리 안에 끼어든다 — 가장 가까운 live 조상이 `off`다.
+    expect(stars()[0].closest('[aria-live]')).toBe(slot)
+    // 말풍선 글자의 가장 가까운 live 조상은 대화 로그(polite)다.
+    const log = container.querySelector('.assistant__log')!
+    expect(log.getAttribute('aria-live')).toBe('polite')
+    expect(bubble.closest('[aria-live]')).toBe(log)
+  })
+
+  it('누르면 favorite · 다시 누르면 unfavorite — 이름은 그대로이고 aria-pressed만 바뀐다', async () => {
+    const provider = favoriteProvider()
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    const star = stars()[0]
+    const name = star.getAttribute('aria-label')
+
+    fireEvent.click(star)
+    await waitFor(() => expect(star.getAttribute('aria-pressed')).toBe('true'))
+    expect(provider.favorite).toHaveBeenCalledWith('m-1')
+    expect(star.getAttribute('aria-label')).toBe(name)
+
+    fireEvent.click(star)
+    await waitFor(() => expect(star.getAttribute('aria-pressed')).toBe('false'))
+    expect(provider.unfavorite).toHaveBeenCalledWith('m-1')
+    expect(star.getAttribute('aria-label')).toBe(name)
+  })
+
+  it('달기가 실패하면 별을 바꾸지 않고 알린다', async () => {
+    const provider = favoriteProvider({
+      favorite: vi.fn<NonNullable<AssistantProvider['favorite']>>(async () => {
+        throw new AssistantError('답을 찾을 수 없습니다.')
+      }),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    fireEvent.click(stars()[0])
+    expect((await screen.findByRole('alert')).textContent).toContain('답을 찾을 수 없습니다.')
+    expect(stars()[0].getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('둘러보기에서는 별도 목록 버튼도 그리지 않는다', async () => {
+    const provider = favoriteProvider()
+    const { rerender } = render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    expect(stars()).toHaveLength(1)
+    expect(listToggle()).not.toBeNull()
+
+    // 세션 확인이 늦어 `tour`가 뒤에 참이 되어도 따라간다.
+    rerender(<AssistantOverlay provider={provider} tour />)
+    expect(stars()).toHaveLength(0)
+    expect(listToggle()).toBeNull()
+  })
+
+  it('provider가 즐겨찾기를 모르면 별도 목록 버튼도 없다', async () => {
+    setup()
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    expect(stars()).toHaveLength(0)
+    expect(listToggle()).toBeNull()
+  })
+
+  it('목록을 열면 패널 안에서 본문이 바뀌고, 비어 있으면 안내가 나온다', async () => {
+    const provider = favoriteProvider()
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    fireEvent.click(listToggle()!)
+
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('true')
+    // 오버레이를 떠나지 않는다 — 같은 패널 안이다.
+    expect(screen.getByRole('region', { name: 'AI 어시스턴트' })).toBeTruthy()
+    // 입력 대신 돌아가는 버튼.
+    expect(screen.queryByLabelText('질문')).toBeNull()
+    expect(screen.getByRole('button', { name: '지금 대화로 돌아가기' })).toBeTruthy()
+    await waitFor(() =>
+      expect(container.querySelector('.assistant__favorites .assistant__empty')?.textContent).toBeTruthy(),
+    )
+    expect(container.querySelector('.assistant__favorites-list')).toBeNull()
+  })
+
+  it('목록 줄은 질문과 답을 함께 보이고 받은 날 · 지워지는 날을 적는다', async () => {
+    const provider = favoriteProvider({
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE]),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    fireEvent.click(listToggle()!)
+    const row = await screen.findByRole('button', { name: /옛 질문/ })
+    expect(row.textContent).toContain('옛 답')
+    // 날짜 두 개 — 화면 형식은 `formatTimestamp`가 정하므로 해(2026)만 본다.
+    expect(row.textContent!.match(/2026/g)).toHaveLength(2)
+  })
+
+  it('줄을 누르면 그 대화를 열람 전용으로 열고, 탭의 기억은 바꾸지 않으며, 돌아가면 하던 대화가 그대로다', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      rememberSession('session-cur')
+      const ask = vi.fn<AssistantProvider['ask']>(async () => SAVED)
+      const provider = favoriteProvider({
+        ask,
+        favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE]),
+      })
+      const { container } = render(<AssistantOverlay provider={provider} />)
+      open()
+      await screen.findByText('지금 답')
+
+      fireEvent.click(listToggle()!)
+      fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+
+      expect(await screen.findByText('그다음 답')).toBeTruthy()
+      expect(provider.history).toHaveBeenLastCalledWith('session-old')
+      // 열람 전용 — 입력이 없고 돌아가는 버튼이 있다. 하던 대화는 그리지 않는다.
+      expect(screen.queryByLabelText('질문')).toBeNull()
+      expect(screen.getByRole('button', { name: '지금 대화로 돌아가기' })).toBeTruthy()
+      expect(screen.queryByText('지금 답')).toBeNull()
+      // 즐겨찾기한 답만 강조되고 그리로 옮겨 가 초점을 받는다.
+      const targets = container.querySelectorAll('.assistant__turn-row--target')
+      expect(targets).toHaveLength(1)
+      expect(targets[0].textContent).toContain('옛 답')
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+      expect(document.activeElement).toBe(targets[0])
+      // 열람 중의 별도 그 상태 그대로 — 즐겨찾기한 답은 눌려 있다.
+      expect(within(targets[0] as HTMLElement).getByRole('button', { name: '즐겨찾기' }).getAttribute('aria-pressed')).toBe('true')
+      // 열람 로그는 알리지 않는다 — 낭독은 초점 이동이 맡는다.
+      expect(targets[0].closest('[role="log"]')!.getAttribute('aria-live')).toBe('off')
+      // 탭이 기억한 대화 번호는 그대로다.
+      expect(recallSession()).toBe('session-cur')
+
+      fireEvent.click(screen.getByRole('button', { name: '지금 대화로 돌아가기' }))
+      expect(await screen.findByText('지금 답')).toBeTruthy()
+      expect(screen.queryByText('그다음 답')).toBeNull()
+      expect(screen.getByLabelText('질문')).toBeTruthy()
+      expect(recallSession()).toBe('session-cur')
+
+      // 다음 질문은 하던 대화로 간다.
+      await send('이어서')
+      await waitFor(() => expect(ask).toHaveBeenCalled())
+      expect(ask.mock.calls[0][0].sessionId).toBe('session-cur')
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
+  it('목록 버튼은 목록 화면에서만 눌려 있다 — 열람 중에 누르면 목록으로, 목록에서 누르면 대화로 간다', async () => {
+    const favorites = vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE])
+    const provider = favoriteProvider({ favorites })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(listToggle()!)
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+    await screen.findByText('그다음 답')
+    // 열람 중 — 목록 화면이 아니므로 눌려 있지 않다.
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('false')
+
+    const before = favorites.mock.calls.length
+    fireEvent.click(listToggle()!)
+    // 목록으로 돌아간다(대화가 아니다) — 목록을 다시 받고 입력은 여전히 없다.
+    expect(await screen.findByRole('button', { name: /옛 질문/ })).toBeTruthy()
+    expect(screen.queryByText('그다음 답')).toBeNull()
+    expect(screen.queryByLabelText('질문')).toBeNull()
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('true')
+    expect(favorites.mock.calls.length).toBeGreaterThan(before)
+
+    fireEvent.click(listToggle()!)
+    expect(screen.getByLabelText('질문')).toBeTruthy()
+    expect(listToggle()!.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('열람한 대화가 도착해도 패널 밖으로 나간 초점은 빼앗지 않는다 — 스크롤은 한다', async () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    try {
+      let resolveHistory: (history: ChatHistory | null) => void = () => {}
+      const provider = favoriteProvider({
+        favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE]),
+        history: vi.fn<NonNullable<AssistantProvider['history']>>(
+          () => new Promise((resolve) => {
+            resolveHistory = resolve
+          }),
+        ),
+      })
+      const { container } = render(<AssistantOverlay provider={provider} />)
+      open()
+      fireEvent.click(listToggle()!)
+      fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+      // 기다리는 동안 본문으로 나갔다.
+      outside.focus()
+
+      await act(async () => {
+        resolveHistory(OLD)
+      })
+      await screen.findByText('그다음 답')
+      expect(container.querySelector('.assistant__turn-row--target')).not.toBeNull()
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' })
+      expect(document.activeElement).toBe(outside)
+    } finally {
+      outside.remove()
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
+  it('달려던 답이 서버에 없으면(404) 별 집합·목록을 다시 받는다', async () => {
+    const favorites = vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [])
+    const provider = favoriteProvider({
+      favorites,
+      favorite: vi.fn<NonNullable<AssistantProvider['favorite']>>(async () => {
+        throw new AssistantError('답을 찾을 수 없습니다.', { messageGone: true })
+      }),
+    })
+    render(<AssistantOverlay provider={provider} />)
+    open()
+    await send('하나')
+    await screen.findByText(ANSWER.answer)
+    await waitFor(() => expect(stars()).toHaveLength(1))
+    const before = favorites.mock.calls.length
+
+    fireEvent.click(stars()[0])
+    await waitFor(() => expect(favorites.mock.calls.length).toBe(before + 1))
+    // 대화 화면에서는 실패를 알리고 대화는 그대로다.
+    expect((await screen.findByRole('alert')).textContent).toBeTruthy()
+    expect(screen.getByLabelText('질문')).toBeTruthy()
+  })
+
+  it('열람 중 별을 달려던 답이 서버에 없으면(404) 목록으로 돌아가 알린다', async () => {
+    const favorites = vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE])
+    const provider = favoriteProvider({
+      favorites,
+      favorite: vi.fn<NonNullable<AssistantProvider['favorite']>>(async () => {
+        throw new AssistantError('답을 찾을 수 없습니다.', { messageGone: true })
+      }),
+    })
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    fireEvent.click(listToggle()!)
+    fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+    const other = (await screen.findByText('그다음 답')).closest('.assistant__turn-row') as HTMLElement
+    const before = favorites.mock.calls.length
+
+    // 즐겨찾기하지 않은 답(눌려 있지 않은 별)을 단다 → 404.
+    fireEvent.click(within(other).getByRole('button', { name: '즐겨찾기' }))
+    await waitFor(() =>
+      expect(container.querySelector('.assistant__favorites .assistant__notice')?.textContent).toBeTruthy(),
+    )
+    expect(screen.queryByText('그다음 답')).toBeNull()
+    expect(favorites.mock.calls.length).toBeGreaterThan(before)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.activeElement).not.toBe(document.body)
+  })
+
+  it('열람 중에도 별을 뗄 수 있다', async () => {
+    const provider = favoriteProvider({
+      favorites: vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [OLD_FAVORITE]),
+    })
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    fireEvent.click(listToggle()!)
+    fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+    await screen.findByText('그다음 답')
+    const target = container.querySelector('.assistant__turn-row--target') as HTMLElement
+    const star = within(target).getByRole('button', { name: '즐겨찾기' })
+    fireEvent.click(star)
+    await waitFor(() => expect(star.getAttribute('aria-pressed')).toBe('false'))
+    expect(provider.unfavorite).toHaveBeenCalledWith('m-old')
+  })
+
+  it('열 대화가 서버에 없으면(404) 목록으로 돌아가 알리고 목록을 다시 받는다', async () => {
+    const favorites = vi.fn<NonNullable<AssistantProvider['favorites']>>(async () => [
+      { ...OLD_FAVORITE, sessionId: 'session-gone' },
+    ])
+    const provider = favoriteProvider({ favorites })
+    const { container } = render(<AssistantOverlay provider={provider} />)
+    open()
+    fireEvent.click(listToggle()!)
+    const before = favorites.mock.calls.length
+    fireEvent.click(await screen.findByRole('button', { name: /옛 질문/ }))
+
+    await waitFor(() =>
+      expect(container.querySelector('.assistant__favorites .assistant__notice')?.textContent).toBeTruthy(),
+    )
+    expect(provider.history).toHaveBeenLastCalledWith('session-gone')
+    expect(favorites.mock.calls.length).toBeGreaterThan(before)
+    expect(screen.queryByText('그다음 답')).toBeNull()
+    expect(screen.queryByLabelText('질문')).toBeNull()
+    // 초점이 `body`로 떨어지지 않는다 — 패널의 Escape가 닿아야 한다.
+    expect(document.activeElement).not.toBe(document.body)
   })
 })
