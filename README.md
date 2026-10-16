@@ -780,4 +780,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-10-14 | `#2444` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.54**로 — `§15.8` `GET /chat/sessions/{session_id}/messages`(저장된 대화 다시 불러오기) 신설. 챗봇 대화가 새로고침하면 사라졌다 — 서버에 90일 남는 대화에 닿을 경로가 없었다 (#1981) |
 | 2026-10-15 | `#2526` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.55**로 — `§3.13` `PUT /voyages/{id}/annual-inclusion`(실적 확정 항차의 연간 반영 여부만 바꾼다) 신설 (#2420) |
 | 2026-10-16 | `#2527` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.56**으로 — `§15.9` 챗봇 답 즐겨찾기(별 달기·떼기·목록) 신설과 `§15.1`·`§15.8` 응답의 `message_id` (#2405) |
-| 2026-10-16 | `#___` | 변경 이력 커밋 열의 이슈 번호 90행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
+| 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 90행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
