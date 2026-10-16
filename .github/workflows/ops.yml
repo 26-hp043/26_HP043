@@ -31,6 +31,15 @@
 #                   전에 `backup`을 한 번 돌린다**(OPERATIONS §3.8). 주기 실행·백업 이어 붙이기는
 #                   택하지 않았다 — ⑴ 백업이 수동인 채 삭제만 자동이 되면 「백업 → 삭제」 순서가
 #                   깨진다 ⑵ 백업에 이어 붙이면 백업만 뜨고 싶을 때도 지워진다.
+#   recalc-preview  app-01 백엔드 컨테이너에서 저장 연간 실행의 낡음 표시 소급을 **미리 본다**
+#                   (#2373 · OPERATIONS §3.8.1 1단계 · `annual_needs_recalc --json` · 쓰기 없음).
+#                   보고 JSON에는 선박명·운항 수치가 담기므로 러너로 받아 **암호화해서만**
+#                   `recalc-preview-<실행번호>` 아티팩트(14일)로 올리고, 로그에는 건수만 찍는다.
+#                   `BACKUP_ARTIFACT_PASSPHRASE`가 없으면 결과를 볼 길이 없어 시작하지 않는다.
+#   recalc-apply    허락한 미리 보기(`preview_run` = 그 실행 번호)의 아티팩트를 **승인 목록**으로
+#                   받아 그 대상에만 `needs_recalc`를 세운다(§3.8.1 3단계 · 되돌릴 수 없다).
+#                   `confirm`에 `cii`. 결과 JSON과 복구 자료(표시할 `calculation_run` 번호)를
+#                   암호화해 `recalc-apply-<실행번호>`로 올린다. 로그에는 건수만 찍는다.
 #
 # ⚠️ 이 저장소는 **공개**다. Actions 로그와 아티팩트를 누구나 본다. 그래서 덤프는
 # `BACKUP_ARTIFACT_PASSPHRASE`로 **암호화한 파일만** 올리고, 시크릿이 없으면 올리지 않는다
@@ -49,7 +58,7 @@ on:
       task:
         description: "작업"
         type: choice
-        options: [inspect, backup, rehearse, collect, bench, rollback-drill, restore, app-start, purge]
+        options: [inspect, backup, rehearse, collect, bench, rollback-drill, restore, app-start, purge, recalc-preview, recalc-apply]
         default: inspect
       image_sha:
         description: "rollback-drill: 잠시 띄울 이전 이미지 커밋 (12자리)"
@@ -60,7 +69,11 @@ on:
         type: string
         default: ""
       confirm:
-        description: "restore: 운영 DB 이름 `cii`를 적어야 시작한다 · purge: `cii`를 적어야 실제로 지운다(비우면 세기만 한다)"
+        description: "restore·recalc-apply: 운영 DB 이름 `cii`를 적어야 시작한다 · purge: `cii`를 적어야 실제로 지운다(비우면 세기만 한다)"
+        type: string
+        default: ""
+      preview_run:
+        description: "recalc-apply: 허락한 recalc-preview 실행의 번호(run id · 숫자) — 그 아티팩트가 승인 목록이다"
         type: string
         default: ""
 
@@ -71,6 +84,8 @@ concurrency:
 permissions:
   contents: read
   packages: read
+  # recalc-apply가 미리 보기 실행의 아티팩트를 `gh run download`로 받는다 (#2373)
+  actions: read
 
 jobs:
   ops:
@@ -97,6 +112,7 @@ jobs:
           IMAGE_SHA: ${{ inputs.image_sha }}
           CONFIRM: ${{ inputs.confirm }}
           DUMP: ${{ inputs.dump }}
+          PREVIEW_RUN: ${{ inputs.preview_run }}
         run: |
           if [ "${TASK}" = "rollback-drill" ] && ! printf '%s' "${IMAGE_SHA}" | grep -Eq '^[0-9a-f]{12}$'; then
             echo "::error::rollback-drill에는 image_sha(커밋 12자리)가 필요하다"
@@ -110,6 +126,20 @@ jobs:
           # 세기만 하는 쪽으로 조용히 넘기지 않는다 — 지운 줄 알고 끝나는 일을 막는다
           if [ "${TASK}" = "purge" ] && [ -n "${CONFIRM}" ] && [ "${CONFIRM}" != "cii" ]; then
             echo "::error::purge의 confirm은 비우거나(세기만) 운영 DB 이름 cii(실제로 지움)여야 한다"
+            exit 1
+          fi
+          # recalc-apply는 되돌릴 수 없는 표시를 쓴다 — restore와 같은 잠금 + 허락한 미리 보기 실행 번호
+          if [ "${TASK}" = "recalc-apply" ] && [ "${CONFIRM}" != "cii" ]; then
+            echo "::error::recalc-apply는 confirm에 운영 DB 이름 cii를 적어야 시작한다"
+            exit 1
+          fi
+          # 실행 번호는 명령 인자와 아티팩트 이름에 들어간다 — 숫자만 받는다
+          if [ "${TASK}" = "recalc-apply" ] && ! printf '%s' "${PREVIEW_RUN}" | grep -Eq '^[1-9][0-9]{0,19}$'; then
+            echo "::error::recalc-apply에는 preview_run(허락한 recalc-preview 실행 번호 · 숫자)이 필요하다"
+            exit 1
+          fi
+          if [ -n "${PREVIEW_RUN}" ] && [ "${TASK}" != "recalc-apply" ]; then
+            echo "::error::preview_run 입력은 recalc-apply 전용이다"
             exit 1
           fi
           # 덤프 이름은 원격 셸에 들어간다 — 파일 이름 모양만 받는다
@@ -425,6 +455,169 @@ jobs:
             python3 scripts/purge_expired.py --dry-run </dev/null
           fi
           ENDSSH
+
+      # ------------------------------------------------------------------
+      # recalc-preview · recalc-apply — 저장 연간 실행의 낡음 표시 소급 (#2373 · OPERATIONS §3.8.1)
+      # ------------------------------------------------------------------
+      # ⚠️ 도구의 표준출력(표 · 「승인 목록 밖 … (선박명)」 줄)과 보고 JSON에는 **선박명과 운항
+      # 수치**가 담긴다. 공개 저장소라 Actions 로그에 흘리지 않는다 — 표준출력은 `>/dev/null`로
+      # 버리고, JSON은 ssh 표준출력을 **파일로만** 받아 암호화해 올린다(평문은 지운다). 로그에는
+      # 건수(counts · marked)만 찍는다. 도구의 표준오류는 그대로 둔다 — 도구가 직접 쓰는 오류
+      # 문구는 승인 목록 읽기 실패 사유뿐이고 선박명을 싣지 않는다.
+      # 결과는 아티팩트로만 볼 수 있으므로 암호 시크릿이 없으면 시작하지 않는다(backup처럼
+      # 경고 후 통과하면 아무도 볼 수 없는 실행만 남는다).
+      - name: 재계산 미리 보기 (app-01)
+        id: recalc_preview
+        if: inputs.task == 'recalc-preview'
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_ARTIFACT_PASSPHRASE }}
+        run: |
+          if [ -z "${PASSPHRASE}" ]; then
+            echo "::error::BACKUP_ARTIFACT_PASSPHRASE가 없다 — 미리 보기 결과를 볼 길이 없어 시작하지 않는다 · #2373"
+            exit 1
+          fi
+          plain="${RUNNER_TEMP:?}/recalc-plain"
+          out="${RUNNER_TEMP:?}/recalc-preview"
+          mkdir -p "${plain}" "${out}"
+          trap 'rm -rf "${plain:?}"' EXIT
+          # 원격 표준출력은 보고 JSON 한 벌뿐이다 — 로그가 아니라 파일로 받는다
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" bash -s <<'ENDSSH' > "${plain}/recalc_preview.json"
+          set -euo pipefail
+          cd ~/bluelog
+          compose="docker compose -f docker-compose.prod.app.yml"
+          trap '${compose} exec -T backend rm -f /tmp/recalc_preview.json </dev/null >/dev/null 2>&1 || true' EXIT
+          ${compose} exec -T backend python -m cii_platform.maintenance.annual_needs_recalc --json /tmp/recalc_preview.json </dev/null >/dev/null
+          ${compose} exec -T backend cat /tmp/recalc_preview.json </dev/null
+          ENDSSH
+          python3 - "${plain}/recalc_preview.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          if data.get("format_version") != 1 or data.get("mode") != "dry-run":
+              sys.exit("::error::미리 보기 JSON의 형식이 아니다 (format_version 1 · dry-run)")
+          print(f"[recalc] 미리 보기 counts={json.dumps(data['counts'])} marked={data['marked']}")
+          PY
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+            -pass env:PASSPHRASE -in "${plain}/recalc_preview.json" -out "${out}/recalc_preview.json.enc"
+          echo "encrypted=true" >> "$GITHUB_OUTPUT"
+
+      - name: 재계산 미리 보기 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)
+        if: steps.recalc_preview.outputs.encrypted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recalc-preview-${{ github.run_id }}
+          path: ${{ runner.temp }}/recalc-preview/*.enc
+          retention-days: 14
+          if-no-files-found: error
+
+      # 허락한 미리 보기 JSON이 곧 승인 목록이다(§3.8.1 2단계). 사람이 내려받아 다시 올리지 않고
+      # 그 실행의 아티팩트를 그대로 받는다 — 허락한 파일과 적용에 쓰는 파일이 같은 바이트다.
+      - name: 재계산 승인 목록 받기 (미리 보기 아티팩트 → 러너)
+        if: inputs.task == 'recalc-apply'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_RUN: ${{ inputs.preview_run }}
+          PASSPHRASE: ${{ secrets.BACKUP_ARTIFACT_PASSPHRASE }}
+        run: |
+          if [ -z "${PASSPHRASE}" ]; then
+            echo "::error::BACKUP_ARTIFACT_PASSPHRASE가 없다 — 승인 목록을 풀 수 없다 · #2373"
+            exit 1
+          fi
+          got="${RUNNER_TEMP:?}/recalc-approved-enc"
+          plain="${RUNNER_TEMP:?}/recalc-plain"
+          mkdir -p "${got}" "${plain}"
+          gh run download "${PREVIEW_RUN}" --repo "${GITHUB_REPOSITORY}" -n "recalc-preview-${PREVIEW_RUN}" -D "${got}"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+            -pass env:PASSPHRASE -in "${got}/recalc_preview.json.enc" -out "${plain}/recalc_approved.json"
+          python3 - "${plain}/recalc_approved.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          if data.get("format_version") != 1 or data.get("mode") != "dry-run":
+              sys.exit("::error::승인 목록이 미리 보기 JSON이 아니다 (format_version 1 · dry-run)")
+          print(f"[recalc] 승인 목록 counts={json.dumps(data['counts'])} 생성 {data.get('generated_at')}")
+          PY
+
+      # 적용은 승인 목록의 대상만 표시하고, 표시 **전에** 복구 자료를 남긴다(도구가 한다).
+      # 도구가 실패해도 복구 자료가 남았을 수 있으므로 받을 수 있는 것은 받아 올린 뒤 실패로 끝낸다.
+      # 승인 목록은 원격 heredoc(`bash -s`)이 아니라 **따로 연 ssh의 표준입력**으로 넣는다 — 한
+      # 표준입력에 스크립트와 파일을 함께 실으면 어느 쪽이 무엇을 읽는지가 꼬인다.
+      - name: 재계산 적용 (app-01)
+        id: recalc_apply
+        if: inputs.task == 'recalc-apply'
+        env:
+          PASSPHRASE: ${{ secrets.BACKUP_ARTIFACT_PASSPHRASE }}
+        run: |
+          plain="${RUNNER_TEMP:?}/recalc-plain"
+          out="${RUNNER_TEMP:?}/recalc-apply"
+          mkdir -p "${out}"
+          app() {
+            ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" \
+              "cd ~/bluelog && docker compose -f docker-compose.prod.app.yml exec -T backend $1"
+          }
+          cleanup() {
+            app "rm -f /tmp/recalc_approved.json /tmp/recalc_apply.json /tmp/recalc_recovery.json </dev/null" </dev/null \
+              || echo "::warning::컨테이너 /tmp의 재계산 파일을 지우지 못했다"
+            rm -rf "${plain:?}"
+          }
+          trap cleanup EXIT
+          app "sh -c 'cat > /tmp/recalc_approved.json'" < "${plain}/recalc_approved.json"
+          rc=0
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" bash -s <<'ENDSSH' || rc=$?
+          set -euo pipefail
+          cd ~/bluelog
+          docker compose -f docker-compose.prod.app.yml exec -T backend python -m cii_platform.maintenance.annual_needs_recalc \
+            --apply --approved /tmp/recalc_approved.json \
+            --recovery-file /tmp/recalc_recovery.json --json /tmp/recalc_apply.json </dev/null >/dev/null
+          ENDSSH
+          for f in recalc_apply.json recalc_recovery.json; do
+            if app "cat /tmp/${f} </dev/null" </dev/null > "${plain}/${f}.part"; then
+              mv "${plain}/${f}.part" "${plain}/${f}"
+            else
+              echo "::warning::${f}를 받지 못했다"
+            fi
+          done
+          # 건수만 — 「승인 목록 밖」(지금 대상인데 목록에 없음)·「승인 뒤 상태가 바뀜」(목록에 있는데
+          # 지금은 대상이 아님)이 0이 아니면 2단계로 돌아가 새 미리 보기를 허락받는다
+          python3 - "${plain}/recalc_approved.json" "${plain}/recalc_apply.json" "${plain}/recalc_recovery.json" <<'PY' \
+            || echo "::warning::결과 건수를 읽지 못했다 — 아티팩트를 풀어 본다"
+          import json, os, sys
+
+          def load(path):
+              return json.load(open(path, encoding="utf-8")) if os.path.exists(path) else None
+
+          approved, result, recovery = (load(p) for p in sys.argv[1:4])
+          if recovery is not None:
+              print(f"[recalc] 복구 자료 — 표시할 calculation_run {len(recovery['calculation_run_ids'])}건")
+          if result is None:
+              print("[recalc] 결과 JSON 없음 — 도구가 보고를 쓰기 전에 멈췄다")
+          else:
+              wanted = {r["simulation_id"] for r in approved["runs"] if r.get("status") == "TARGET"}
+              now = {r["simulation_id"] for r in result["runs"] if r.get("status") == "TARGET"}
+              print(f"[recalc] 적용 counts={json.dumps(result['counts'])} marked={result['marked']}")
+              print(f"[recalc] 승인 목록 밖 {len(now - wanted)}건 · 승인 뒤 상태가 바뀜 {len(wanted - now)}건")
+              if now != wanted:
+                  print("::warning::승인 목록과 지금 대상이 다르다 — 2단계로 돌아가 새 미리 보기를 허락받는다(OPERATIONS §3.8.1)")
+          PY
+          for f in recalc_apply.json recalc_recovery.json; do
+            [ -f "${plain}/${f}" ] || continue
+            openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt \
+              -pass env:PASSPHRASE -in "${plain}/${f}" -out "${out}/${f}.enc"
+          done
+          if compgen -G "${out}/*.enc" >/dev/null; then
+            echo "encrypted=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "${rc}" -ne 0 ]; then
+            echo "::error::적용 도구가 실패했다(종료 코드 ${rc}) — 받은 결과·복구 자료만 올린다"
+            exit "${rc}"
+          fi
+
+      - name: 재계산 적용 결과 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)
+        if: always() && steps.recalc_apply.outputs.encrypted == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recalc-apply-${{ github.run_id }}
+          path: ${{ runner.temp }}/recalc-apply/*.enc
+          retention-days: 14
+          if-no-files-found: error
 
       # ------------------------------------------------------------------
       # collect — 공적 재항 기록 수집 (#1197)
