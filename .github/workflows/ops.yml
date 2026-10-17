@@ -356,7 +356,7 @@ jobs:
 
       - name: 덤프 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)
         if: steps.encrypt.outputs.encrypted == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: db-backup-${{ github.run_id }}
           path: ${{ runner.temp }}/db-backup/*.enc
@@ -502,7 +502,7 @@ jobs:
 
       - name: 재계산 미리 보기 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)
         if: steps.recalc_preview.outputs.encrypted == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: recalc-preview-${{ github.run_id }}
           path: ${{ runner.temp }}/recalc-preview/*.enc
@@ -628,7 +628,7 @@ jobs:
 
       - name: 재계산 적용 결과 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)
         if: always() && steps.recalc_apply.outputs.encrypted == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: recalc-apply-${{ github.run_id }}
           path: ${{ runner.temp }}/recalc-apply/*.enc
