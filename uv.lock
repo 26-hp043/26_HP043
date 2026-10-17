@@ -310,7 +310,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.9" },
     { name = "searoute", specifier = ">=1.6.0,<2.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.4,<2.2" },
-    { name = "sqlalchemy-cubrid", specifier = ">=1.8.0,<2.0" },
+    { name = "sqlalchemy-cubrid", specifier = ">=1.11.0,<2.0" },
     { name = "tzdata", specifier = ">=2025.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0,<0.60" },
     { name = "weasyprint", specifier = ">=70.0,<71" },
@@ -1302,14 +1302,14 @@ asyncio = [
 
 [[package]]
 name = "sqlalchemy-cubrid"
-version = "1.8.0"
+version = "1.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/36/42d397e82741f9416bb2d1ecba904f2a4bd7581087358d7d87c670a5ec30/sqlalchemy_cubrid-1.8.0.tar.gz", hash = "sha256:922ccd63bf10d19479b6914596634c55281dd76bd2628b853f432ab09986cd80", size = 206629, upload-time = "2026-09-28T18:56:24.59Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/13/91/ae652f4efacb41e99282f297b75dc3128dd08e1e290cafa7abdadd6b8636/sqlalchemy_cubrid-1.11.0.tar.gz", hash = "sha256:0445ac05134290ffdf23de737e38594622a4984675ff664c9aa92efb4ae9f123", size = 374376, upload-time = "2026-10-12T10:40:10.548Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/1e/85afb273b16b26cd683b9c82dfd82e878efdb9031b5c64c86edf65589fe7/sqlalchemy_cubrid-1.8.0-py3-none-any.whl", hash = "sha256:1157138da27fffe8fcfdd835022a7f4af4ed2535f83fd437560a71b788874ad0", size = 67574, upload-time = "2026-09-28T18:56:23.233Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/ff/1c5cff5890df6bf2293ba5d33259c117885a2e657dea4c8f640fd8e7757a/sqlalchemy_cubrid-1.11.0-py3-none-any.whl", hash = "sha256:594ec50a6294dea5f40dcd557e806af9fb7d8555f6728acf90a774c1d7f355cc", size = 82665, upload-time = "2026-10-12T10:40:08.974Z" },
 ]
 
 [[package]]
