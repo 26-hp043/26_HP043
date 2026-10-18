@@ -25,6 +25,7 @@ import type { FuelUse, FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } 
 import './NotUnderwayPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
+import { portDisplayName, type SamplePort } from '../ports/samplePorts'
 
 /**
  * not under way 구간 입력 — 선박 상세(`#356`) 하위 (`UIFLOW 2-8` · `#370`).
@@ -62,6 +63,17 @@ export function NotUnderwayPanel({
    */
   onChanged?: () => void
 }) {
+  /*
+   * 항구 표시 이름 (`#2434`) — 저장값이 샘플 항만과 맞으면 한국어 이름으로 보인다.
+   * 항차 탭이 같은 함수를 쓴다: 같은 항구가 두 탭에서 다른 이름을 갖지 않게 한다.
+   *
+   * ⚠️ **훅(`useSamplePorts`)이 아니라 provider로 받는다** — 형제 패널(`VoyagePanel`)이
+   * 그렇게 하고, 그래야 검사가 목록을 주입해 **매핑 자체를 볼 수 있다.** 훅은 직접
+   * `fetch`를 불러 갈아 끼울 자리가 없다.
+   *
+   * 목록을 못 받으면 빈 목록이라 저장값이 그대로 보인다(`samplePorts.ts` `#1836` ⑸).
+   */
+  const [ports, setPorts] = useState<readonly SamplePort[]>([])
   const [periods, setPeriods] = useState<Period[] | null>(null)
   const [choices, setChoices] = useState<{
     periodTypes: string[]
@@ -95,6 +107,26 @@ export function NotUnderwayPanel({
   useEffect(() => {
     void reload()
   }, [reload])
+
+  /*
+   * 항만 목록은 한 번만 받는다 (`#2434`). 실패는 **빈 목록으로 삼킨다** — 그때는
+   * 저장값(`BUSAN`)이 그대로 보이고, 구간 기록 자체는 목록 없이도 쓸 수 있다.
+   * 화면에 코드가 보이면 이 경로를 먼저 의심한다(`samplePorts.ts` `#1836` ⑸).
+   */
+  useEffect(() => {
+    let alive = true
+    api
+      .samplePorts()
+      .then((rows) => {
+        if (alive) setPorts(rows)
+      })
+      .catch(() => {
+        if (alive) setPorts([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [api])
 
   return (
     <section className="card nu" aria-label="not under way 구간">
@@ -150,6 +182,7 @@ export function NotUnderwayPanel({
             <PeriodRow
               key={period.id}
               period={period}
+              ports={ports}
               choices={choices}
               onClose={async (endedAt) => {
                 await api.close(period.id, endedAt)
@@ -183,6 +216,7 @@ export function NotUnderwayPanel({
 
 function PeriodRow({
   period,
+  ports,
   choices,
   onClose,
   onRemove,
@@ -190,6 +224,13 @@ function PeriodRow({
   onRemoveFuel,
 }: {
   period: Period
+  /**
+   * 항구 표시 이름을 찾을 샘플 항만 목록 (`#2434`).
+   *
+   * 패널이 한 번 받아 내려 준다 — 행마다 받으면 같은 목록을 행 수만큼 부른다.
+   * `VoyagePanel`이 같은 이유로 그렇게 한다(「패널이 한 번 받아 표와 폼이 같은 목록을 쓴다」).
+   */
+  ports: readonly SamplePort[]
   choices: { consumerTypes: string[]; fuelTypes: string[] }
   onClose: (endedAt: string) => Promise<void>
   onRemove: () => Promise<void>
@@ -281,7 +322,7 @@ function PeriodRow({
       <dl className="nu__figures">
         <div>
           <dt>항구</dt>
-          <dd>{period.portName ?? '—'}</dd>
+          <dd>{period.portName === null ? '—' : portDisplayName(ports, period.portName)}</dd>
         </div>
         <div>
           <dt>연료</dt>

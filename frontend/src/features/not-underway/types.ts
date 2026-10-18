@@ -12,6 +12,7 @@
  */
 
 import type { TimeSource } from '../data-quality/timeSource'
+import type { SamplePort } from '../ports/samplePorts'
 
 /** 연료 기록 1건. `cfUsed`는 서버가 뜬 snapshot이며 화면은 표시만 한다. */
 export interface FuelUse {
@@ -76,6 +77,13 @@ export interface PeriodDraft {
 
 export interface NotUnderwayProvider {
   list(vesselId: string): Promise<PeriodList>
+  /**
+   * 샘플 항만 목록 (`API_SPEC §3.8`) — 구간의 항구를 **보이는 이름**으로 적는 데 쓴다
+   * (`#2434`). 항차 탭이 같은 목록을 같은 이유로 받는다: 같은 항구가 두 탭에서 다른
+   * 이름을 가지면 사용자가 다른 항구로 읽는다. 실패는 빈 목록으로 삼키고 저장값을
+   * 그대로 보인다 — 목록은 편의이고 구간 기록을 막을 이유가 아니다.
+   */
+  samplePorts(): Promise<SamplePort[]>
   create(vesselId: string, draft: PeriodDraft): Promise<Period>
   /** 진행 중 구간의 종료 확정. `#370`이 지목한 주 용도다. */
   close(periodId: string, endedAt: string): Promise<Period>

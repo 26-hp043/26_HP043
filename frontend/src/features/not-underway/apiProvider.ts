@@ -2,6 +2,7 @@ import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../aut
 import { createApiParametersProvider } from '../../api/parameters'
 import { DEFAULT_API_BASE_URL, fallbackMessage } from '../../api/base'
 import { overlapText } from './periodRules'
+import { fetchSamplePorts } from '../ports/samplePorts'
 import { timeSource } from '../data-quality/timeSource'
 import type {
   FuelUse,
@@ -252,6 +253,13 @@ export function createApiNotUnderwayProvider(
       })
       return toFuelUse((body?.data ?? {}) as ServerFuelUse)
     },
+
+    /*
+     * 샘플 항만 목록 (`#2434`) — 공용 조회를 그대로 쓴다. 모양 검증이 그 안에 있어
+     * 여기서 두 번 적지 않는다(`features/ports`가 질의와 응답 읽기를 소유한다 · `#1750`).
+     * 같은 `fetch`·`baseUrl`을 넘긴다 — 검사가 하나만 갈아 끼우면 둘 다 바뀐다.
+     */
+    samplePorts: () => fetchSamplePorts(fetchImpl, baseUrl),
 
     async removeFuelUse(periodId: string, fuelUseId: string): Promise<void> {
       /*
