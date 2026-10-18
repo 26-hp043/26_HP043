@@ -211,11 +211,32 @@ export function VoyagePanel({
     onChanged?.()
   }
 
-  /* 다음 계획 항차 — 항차 번호가 가장 이른 계획 확정 하나만 「항해 시작」을 받는다 (10/7) */
+  /*
+   * 다음 계획 항차 — **계획 출항 시각이 가장 이른** 계획 확정 하나만 「항해 시작」을 받는다
+   * 〔확정 2026-10-18 · `#2423` · `rlatnals4114`〕. 기준은 `UIFLOW 2-8`이 적는다.
+   *
+   * ⚠️ 종전에는 `voyageNo`를 `localeCompare`로 비교했다(10/7). 두 가지가 틀렸다 —
+   * ⑴ **문자 비교라 「10」이 「9」보다 앞섰다** ⑵ `?? ''`라 **번호 없는 항차가 맨 앞**에 와서
+   * 그 항차가 「항해 시작」을 받았다. 번호는 사람이 붙이는 이름이라 순서의 근거가 아니다.
+   *
+   * 시각이 없는 항차는 **맨 뒤**다 — 기준이 될 값이 없으므로 기준을 가진 항차가 모두
+   * 빠진 뒤에만 차례가 온다. 같은 시각·시각 없음끼리는 `0`을 돌려 **서버가 준 순서를
+   * 그대로** 둔다 — `Array.prototype.sort`는 ES2019부터 안정적이다.
+   *
+   * 시각은 서버가 준 ISO 8601 문자열 그대로 비교한다(`types.ts` 「항차 시각 4종」 · `#873`).
+   * `Date`로 바꾸지 않는다 — 같은 꼴의 ISO 문자열은 사전순이 곧 시간순이고, 변환을 끼우면
+   * 왕복마다 브라우저 표준시각 해석이 한 번 더 들어간다.
+   */
   const nextPlannedId =
     (voyages ?? [])
       .filter((v) => v.status === 'PLANNED')
-      .sort((a, b) => (a.voyageNo ?? '').localeCompare(b.voyageNo ?? ''))[0]?.id ?? null
+      .sort((a, b) => {
+        const left = a.plannedDepartureAt
+        const right = b.plannedDepartureAt
+        if (left === null) return right === null ? 0 : 1
+        if (right === null) return -1
+        return left < right ? -1 : left > right ? 1 : 0
+      })[0]?.id ?? null
   const todo = (voyages ?? [])
     .filter((v) => v.status === 'IN_PROGRESS' || v.status === 'COMPLETED')
     .map((v) =>
