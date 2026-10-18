@@ -54,6 +54,11 @@ function stub(over: Partial<NotUnderwayProvider> = {}): NotUnderwayProvider {
     remove: vi.fn(),
     addFuelUse: vi.fn().mockResolvedValue(PERIOD.fuelUses[0]),
     removeFuelUse: vi.fn().mockResolvedValue(undefined),
+    /*
+     * 기본은 **빈 목록**이다 (`#2434`) — 목록을 못 받은 경로가 기본이라, 항구를 적는
+     * 검사들이 저장값(`BUSAN`)을 그대로 기대해도 맞는다. 매핑을 보는 검사만 목록을 준다.
+     */
+    samplePorts: vi.fn().mockResolvedValue([]),
     ...over,
   }
 }
@@ -80,6 +85,56 @@ describe('공적 기록에서 채운 구간 시각의 출처 (#2114)', () => {
     await screen.findByText(/BUSAN/)
     expect(screen.queryByText(/공적 기록에서 채움 — 시작 시각/) !== null).toBe(shown)
     expect(screen.queryByText(/공적 기록에서 채움 — 끝 시각/) !== null).toBe(shown)
+  })
+})
+
+describe('항구를 보이는 이름으로 적는다 (#2434)', () => {
+  /**
+   * 같은 항구가 **항차 탭과 정박 탭에서 다른 이름**을 가지면 사용자가 다른 항구로 읽는다.
+   * 항차 탭은 `portDisplayName`을 거쳐 `부산`으로 적는데(`#760` 자유 입력은 그대로),
+   * 정박 탭은 저장값 `BUSAN`을 그대로 보이고 있었다.
+   */
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+  ]
+  const show = (portName: string | null, ports: unknown[]) =>
+    render(
+      <NotUnderwayPanel
+        vesselId="v-1"
+        provider={stub({
+          list: vi.fn().mockResolvedValue({ ...LIST, periods: [{ ...PERIOD, portName }] }),
+          samplePorts: vi.fn().mockResolvedValue(ports as never),
+        })}
+      />,
+    )
+
+  it('샘플 항만과 맞으면 한국어 이름으로 적는다 — 항차 탭과 같다', async () => {
+    show('BUSAN', PORTS)
+    expect(await screen.findByText('부산')).toBeTruthy()
+    expect(screen.queryByText('BUSAN')).toBeNull()
+  })
+
+  it('목록에 없는 항구는 입력한 그대로다 — 지어내지 않는다 (#760)', async () => {
+    show('Some Private Terminal', PORTS)
+    expect(await screen.findByText('Some Private Terminal')).toBeTruthy()
+  })
+
+  it('목록을 못 받으면 저장값을 그대로 보인다 — 구간 기록을 막지 않는다 (#1836 ⑸)', async () => {
+    render(
+      <NotUnderwayPanel
+        vesselId="v-1"
+        provider={stub({
+          list: vi.fn().mockResolvedValue({ ...LIST, periods: [{ ...PERIOD, portName: 'BUSAN' }] }),
+          samplePorts: vi.fn().mockRejectedValue(new Error('down')),
+        })}
+      />,
+    )
+    expect(await screen.findByText('BUSAN')).toBeTruthy()
+  })
+
+  it('항구가 없으면 — 로 적는다', async () => {
+    show(null, PORTS)
+    expect(await screen.findByText('—')).toBeTruthy()
   })
 })
 
