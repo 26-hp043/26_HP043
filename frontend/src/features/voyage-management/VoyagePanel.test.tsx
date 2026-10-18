@@ -1072,14 +1072,92 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     expect(primaries()).toEqual([])
   })
 
-  it('계획 행 — 가장 이른 계획 하나만 「항해 시작」을 받고, 나머지 계획은 버튼 없이 대기다 (10/7)', async () => {
-    const early: ManagedVoyage = { ...IN_PROGRESS, id: 'p-1', voyageNo: '2026-05', status: 'PLANNED' }
-    const late: ManagedVoyage = { ...IN_PROGRESS, id: 'p-2', voyageNo: '2026-06', status: 'PLANNED' }
+  /**
+   * 「다음 항차」의 기준 — `UIFLOW 2-8` 〔확정 2026-10-18 · `#2423`〕.
+   *
+   * **계획 출항 시각이 가장 이른** 계획 항차 하나만 「항해 시작」을 받고, 시각이 없는
+   * 계획 항차는 맨 뒤다. 종전 구현은 `voyageNo`를 `localeCompare`로 비교해 ⑴ 「10」이
+   * 「9」보다 앞서고 ⑵ 번호 없는 항차가 맨 앞에 왔다.
+   */
+  const planned = (id: string, voyageNo: string | null, plannedDepartureAt: string | null) =>
+    ({ ...IN_PROGRESS, id, voyageNo, status: 'PLANNED', plannedDepartureAt }) as ManagedVoyage
+
+  /** 시작 버튼이 붙은 계획 항차의 id — 「자세히」뿐인 행에는 버튼이 하나다. */
+  const startsAt = (ids: readonly string[]) =>
+    ids.filter(
+      (id) =>
+        within(
+          document.getElementById(`voyage-${id}`)!.querySelector('.vy__row-actions') as HTMLElement,
+        ).getAllByRole('button').length === 2,
+    )
+
+  const renderPlanned = (rows: readonly ManagedVoyage[]) =>
     render(
       <VoyagePanel
         vesselId="ves-1"
         provider={stubProvider({
-          // 순서를 뒤집어 준다 — 목록 순서가 아니라 항차 번호로 고른다.
+          list: vi.fn(async () => ({
+            voyages: [...rows],
+            fuelTypes: ['HFO'],
+            nextCursor: null,
+            hasMore: false,
+          })),
+        })}
+      />,
+    )
+
+  it('계획 출항 시각이 가장 이른 계획 하나만 「항해 시작」을 받는다 (#2423)', async () => {
+    renderPlanned([
+      planned('p-2', '2026-06', '2026-06-10T00:00:00+00:00'),
+      planned('p-1', '2026-05', '2026-06-01T00:00:00+00:00'),
+    ])
+    await screen.findByText('2026-05')
+    expect(startsAt(['p-1', 'p-2'])).toEqual(['p-1'])
+  })
+
+  it('번호 「10」이 「9」보다 앞서지 않는다 — 시각이 정한다 (#2423)', async () => {
+    // 번호로 문자 비교하면 「10」이 앞선다. 시각은 「9」가 이르다.
+    renderPlanned([
+      planned('p-10', '10', '2026-07-01T00:00:00+00:00'),
+      planned('p-9', '9', '2026-06-01T00:00:00+00:00'),
+    ])
+    await screen.findByText('9')
+    expect(startsAt(['p-9', 'p-10'])).toEqual(['p-9'])
+  })
+
+  it('번호 없는 계획 항차도 시각으로 제자리를 찾는다 — 맨 앞이 아니다 (#2423)', async () => {
+    renderPlanned([
+      planned('p-none', null, '2026-08-01T00:00:00+00:00'),
+      planned('p-first', '2026-05', '2026-06-01T00:00:00+00:00'),
+    ])
+    await screen.findByText('2026-05')
+    expect(startsAt(['p-first', 'p-none'])).toEqual(['p-first'])
+  })
+
+  it('계획 출항 시각이 없는 계획 항차는 맨 뒤다 (#2423)', async () => {
+    renderPlanned([
+      planned('p-null', '2026-01', null),
+      planned('p-late', '2026-12', '2026-12-01T00:00:00+00:00'),
+    ])
+    await screen.findByText('2026-12')
+    // 번호도 목록 순서도 `p-null`이 앞인데, 기준이 없으므로 차례가 오지 않는다.
+    expect(startsAt(['p-null', 'p-late'])).toEqual(['p-late'])
+  })
+
+  it('시각 없는 계획 항차만 있으면 그중 서버 순서의 첫 항차가 받는다 (#2423)', async () => {
+    renderPlanned([planned('p-a', '2026-02', null), planned('p-b', '2026-01', null)])
+    await screen.findByText('2026-02')
+    expect(startsAt(['p-a', 'p-b'])).toEqual(['p-a'])
+  })
+
+  it('계획 행 — 나머지 계획은 버튼 없이 대기다 (10/7)', async () => {
+    const early = planned('p-1', '2026-05', '2026-06-01T00:00:00+00:00')
+    const late = planned('p-2', '2026-06', '2026-06-10T00:00:00+00:00')
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          // 순서를 뒤집어 준다 — 목록 순서가 아니라 계획 출항 시각으로 고른다.
           list: vi.fn(async () => ({ voyages: [late, early], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
         })}
       />,
