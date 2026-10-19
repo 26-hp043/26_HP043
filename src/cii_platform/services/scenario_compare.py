@@ -68,6 +68,7 @@ from cii_platform.services.weather import (
     resolve_with_fallback,
 )
 from cii_platform.validation.bounds import largest
+from cii_platform.validation.field_labels import field_label
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -351,7 +352,8 @@ async def compare_scenarios(
     # ``persist=False``면 **넣지 않는다** (`#2088`) — 저장하지 않는 경로가 남기는 행은
     # 실행(``calculation_run``)에 묶이지 않은 채 호출부의 커밋으로 확정된다.
     scenario_ids: list[UUID | None] = []
-    for plan, item, row in zip(plans, computed, _db_rows(computed), strict=True):
+    db_rows = _db_rows(computed, _distance_sources(payload, waypoint))
+    for plan, item, row in zip(plans, computed, db_rows, strict=True):
         if not persist:
             scenario_ids.append(None)
             continue
@@ -598,10 +600,11 @@ def _resolve_direct_distance(payload) -> Decimal:
     if all(v is not None for v in coords):
         distance = great_circle_distance_nm(*coords)
         if distance <= 0:
+            # 좌표에서 구한 거리다 — 고칠 곳은 「직항 거리」 칸이 아니라 좌표다 (#2476 결정 10 다).
             raise ValidationError(
-                "출발지와 목적지가 같은 위치입니다. 항해거리를 확인해 주세요.",
-                field="direct_distance_nm",
-                field_label="직항 거리",
+                "출발지와 목적지가 같은 위치입니다. 현재 위치나 목적지 좌표를 확인해 주세요.",
+                field="current_lat",
+                field_label=field_label("current_lat"),
             )
         return distance
     raise ValidationError(
@@ -776,11 +779,69 @@ def _quantize_plan(plan: _ScenarioPlan) -> _ScenarioPlan:
 # --- 직렬화 --------------------------------------------------------------------------
 
 
-def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
+def _distance_sources(payload, waypoint: tuple[Decimal, Decimal] | None) -> dict[str, str]:
+    """시나리오마다 거리가 **어디서 왔는가** — 너무 짧을 때 고칠 칸을 고르는 데 쓴다 (#2476).
+
+    직항은 입력 또는 좌표, 감속은 직항과 같은 거리, 우회는 입력 · 경유지 좌표 구간 합 ·
+    직항 × 1.05 중 하나다(:func:`_resolve_detour_distance`와 같은 순서).
+    """
+    direct = "DIRECT_INPUT" if payload.direct_distance_nm is not None else "COORDINATES"
+    if payload.detour_distance_nm is not None:
+        detour = "DETOUR_INPUT"
+    elif waypoint is not None:
+        detour = "WAYPOINT"
+    else:
+        detour = direct
+    return {"DIRECT": direct, "DETOUR": detour, "SLOW_STEAMING": direct}
+
+
+def _too_short(source: str) -> ValidationError:
+    """소요시간이 저장 자릿수(0.01시간) 밑인 시나리오 — **거리의 출처**에 맞춰 칸과 문구를 고른다.
+
+    종전에는 출처와 무관하게 「거리를 늘리거나 속력을 낮춰 주세요」를 「직항 거리」 칸에 붙였다.
+    좌표로 거리를 구한 경우 그 칸은 비어 있어, 사용자가 고칠 곳이 없는 칸에 오류가 섰다
+    (#2476 결정 10 다 · 두 좌표가 0.01~0.06 nm쯤 떨어진 경우 · 14 kn 기준). 판정 기준은 그대로다.
+    """
+    if source == "COORDINATES":
+        return ValidationError(
+            "출발지와 목적지가 너무 가까워 비교할 수 없습니다. "
+            "현재 위치나 목적지 좌표를 확인해 주세요.",
+            field="current_lat",
+            field_label=field_label("current_lat"),
+        )
+    if source == "WAYPOINT":
+        # 경유지 오류는 다른 경유지 검증(:func:`_check_waypoint_legs`)과 같은 칸 · 같은 라벨이다.
+        return ValidationError(
+            "우회 경유지가 현재 위치·목적항과 너무 가까워 비교할 수 없습니다. "
+            "경유지 좌표를 확인해 주세요.",
+            field="detour_waypoint_lat",
+            field_label="우회 경유지",
+        )
+    if source == "DETOUR_INPUT":
+        return ValidationError(
+            "우회 항로의 소요시간이 0.01시간 미만이라 시나리오를 저장할 수 없습니다. "
+            "우회 거리를 늘리거나 속력을 낮춰 주세요.",
+            field="detour_distance_nm",
+            field_label=field_label("detour_distance_nm"),
+        )
+    return ValidationError(
+        "항차 소요시간이 0.01시간 미만이라 시나리오를 저장할 수 없습니다. "
+        "거리를 늘리거나 속력을 낮춰 주세요.",
+        field="direct_distance_nm",
+        field_label="직항 거리",
+    )
+
+
+def _db_rows(
+    computed: list[_ScenarioComputed], sources: dict[str, str] | None = None
+) -> list[dict[str, Decimal]]:
     """``voyage_scenario`` INSERT용 확정값 — 컬럼 스케일로 반올림한다.
 
     응답(``_serialize_scenarios``)과 같은 확정 원본에서 만들어야 자릿수가 어긋나지
     않는다. ``cii_value``는 [M-8] denormalized 캐시로 컬럼 스케일(15,8)이다.
+
+    ``sources``는 :func:`_distance_sources` — 소요시간이 너무 짧을 때 고칠 칸을 고른다.
+    없으면 종전처럼 직항 거리 입력으로 본다.
     """
     rows = [
         {
@@ -795,14 +856,10 @@ def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
     ]
     # 1 nm를 250 kn으로 가면 0.004 h → 컬럼 스케일(0.01)로 0.00 → `chk_scenario_duration_positive`
     # 위반으로 500이었다 (#1086 ④). 저장할 수 없는 결과는 계산 단계에서 422로 끝낸다.
-    for row in rows:
+    for item, row in zip(computed, rows, strict=True):
         if row["duration_hours"] <= 0 or row["fuel_ton"] <= 0:
-            raise ValidationError(
-                "항차 소요시간이 0.01시간 미만이라 시나리오를 저장할 수 없습니다. "
-                "거리를 늘리거나 속력을 낮춰 주세요.",
-                field="direct_distance_nm",
-                field_label="직항 거리",
-            )
+            source = sources.get(item.plan.scenario_type, "DIRECT_INPUT") if sources else None
+            raise _too_short(source or "DIRECT_INPUT")
         # 반대쪽 끝(#2513) — 거리가 아주 길면 소요시간·연료가 열 상한을 넘어 INSERT가
         # 500이었다. 하한과 같이 저장 전에 422로 끝낸다.
         if row["duration_hours"] > _DB_MAX_DURATION or row["fuel_ton"] > _DB_MAX_FUEL:

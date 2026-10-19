@@ -395,6 +395,82 @@ class TestScenarioGeneration:
         direct = next(s for s in resp.json()["data"]["scenarios"] if s["scenario_type"] == "DIRECT")
         assert direct["distance_nm"] == 4832.64
 
+    # --- 거리가 너무 짧을 때 고칠 칸 (#2476 결정 10 다) ------------------------------------
+
+    @staticmethod
+    def _near(lat_offset: float) -> dict[str, Any]:
+        """현재 위치(35.0, 129.0)에서 위도만 ``lat_offset``만큼 떨어진 목적지 — 거리 입력 없음."""
+        return {
+            key: value for key, value in VALID_PAYLOAD.items() if key != "direct_distance_nm"
+        } | {
+            "current_lat": 35.0,
+            "current_lon": 129.0,
+            "destination_lat": 35.0 + lat_offset,
+            "destination_lon": 129.0,
+        }
+
+    @staticmethod
+    def _detail(resp) -> dict[str, Any]:
+        assert resp.status_code == 422, resp.text
+        return resp.json()["error"]["details"][0]
+
+    def test_same_coordinates_point_at_the_coordinates(self, wired):
+        """AT-SC-006 — 같은 두 좌표 — 「같은 위치」이고 고칠 곳은 「직항 거리」가 아니라 좌표다."""
+        detail = self._detail(wired.post(ENDPOINT, json=self._near(0.0)))
+        assert detail["field"] == "current_lat"
+        assert "같은 위치" in detail["message"]
+        assert "좌표" in detail["message"]
+        assert "항해거리" not in detail["message"]
+
+    def test_too_close_coordinates_point_at_the_coordinates(self, wired):
+        """AT-SC-006 — 0.03 nm(14 kn → 0.002 h → 저장 자릿수 0.00).
+
+        종전에는 비어 있는 「직항 거리」 칸에
+        「거리를 늘리거나 속력을 낮춰 주세요」가 섰다."""
+        detail = self._detail(wired.post(ENDPOINT, json=self._near(0.0005)))
+        assert detail["field"] == "current_lat"
+        assert "너무 가까워" in detail["message"]
+        assert "속력" not in detail["message"]
+
+    def test_coordinates_far_enough_still_compare(self, wired):
+        """AT-SC-006 — 약 0.12 nm(14 kn → 0.0086 h → 0.01 h) — 판정 기준은 그대로라 계산된다."""
+        resp = wired.post(ENDPOINT, json=self._near(0.002))
+        assert resp.status_code == 200, resp.text
+
+    def test_a_typed_direct_distance_keeps_its_own_field(self, wired):
+        """AT-SC-006 — 직항 거리를 직접 넣었으면 종전 칸·문구 그대로다."""
+        detail = self._detail(
+            wired.post(ENDPOINT, json={**VALID_PAYLOAD, "direct_distance_nm": 0.01})
+        )
+        assert detail["field"] == "direct_distance_nm"
+        assert "속력을 낮춰" in detail["message"]
+
+    def test_a_too_short_waypoint_detour_points_at_the_waypoint(self, wired):
+        """AT-SC-006 — 우회 경유지 좌표 경로.
+
+        직항은 입력값(100 nm)으로 문제가 없는데 경유지 구간 합이 짧다.
+        """
+        payload = {
+            **VALID_PAYLOAD,
+            "direct_distance_nm": 100.0,
+            "current_lat": 35.0,
+            "current_lon": 129.0,
+            "destination_lat": 35.0005,
+            "destination_lon": 129.0,
+            "detour_waypoint_lat": 35.0002,
+            "detour_waypoint_lon": 129.0002,
+        }
+        detail = self._detail(wired.post(ENDPOINT, json=payload))
+        assert detail["field"] == "detour_waypoint_lat"
+        assert "경유지" in detail["message"]
+
+    def test_a_too_short_typed_detour_points_at_the_detour_field(self, wired):
+        """AT-SC-006 — 우회 거리를 직접 넣었으면 그 칸이다 — 종전에는 「직항 거리」 칸에 붙었다."""
+        payload = {**VALID_PAYLOAD, "direct_distance_nm": 100.0, "detour_distance_nm": 0.01}
+        detail = self._detail(wired.post(ENDPOINT, json=payload))
+        assert detail["field"] == "detour_distance_nm"
+        assert "우회 거리" in detail["message"]
+
     # --- 우회 경유지 (#1300 · PRD §11.3 · TECH_SPEC §6.3) ---------------------------------
 
     COORDS = {
