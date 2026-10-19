@@ -200,7 +200,8 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
     const quality = mapQualityPolicy({ override: initialModel.qualityTier })
     /*
      * 지구본 ↔ 평면 (`#1976`). `low` 기기는 지금처럼 평면만 — 버튼도 두지 않는다. 그 밖은
-     * 사용자가 고른 방식, 고른 적이 없으면 **지구본**으로 연다(09-27 사용자 결정).
+     * 사용자가 고른 방식, 고른 적이 없으면 **평면**으로 연다(`#2292` · 10/7 시안 — 09-27의
+     * 「처음은 지구본」을 바꿨다).
      */
     let projection: MapProjection = quality.globe ? readProjectionPreference() : 'mercator'
     /** 생성자가 기울기·회전을 정한 투영 — `load` 때 이것과 다르면 카메라를 맞춘다. */
@@ -361,17 +362,33 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       }
     }
     let vesselLayerPending = false
+    /*
+     * 3D 선체가 **지금 그려지고 있는가**를 지도 요소에 적는다 (`#2531`).
+     *
+     * 화면(`FleetMap.css`)은 이 표시가 있을 때만 평면 SVG 배를 지운다. 종전에는 기기 성능
+     * (`quality.globe`)만 보고 지웠는데, 선체 layer는 지구본에서만 올라가 **평면 첫 화면
+     * (`#2292`)에서 배가 등급 배지만 남았다.** 판정을 선체를 실제로 올리고 내리는 이 자리에
+     * 두면, layer를 불러오다 실패해도 SVG 배가 남는다.
+     */
+    const markVesselHulls = (on: boolean) => {
+      if (on) target.dataset.vesselHulls = 'on'
+      else delete target.dataset.vesselHulls
+    }
     /** 조건이 갖춰진 첫 순간에 3D 선체 layer를 올린다. 두 번 만들지 않는다. */
     const ensureVesselLayer = () => {
       if (!ready || vesselLayer !== null || vesselLayerPending) return
-      // 3D 선체는 지구본 전용 layer다(`vesselLayer.ts`) — 평면에서는 클릭 마커(DOM)만 남는다.
-      if (projection !== 'globe' || (model.vessels?.length ?? 0) === 0) return
+      /*
+       * 3D 선체는 **두 투영 모두에** 올린다 (`#1441` 결정 7-1 나 · 2026-10-17). 선체는 자기
+       * 캔버스에 `map.project()` 좌표로 그리므로 투영을 가리지 않는다(`vesselLayer.ts`).
+       * `low` 기기(`quality.globe`가 거짓)는 종전대로 SVG 배만 — 성능 판단을 지킨다.
+       */
+      if (!quality.globe || (model.vessels?.length ?? 0) === 0) return
       vesselLayerPending = true
       void import('./vesselLayer').then(({ createGlobeVesselLayer }) => {
         vesselLayerPending = false
-        // 불러오는 사이 평면으로 바꿨으면 올리지 않는다 — 평면 위에 지구본용 선체가 뜬다(`#1976`).
-        if (destroyed || projection !== 'globe') return
+        if (destroyed) return
         vesselLayer = createGlobeVesselLayer(map, { mode: model.mode, vessels: model.vessels ?? [] })
+        markVesselHulls(true)
       }, (error: unknown) => {
         vesselLayerPending = false
         emit({ type: 'error', error: error instanceof Error ? error : new Error(String(error)) })
@@ -384,8 +401,8 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
     if (toggle) map.addControl(toggle, 'top-right')
 
     /**
-     * 투영을 바꾸고 **그에 딸린 것을 함께** 바꾼다 (`#1976`) — 기울기 · 회전 허용 · 3D 선체.
-     * 투영만 바꾸면 평면인데 기울어진 채로 남거나, 평면 위에 지구본용 선체가 뜬다.
+     * 투영을 바꾸고 **그에 딸린 것을 함께** 바꾼다 (`#1976`) — 기울기 · 회전 허용.
+     * 투영만 바꾸면 평면인데 기울어진 채로 남는다. 3D 선체는 두 투영에 같이 남는다(`#2531`).
      */
     const applyProjection = (next: MapProjection, camera = true): boolean => {
       try {
@@ -402,15 +419,10 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
           map.touchZoomRotate.enableRotation()
           map.easeTo({ pitch: GLOBE_PITCH, animate: false })
         }
-        ensureVesselLayer()
-      } else {
-        if (camera) {
-          map.dragRotate.disable()
-          map.touchZoomRotate.disableRotation()
-          map.easeTo({ pitch: 0, bearing: 0, animate: false })
-        }
-        vesselLayer?.destroy()
-        vesselLayer = null
+      } else if (camera) {
+        map.dragRotate.disable()
+        map.touchZoomRotate.disableRotation()
+        map.easeTo({ pitch: 0, bearing: 0, animate: false })
       }
       return true
     }
@@ -452,6 +464,7 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
         destroyed = true
         vesselLayer?.destroy()
         vesselLayer = null
+        markVesselHulls(false)
         resizeObserver?.disconnect()
         for (const marker of markers) marker.remove()
         for (const marker of portMarkers) marker.remove()

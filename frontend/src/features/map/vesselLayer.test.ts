@@ -159,5 +159,33 @@ describe('지구 반대편 가림', () => {
     expect(fakeMap.project).not.toHaveBeenCalled()
     controller.destroy()
   })
+
+  /*
+   * 평면에는 뒷면이 없다 (`#2531`). 선체가 평면에도 올라가면서, 각거리 판정이 평면에서
+   * 돌면 지도 중심에서 멀리 떨어진 배가 사라진다 — 위 「반대편」 자리의 배가 평면에서는
+   * 그려져야 한다. MapLibre가 무엇이라 답하든 평면에서는 묻지 않는다.
+   */
+  it('평면에서는 멀리 떨어진 배도 그린다 — 뒷면 판정을 하지 않는다', () => {
+    const isLocationOccluded = vi.fn(() => true)
+    const fakeMap = baseMap({
+      transform: { isLocationOccluded },
+      getProjection: () => ({ type: 'mercator' }),
+    })
+    const controller = createGlobeVesselLayer(fakeMap as never, {
+      mode: 'fleet', vessels: [{ id: 'ship', coordinate: [-51, -35], heading: 0 }],
+    })
+    expect(isLocationOccluded).not.toHaveBeenCalled()
+    expect(fakeMap.project).toHaveBeenCalled()
+    controller.destroy()
+  })
+
+  it('지구본이라고 답하면 종전대로 뒷면을 가린다', () => {
+    const fakeMap = baseMap({ getProjection: () => ({ type: 'globe' }) })
+    const controller = createGlobeVesselLayer(fakeMap as never, {
+      mode: 'fleet', vessels: [{ id: 'ship', coordinate: [-51, -35], heading: 0 }],
+    })
+    expect(fakeMap.project).not.toHaveBeenCalled()
+    controller.destroy()
+  })
 })
 

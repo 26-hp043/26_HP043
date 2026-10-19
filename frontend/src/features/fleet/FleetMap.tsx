@@ -12,7 +12,6 @@ import { RouteSourceNotice } from '../map/RouteSourceNotice'
 import { routeDisclosure } from '../map/routeDisclosure'
 import { adaptFleetMap } from '../map/adapters'
 import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
-import { mapQualityPolicy } from '../map/quality'
 import { mapLibreRenderer, type MapLibreMapModel } from '../map/mapLibreRenderer'
 import { useSamplePorts } from '../ports/samplePorts'
 import { routeFeatureCollection } from '../map/routeModel'
@@ -164,13 +163,14 @@ interface FleetMapProps {
 /**
  * 마커 DOM. 배 모양 + 등급색 + 등급 문자.
  *
- * `hullIs3d`면 **배 모양을 그리지 않는다** (`#1917`) — three가 3D 선체를 그리는데
- * 평면 SVG 배까지 그리면 같은 자리에 배가 둘이 된다. 등급 문자 배지는 남는다.
+ * 배 모양(SVG)은 **언제나 만든다.** 3D 선체가 실제로 그려지는 동안에는 지도 요소의 표시
+ * (`data-vessel-hulls`)를 보고 CSS가 감춘다(`FleetMap.css` · `#2531`) — 같은 자리에 배가
+ * 둘이 되지 않게. 등급 문자 배지는 어느 쪽이든 남는다.
  *
  * `onActivate`를 주면 **버튼**이 된다 (#1831) — 항구 핀(`portMarkers.portMarkerElement`)이
  * 쓰는 것과 같은 규칙이다. 주지 않으면 종전대로 누를 수 없는 그림이다.
  */
-function markerElement(vessel: MapVessel, hullIs3d = false, onActivate?: () => void): HTMLElement {
+function markerElement(vessel: MapVessel, onActivate?: () => void): HTMLElement {
   const root = document.createElement(onActivate ? 'button' : 'div')
   if (onActivate) (root as HTMLButtonElement).type = 'button'
   root.className = 'fleetmap__marker'
@@ -186,7 +186,6 @@ function markerElement(vessel: MapVessel, hullIs3d = false, onActivate?: () => v
   const atRisk = isAtRisk({ riskReasons: vessel.riskReasons ?? [] })
   if (atRisk) root.classList.add('fleetmap__marker--risk')
 
-  if (hullIs3d) root.classList.add('fleetmap__marker--hull3d')
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', `0 0 ${VESSEL_GRID} ${VESSEL_GRID}`)
   svg.setAttribute('aria-hidden', 'true')
@@ -322,14 +321,6 @@ export function FleetMap({
   }, [onRendererError, onSelectVessel, adapted.positions])
 
   /*
-   * 3D 선체를 쓸 수 있는 환경인가 (`#1917`).
-   *
-   * 켜지면 마커는 **등급 배지만** 남긴다 — 3D 선체가 배를 그리는데 평면 SVG 배까지
-   * 그리면 같은 자리에 배가 둘이 된다. ⚠️ **등급 문자를 지우지 않는다**
-   * (`DESIGN_SYSTEM §14` — 색으로만 말하지 않는다). 선체가 색을, 배지가 문자를 맡는다.
-   */
-  const vesselsAre3d = mapQualityPolicy().globe
-  /*
    * ⚠️ **호출부는 `onSelectVessel`을 안정된 참조로 넘긴다** (#1831).
    *
    * 이 `useMemo`가 다시 돌면 **마커 DOM이 전부 새 노드로 바뀐다** — 열려 있던 카드가
@@ -344,10 +335,9 @@ export function FleetMap({
     coordinate: [lon, lat] as const,
     element: markerElement(
       vessel,
-      vesselsAre3d,
       onSelectVessel === undefined ? undefined : () => onSelectVessel(vessel.id),
     ),
-  })), [adapted.positions, vesselsAre3d, onSelectVessel])
+  })), [adapted.positions, onSelectVessel])
 
   /*
    * 「이 배를 보여 달라」 (#1831) — 지도에 **찍힌** 배만 넘긴다. 좌표가 없는 배로 지도를
