@@ -153,6 +153,11 @@ async def test_voyage_calculation_publishes_only_the_whitelist(session, vessel_i
     # 봉투 밖으로 나가는 이름은 **정본 이름뿐**이다.
     assert set(result) <= set(chat_tools._PUBLISH_MAP.values()), result
     assert "attained_cii" in result and "rating" in result
+    # `#2395` — 거리·속력을 되돌려 주고, 연료량·연료 종류는 싣지 않는다(실제 응답으로 확인).
+    assert result["distance_nm"] == 5000.0, result
+    assert result["speed_kn"] == 12.0, result
+    assert "fuel_ton" not in _flat(body) and "fuel_type" not in _flat(body)
+    assert "HFO" not in _flat(body)
 
     flat = _flat(body)
     assert VESSEL_NAME not in flat
@@ -192,8 +197,8 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
         direct_distance_nm=Decimal("5000"),
         base_daily_foc_ton=Decimal("30"),
     )
-    # ⚠️ 종전에는 **행 수**만 대조했다 — 순서를 뒤섞어도 통과했다(`#2142`). 봉투에는
-    # 시나리오 종류가 나가지 않으므로(화이트리스트), 나가는 값인 CII의 **순서**로 본다.
+    # ⚠️ 종전에는 **행 수**만 대조했다 — 순서를 뒤섞어도 통과했다(`#2142`). 나가는 값인
+    # CII의 **순서**로 본다(`#2395`부터는 시나리오 종류도 나가 아래에서 함께 본다).
     expected = [
         Decimal(str(row["attained_cii"]))
         for row in (await compare_scenarios(session, payload))["data"]["scenarios"]
@@ -220,7 +225,15 @@ async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
     assert [Decimal(str(row["attained_cii"])) for row in rows] == expected, (rows, expected)
     for row in rows:
         assert set(row) <= set(chat_tools._PUBLISH_MAP.values()), row
+        # `#2395` — 질문이 묻는 조건·결과를 행마다 싣는다.
+        for key in ("scenario_type", "speed_kn", "distance_nm", "duration_hours"):
+            assert row.get(key) is not None, (key, row)
+        assert "co2_emission_ton" in row, row
+    assert [row["scenario_type"] for row in rows] == ["DIRECT", "DETOUR", "SLOW_STEAMING"], rows
     assert VESSEL_NAME not in _flat(body)
+    # `#2395` — 연료량·연료 종류는 여전히 나가지 않는다.
+    assert "fuel_ton" not in _flat(body) and "fuel_type" not in _flat(body)
+    assert "HFO" not in _flat(body)
 
 
 async def test_scenario_comparison_tool_stores_no_scenario_rows(session, vessel_id):

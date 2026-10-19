@@ -1,4 +1,4 @@
-"""챗봇 도구 계층 (`#121` · IT-CHAT-016~023).
+"""챗봇 도구 계층 (`#121` · IT-CHAT-016~023 · `#2395` IT-CHAT-097~099).
 
 DB를 쓰지 않는 것만 여기 둔다 — 봉투 규약과 **화이트리스트 경계**다. 실제 계산을
 도는 경로는 ``tests/test_chat_api_db.py``가 끝에서 끝까지 본다.
@@ -464,9 +464,169 @@ def test_ratio_to_required_is_published_with_the_screen_percent() -> None:
         {"attained_cii": "8.970000", "required_cii": "5.050000", "ratio_to_required": "1.77623"},
         chat_tools._RESULT_KEYS,
     )
-    assert published["ratio_to_required"] == "1.77623 (177.6%)"
+    # `#2395` — 같은 문자열에 기준과의 차가 덧붙는다. 값과 화면 백분율 표기는 그대로다.
+    assert published["ratio_to_required"].startswith("1.77623 (177.6%")
     tool_output = json.dumps(published, ensure_ascii=False)
     verify_numbers("연말 예상 CII는 기준 CII의 177.6%입니다.", [tool_output])
+
+
+@pytest.mark.parametrize(
+    ("ratio", "expected", "answer"),
+    [
+        (
+            "0.98000",
+            "0.98000 (98.0% · 기준 대비 -2.0%p · 기준보다 2.0%p 낮음)",
+            "연말 예상 CII는 기준의 98.0%로, 기준보다 2.0% 낮습니다.",
+        ),
+        (
+            "1.77623",
+            "1.77623 (177.6% · 기준 대비 +77.6%p · 기준보다 77.6%p 높음)",
+            "기준 CII보다 77.6%p 높습니다(기준 대비 +77.6%).",
+        ),
+        (
+            "1.00000",
+            "1.00000 (100.0% · 기준 대비 0.0%p · 기준과 같음)",
+            "기준 CII와 같습니다(차 0%).",
+        ),
+        # 차는 **화면 백분율에서** 뺀다 — 97.95%는 화면에 98.0%이고 차는 -2.0이어야 한다.
+        (
+            "0.97950",
+            "0.97950 (98.0% · 기준 대비 -2.0%p · 기준보다 2.0%p 낮음)",
+            "기준 대비 -2.0%입니다.",
+        ),
+    ],
+)
+def test_ratio_to_required_carries_the_difference_from_the_baseline(ratio, expected, answer):
+    """IT-CHAT-097 (`#2395` 결정 2) — 「기준 대비 몇 %」에 **기준과의 차**까지 도구가 싣는다.
+
+    종전에는 ``98.0%``만 줬고, 모델이 「기준보다 2.0% 낮다」고 **뺀 수**가 No-Compute 가드에
+    폐기됐다. 가드는 그대로이고 출처가 그 수를 싣는다 — 같은 값의 표기라 키는 늘지 않는다.
+    """
+    from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
+
+    published = chat_tools._publishable({"ratio_to_required": ratio}, chat_tools._RESULT_KEYS)
+    assert published == {"ratio_to_required": expected}
+    tool_output = chat_tools.envelope(chat_tools.TOOL_PROJECT_YEAR_END, result=published)
+    verify_numbers(answer, [tool_output])
+    # 가드는 그대로다 — 도구가 주지 않은 차(2.1)는 여전히 막힌다.
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("기준보다 2.1% 낮습니다.", [tool_output])
+
+
+#: `#2395` — 시나리오 비교 서비스가 돌려주는 행 하나(``scenario_compare._scenario_json`` 모양).
+#: 연료량·연료 종류 값을 **일부러 눈에 띄는 수**로 둬 봉투에 새면 바로 드러나게 한다.
+_SCENARIO_ROW = {
+    "scenario_id": None,
+    "scenario_type": "SLOW_STEAMING",
+    "scenario_name": "감속",
+    "distance_nm": 5000.0,
+    "speed_kn": 10.8,
+    "duration_hours": "462.96",
+    "fuel_ton": "250.1234",
+    "co2_emission_ton": "778.8843",
+    "attained_cii": "4.812345",
+    "required_cii": "5.045066",
+    "ratio_to_required": "0.95387",
+    "estimated_rating": "B",
+    "next_worse_boundary_margin": "0.123456",
+    "next_worse_boundary_margin_ratio": "0.024470",
+    "risk_level": "LOW",
+    "weather_factor": 1.0,
+    "weather_model_used": "NONE",
+    "calculation_basis": {"fuel_type": "HFO", "fuel_cf": "3.114"},
+}
+
+
+async def test_scenario_tool_carries_type_speed_distance_duration_and_co2(monkeypatch):
+    """IT-CHAT-098 (`#2395` 결정 2) — 시나리오 행이 **종류·속력·거리·소요시간·CO₂**를 싣는다.
+
+    속도 시나리오 질문에 모델이 속력·거리로 시간을 나누고 CO₂를 셈해 답이 폐기됐다. 도구가
+    그 값을 실으면 옮겨 적기만 하면 된다. ⚠️ 연료량·연료 종류는 여전히 나가지 않는다
+    (``PRD §16.3.1`` 「보내지 않는 것」).
+    """
+    from cii_platform.services import scenario_compare
+    from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
+
+    async def _fake_compare(_session, _payload, *, persist):
+        assert persist is False
+        return {"data": {"fuel_type": "HFO", "scenarios": [dict(_SCENARIO_ROW)]}}
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _fake_compare)
+    raw = await chat_tools._compare_scenarios(
+        None,
+        {"current_speed_kn": "12", "fuel_type": "HFO", "regulation_year": 2026},
+        "selected",
+    )
+    body = json.loads(raw)
+    (row,) = body["result"]["scenarios"]
+    assert row["scenario_type"] == "SLOW_STEAMING"
+    assert row["speed_kn"] == 10.8
+    assert row["distance_nm"] == 5000.0
+    assert row["duration_hours"] == "462.96"
+    assert row["co2_emission_ton"] == "778.8843"
+    assert set(row) <= OUTBOUND_WHITELIST, row
+
+    # 연료량·연료 종류는 키로도 값으로도 나가지 않는다.
+    assert "fuel_ton" not in raw and "fuel_type" not in raw
+    assert "250.1234" not in raw and "HFO" not in raw
+
+    answer = (
+        "감속 시나리오는 10.8kn로 5,000nm를 약 462.96시간에 가고, "
+        "CO₂는 778.9톤입니다. 기준보다 4.6%p 낮습니다."
+    )
+    verify_numbers(answer, [raw])
+    # 도구가 주지 않은 값(시간을 일로 나눈 19.3일)은 여전히 막힌다.
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("감속 시나리오는 약 19.3일 걸립니다.", [raw])
+
+
+async def test_voyage_tool_echoes_distance_and_speed_but_not_fuel(monkeypatch):
+    """IT-CHAT-099 (`#2395` 결정 2) — 항차 CII 도구가 **거리·속력**을 되돌려 준다.
+
+    응답 ``data``에는 속력이 없어 모델이 조건을 되짚는 문장(「12kn로 5,000nm」)도 버려질 수
+    있었다. 연료량·연료 종류는 입력으로 받아도 봉투에 싣지 않는다.
+    """
+    from cii_platform.services import voyage_cii
+    from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
+
+    async def _fake_estimate(_session, payload, *, persist):
+        assert persist is False
+        return {
+            "data": {
+                "attained_cii": "4.982400",
+                "required_cii": "5.045066",
+                "ratio_to_required": "0.98758",
+                "estimated_rating": "C",
+                "co2_emission_ton": "1245.6000",
+                "fuel_consumption_ton": "400.0000",
+                "distance_nm": float(payload.distance_nm),
+                "risk_level": "MEDIUM",
+                "calculation_basis": {"fuel_cf_details": [{"fuel_type": "HFO"}]},
+            }
+        }
+
+    monkeypatch.setattr(voyage_cii, "estimate_voyage_cii", _fake_estimate)
+    raw = await chat_tools._calc_voyage_cii(
+        None,
+        {
+            "distance_nm": "5000",
+            "speed_kn": "12.5",
+            "fuel_type": "HFO",
+            "fuel_ton": "437.25",
+            "regulation_year": 2026,
+        },
+        "selected",
+    )
+    result = json.loads(raw)["result"]
+    assert result["distance_nm"] == 5000.0
+    assert result["speed_kn"] == 12.5
+    assert set(result) <= OUTBOUND_WHITELIST, result
+    assert "fuel_ton" not in raw and "fuel_type" not in raw
+    assert "437.25" not in raw and "HFO" not in raw
+
+    verify_numbers("12.5kn로 5,000nm를 가면 CII는 4.982이고 기준보다 1.2%p 낮습니다.", [raw])
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("12.5kn로 5,000nm면 약 400시간 걸립니다.", [raw])
 
 
 @pytest.mark.parametrize("year", [2018, 2101, 2150])

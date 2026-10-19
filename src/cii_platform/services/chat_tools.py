@@ -259,6 +259,15 @@ _PUBLISH_MAP: dict[str, str] = {
     "target_rating": "target_rating",
     "target_success_probability": "target_success_probability",
     "rating_probabilities": "rating_probabilities",
+    # `#2395` — 시나리오 행과 항차 계산이 **질문이 묻는 값**을 직접 싣는다. 없으면 모델이
+    # 속력·거리로 소요시간을 나누거나 CO₂를 짐작하고, 그 답은 No-Compute 가드에 폐기된다
+    # (10-17 결정 2). ⚠️ 연료량(``fuel_ton``)·연료 종류(``fuel_type``)는 ``PRD §16.3.1``
+    # 「보내지 않는 것」이라 여기에 두지 않는다 — 대응표에 없으면 ``_publishable``이 줍지 않는다.
+    "scenario_type": "scenario_type",
+    "distance_nm": "distance_nm",
+    "speed_kn": "speed_kn",
+    "duration_hours": "duration_hours",
+    "co2_emission_ton": "co2_emission_ton",
 }
 
 
@@ -275,6 +284,25 @@ _RESULT_KEYS: tuple[str, ...] = (
     "next_worse_boundary_margin_ratio",
     "ratio_to_required",
 )
+
+
+#: `#2395` — 시나리오 행이 더 싣는 값: 종류·속력·거리·소요시간·CO₂.
+#:
+#: 「속도를 낮추면 얼마나 걸리고 CO₂는 얼마인가」가 묻는 값이 이것이다. 종전에는 CII 묶음만
+#: 넘겨 모델이 속력·거리로 시간을 직접 나눴고, 그 답은 수치 가드에 폐기됐다(10-17 결정 2).
+#: 공통 묶음(:data:`_RESULT_KEYS`)에 넣지 않는 것은 **시나리오 행에만 있는 값**이기 때문이다.
+_SCENARIO_KEYS: tuple[str, ...] = (
+    *_RESULT_KEYS,
+    "scenario_type",
+    "speed_kn",
+    "distance_nm",
+    "duration_hours",
+    "co2_emission_ton",
+)
+
+#: `#2395` — 항차 CII 도구가 더 싣는 값: 거리·속력. 모델이 보낸 입력을 되돌려 주는 것이라
+#: 새 정보는 아니지만, 없으면 「이 항차(5,000nm · 12kn)는…」처럼 조건을 되짚는 답도 버려진다.
+_VOYAGE_KEYS: tuple[str, ...] = (*_RESULT_KEYS, "distance_nm", "speed_kn")
 
 
 #: `#2392` — 기준 대비 비율. 화면은 백분율로 보여 준다(``_with_screen_percent``).
@@ -336,6 +364,46 @@ def _with_screen_percent(value: object) -> object:
     return f"{value} ({percent}%)"
 
 
+def _with_baseline_difference(value: object) -> object:
+    """기준 대비 비율에 **화면 백분율과 기준과의 차**를 덧붙인다 (`#2395` 결정 2).
+
+    ``"0.98000"`` → ``"0.98000 (98.0% · 기준 대비 -2.0%p · 기준보다 2.0%p 낮음)"``
+
+    ``"1.77623"`` → ``"1.77623 (177.6% · 기준 대비 +77.6%p · 기준보다 77.6%p 높음)"``
+
+    ## 왜 필요한가
+
+    화면 제안 질문 「연말 예상 값은 기준 CII 대비 몇 %인가요?」에 사람은 「기준보다 2.0%
+    낮습니다」로 답한다. 도구가 ``98.0%``만 주면 ``2.0``은 **모델이 뺀 수**라 수치 가드에
+    폐기됐다(10-17 결정 2). 가드는 그대로 두고 **출처 쪽**이 그 수를 싣는다 —
+    :func:`_with_screen_percent`와 같은 판단이고, 같은 값에 표기를 덧붙이므로 키를 늘리지
+    않는다.
+
+    ## 차는 화면 백분율에서 뺀다
+
+    ``(ratio × 100).quantize() − 100``이다. ``(ratio × 100 − 100).quantize()``로 하면
+    ``ROUND_HALF_UP``이 음수를 0에서 먼 쪽으로 올려 ``97.95`` → 화면 ``98.0%``인데 차는
+    ``-2.1``이 된다 — **한 문장 안의 두 수가 서로 맞지 않는다.**
+
+    부호 있는 표기(``-2.0``)와 크기(``2.0``)를 함께 싣는 것은 모델이 어느 쪽으로 말해도
+    같은 값이어서다. 수치 가드의 ``-``는 부호로 읽히므로(``llm_guard._NUMBER``) 둘은 다른
+    토큰이다.
+    """
+    try:
+        ratio = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):  # pragma: no cover - 문자열 수치만 온다
+        return value
+    percent = (ratio * 100).quantize(_PERCENT_QUANTUM, rounding=ROUND_HALF_UP)
+    gap = percent - 100
+    if gap < 0:
+        difference = f"기준 대비 {gap}%p · 기준보다 {-gap}%p 낮음"
+    elif gap > 0:
+        difference = f"기준 대비 +{gap}%p · 기준보다 {gap}%p 높음"
+    else:
+        difference = f"기준 대비 {abs(gap)}%p · 기준과 같음"
+    return f"{value} ({percent}% · {difference})"
+
+
 def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str, object]:
     """응답에서 화이트리스트 대상 값만 뽑아 **이름을 맞춘 뒤** 필터를 태운다.
 
@@ -350,10 +418,13 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
         for key in keys
         if key in _PUBLISH_MAP and payload.get(key) is not None
     }
-    for ratio_key in (_GAP_KEY, _RATIO_KEY):
-        ratio = picked.get(ratio_key)
-        if ratio is not None:
-            picked[ratio_key] = _with_screen_percent(ratio)
+    gap = picked.get(_GAP_KEY)
+    if gap is not None:
+        picked[_GAP_KEY] = _with_screen_percent(gap)
+    # `#2395` — 기준 대비 비율은 백분율에 **기준과의 차**까지 덧붙인다.
+    ratio = picked.get(_RATIO_KEY)
+    if ratio is not None:
+        picked[_RATIO_KEY] = _with_baseline_difference(ratio)
     # `#1533` — 확률도 화면은 백분율로 보여 준다(``_with_screen_percent`` 머리말과 같은 이유).
     probability = picked.get(_PROBABILITY_KEY)
     if probability is not None:
@@ -646,12 +717,12 @@ async def _calc_voyage_cii(
     # 읽기 도구가 어기고 있었다(`calculation_run`은 지울 수 없다).
     response = await estimate_voyage_cii(session, payload, persist=False)
     data = response.get("data") or {}
+    # `#2395` — 응답 ``data``에는 속력이 없다(거리만 에코한다). 모델이 보낸 속력을 같은
+    # 숫자 형태로 되돌려 준다 — 거리 에코(``float``)와 표기를 맞춘다.
+    published_from = {**data, "speed_kn": float(payload.speed_kn)}  # type: ignore[dict-item]
     return envelope(
         TOOL_CALC_VOYAGE_CII,
-        result=_publishable(
-            data,  # type: ignore[arg-type]
-            _RESULT_KEYS,
-        ),
+        result=_publishable(published_from, _VOYAGE_KEYS),
     )
 
 
@@ -674,7 +745,7 @@ async def _compare_scenarios(
     # ⚠️ 시나리오를 **순위로 정렬하지 않는다** — 순위화는 No-Advice 금지 항목이다.
     return envelope(
         TOOL_COMPARE_SCENARIOS,
-        result={"scenarios": [_publishable(row, _RESULT_KEYS) for row in scenarios]},
+        result={"scenarios": [_publishable(row, _SCENARIO_KEYS) for row in scenarios]},
     )
 
 
@@ -756,7 +827,9 @@ async def _explain_screen_result(
         # ⚠️ 저장 순서 그대로 — 순위로 정렬하지 않는다(No-Advice).
         return envelope(
             TOOL_EXPLAIN_SCREEN_RESULT,
-            result={"scenarios": [_publishable(row, _RESULT_KEYS) for row in rows]},
+            # `#2395` — 화면의 시나리오 결과도 비교 도구와 같은 값을 싣는다. 같은 질문이
+            # 화면에서 오든 도구로 오든 답할 수 있는 값이 달라지지 않게 한다.
+            result={"scenarios": [_publishable(row, _SCENARIO_KEYS) for row in rows]},
             kind=kind,
         )
     if kind.startswith("ANNUAL_"):
