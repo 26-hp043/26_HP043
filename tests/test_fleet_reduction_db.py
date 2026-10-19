@@ -589,6 +589,52 @@ async def test_a_plan_voyage_without_fuel_is_counted_and_warned(session, vessel_
     )
 
 
+@pytest.mark.asyncio
+async def test_a_price_above_the_market_is_warned_not_rejected(session, vessel_id):
+    """⚠️ #2521 결정 1 — 시장 최고값을 넘는 단가는 **거절이 아니라 경고**다.
+
+    0을 더 친 오타(15,000 → 15,000,000)가 아무 표시 없이 계산·저장됐다. 기준은 결정 기록이
+    원문으로 확인한 시장 최고값(용선료 160,000 USD/일 · 연료 3,831 USD/t)이고, **같은 값은
+    경고하지 않는다**(넘을 때만). 경고를 내도 계산은 입력한 값으로 한다 — 비용이 빈칸이 아니다.
+    """
+    me = str(vessel_id)
+    at_limit = await _evaluate(
+        session,
+        vessel_id,
+        prices={"charter_usd_per_day": {me: "160000"}, "fuel_usd_per_ton": {"HFO": "3831"}},
+    )
+    assert "CHARTER_RATE_ABOVE_MARKET" not in at_limit["warnings"]
+    assert "FUEL_PRICE_ABOVE_MARKET" not in at_limit["warnings"]
+
+    over = await _evaluate(
+        session,
+        vessel_id,
+        prices={"charter_usd_per_day": {me: "160000.01"}, "fuel_usd_per_ton": {"HFO": "3831.01"}},
+    )
+    assert "CHARTER_RATE_ABOVE_MARKET" in over["warnings"]
+    assert "FUEL_PRICE_ABOVE_MARKET" in over["warnings"]
+    assert over["costs"]["charter_loss"] is not None
+    assert over["costs"]["fuel_saving"] is not None
+
+    # 감속 일수가 0이면 곱이 0이라 비용에는 드러나지 않는다 — 그래도 **입력한 단가**를 본다.
+    still = await _evaluate(
+        session, vessel_id, "0", prices={"charter_usd_per_day": {me: "15000000"}}
+    )
+    assert "CHARTER_RATE_ABOVE_MARKET" in still["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_a_charter_for_a_vessel_not_in_the_fleet_is_not_warned(session, vessel_id):
+    """⚠️ #2521 — 선대에 없는 선박의 용선료는 경고하지 않는다.
+
+    삭제한 선박의 용선료는 화면에 칸이 없다(``priceRules.hasVisiblePrice``) — 경고를 받아도
+    고칠 자리가 없다.
+    """
+    gone = str(uuid4())
+    result = await _evaluate(session, vessel_id, prices={"charter_usd_per_day": {gone: "15000000"}})
+    assert "CHARTER_RATE_ABOVE_MARKET" not in result["warnings"]
+
+
 def test_invalid_requests_are_422_not_500(migrated_db, app_fresh_engine):
     """⚠️ #1070 ⑴⑵⑶ — 고칠 수 있는 입력은 **422와 그 칸의 라벨**로 끝난다(500이 아니다)."""
     from fastapi.testclient import TestClient
@@ -630,6 +676,25 @@ def test_invalid_requests_are_422_not_500(migrated_db, app_fresh_engine):
             detail = response.json()["error"]["details"][0]
             assert detail["field"] == field
             assert detail["field_label"] == label
+
+        # #2521 — 키가 경로 끝에 붙는 단가 칸도 라벨은 칸 이름이다. 종전에는 경로 원문
+        # (`prices.charter_usd_per_day.<선박 id>`)이 그대로 라벨로 나갔다.
+        keyed = {
+            f"prices.charter_usd_per_day.{one}": (
+                {"charter_usd_per_day": {one: -1}},
+                "일일 용선료",
+            ),
+            "prices.fuel_usd_per_ton.HFO": ({"fuel_usd_per_ton": {"HFO": -1}}, "연료 단가"),
+        }
+        for field, (prices, label) in keyed.items():
+            response = client.post(
+                f"{base}/evaluate", headers=headers, json={**body, "prices": prices}
+            )
+            assert response.status_code == 422, (field, response.text)
+            detail = response.json()["error"]["details"][0]
+            assert detail["field"] == field
+            assert detail["field_label"] == label
+            assert one not in detail["message"]
 
 
 def test_a_huge_price_is_a_422_on_evaluate_and_save_not_a_500(migrated_db, app_fresh_engine):
