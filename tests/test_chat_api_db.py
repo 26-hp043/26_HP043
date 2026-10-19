@@ -627,6 +627,64 @@ async def test_every_turn_is_audited(migrated_db, app_fresh_engine):
         await _cleanup()
 
 
+async def test_tool_call_audit_status_follows_the_envelope(migrated_db, app_fresh_engine):
+    """IT-CHAT-096 (`#2532`) — 도구 호출 감사 행의 ``status``가 **봉투의 성공 여부**를 따른다.
+
+    종전에는 상태를 넘기지 않아 오류 봉투도 ``SUCCESS``로 남았다. `#2395` 운영 확인에서
+    모델이 없는 도구 이름을 불러 「알 수 없는 도구」 봉투를 받은 호출도 ``SUCCESS``라,
+    같은 조사의 다른 도구가 성공했는지를 기록으로 확정할 수 없었다.
+
+    한 턴에 셋을 부른다 — 성공(일치 0건 검색) · 입력 누락 오류 · 알 수 없는 도구 오류.
+    값은 감사 필드의 어휘(``TECH_SPEC §13.1``)다.
+    """
+    _use(
+        FakeProvider(
+            [
+                LLMResponse(
+                    tool_calls=(
+                        ToolCall(name="search_vessel", arguments={"name": "없는선박2532"}),
+                        ToolCall(name="search_vessel", arguments={}),
+                        ToolCall(name="projection_year_end", arguments={}),
+                    )
+                ),
+                LLMResponse(text="찾지 못했습니다."),
+            ]
+        )
+    )
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "배를 찾아줘"}, headers=headers)
+            assert response.status_code == 200
+            assert response.json()["data"]["discarded"] is False
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            rows = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT details_json FROM audit_log WHERE \"action\" = 'CHAT_TOOL_CALL'"
+                        ).columns(details_json=JSONText())
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        # 감사 시각은 초 단위이고 id는 UUID라 행 순서로 짝짓지 않는다 — 묶음으로 본다.
+        recorded = sorted(
+            (row["details_json"]["tool_name"], row["details_json"]["status"]) for row in rows
+        )
+        assert recorded == [
+            ("projection_year_end", "FAILED"),
+            ("search_vessel", "FAILED"),
+            ("search_vessel", "SUCCESS"),
+        ]
+    finally:
+        await _cleanup()
+
+
 async def test_a_discard_is_audited_without_the_users_numbers(migrated_db, app_fresh_engine):
     """IT-CHAT-080 (`#1973`) — 폐기한 턴이 감사 로그에 ``CHAT_DISCARD`` 한 건으로 남는다.
 

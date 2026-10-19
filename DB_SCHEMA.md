@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.39 |
 | 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-16 |
+| 최종 수정일 | 2026-10-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -1349,7 +1349,7 @@ CREATE INDEX idx_chat_session_expires ON chat_session (expires_at);
 CREATE INDEX idx_chat_session_user    ON chat_session (user_id, created_at DESC);
 ```
 
-> **계산 경로와 격리된다.** `PRD §7.8`이 *"계산·보고 경로와 완전히 격리된 별도 저장소"*를 요구하므로 이 두 표는 `calculation_run`·`voyage`를 **참조하지 않는다.** 챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`, §2.14)가 `calculation_run.id`로 가리킨다 — 재현의 원본은 그쪽이고 챗봇 로그는 가리키기만 한다. **`details.calculation_run_id`를 싣는 도구는 저장된 실행을 읽는 `explain_screen_result` 하나이고, 읽어서 결과를 모델에게 준 경우에만 싣는다**(실행을 찾지 못했거나 선박이 달라 오류 봉투를 낸 호출은 비운다 · `#2099`). 계산을 저장하지 않는 도구(`calc_voyage_cii` 등 · `#1334`)와 조회 도구는 인용할 실행이 없어 키 자체를 싣지 않는다.
+> **계산 경로와 격리된다.** `PRD §7.8`이 *"계산·보고 경로와 완전히 격리된 별도 저장소"*를 요구하므로 이 두 표는 `calculation_run`·`voyage`를 **참조하지 않는다.** 챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`, §2.14)가 `calculation_run.id`로 가리킨다 — 재현의 원본은 그쪽이고 챗봇 로그는 가리키기만 한다. **`details.calculation_run_id`를 싣는 도구는 저장된 실행을 읽는 `explain_screen_result` 하나이고, 읽어서 결과를 모델에게 준 경우에만 싣는다**(실행을 찾지 못했거나 선박이 달라 오류 봉투를 낸 호출은 비운다 · `#2099`). 계산을 저장하지 않는 도구(`calc_voyage_cii` 등 · `#1334`)와 조회 도구는 인용할 실행이 없어 키 자체를 싣지 않는다. **`details.status`는 도구 봉투의 성공 여부다** — 봉투가 성공(`ok: true`)이면 `SUCCESS`, 오류 봉투(알 수 없는 도구 · 입력 누락 · 선박 불일치 등)면 `FAILED`이고 값은 감사 필드의 어휘(`TECH_SPEC §13.1`)를 쓴다(`#2532`). 종전에는 호출부가 상태를 넘기지 않아 오류 봉투도 `SUCCESS`로 남았다.
 
 > **지우는 표다.** ⚠️ 지우지 않는 `audit_log`와 성격이 정반대라 같은 내용을 두 곳에 넣으면 삭제 요청을 만족시킬 수 없다. 본문(인용값 포함)은 여기에만 있고 감사 로그에는 해시만 남는다. 만료 행은 `scripts/purge_expired.py`가 지운다 — 유예 없이 `expires_at` 그대로(`TEST_PLAN §3.21`). downgrade 분류는 스키마 전체 `IRREVERSIBLE`(`1c444a5c4819`, §8.1.2)에 포함돼 있으나 데이터 성격은 EPHEMERAL이다.
 
@@ -2429,3 +2429,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-10-15 | `#2524` | §2.16 `user_session.user_agent` 설명에 **UTF-8 255바이트 초과 값은 저장 전에 앞 255바이트로 자른다**는 규칙 추가(글자 수로 자르면 한글 UA가 여전히 500 — 실측) — 종전에는 256자 이상 User-Agent로 로그인·가입·둘러보기·개발 로그인이 500이었다(#2520). 스키마 변경은 없다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 |
 | 2026-10-16 | `#2527` | §2.24 `chat_message`에 **`favorited_at`**(TIMESTAMPTZ NULL · 마이그레이션 `070`) — 챗봇 답 한 건에 단 즐겨찾기 별의 시각(`API_SPEC §15.9`). 별도 표가 아니라 메시지 행의 칸이라 대화 만료·삭제·탈퇴 때 CASCADE로 함께 지워진다(2026-10-16 결정 2 — 90일 예외 없음) · 각주 · 보존 정책 표 · §8.1.0 그래프 끝 `070`. 칸만 더해 트리거 합계는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#2405) |
 | 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 28행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
+| 2026-10-20 | `#___` | §2.23 「계산 경로와 격리된다」 각주에 **`CHAT_TOOL_CALL`의 `details.status` 의미** — 봉투 성공이면 `SUCCESS`, 오류 봉투면 `FAILED`(`TECH_SPEC §13.1` 어휘) (`#2532`). 호출부가 상태를 넘기지 않아 오류 봉투도 `SUCCESS`로 남았고, `#2395` 운영 확인에서 「알 수 없는 도구」 호출이 성공처럼 기록돼 같은 조사의 다른 도구가 성공했는지를 기록으로 확정할 수 없었다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
