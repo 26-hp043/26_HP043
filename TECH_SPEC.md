@@ -2393,4 +2393,4 @@ default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6
 | 2026-10-15 | `#2498` | §20 도입부 「세 헤더」 · §20.1 「세 정책 값」을 CSP를 더한 서술로, §20.3에 개발 전용 Swagger 경로의 CSP 예외(`_CSP_EXEMPT_PATHS`)를 적었다 — `#2368`(PR #2484)이 고치지 않은 옆자리다 (#2495). `AGENTS §4.3`상 정정이라 버전은 올리지 않는다 |
 | 2026-10-15 | `#2526` | §13.1 감사 대상에 **확정 항차의 연간 반영 여부 변경(`VOYAGE_INCLUSION_CHANGE` · `API_SPEC §3.13`)** 추가 — 상태는 그대로지만 확정 실적이 어느 해의 누적에 들어가는지를 바꾼다. 원본 변경과 같은 트랜잭션(`#1625`). `§4.3`상 항목 추가라 버전은 올리지 않는다 (#2420) |
 | 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 27행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
-| 2026-10-20 | `#___` | §12.3 참조 표에 **`CHARTER_RATE_ABOVE_MARKET` · `FUEL_PRICE_ABOVE_MARKET`** (`#2521` · 정본은 `API_SPEC §1.6`). `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 |
+| 2026-10-20 | `#2547` | §12.3 참조 표에 **`CHARTER_RATE_ABOVE_MARKET` · `FUEL_PRICE_ABOVE_MARKET`** (`#2521` · 정본은 `API_SPEC §1.6`). `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 |
