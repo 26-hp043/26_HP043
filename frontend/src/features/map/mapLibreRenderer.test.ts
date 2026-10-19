@@ -332,35 +332,71 @@ describe('MapLibre renderer adapter', () => {
     session.destroy()
   })
 
-  it('평면으로 바꾸면 3D 선체를 걷고, 지구본으로 오면 다시 올린다 (#1976)', async () => {
-    // 첫 화면이 평면이 됐으므로(#2292) 지구본을 고른 기록에서 시작한다.
-    window.localStorage.setItem('bluelog.map.projection', 'globe')
-    const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
-    const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
+  /*
+   * 3D 선체는 두 투영에 같이 선다 (#2531 · #1441 결정 7-1 나 · 2026-10-17).
+   *
+   * 종전(#1976)에는 평면으로 바꾸면 선체를 걷었다. 첫 화면이 평면이 되자(#2292) 보통·고사양
+   * 기기의 첫 화면에서 배가 등급 배지만 남았다 — SVG 배는 기기 성능만 보고 지우고 있었기
+   * 때문이다. 이제 선체가 실제로 그려지는 동안 지도 요소에 `data-vessel-hulls`를 달고,
+   * 화면(`FleetMap.css`)은 그 표시가 있을 때만 SVG 배를 지운다.
+   */
+  const vesselsOf = (ids: string[]) =>
+    ids.map((id) => ({ id })) as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
+
+  it('처음(평면)에도 3D 선체를 올리고 지도 요소에 표시한다 (#2531)', async () => {
+    const target = document.createElement('div')
+    const session = mapLibreRenderer.mount(target, { ...model('fleet'), vessels: vesselsOf(['v1']) }, vi.fn())
+    const map = maps[0]
+    expect(target.dataset.vesselHulls).toBeUndefined()
+    fireLoad(map)
+    await flush()
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
+    expect(vesselLayers.created).toBe(1)
+    expect(target.dataset.vesselHulls).toBe('on')
+    session.destroy()
+    // 버린 지도의 요소에 표시가 남으면, 같은 요소를 다시 쓰는 다음 지도가 SVG 배를 잃는다.
+    expect(target.dataset.vesselHulls).toBeUndefined()
+  })
+
+  it('투영을 오가도 선체를 걷거나 다시 만들지 않는다 (#2531)', async () => {
+    const target = document.createElement('div')
+    const session = mapLibreRenderer.mount(target, { ...model('fleet'), vessels: vesselsOf(['v1']) }, vi.fn())
     const map = maps[0]
     fireLoad(map)
     await flush()
-    expect(vesselLayers.created).toBe(1)
-
     const button = toggleOf(map)!
     button.click()
-    expect(vesselLayers.destroy[0]).toHaveBeenCalledTimes(1)
+    await flush()
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
     button.click()
     await flush()
-    expect(vesselLayers.created).toBe(2)
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
+    expect(vesselLayers.created).toBe(1)
+    expect(vesselLayers.destroy[0]).not.toHaveBeenCalled()
+    expect(target.dataset.vesselHulls).toBe('on')
     session.destroy()
   })
 
-  it('선체를 불러오는 사이 평면으로 바꾸면 올리지 않는다 (#1976)', async () => {
-    window.localStorage.setItem('bluelog.map.projection', 'globe')
-    const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
-    const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
-    const map = maps[0]
-    fireLoad(map)
-    toggleOf(map)!.click()
+  it('low 기기에는 선체를 올리지 않고 SVG 배를 남긴다 (#2531)', async () => {
+    const target = document.createElement('div')
+    const session = mapLibreRenderer.mount(
+      target, { ...model('fleet'), qualityTier: 'low' as const, vessels: vesselsOf(['v1']) }, vi.fn(),
+    )
+    fireLoad(maps[0])
     await flush()
     expect(vesselLayers.created).toBe(0)
+    expect(target.dataset.vesselHulls).toBeUndefined()
     session.destroy()
+  })
+
+  it('선체를 불러오는 사이 지도를 버리면 올리지 않는다 (#1976 · #2531)', async () => {
+    const target = document.createElement('div')
+    const session = mapLibreRenderer.mount(target, { ...model('fleet'), vessels: vesselsOf(['v1']) }, vi.fn())
+    fireLoad(maps[0])
+    session.destroy()
+    await flush()
+    expect(vesselLayers.created).toBe(0)
+    expect(target.dataset.vesselHulls).toBeUndefined()
   })
 })
 

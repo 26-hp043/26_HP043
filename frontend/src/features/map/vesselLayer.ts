@@ -207,11 +207,24 @@ export function createGlobeVesselLayer(
      *
      * MapLibre의 판정을 먼저 쓴다(지형까지 본다). 그것이 없는 환경에서는 중심에서의
      * 각거리로 앞뒤만 가른다(`isBeyondGlobeHorizon`).
+     *
+     * ⚠️ **평면에서는 뒷면이 없다** (`#2531`). 선체가 평면에도 올라가면서, 각거리 판정이
+     * 평면에서 돌면 중심에서 82° 넘게 떨어진 배(아시아를 보는 중의 수에즈)가 사라진다.
      */
+    const onGlobe = (() => {
+      // 투영을 알 수 없으면 종전대로 판정한다. 렌더러는 선체를 올리기 전에 투영을 정해 둔다.
+      try {
+        const projection = map.getProjection?.()
+        return projection === undefined ? true : projection.type === 'globe'
+      } catch {
+        return true
+      }
+    })()
     const transform = (map as unknown as {
       transform?: { isLocationOccluded?: (lngLat: { lng: number; lat: number }) => boolean }
     }).transform
     const hidden = (coordinate: readonly [number, number]): boolean => {
+      if (!onGlobe) return false
       const [lng, lat] = coordinate
       try {
         const occluded = transform?.isLocationOccluded?.({ lng, lat })

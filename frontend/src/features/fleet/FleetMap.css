@@ -206,19 +206,23 @@
 }
 
 /*
- * 3D 선체가 켜진 지도 (`#1917`).
+ * 3D 선체가 그려지고 있는 지도 (`#1917` · `#2531`).
  *
  * 배는 three가 그리므로 **평면 SVG 배를 지운다** — 같은 자리에 배가 둘이 되면 어느 쪽이
  * 위치인지 읽을 수 없다. ⚠️ **등급 문자 배지는 남는다**(`DESIGN_SYSTEM §14` — 등급을
  * 색으로만 말하지 않는다): 선체가 색을, 이 배지가 문자를 맡는다.
  *
+ * 조건은 렌더러가 선체 layer를 실제로 올린 뒤 지도 요소에 다는 `data-vessel-hulls`다
+ * (`mapLibreRenderer.ts`). 종전에는 기기 성능만 보고 지워, 선체가 없는 평면 첫 화면에서
+ * 배가 사라졌다(`#2531`).
+ *
  * 배지는 선체 위로 살짝 올린다 — 선체 한가운데 겹치면 둘 다 읽기 어렵다.
  */
-.fleetmap__marker--hull3d svg {
+[data-vessel-hulls='on'] .fleetmap__marker svg {
   display: none;
 }
 
-.fleetmap__marker--hull3d {
+[data-vessel-hulls='on'] .fleetmap__marker {
   transform: translateY(-18px);
 }
 
