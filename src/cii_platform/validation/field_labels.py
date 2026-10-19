@@ -215,7 +215,19 @@ def field_label(field: str) -> str:
     """
     if field in _FIELD_LABELS:
         return _FIELD_LABELS[field]
-    return _FIELD_LABELS.get(_ARRAY_INDEX.sub("[]", field), field)
+    bare = _ARRAY_INDEX.sub("[]", field)
+    # 맵 칸은 **키가 경로 끝에 붙어** 온다 — ``prices.charter_usd_per_day.<선박 id>`` (#2521).
+    # 키(선박 id · 유종 코드)는 요청마다 달라 dict에 적을 수 없으므로 맵 칸의 이름으로 부른다.
+    # 종전에는 등록되지 않은 경로라 원문이 그대로 「칸 이름」으로 나갔다.
+    parent, _, _ = bare.rpartition(".")
+    if bare not in _FIELD_LABELS and parent in _MAP_FIELDS:
+        return _FIELD_LABELS[parent]
+    return _FIELD_LABELS.get(bare, field)
+
+
+#: 키가 경로 끝에 붙는 맵 칸 (#2521). 키는 라벨에 없다 — 어느 항목인지는
+#: ``details[].field``가 말한다.
+_MAP_FIELDS = frozenset({"prices.charter_usd_per_day", "prices.fuel_usd_per_ton"})
 
 
 #: 요청 경로에 따라 **다른 이름으로 불리는** 필드 — (경로에 든 조각, 필드 → 라벨 키).

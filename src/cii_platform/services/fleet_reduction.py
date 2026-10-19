@@ -66,6 +66,19 @@ if TYPE_CHECKING:
 
 #: 선박 한 척에 감속을 적용하지 못한 항차가 있다 — 제원(기준 속력·기준 일일 연료)이 없다.
 WARNING_SLOWDOWN_SKIPPED = "SLOWDOWN_SKIPPED_NO_SPEED_MODEL"
+#: 입력한 일일 용선료가 확인된 시장 최고값을 넘는다 (#2521 결정 1 — 거절하지 않고 경고).
+WARNING_CHARTER_ABOVE_MARKET = "CHARTER_RATE_ABOVE_MARKET"
+#: 입력한 연료 단가가 확인된 시장 최고값을 넘는다 (#2521 결정 1 — 거절하지 않고 경고).
+WARNING_FUEL_ABOVE_MARKET = "FUEL_PRICE_ABOVE_MARKET"
+
+#: 원문으로 확인한 시장 최고 일일 용선료(USD/일) — 컨테이너선 단기 용선 2022-07 (#2521 결정 기록).
+#: **거절 상한이 아니다.** 넘으면 오타(15,000 → 15,000,000)일 가능성을 경고할 뿐
+#: 계산·저장은 그대로다.
+MARKET_MAX_CHARTER_USD_PER_DAY = Decimal("160000")
+#: 원문으로 확인한 시장 최고 연료 단가(USD/t) — LNG 벙커 MGO 환산 2022-08 (#2521 결정 기록).
+#: 같은 기록의 MGO 최고값(3,200 · 2026-03-10)보다 높은 쪽을 쓴다 — 유종마다 따로 두면 확인하지
+#: 않은 유종의 기준을 지어내게 되고, 낮은 쪽을 쓰면 LNG의 실제 최고가에서도 경고가 난다.
+MARKET_MAX_FUEL_USD_PER_TON = Decimal("3831")
 
 _RATINGS = ("A", "B", "C", "D", "E")
 _CII_DIGITS = 4
@@ -196,6 +209,31 @@ def _parse_money(mapping: dict[str, object] | None, field: str) -> dict[str, Dec
             )
         parsed[key] = value
     return parsed
+
+
+def _price_warnings(
+    charter: dict[str, Decimal], fuel_price: dict[str, Decimal], fleet: set[str]
+) -> list[str]:
+    """시장 최고값을 넘는 단가 — 거절이 아니라 경고 (#2521 결정 1).
+
+    0을 세 개 더 친 오타(용선료 15,000 → 15,000,000)가 **아무 표시 없이** 계산돼 순손익이
+    정상 값처럼 나왔고, 저장하면 다음 계획이 그 단가를 기본값으로 이어받았다. 감속 일수가
+    0인 배는 곱이 0이라 비용에도 드러나지 않는다 — 그래서 **곱한 결과가 아니라 입력한
+    단가**를 본다.
+
+    용선료는 **지금 선대에 있는 선박**의 것만 본다. 삭제한 선박의 용선료는 화면에 칸이
+    없어(``priceRules.hasVisiblePrice``) 경고를 받아도 고칠 자리가 없다.
+    """
+    warnings: list[str] = []
+    if any(
+        amount > MARKET_MAX_CHARTER_USD_PER_DAY
+        for vessel_id, amount in charter.items()
+        if vessel_id in fleet
+    ):
+        warnings.append(WARNING_CHARTER_ABOVE_MARKET)
+    if any(amount > MARKET_MAX_FUEL_USD_PER_TON for amount in fuel_price.values()):
+        warnings.append(WARNING_FUEL_ABOVE_MARKET)
+    return warnings
 
 
 @layer1_context
@@ -376,6 +414,8 @@ async def evaluate_reduction_plan(
                 "achievable": cut.achievable,
             }
         )
+
+    warnings.extend(_price_warnings(charter, fuel_price, known))
 
     costs = summarize_costs(
         extra_days_by_vessel=extra_days_by_vessel,
