@@ -32,12 +32,20 @@ services:
     #
     # ⚠️ 종전 값으로 이미 띄운 호스트는 데이터가 익명 볼륨에 있다 — 그대로 올리면 빈 DB로
     # 뜬다. 옮기는 절차는 `docs/OPERATIONS.md §9.2.1`과 같다.
-    volumes: [cubrid-data:/home/cubrid/CUBRID/databases]
+    volumes:
+      - cubrid-data:/home/cubrid/CUBRID/databases
+      # 이미지 Python3.6/CCI 인증 helper — 비밀번호는 stdin으로만 읽는다 (#2117 · #2482).
+      # `docker-compose.prod.db.yml`과 같은 마운트다.
+      - ./scripts:/opt/bluelog:ro
     healthcheck:
       # `CMD`(exec 형식)는 셸을 거치지 않아 `$CUBRID_PASSWORD`가 펼쳐지지 않는다 —
       # `sh -c`로 감싼다. DB 이름도 `cii`로 박혀 있던 것을 `$CUBRID_DB`로 바꾼다
       # (`CUBRID_DB`를 다른 값으로 주면 healthcheck만 없는 DB를 물었다).
-      test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
+      #
+      # 값은 내장 printf의 pipe로 보낸다 (#2482) — 종전 `csql -u dba -p "$$CUBRID_PASSWORD"`는
+      # 30초마다 비밀번호를 프로세스 인자에 실어 컨테이너 안의 `ps`로 보였다.
+      # `docker-compose.prod.db.yml`(#2117)과 같은 명령이다.
+      test: ["CMD", "sh", "-c", 'printf "%s" "$$CUBRID_PASSWORD" | python3 /opt/bluelog/cubrid_auth_stdin.py probe "$$CUBRID_DB"']
       interval: 30s
       timeout: 5s
       retries: 30
