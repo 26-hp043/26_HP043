@@ -147,7 +147,8 @@ def test_every_db_healthcheck_passes_the_password():
         service = _db_service(path, name)
         test = service["healthcheck"]["test"]
         joined = " ".join(test)
-        if path.name == "docker-compose.prod.db.yml":
+        # 운영 두 compose는 stdin helper다 — `-p`로 넘기면 `ps`에 보인다(#2117 · #2482).
+        if path.name in {"docker-compose.prod.db.yml", "docker-compose.prod.yml"}:
             assert "cubrid_auth_stdin.py probe" in joined
             assert "printf" in joined and "| python3" in joined
             assert "-p " not in joined
@@ -721,3 +722,24 @@ def test_app_env_example_declares_every_variable_the_compose_substitutes():
     assert not stale, f"compose가 더는 치환하지 않는 면제 항목: {stale}"
     redundant = sorted(set(_APP_EXAMPLE_EXEMPT) & declared)
     assert not redundant, f"본보기에 이미 있는 면제 항목: {redundant}"
+
+
+def test_operations_examples_do_not_pass_the_password_as_an_argument():
+    """``OPERATIONS``의 예시 명령이 ``csql -p <비밀번호>``를 쓰지 않는다 (#2482).
+
+    §9.1은 비밀번호를 다루는 절차라 운영자가 그대로 따라 친다. ``-p``로 넘기면 그 값이
+    프로세스 인자에 실려 ``ps``로 보인다. ``csql``은 터미널이 붙어 있으면 ``-p`` 없이도
+    비밀번호를 묻는다(실측 — 의사 터미널에서 ``Enter Password``를 내고 받은 값으로 접속).
+    """
+    text = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    # 따라 치는 것은 코드 블록이다 — 설명 문장이 옛 예시를 인용하는 것은 막지 않는다.
+    commands: list[str] = []
+    in_block = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            in_block = not in_block
+        elif in_block:
+            commands.append(line)
+    assert commands, "OPERATIONS.md에서 코드 블록을 읽지 못했다"
+    offenders = [line for line in commands if re.search(r"\bcsql\b.*\s-p\s", line)]
+    assert offenders == [], offenders
