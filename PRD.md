@@ -160,6 +160,25 @@ MVP의 규정 파라미터는 IMO CII 체계를 기준으로 한다. CII는 일�
 
 제품은 MVP에서 공식 제출용이 아니므로, 사용자가 5,000 GT 미만 선박을 입력하더라도 계산 자체는 `샘플/내부 분석용`으로 수행할 수 있다. 다만 화면에는 `공식 CII 적용 대상이 아닐 수 있음`을 표시해야 한다.
 
+**용어 정의 — CII · DWT · GT [#2395]**
+
+챗봇이 도구 없이 용어를 풀이할 때 쓰는 문장의 정본이다. `services/chat_explain.py`의 `GLOSSARY`가 이 표의 문장을 **글자 그대로** 싣고, `tests/test_chat_explain.py`가 두 곳이 같은지 검사한다.
+
+| 용어 | 정의 |
+|---|---|
+| CII(탄소집약도지수) | CII는 선박이 한 해 동안 배출한 이산화탄소 총량을 같은 해의 수송 일(transport work)로 나눈 값입니다. 수송 일은 선박의 크기 기준(DWT 또는 GT)에 그 해 운항한 거리를 곱해 셉니다. 같은 일을 하면서 이산화탄소를 덜 내보낼수록 값이 낮아집니다. |
+| DWT(재화중량톤수) | DWT는 선박이 실을 수 있는 무게를 톤으로 나타낸 값입니다. 여름철 최대 흘수까지 잠겼을 때 정해진 밀도의 바닷물에서 잰 배수량에서 선박 자체의 무게(경하중량)를 뺀 값입니다. 벌크선·탱커·컨테이너선 같은 화물선은 CII를 계산할 때 이 값을 크기 기준으로 씁니다. |
+| GT(총톤수) | GT는 선박의 크기를 나타내는 톤수로, 선박톤수측정에 관한 국제협약에 따라 계산합니다. 이름에 톤이 들어가지만 무게가 아니라 선박 내부 공간의 크기에서 나오는 값입니다. 크루즈 여객선과 로로선은 CII를 계산할 때 이 값을 크기 기준으로 씁니다. |
+
+> **[#2395] 정의 출처** — 2026-10-17 결정 3(도구 없이 답한 DWT 정의가 틀렸다). 정본에 정의 문장이 없어 여기에 먼저 적는다. 풀이에는 **숫자를 넣지 않는다** — 수학 가드가 도구 응답에 없는 수로 보고 답을 폐기하기 때문이다(`TEST_PLAN` `IT-CHAT-046`). 그래서 원문의 해수 밀도 값과 협약 연도는 「정해진 밀도」·「국제협약」으로만 적었다.
+>
+> - **CII** — `MEPC.352(78)` §2.4: *"The metrics indicating the average CO2 emissions per transport work of a ship are generally referred to as operational carbon intensity indicator (CII) in these Guidelines."* · 같은 결의 §4: *"the attained annual operational CII of individual ships is calculated as the ratio of the total mass of CO2 (M) emitted to the total transport work (W) undertaken in a given calendar year"* (MEPC 78/17/Add.1 Annex 14, 인쇄면 3·4쪽). 「수송 일 = 크기 기준 × 운항 거리」는 개정 §4.2(`MEPC.412(84)`)의 *"the product of a ship's capacity and the total distance travelled"*.
+> - **DWT** — `MEPC.412(84)`가 대체한 G1 §4.2의 각주 1(MEPC 84/16/Add.2 Annex 14, 인쇄면 2쪽): *"Deadweight tonnage (DWT) means the difference in tonnes between the displacement of a ship in water of relative density of 1,025 kg/m3 at the summer load draught and the lightweight of the ship. The summer load draught should be taken as the maximum summer draught as certified in the stability booklet approved by the Administration or any organization recognized by it."* 원문은 「relative density」라 적고 단위를 kg/m3로 붙였다 — 표에서는 값을 적지 않으므로 이 표기 차이가 정의에 영향을 주지 않는다. 화물선 선종이 DWT를 쓴다는 것은 같은 §4.2 본문이다.
+> - **GT** — 같은 §4.2 각주 2: *"Gross tonnage (GT) should be calculated in accordance with the International Convention on Tonnage Measurement of Ships, 1969."* · MARPOL Annex VI(`MEPC.328(76)`) Regulation 2 정의 항목 .15: *"Gross tonnage means the gross tonnage calculated in accordance with the tonnage measurement regulations contained in Annex I to the International Convention on Tonnage Measurements of Ships, 1969, or any successor Convention."* 크루즈 여객선·로로선이 GT를 쓴다는 것은 §4.2 본문이다.
+> - ⚠️ **「무게가 아니라 내부 공간의 크기에서 나오는 값」은 (정황)이다** — 톤수협약 원문(Annex I의 총톤수 산식)을 받아 대조하지 않았다. 위 두 출처는 「협약에 따라 계산한다」까지만 말한다.
+>
+> **원문 대조 확인: 미완 — 사람 대조 대기(`AGENTS §2.1`).** 위 인용은 2026-10-20에 IMO 공개 PDF(`AGENTS §2.2`의 G1·개정 G1 링크, `MEPC.328(76)`)에서 기계 추출한 것이며, 사람이 인쇄면과 대조해야 한다.
+
 ### 3.2 공식 CII와 제품 내 추정값의 구분
 
 | 구분 | 공식 IMO CII | 본 제품 MVP |
@@ -3018,3 +3037,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 50행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
 | 2026-10-20 | `#2547` | §12.3.2 단가 각주에 **「시장 최고값을 넘으면 경고 — 거절하지 않는다」** (`#2521` 결정 1 · 2026-10-17). 기준 160,000 USD/일 · 3,831 USD/t, 경고 코드 둘(`API_SPEC §1.6`). `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-10-20 | `#2550` | **§16.3.1 「보내도 되는 것」에 시나리오·항차 조건 행 + 각주 `[#2395]`** — `scenario_type` · `speed_kn` · `distance_nm` · `duration_hours` · `co2_emission_ton`. 화면 제안 질문(기준 대비 % · 속도 시나리오)에 모델이 도구 값으로 새 수(기준과의 차 · 소요시간 · CO₂)를 만들어 No-Compute 가드에 폐기됐다. 가드는 두고 도구가 그 값을 싣는다 — `ratio_to_required`에 기준과의 차 표기를 덧붙이고(키는 그대로), 시나리오 행에 종류·속력·거리·소요시간·CO₂, 항차 CII에 거리·속력. 연료량·연료 종류는 금지 그대로다(사용자 결정 2026-10-17 · 결정 2). `AGENTS §4.3`상 행·각주 추가라 버전은 올리지 않는다 (#2395) |
+| 2026-10-20 | `#2552` | **§3.1에 「용어 정의 — CII · DWT · GT」 표 + 각주 `[#2395]`** — 챗봇이 도구 없이 답한 DWT 정의가 틀렸다(2026-10-17 결정 3). 정본에 정의 문장이 없어 먼저 적고 `chat_explain.GLOSSARY`가 글자 그대로 싣는다. 출처는 `MEPC.352(78)` §2.4·§4 · `MEPC.412(84)` §4.2 각주 1·2 · `MEPC.328(76)` Reg 2 — 기계 추출이라 **사람 원문 대조 대기**. 숫자는 넣지 않았다(수학 가드). `AGENTS §4.3`상 소규모 행 추가·각주라 버전은 올리지 않는다 |
