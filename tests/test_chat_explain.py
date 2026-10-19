@@ -192,3 +192,23 @@ def test_the_prompt_does_not_demonstrate_the_markdown_it_forbids() -> None:
 
     # 금지만 하고 끝내지 않는다 — 대신 쓸 표기를 준다.
     assert "마크다운" in prompt and "「」" in prompt
+
+
+def test_glossary_defines_cii_dwt_gt_from_prd() -> None:
+    """IT-CHAT-100 — `#2395` 결정 3: CII·DWT·GT 정의가 풀이에 있고 **PRD 표와 글자 그대로 같다**.
+
+    운영에서 챗봇이 도구 없이 DWT의 뜻을 틀리게 답했다. 정의는 ``PRD §3.1``
+    「용어 정의 — CII · DWT · GT」 표가 정본이다 — 한쪽만 고치면 화면 밖 설명과 정본이
+    갈리므로 표의 행 모양(``| 용어 | 정의 |``) 그대로 찾는다.
+    """
+    terms = dict(GLOSSARY)
+    prd = _doc("PRD.md")
+    for term in ("CII(탄소집약도지수)", "DWT(재화중량톤수)", "GT(총톤수)"):
+        assert term in terms, term
+        assert f"| {term} | {terms[term]} |" in prd, term
+    # 「DWT는 무게, GT는 무게가 아니다」 — 운영에서 틀린 지점이 이 구분이다.
+    assert "경하중량" in terms["DWT(재화중량톤수)"]
+    assert "무게가 아니라" in terms["GT(총톤수)"]
+    # 숫자 금지 규칙(IT-CHAT-046)을 새 항목도 지킨다 — 해수 밀도 값·협약 연도를 넣지 않았다.
+    for term in ("CII(탄소집약도지수)", "DWT(재화중량톤수)", "GT(총톤수)"):
+        assert not extract_numbers(terms[term]), term
