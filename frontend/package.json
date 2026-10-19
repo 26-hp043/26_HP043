@@ -21,7 +21,7 @@
     "lucide-react": "^1.57.0",
     "maplibre-gl": "^6.14.0",
     "pmtiles": "^4.5.0",
-    "react": "^19.2.8",
+    "react": "^19.3.1",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",
     "three": "^0.186.0"
