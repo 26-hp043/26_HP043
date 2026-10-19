@@ -68,14 +68,16 @@ def _whitelist_in_prd() -> set[str]:
     start = text.index("#### 16.3.1")
     stop = text.index("**보내지 않는 것**", start)
     body = text[start:stop]
-    return {token for token in re.findall(r"`([a-z_]+)`", body)}
+    # `#2395` — 숫자가 섞인 필드명(`co2_emission_ton`)도 읽는다. 첫 글자는 영문자여야 하므로
+    # 각주 표지(`[#2392]`)나 수치는 여전히 잡히지 않는다.
+    return {token for token in re.findall(r"`([a-z][a-z0-9_]*)`", body)}
 
 
 def _forbidden_in_prd() -> set[str]:
     text = _PRD.read_text(encoding="utf-8")
     start = text.index("**보내지 않는 것**")
     stop = text.index("좁게 시작하는 이유", start)
-    return set(re.findall(r"`([a-z_]+)`", text[start:stop]))
+    return set(re.findall(r"`([a-z][a-z0-9_]*)`", text[start:stop]))
 
 
 # --- No-Recall (전송 화이트리스트) -------------------------------------------------

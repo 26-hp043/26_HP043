@@ -34,6 +34,12 @@ OUTBOUND_WHITELIST: frozenset[str] = frozenset(
         "next_boundary_gap",
         # #2392 — 실적 ÷ 기준. 화면이 「기준 대비」 백분율로 보여 주는 값이다
         "ratio_to_required",
+        # #2395 — 시나리오·항차 계산이 질문이 묻는 값을 직접 싣는다(연료량·연료 종류는 금지 그대로)
+        "scenario_type",
+        "distance_nm",
+        "speed_kn",
+        "duration_hours",
+        "co2_emission_ton",
         # 연간 시뮬레이션 확률 (#1533) — 화면에 이미 보이는 값을 저장된 실행에서 읽는다
         "target_success_probability",
         "rating_probabilities",
