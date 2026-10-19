@@ -196,6 +196,21 @@ def _digest(value: object) -> str:
     ).hexdigest()
 
 
+def _tool_status(envelope: str) -> str:
+    """도구 봉투의 성공 여부를 감사 상태로 옮긴다 (`#2532`).
+
+    종전에는 두 호출부가 상태를 넘기지 않아 **오류 봉투도 ``SUCCESS``로** 남았다 — 운영
+    기록만으로 「도구가 오류를 냈다」와 「도구는 돌았다」를 가를 수 없었다(`#2395`의
+    `projection_year_end` 호출). 값은 감사 필드의 어휘(``TECH_SPEC §13.1`` — ``SUCCESS`` ·
+    ``FAILED``)를 쓴다. 봉투를 읽지 못하면 성공이라고 적지 않는다.
+    """
+    try:
+        body = json.loads(envelope)
+    except ValueError:
+        return "FAILED"
+    return "SUCCESS" if isinstance(body, dict) and body.get("ok") is True else "FAILED"
+
+
 def _from_a_question(history: Sequence[ChatMessage]) -> list[ChatMessage]:
     """이력 창이 **질문부터 시작하게** 자른다.
 
@@ -470,6 +485,7 @@ async def _answer_turn(
                 tool_name=call.name,
                 arguments_digest=_digest(call.arguments),
                 calculation_run_id=outcome.calculation_run_id,
+                status=_tool_status(output),
                 ip_address=ip_address,
             )
         messages.append({"role": "user", "content": results})
@@ -754,6 +770,8 @@ async def _answer_year_end_directly(
         tool_name=TOOL_PROJECT_YEAR_END,
         arguments_digest=_digest({}),
         calculation_run_id=outcome.calculation_run_id,
+        # 이 경로는 봉투가 성공일 때만 여기 닿는다 — 그래도 같은 판정으로 적는다.
+        status=_tool_status(outcome.envelope),
         ip_address=ip_address,
     )
     history = await chat_repo.list_messages(
