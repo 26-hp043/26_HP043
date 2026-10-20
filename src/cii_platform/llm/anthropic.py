@@ -83,6 +83,19 @@ TIMEOUT_SECONDS = 30.0
 #: 한 번 다시 부르는 상태 코드 — 요청 한도 · 일시 불가 · 공급자 과부하 (`#1535` 결정 가).
 RETRY_STATUSES = frozenset({429, 503, 529})
 
+#: 확장 사고(thinking)를 끈다 (`#2395` 결정 1 · ``PRD §16.1`` `[#2395]`).
+#:
+#: 운영 모델(Z.ai `glm-4.5-flash`)은 thinking이 **기본으로 켜져 있고**, 2026-10-20 운영 측정
+#: (``ops.yml llm-probe``)에서 응답 시간의 대부분이 거기서 나왔다 — 켜면 p50 15~19초 ·
+#: 최대 26.5초(한 호출 한도 30초에 닿는다), 끄면 p50 4.7~7.8초 · 최대 16.4초다. 출력 토큰도
+#: 600~800에서 200 안팎으로 준다.
+#:
+#: 필드를 **매 호출에 싣는다** — 출력 상한과 같은 이유로 공급자 기본값에 기대지 않는다.
+#: Anthropic 규격에도 있는 값이라 예비 공급자(Claude)로 돌아가도 같은 요청이 유효하다.
+#: ⚠️ thinking을 끌 수 없는 모델(같은 측정에서 `glm-5.3`은 400)로 바꾸려면 이 값부터
+#: 다시 정해야 한다.
+THINKING = {"type": "disabled"}
+
 #: 다시 부르기 전 기다리는 시간(초). 과부하가 풀릴 틈을 준다 — 길면 턴 시간 상한
 #: (``services/chat.TURN_TIMEOUT_SECONDS``)을 먹으므로 짧게 둔다.
 RETRY_DELAY_SECONDS = 1.0
@@ -222,6 +235,7 @@ class AnthropicProvider:
             # 기대면 공급자가 기본을 올렸을 때 비용이 조용히 커진다.
             "max_tokens": MAX_OUTPUT_TOKENS,
             "messages": _merge_consecutive(rest),
+            "thinking": THINKING,
         }
         if system:
             body["system"] = system
