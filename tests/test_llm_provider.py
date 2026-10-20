@@ -16,6 +16,7 @@ import pytest
 from cii_platform.llm import anthropic as anthropic_module
 from cii_platform.llm.anthropic import (
     API_VERSION,
+    THINKING,
     AnthropicProvider,
     _merge_consecutive,
     _parse,
@@ -104,6 +105,31 @@ async def test_request_carries_the_output_cap_and_version_header() -> None:
     assert body["system"] == "규칙"  # type: ignore[index]
     assert seen["version"] == API_VERSION
     assert seen["key"] == "test-key"
+
+
+async def test_request_disables_thinking() -> None:
+    """IT-CHAT-101 — thinking 끄기를 **매 호출에 싣는다** (`#2395` 결정 1).
+
+    운영 모델은 thinking이 기본으로 켜져 있어 응답 하나가 30초 한도에 닿았다(운영 측정 최대
+    26.5초 · 끄면 16.4초). 공급자 기본값에 기대면 그 지연이 그대로 돌아온다. 도구 정의가
+    실린 호출에도 빠지지 않는다.
+    """
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "네."}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AnthropicProvider(key="test-key", client=client)
+        await provider.complete(messages=[{"role": "user", "content": "질문"}])
+        await provider.complete(
+            messages=[{"role": "user", "content": "질문"}],
+            tools=[{"name": "t", "description": "d", "input_schema": {"type": "object"}}],
+        )
+
+    assert [body["thinking"] for body in seen] == [{"type": "disabled"}] * 2
+    assert THINKING == {"type": "disabled"}
 
 
 def test_stop_reason_is_carried_not_judged() -> None:
