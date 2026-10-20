@@ -729,3 +729,48 @@ def test_recalc_preview_refuses_without_passphrase(tmp_path: Path) -> None:
         done = _run_step(name, {**env, "PASSPHRASE": ""})
         assert done.returncode != 0, name
     assert not (fake / "remote.sh").exists() and not (fake / "gh.log").exists()
+
+
+def test_llm_probe_runs_inside_backend_with_validated_inputs() -> None:
+    """`llm-probe`가 떠 있는 백엔드 안에서 측정 모듈을 부르고, 입력을 그대로 넘긴다 (`#2395`).
+
+    키는 서버 `.env`에만 있다 — 러너로 가져오지 않는다. 출력은 모듈이 숫자만 찍으므로
+    그대로 로그에 둔다(`tests/test_llm_probe.py`가 본문 비노출을 본다).
+    """
+    wf = _workflow()
+    triggers = wf.get("on") or wf.get(True)
+    inputs = triggers["workflow_dispatch"]["inputs"]
+    assert "llm-probe" in inputs["task"]["options"]
+    assert inputs["models"]["default"] == "" and inputs["runs"]["default"] == ""
+    step = _step("챗봇 공급자 응답 시간 (app-01)")
+    assert step["if"] == "inputs.task == 'llm-probe'"
+    run = step["run"]
+    assert "\"MODELS='${MODELS}' RUNS='${RUNS:-3}' bash -s\" <<'ENDSSH'" in run
+    assert "exec -T backend python -m cii_platform.llm.probe" in run
+    assert '--models "${MODELS}" --runs "${RUNS}" </dev/null' in run
+    assert "LLM_API_KEY" not in run
+
+
+@pytest.mark.parametrize(
+    ("task", "models", "runs", "ok"),
+    [
+        ("llm-probe", "", "", True),
+        ("llm-probe", "glm-4.5-flash,glm-5.3,glm-5.3-flash[1m]", "5", True),
+        ("llm-probe", "glm-5.3", "10", True),
+        ("llm-probe", "glm 5.3", "", False),
+        ("llm-probe", "glm';id;'", "", False),
+        ("llm-probe", "a,,b", "", False),
+        ("llm-probe", "", "0", False),
+        ("llm-probe", "", "11", False),
+        ("llm-probe", "", "3;id", False),
+        ("inspect", "glm-5.3", "", False),
+        ("bench", "", "3", False),
+    ],
+)
+def test_llm_probe_validation(task: str, models: str, runs: str, ok: bool) -> None:
+    """모델 ID·횟수는 원격 셸의 작은따옴표 안에 들어간다 — 따옴표·공백·`;`이 든 값을 받지 않는다."""
+    env = {**os.environ, "TASK": task, "MODELS": models, "RUNS": runs, "CONFIRM": "",
+           "PREVIEW_RUN": "", "IMAGE_SHA": "", "DUMP": ""}  # fmt: skip
+    done = subprocess.run(["bash", "-eo", "pipefail", "-c", _step("입력 검증")["run"]],
+                          env=env, text=True, capture_output=True)  # fmt: skip
+    assert (done.returncode == 0) == ok, done.stdout + done.stderr

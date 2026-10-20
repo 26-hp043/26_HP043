@@ -40,6 +40,10 @@
 #                   받아 그 대상에만 `needs_recalc`를 세운다(§3.8.1 3단계 · 되돌릴 수 없다).
 #                   `confirm`에 `cii`. 결과 JSON과 복구 자료(표시할 `calculation_run` 번호)를
 #                   암호화해 `recalc-apply-<실행번호>`로 올린다. 로그에는 건수만 찍는다.
+#   llm-probe       app-01 백엔드 컨테이너에서 챗봇 공급자의 응답 시간을 잰다(#2395 결정 1 ·
+#                   `python -m cii_platform.llm.probe`). `models`의 모델마다 thinking 기본·끔 두 변형 ×
+#                   고정 질문 둘 × `runs`회를 차례로 부른다. 로그에는 시간·상태 코드·응답의 model·
+#                   토큰 수만 찍는다(답 본문 없음). DB를 쓰지 않는다. 외부 호출이라 플랜 사용량을 쓴다.
 #
 # ⚠️ 이 저장소는 **공개**다. Actions 로그와 아티팩트를 누구나 본다. 그래서 덤프는
 # `BACKUP_ARTIFACT_PASSPHRASE`로 **암호화한 파일만** 올리고, 시크릿이 없으면 올리지 않는다
@@ -58,7 +62,7 @@ on:
       task:
         description: "작업"
         type: choice
-        options: [inspect, backup, rehearse, collect, bench, rollback-drill, restore, app-start, purge, recalc-preview, recalc-apply]
+        options: [inspect, backup, rehearse, collect, bench, rollback-drill, restore, app-start, purge, recalc-preview, recalc-apply, llm-probe]
         default: inspect
       image_sha:
         description: "rollback-drill: 잠시 띄울 이전 이미지 커밋 (12자리)"
@@ -74,6 +78,14 @@ on:
         default: ""
       preview_run:
         description: "recalc-apply: 허락한 recalc-preview 실행의 번호(run id · 숫자) — 그 아티팩트가 승인 목록이다"
+        type: string
+        default: ""
+      models:
+        description: "llm-probe: 쉼표로 나눈 모델 ID (비우면 운영 LLM_MODEL 하나)"
+        type: string
+        default: ""
+      runs:
+        description: "llm-probe: 경우마다 횟수 1~10 (비우면 3)"
         type: string
         default: ""
 
@@ -113,7 +125,22 @@ jobs:
           CONFIRM: ${{ inputs.confirm }}
           DUMP: ${{ inputs.dump }}
           PREVIEW_RUN: ${{ inputs.preview_run }}
+          MODELS: ${{ inputs.models }}
+          RUNS: ${{ inputs.runs }}
         run: |
+          # 모델 ID와 횟수는 원격 셸에 들어간다 — 따옴표·공백·$가 들 수 없는 모양만 받는다
+          if { [ -n "${MODELS}" ] || [ -n "${RUNS}" ]; } && [ "${TASK}" != "llm-probe" ]; then
+            echo "::error::models·runs 입력은 llm-probe 전용이다"
+            exit 1
+          fi
+          if [ -n "${MODELS}" ] && ! printf '%s' "${MODELS}" | grep -Eq '^[A-Za-z0-9._-]+(\[[0-9a-z]+\])?(,[A-Za-z0-9._-]+(\[[0-9a-z]+\])?)*$'; then
+            echo "::error::models는 쉼표로 나눈 모델 ID(영숫자 . _ - 와 [1m] 같은 접미사)만 받는다"
+            exit 1
+          fi
+          if [ -n "${RUNS}" ] && ! printf '%s' "${RUNS}" | grep -Eq '^([1-9]|10)$'; then
+            echo "::error::runs는 1~10이다"
+            exit 1
+          fi
           if [ "${TASK}" = "rollback-drill" ] && ! printf '%s' "${IMAGE_SHA}" | grep -Eq '^[0-9a-f]{12}$'; then
             echo "::error::rollback-drill에는 image_sha(커밋 12자리)가 필요하다"
             exit 1
@@ -663,6 +690,24 @@ jobs:
           # 어느 커밋을 잰 것인지 남긴다 — 헬스 응답의 `commit`
           echo "[app-01] 헬스 $(curl -fsS --max-time 5 http://127.0.0.1:8001/api/v1/health </dev/null || echo 응답 없음)"
           docker compose -f docker-compose.prod.app.yml exec -T backend nice -n 10 python -m cii_platform.calc.bench </dev/null
+          ENDSSH
+
+      # ------------------------------------------------------------------
+      # llm-probe — 챗봇 공급자 응답 시간 (#2395 결정 1)
+      # ------------------------------------------------------------------
+      # 키는 서버 `.env`에만 있다 — 러너로 가져오지 않고 떠 있는 백엔드 컨테이너 안에서 부른다.
+      # 모듈이 답 본문을 찍지 않으므로 출력을 그대로 로그에 둔다(공개 로그 · `PRD §16.3.1`).
+      - name: 챗봇 공급자 응답 시간 (app-01)
+        if: inputs.task == 'llm-probe'
+        env:
+          MODELS: ${{ inputs.models }}
+          RUNS: ${{ inputs.runs }}
+        run: |
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${APP_HOST}" "MODELS='${MODELS}' RUNS='${RUNS:-3}' bash -s" <<'ENDSSH'
+          set -euo pipefail
+          cd ~/bluelog
+          echo "[app-01] 헬스 $(curl -fsS --max-time 5 http://127.0.0.1:8001/api/v1/health </dev/null || echo 응답 없음)"
+          docker compose -f docker-compose.prod.app.yml exec -T backend python -m cii_platform.llm.probe --models "${MODELS}" --runs "${RUNS}" </dev/null
           ENDSSH
 
       # ------------------------------------------------------------------
