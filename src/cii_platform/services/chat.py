@@ -171,7 +171,18 @@ _RULES = (
     # 적는 순간 그 줄이 또 하나의 시범이 된다.
     "· 마크다운 서식을 쓰지 마십시오. 화면은 답을 평문 그대로 그려서 별표·우물 정·목록 기호가 "
     "글자로 보입니다. 강조가 필요하면 「」로 묶으십시오.\n"
+    # `#2395` — 항차 도구가 연료를 선박 등록값으로 채우면 봉투에 ``fuel_basis``가 붙는다.
+    # 사용자가 말하지 않은 연료로 낸 값이므로 그 사실을 함께 말해야 한다.
+    "· 도구 응답에 fuel_basis가 있으면 그 값은 사용자가 말한 연료가 아니라 선박에 등록된 "
+    "기준 연료 소모량으로 추정한 것입니다. 답에 「선박 등록값 기준 추정」이라고 밝히십시오.\n"
     "· 한국어로 간결하게 답하십시오."
+)
+
+#: `#2395` — 선박이 정해진 턴에 덧붙이는 문장. **선박을 밝히지 않는다**(`PRD §16.3.1`).
+#: 이 문장이 없으면 모델은 선박이 정해진 줄 모르고 「선박 이름을 알려 달라」고 되묻는다
+#: (10-21 운영 재확인 — 항차 CII 예시 질문이 두 바퀴 모두 그렇게 끝났다).
+VESSEL_KNOWN_NOTE = (
+    "이 대화의 선박은 이미 정해져 있습니다. 선박을 되묻지 말고 필요한 도구를 바로 부르십시오."
 )
 
 #: 역할 지시 + 용어 풀이 (`#123`).
@@ -384,7 +395,7 @@ async def _answer_turn(
     # 서로 다른 해를 쓰지 않게 한다 (#2355 · #2131).
     turn_year = current_regulation_year(datetime.now(UTC))
     current_year_only = _asks_only_current_year(question)
-    messages = _conversation(history, turn_year)
+    messages = _conversation(history, turn_year, vessel_known=effective_vessel is not None)
 
     tool_outputs: list[str] = []
     used_tools: list[str] = []
@@ -597,7 +608,9 @@ DIRECT_ANSWER_NOTE = (
 _CII_DISPLAY_PLACES = Decimal("0.001")
 
 
-def _conversation(history: Sequence[ChatMessage], turn_year: int) -> list[dict[str, object]]:
+def _conversation(
+    history: Sequence[ChatMessage], turn_year: int, *, vessel_known: bool = False
+) -> list[dict[str, object]]:
     """모델 경로의 첫 호출에 보내는 메시지 — 시스템 지시와 대화.
 
     바로 경로(:func:`_model_writes_year_end`)도 이것을 그대로 쓴다. 두 경로가 따로 조립하면
@@ -609,6 +622,7 @@ def _conversation(history: Sequence[ChatMessage], turn_year: int) -> list[dict[s
             "content": (
                 f"{SYSTEM_PROMPT}\n\n현재 한국 달력의 해는 {turn_year}년입니다. "
                 "'올해'와 '현재 연도'는 이 해를 뜻합니다."
+                + (f" {VESSEL_KNOWN_NOTE}" if vessel_known else "")
             ),
         }
     ]
@@ -779,7 +793,7 @@ async def _answer_year_end_directly(
     )
     reply = await _model_writes_year_end(
         provider,
-        conversation=_conversation(history, turn_year),
+        conversation=_conversation(history, turn_year, vessel_known=True),
         envelope=outcome.envelope,
         turn_year=turn_year,
     )

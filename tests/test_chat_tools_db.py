@@ -182,6 +182,98 @@ async def test_voyage_calculation_renames_estimated_rating(session, vessel_id):
     assert result["rating"] in {"A", "B", "C", "D", "E"}, result
 
 
+async def test_voyage_without_fuel_is_estimated_from_the_vessel(session, vessel_id):
+    """IT-CHAT-102 — 연료를 말하지 않은 항차 질문도 계산한다 (`#2395` · `PRD §11.4` 2단계).
+
+    운영 예시 질문 「부산–싱가포르 2,300해리를 12노트로」는 연료를 말하지 않는다. 종전에는
+    연료량이 필수라 모델이 되물었다. 빠진 값은 선박 기본 유종과 기준 소모량 × cubic speed
+    model로 채우고, **그 연료로 직접 부른 계산과 같은 값**이어야 한다. 봉투는 채웠다는
+    표시(``fuel_basis``)만 싣고 연료 값 자체는 싣지 않는다(`PRD §16.3.1`).
+    """
+    from cii_platform.calc.fuel_estimator import estimate_fuel_ton
+
+    filled = _parsed(
+        await chat_tools.run_tool(
+            session,
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={"distance_nm": 2300, "speed_kn": 12, "regulation_year": 2026},
+            vessel_id=vessel_id,
+        )
+    )
+    assert filled["ok"] is True, filled
+    assert filled["fuel_basis"] == chat_tools.FUEL_BASIS_VESSEL_REFERENCE
+
+    fuel_ton = estimate_fuel_ton(
+        distance_nm=Decimal(2300),
+        speed_kn=Decimal(12),
+        reference_speed_kn=Decimal(14),
+        base_daily_foc_ton=Decimal(30),
+    )
+    explicit = _parsed(
+        await chat_tools.run_tool(
+            session,
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={
+                "distance_nm": 2300,
+                "speed_kn": 12,
+                "fuel_type": "HFO",
+                "fuel_ton": str(fuel_ton),
+                "regulation_year": 2026,
+            },
+            vessel_id=vessel_id,
+        )
+    )
+    assert "fuel_basis" not in explicit  # 사용자가 준 연료는 등록값 추정이 아니다
+    assert filled["result"] == explicit["result"]
+    flat = _flat(filled)
+    assert "fuel_ton" not in flat and "HFO" not in flat
+
+
+async def test_voyage_given_fuel_wins_over_the_vessel(session, vessel_id):
+    """사용자가 말한 연료가 먼저다(`PRD §11.4` 1단계) — 유종만 말하면 양만 채운다."""
+    given = _parsed(
+        await chat_tools.run_tool(
+            session,
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={"distance_nm": 2300, "speed_kn": 12, "fuel_type": "HFO", "fuel_ton": 900},
+            vessel_id=vessel_id,
+        )
+    )
+    filled = _parsed(
+        await chat_tools.run_tool(
+            session,
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={"distance_nm": 2300, "speed_kn": 12},
+            vessel_id=vessel_id,
+        )
+    )
+    assert "fuel_basis" not in given
+    assert given["result"]["attained_cii"] != filled["result"]["attained_cii"]
+
+
+async def test_voyage_without_fuel_and_without_vessel_reference_asks(session):
+    """등록값이 없으면 지어내지 않고 정해진 문장으로 되묻는다(`PRD §11.4` 4단계)."""
+    bare = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, '9777002', 'CHATTOOL BARE', 'BULK_CARRIER', 50000)"
+        ),
+        {"id": bare},
+    )
+    body = _parsed(
+        await chat_tools.run_tool(
+            session,
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={"distance_nm": 2300, "speed_kn": 12},
+            vessel_id=bare,
+        )
+    )
+    assert body["ok"] is False
+    assert body["error"] == chat_tools._NO_FUEL_TEXT
+    assert "fuel_basis" not in body
+
+
 async def test_scenario_comparison_keeps_the_service_order(session, vessel_id):
     """IT-CHATDB-005 — ⚠️ **시나리오를 순위로 정렬하지 않는다**.
 

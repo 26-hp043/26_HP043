@@ -45,7 +45,8 @@ YEAR = 2026
 @pytest.mark.parametrize(
     "arguments",
     [
-        pytest.param({"distance_nm": 1000, "speed_kn": 14, "fuel_type": "HFO"}, id="missing"),
+        # `#2395` — 연료량·유종은 이제 선박 등록값으로 채운다. 빠지면 안 되는 것은 거리다.
+        pytest.param({"speed_kn": 14, "fuel_type": "HFO", "fuel_ton": 80}, id="missing"),
         pytest.param(
             {"distance_nm": "약 100", "speed_kn": 14, "fuel_type": "HFO", "fuel_ton": 80},
             id="not-a-number",

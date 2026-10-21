@@ -102,18 +102,25 @@ def tool_schemas() -> list[dict[str, object]]:
             "name": TOOL_CALC_VOYAGE_CII,
             "description": (
                 "한 항차의 CII를 추정한다(기능①). 거리·속도·연료를 받아 attained/required와 "
-                "등급을 돌려준다."
+                "등급을 돌려준다. 연료량·유종을 사용자가 말하지 않았으면 비워 두고 부른다 — "
+                "선박 등록값으로 추정한다."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "distance_nm": {"type": "number", "description": "항해 거리(해리)"},
                     "speed_kn": {"type": "number", "description": "평균 속력(노트)"},
-                    "fuel_type": {"type": "string", "description": "유종 코드 (예: HFO)"},
-                    "fuel_ton": {"type": "number", "description": "연료 소모량(톤)"},
+                    "fuel_type": {
+                        "type": "string",
+                        "description": "유종 코드 (예: HFO). 모르면 비운다 — 선박 기본 유종",
+                    },
+                    "fuel_ton": {
+                        "type": "number",
+                        "description": "연료 소모량(톤). 모르면 비운다 — 선박 기준 소모량으로 추정",
+                    },
                     "regulation_year": {"type": "integer", "description": "규제 연도"},
                 },
-                "required": ["distance_nm", "speed_kn", "fuel_type", "fuel_ton"],
+                "required": ["distance_nm", "speed_kn"],
             },
         },
         {
@@ -214,6 +221,7 @@ def envelope(
     result: dict[str, object] | None = None,
     error: str | None = None,
     kind: str | None = None,
+    fuel_basis: str | None = None,
 ) -> str:
     """도구 응답을 봉투에 담아 **문자열**로 만든다.
 
@@ -228,6 +236,10 @@ def envelope(
     # 우리가 정한 코드값이라 봉투에 둔다 — 도메인 값이 아니다.
     if kind is not None:
         body["kind"] = kind
+    # `#2395` — 항차 도구가 연료를 선박 등록값으로 채웠는가(:data:`FUEL_BASIS_VESSEL_REFERENCE`).
+    # ``kind``와 같이 우리가 정한 코드값이다 — 모델은 답에 「등록값 기준 추정」을 밝힌다.
+    if fuel_basis is not None:
+        body["fuel_basis"] = fuel_basis
     if error is not None:
         body["error"] = error
     if result is not None:
@@ -692,6 +704,16 @@ async def _search_vessel(
     )
 
 
+#: `#2395` — 항차 도구가 연료를 선박 등록값으로 채웠다는 표시. 봉투의 코드값이다.
+FUEL_BASIS_VESSEL_REFERENCE = "vessel_reference"
+
+#: 연료량을 받지 못했고 선박 등록값으로도 추정할 수 없을 때의 정해진 문장.
+_NO_FUEL_TEXT = (
+    "선박에 기준 연료 소모량·기준 속력·기본 유종이 모두 등록돼 있지 않아 연료량을 추정할 수 "
+    "없습니다. 연료 종류와 연료량을 알려 주세요."
+)
+
+
 async def _calc_voyage_cii(
     session: AsyncSession, arguments: dict[str, object], vessel_id: object
 ) -> str:
@@ -701,17 +723,32 @@ async def _calc_voyage_cii(
         estimate_voyage_cii,
     )
 
+    distance_nm = _required_decimal(arguments, "distance_nm")
+    speed_kn = _required_decimal(arguments, "speed_kn")
+    fuel_ton = _optional_decimal(arguments, "fuel_ton")
+    fuel_type = arguments.get("fuel_type")
+    basis: str | None = None
+    # `#2395` — 예시 질문(「부산–싱가포르 2,300해리를 12노트로」)은 연료를 말하지 않는다.
+    # 종전에는 연료량이 필수라 모델이 계산하지 못하고 되물었다. 빠진 값은 `PRD §11.4` 2단계
+    # (선박 기준 소모량 × cubic speed model)와 선박 기본 유종으로 채운다 — 화면 시나리오
+    # 비교(`scenario_compare._resolve_base_daily_foc`)가 이미 쓰는 우선순위다.
+    if fuel_ton is None or fuel_type is None:
+        estimated = await _vessel_fuel(session, vessel_id, distance_nm, speed_kn)
+        if estimated is None:
+            return envelope(TOOL_CALC_VOYAGE_CII, error=_NO_FUEL_TEXT)
+        default_type, default_ton = estimated
+        if fuel_type is None:
+            fuel_type = default_type
+        if fuel_ton is None:
+            fuel_ton = default_ton
+        basis = FUEL_BASIS_VESSEL_REFERENCE
+
     payload = VoyageCiiInput(
         vessel_id=vessel_id,  # type: ignore[arg-type]
         regulation_year=_regulation_year(arguments),
-        distance_nm=_required_decimal(arguments, "distance_nm"),
-        speed_kn=_required_decimal(arguments, "speed_kn"),
-        fuel_uses=(
-            FuelUseInput(
-                fuel_type=_required_text(arguments, "fuel_type"),
-                fuel_ton=_required_decimal(arguments, "fuel_ton"),
-            ),
-        ),
+        distance_nm=distance_nm,
+        speed_kn=speed_kn,
+        fuel_uses=(FuelUseInput(fuel_type=str(fuel_type), fuel_ton=fuel_ton),),
     )
     # `#1334` ⑷ — **저장하지 않는다.** 이 모듈 머리말의 「쓰기 도구를 넣지 않는다」를
     # 읽기 도구가 어기고 있었다(`calculation_run`은 지울 수 없다).
@@ -723,7 +760,41 @@ async def _calc_voyage_cii(
     return envelope(
         TOOL_CALC_VOYAGE_CII,
         result=_publishable(published_from, _VOYAGE_KEYS),
+        fuel_basis=basis,
     )
+
+
+async def _vessel_fuel(
+    session: AsyncSession, vessel_id: object, distance_nm: Decimal, speed_kn: Decimal
+) -> tuple[str, Decimal] | None:
+    """선박 등록값으로 (기본 유종, 추정 연료량)을 낸다 — 하나라도 없으면 ``None``.
+
+    연료량은 ``PRD §11.4.1`` cubic speed model이다(기상 보정 없음). 값이 모델에게 나가지
+    않는다 — 연료량·연료 종류는 ``PRD §16.3.1`` 「보내지 않는 것」이다.
+    """
+    from cii_platform.calc.fuel_estimator import estimate_fuel_ton
+    from cii_platform.db.models.vessel import Vessel
+
+    vessel = await session.get(Vessel, vessel_id)
+    if vessel is None:
+        raise NotFoundError("vessel")
+    base = vessel.reference_daily_foc_ton
+    reference_speed = vessel.reference_speed_kn
+    fuel_type = vessel.default_fuel_type
+    if not fuel_type or base is None or reference_speed is None:
+        return None
+    if Decimal(base) <= 0 or Decimal(reference_speed) <= 0:
+        return None
+    try:
+        fuel_ton = estimate_fuel_ton(
+            distance_nm=distance_nm,
+            speed_kn=speed_kn,
+            reference_speed_kn=Decimal(reference_speed),
+            base_daily_foc_ton=Decimal(base),
+        )
+    except ValueError as exc:
+        raise ToolArgumentError("speed_kn") from exc
+    return str(fuel_type), fuel_ton
 
 
 async def _compare_scenarios(
