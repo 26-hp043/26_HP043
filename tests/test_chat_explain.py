@@ -212,3 +212,20 @@ def test_glossary_defines_cii_dwt_gt_from_prd() -> None:
     # 숫자 금지 규칙(IT-CHAT-046)을 새 항목도 지킨다 — 해수 밀도 값·협약 연도를 넣지 않았다.
     for term in ("CII(탄소집약도지수)", "DWT(재화중량톤수)", "GT(총톤수)"):
         assert not extract_numbers(terms[term]), term
+
+
+def test_the_model_is_told_when_the_vessel_is_already_set() -> None:
+    """IT-CHAT-103 — `#2395`: 선박이 정해진 턴에는 그 사실을 알린다 — **선박은 밝히지 않는다**.
+
+    10-21 운영 재확인에서 화면이 선박을 넘겼는데도 항차 CII 예시 질문에 모델이 「선박
+    이름을 알려 달라」고 두 바퀴 모두 되물었다. 모델은 선박이 정해진 줄 몰랐다.
+    연료를 등록값으로 채운다는 규칙(``fuel_basis``)도 함께 실린다.
+    """
+    from cii_platform.services.chat import VESSEL_KNOWN_NOTE, _conversation
+
+    known = _conversation([], 2026, vessel_known=True)[0]["content"]
+    unknown = _conversation([], 2026)[0]["content"]
+    assert VESSEL_KNOWN_NOTE in known
+    assert VESSEL_KNOWN_NOTE not in unknown
+    assert not extract_numbers(VESSEL_KNOWN_NOTE)
+    assert "fuel_basis" in SYSTEM_PROMPT and "선박 등록값 기준 추정" in SYSTEM_PROMPT
