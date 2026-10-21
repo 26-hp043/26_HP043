@@ -777,7 +777,7 @@ async def _vessel_fuel(
 
     vessel = await session.get(Vessel, vessel_id)
     if vessel is None:
-        raise NotFoundError("vessel")
+        raise NotFoundError("선박을 찾을 수 없습니다.")
     base = vessel.reference_daily_foc_ton
     reference_speed = vessel.reference_speed_kn
     fuel_type = vessel.default_fuel_type
