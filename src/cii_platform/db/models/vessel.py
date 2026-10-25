@@ -39,6 +39,11 @@ class Vessel(Base):
     # 선택 입력: NULL은 「미입력」이고 계산은 0%로 한다. 파울링이면 +, 청소·연마·절감장치면 −.
     # 범위는 도메인 범위(−30 ~ +100)이고 집행은 071의 트리거가 한다.
     hull_condition_percent = sa.Column(sa.Numeric(precision=5, scale=2), nullable=True)
+    # 묘박 중 일일 연료(t/일) — 항로 비교의 선석 대기 연료 (#2561 결정 D3 · 072). 선택 입력:
+    # NULL은 「미입력」이고, 선석 시각을 넣은 비교에서 대기 연료·대기 포함 CII를 「계산 못 함」으로
+    # 둔다. 묘박 중에는 주기관을 끄고 발전기·보일러만 돌아 배마다 거의 일정한 값이다. 범위는
+    # 기준 일일 연료와 같은 양이라 같은 자릿수(``NUMERIC(8,2)``)이고 집행은 072의 트리거다.
+    anchorage_daily_foc_ton = sa.Column(sa.Numeric(precision=8, scale=2), nullable=True)
     # 호출부호(call sign) — 공공데이터 교차 대조의 키 (#1197 A단계 · 058). 선택 입력:
     # 해양수산부_선박운항정보 API가 IMO가 아니라 호출부호로 질의하므로 없으면 그 배는
     # 대조 대상이 아닐 뿐 계산은 그대로다. ITU RR No.19.55상 4~7자·영대문자+숫자.
@@ -115,6 +120,11 @@ class Vessel(Base):
             "hull_condition_percent IS NULL OR "
             "(hull_condition_percent >= -30 AND hull_condition_percent <= 100)",
             name="chk_hull_condition_range",
+        ),
+        # #2561 — 묘박 중 일일 연료는 양수다. 선언은 문서이고 집행은 072 트리거다(§7.4).
+        sa.CheckConstraint(
+            "anchorage_daily_foc_ton IS NULL OR anchorage_daily_foc_ton > 0",
+            name="chk_anchorage_foc_positive",
         ),
         # #1197 — `call_sign` 형식 CHECK는 `chk_imo_format`과 같은 이유로 여기 없다(`~`
         # 정규식은 CUBRID가 받지 않는다). 집행은 058의 트리거 `trg_chk_call_sign_ins/upd`.

@@ -138,6 +138,10 @@ class VesselCreateRequest(BaseModel):
     hull_condition_percent: Annotated[
         Decimal | None, Field(**HULL_CONDITION_PERCENT), stored(2)
     ] = None
+    # #2561 결정 D3 — 묘박 중 일일 연료(선택). 선석 시각을 넣은 항로 비교의 대기 연료에 쓴다.
+    # 모르면 보내지 않는다 — 그때는 대기 시간만 내고 대기 연료는 「계산 못 함」이다. 범위는
+    # 기준 일일 연료와 같은 양이라 같다.
+    anchorage_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC), stored(2)] = None
     # #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
     # 질의하므로 교차 대조의 키다. 모르면 보내지 않는다 — 그 배는 대조 대상이 아닐 뿐이다.
     # ``max_length``는 접은 **뒤**의 값에 걸린다(검증기가 ``mode="before"``) — 그래서
@@ -186,6 +190,8 @@ class VesselUpdateRequest(BaseModel):
     hull_condition_percent: Annotated[
         Decimal | None, Field(**HULL_CONDITION_PERCENT), stored(2)
     ] = None
+    # #2561 — None은 「안 바꾼다」. 지우는 경로는 GT와 마찬가지로 PATCH에 없다.
+    anchorage_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC), stored(2)] = None
     # #1197 — 빈 문자열은 None으로 접히므로 「안 바꾼다」가 된다. 지우는 경로는 GT와
     # 마찬가지로 PATCH에 없다.
     call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None

@@ -196,6 +196,12 @@ def _local_time(value) -> str:
 #: 사후 비교 표가 싣는 3종과 그 순서 (``PRD §25.2.1`` — 직항·우회·감속).
 _SCENARIO_ORDER = ("DIRECT", "DETOUR", "SLOW_STEAMING")
 
+#: 선석 가용 시각을 넣은 비교에만 있는 2종 (`#2561` 결정 D1) — 위 3종 뒤에 이 순서로 싣는다.
+#: **저장된 비교에 있을 때만** 행을 둔다. 3종과 달리 「이력 없음」 행을 두지 않는 것은, 선석
+#: 시각 없이 한 비교에서 이 둘이 없는 것은 빠진 기록이 아니라 처음부터 계산하지 않은 것이기
+#: 때문이다 — 「이력 없음」으로 적으면 기록이 사라진 것처럼 읽힌다.
+_OPTIONAL_SCENARIO_ORDER = ("DIRECT_JIT", "DETOUR_JIT")
+
 #: 「없음」 표지 셋(``SCENARIO_NOT_STORED``·``ACTUAL_CII_NOT_COMPUTABLE``·
 #: ``ACTUAL_RATING_NOT_RATED``)은 ``reports/document.py``에 있다 — HTML 렌더러의 열 정렬
 #: 판정도 같은 값을 읽어야 해서다. 이 모듈은 그 이름을 그대로 가져다 쓴다.
@@ -474,7 +480,8 @@ async def _scenario_section(session: AsyncSession, voyage, fuel_uses) -> TableSe
                     capacity_basis = basis.get("transport_capacity_basis")
 
     rows = []
-    for scenario_type in _SCENARIO_ORDER:
+    optional = tuple(t for t in _OPTIONAL_SCENARIO_ORDER if t in by_type)
+    for scenario_type in (*_SCENARIO_ORDER, *optional):
         values = by_type.get(scenario_type)
         rows.append(
             _scenario_row(

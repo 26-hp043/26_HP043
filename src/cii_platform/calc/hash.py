@@ -193,6 +193,11 @@ SCENARIO_INPUT_FIELDS: tuple[str, ...] = (
     # (#2561) 선체·추진 상태 보정 %. **0이 아닐 때만** 키가 들어온다 — 미입력·0%는 보정을
     # 넣기 전과 같은 계산이므로(`calc/fuel_estimator.py`) 해시도 종전 그대로여야 한다.
     "hull_condition_percent",
+    # (#2561) 선석 조건 {available_at, reference_at, anchorage_daily_foc_ton?}. **선석 가용
+    # 시각이 있을 때만** 키가 들어온다 — 경유지와 같은 방식이라 종전 요청의 해시는 그대로다.
+    # 도착시각 맞춤 계획은 `scenarios`에 있지만, 대기 연료가 쓰는 묘박 연료와 남은 시간의
+    # 기준은 거기 없다.
+    "berth",
 )
 
 

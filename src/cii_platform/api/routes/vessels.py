@@ -177,6 +177,7 @@ async def create_vessel_route(
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
         block_coefficient=payload.block_coefficient,
         hull_condition_percent=payload.hull_condition_percent,
+        anchorage_daily_foc_ton=payload.anchorage_daily_foc_ton,
         call_sign=payload.call_sign,
     )
     return {"data": data, "meta": _meta(request)}
@@ -204,6 +205,7 @@ async def update_vessel_route(
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
         block_coefficient=payload.block_coefficient,
         hull_condition_percent=payload.hull_condition_percent,
+        anchorage_daily_foc_ton=payload.anchorage_daily_foc_ton,
         call_sign=payload.call_sign,
     )
     return {"data": data, "meta": _meta(request)}

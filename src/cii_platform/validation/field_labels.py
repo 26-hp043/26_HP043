@@ -79,6 +79,11 @@ _FIELD_LABELS: dict[str, str] = {
     "block_coefficient": "방형계수(CB)",
     # #2561 — 항로 비교 연료 추정의 선체·추진 상태 보정. 선택 입력.
     "hull_condition_percent": "선체·추진 상태 보정(%)",
+    # #2561 결정 D3 — 선석 대기 연료의 계수. 선택 입력.
+    "anchorage_daily_foc_ton": "묘박 중 일일 연료",
+    # #2561 결정 D1 — 항로 비교의 선석 가용 시각과 그 기준 시각.
+    "berth_available_at": "선석 가용 시각",
+    "berth_reference_at": "기준 시각",
     # #1197 — 공공데이터 교차 대조의 키. 선택 입력.
     "call_sign": "호출부호",
     "current_lat": "현재 위도",

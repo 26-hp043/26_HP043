@@ -196,11 +196,11 @@ async def test_compare_resolves_the_hull_condition_over_http(migrated_db, app_fr
             )
             vessel_after = client.get(f"/api/v1/vessels/{vessel_id}").json()["data"]
 
-        assert from_vessel["data"]["conditions"] == {
+        assert _hull_keys(from_vessel["data"]["conditions"]) == {
             "hull_condition_percent": 20.0,
             "hull_condition_source": "VESSEL",
         }
-        assert zero["data"]["conditions"] == {
+        assert _hull_keys(zero["data"]["conditions"]) == {
             "hull_condition_percent": 0.0,
             "hull_condition_source": "REQUEST",
         }
@@ -269,3 +269,8 @@ async def test_zero_and_unset_keep_the_pre_2561_hash(migrated_db, app_fresh_engi
         if vessel_id:
             async with sessionmaker() as s:
                 await _cleanup(s, vessel_id)
+
+
+def _hull_keys(conditions: dict) -> dict:
+    """``data.conditions``에서 선체 상태 두 키만 — 선석 키(#2561 ②③)는 따로 본다."""
+    return {k: conditions[k] for k in ("hull_condition_percent", "hull_condition_source")}

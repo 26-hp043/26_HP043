@@ -96,6 +96,8 @@ def to_dict(vessel) -> dict[str, object]:
         "block_coefficient": _number(vessel.block_coefficient),
         # #2561 — 선체·추진 상태 보정 %. None은 「미입력」이고 항로 비교는 0%로 계산한다.
         "hull_condition_percent": _number(vessel.hull_condition_percent),
+        # #2561 — 묘박 중 일일 연료. None은 「미입력」이고 선석 대기 연료를 내지 않는다.
+        "anchorage_daily_foc_ton": _number(vessel.anchorage_daily_foc_ton),
         # #1197 — 호출부호. None은 「모른다」— 그 배는 공공데이터 교차 대조 대상이 아니다.
         "call_sign": vessel.call_sign,
         "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
@@ -200,6 +202,7 @@ async def create_vessel(
     reference_daily_foc_ton: Decimal | None = None,
     block_coefficient: Decimal | None = None,
     hull_condition_percent: Decimal | None = None,
+    anchorage_daily_foc_ton: Decimal | None = None,
     call_sign: str | None = None,
 ) -> dict[str, object]:
     """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201.
@@ -247,6 +250,7 @@ async def create_vessel(
             reference_daily_foc_ton=reference_daily_foc_ton,
             block_coefficient=block_coefficient,
             hull_condition_percent=hull_condition_percent,
+            anchorage_daily_foc_ton=anchorage_daily_foc_ton,
             call_sign=call_sign,
             is_cii_applicable_hint=is_cii_applicable_hint,
         )
@@ -278,6 +282,7 @@ async def update_vessel(
     reference_daily_foc_ton: Decimal | None = None,
     block_coefficient: Decimal | None = None,
     hull_condition_percent: Decimal | None = None,
+    anchorage_daily_foc_ton: Decimal | None = None,
     call_sign: str | None = None,
 ) -> dict[str, object]:
     """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404.
@@ -345,6 +350,10 @@ async def update_vessel(
     # 않는다. 0은 유효한 값(「보정 없음」)이라 ``is not None``으로 본다.
     if hull_condition_percent is not None:
         vessel.hull_condition_percent = hull_condition_percent
+    # #2561 결정 D3 — 묘박 중 일일 연료도 같은 규율이다. 항로 비교의 대기 연료 계수이지 CII
+    # 직접 제원이 아니므로 specs_changed에 넣지 않는다.
+    if anchorage_daily_foc_ton is not None:
+        vessel.anchorage_daily_foc_ton = anchorage_daily_foc_ton
     # #1197 — 호출부호는 계산 입력이 아니라 대조 키다. specs_changed에 넣지 않는다.
     # None은 「안 바꾼다」— 스키마가 빈 문자열을 None으로 접으므로 지우는 경로는 없다
     # (GT와 같은 규율 · 위 docstring).

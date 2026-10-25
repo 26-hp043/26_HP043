@@ -10,18 +10,21 @@
 
 1. 선박·규정연도·기준선·등급 경계·연료 조회 (기능①과 같은 규칙)
 2. DIRECT 거리 확정 — ``direct_distance_nm`` 또는 좌표 대권거리 (PRD §11.2)
-3. 시나리오 계획 3건 확정 — DIRECT · DETOUR(기본 direct × 1.05) ·
-   SLOW_STEAMING(기본 ``max(current − 1, 1.0)``)
+3. 시나리오 계획 확정 — DIRECT · DETOUR(기본 direct × 1.05) ·
+   SLOW_STEAMING(기본 ``max(current − 1, 1.0)``). 선석 가용 시각이 있으면 DIRECT_JIT ·
+   DETOUR_JIT(거리 ÷ 선석까지 남은 시간)가 붙는다 (#2561 결정 D1)
 4. 시나리오별 연료 추정 — cubic speed model (``calc.fuel_estimator``, #75)
-5. 시나리오별 Layer 1 계산 — ``voyage_cii._compute_layer1`` 재사용
-6. ``voyage_scenario`` 3행 + ``calculation_run`` 1건(SCENARIO) 저장
+5. 시나리오별 Layer 1 계산 — ``voyage_cii._compute_layer1`` 재사용. 선석 시각이 있으면
+   선석 대기(시간 · 묘박 연료 · 대기 포함 CII)를 카드마다 따로 낸다 (#2561 결정 D8 「다」)
+6. ``voyage_scenario`` 3~5행 + ``calculation_run`` 1건(SCENARIO) 저장
 """
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from datetime import UTC, timedelta
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.calc.capacity import (
@@ -67,10 +70,11 @@ from cii_platform.services.weather import (
     fetched_at_iso,
     resolve_with_fallback,
 )
-from cii_platform.validation.bounds import largest
+from cii_platform.validation.bounds import MAX_SPEED_KN, largest
 from cii_platform.validation.field_labels import field_label
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,6 +84,10 @@ SCENARIO_NAMES: dict[str, str] = {
     "DIRECT": "직항",
     "DETOUR": "우회",
     "SLOW_STEAMING": "감속",
+    # `#2561` 결정 D1 — 선석 가용 시각을 넣었을 때만 생긴다. 「우회 + 증속」이 아니라 「도착시각
+    # 맞춤」인 것은 선석이 넉넉하면 우회도 감속이 되기 때문이다(결정요청 v3 §2).
+    "DIRECT_JIT": "직항 · 도착시각 맞춤",
+    "DETOUR_JIT": "우회 · 도착시각 맞춤",
 }
 
 #: PRD §11.2 — DETOUR 기본 우회 거리 비율.
@@ -95,6 +103,20 @@ WARNING_SLOW_SPEED_FLOOR = "SLOW_SPEED_FLOOR"
 
 #: API_SPEC §1.6 — 기상 모델 요청이 적용되지 않고 NONE으로 계산했을 때.
 WARNING_WEATHER_NONE_FALLBACK = "WEATHER_NONE_FALLBACK"
+
+#: API_SPEC §1.6 — 도착시각 맞춤 속력이 최소 속도(1.0kn)보다 낮아 1.0kn로 계산했을 때 (`#2561`).
+#: 선석이 아주 멀면 생긴다. 그 시나리오는 선석보다 일찍 닿아 대기가 남는다.
+WARNING_ARRIVAL_SPEED_FLOOR = "ARRIVAL_SPEED_FLOOR"
+
+#: `#2561` — 도착시각 맞춤 속력의 상한. 넘으면 그 시나리오를 계산하지 않고 「도달 불가」로 싣는다.
+#: 요청의 속력 상한(VAL-009 · ``validation/bounds.py``)과 같은 값이다.
+_ARRIVAL_SPEED_MAX = MAX_SPEED_KN
+
+#: 묘박 연료(t/일)를 시간으로 나누는 분모.
+_HOURS_PER_DAY = Decimal(24)
+
+#: 선석까지 남은 시간을 정수 마이크로초에서 시간으로.
+_MICROS_PER_HOUR = Decimal(3_600_000_000)
 
 #: ``voyage_scenario`` 컬럼 스케일 — INSERT 전 확정 자릿수.
 _DB_SCALE = {
@@ -144,6 +166,38 @@ class ScenarioCompareInput:
     # 선체·추진 상태 보정 % (`#2561` 결정 D2 · 선택). 이번 비교에만 쓰는 덮어쓰기 값이다 —
     # 없으면 선박 제원(``vessel.hull_condition_percent``), 그것도 없으면 0%로 계산한다.
     hull_condition_percent: Decimal | None = None
+    # 선석 가용 시각과 그 기준 시각 (`#2561` 결정 D1 · 선택). **둘이 함께**만 유효하다 — 서버
+    # 시계로 「지금」을 정하지 않는다(`TECH_SPEC §5.4`). 둘 다 재현성 해시 재료다.
+    berth_available_at: datetime | None = None
+    berth_reference_at: datetime | None = None
+    # 묘박 중 일일 연료(t/일 · `#2561` 결정 D3 · 선택). 이번 비교에만 쓰는 덮어쓰기 값이다 —
+    # 없으면 선박 제원(``vessel.anchorage_daily_foc_ton``), 그것도 없으면 대기 연료를 내지 않는다.
+    anchorage_daily_foc_ton: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class _Berth:
+    """선석 조건 — 선석까지 남은 시간과 묘박 연료 (`#2561`). 선석 시각이 없으면 이 객체도 없다."""
+
+    available_at: datetime
+    reference_at: datetime
+    hours_until: Decimal
+    # ``None``이면 「미입력」이다 — 대기 시간은 내되 대기 연료·대기 포함 CII는 내지 않는다.
+    anchorage_daily_foc_ton: Decimal | None
+    anchorage_source: str
+
+
+@dataclass(frozen=True)
+class _Waiting:
+    """한 시나리오의 선석 대기 (`#2561` 결정 D8 「다」). 주된 칸(항해만)과 따로 싣는다."""
+
+    hours_to_berth: Decimal
+    waiting_hours: Decimal
+    late_hours: Decimal
+    # 묘박 연료가 미입력이고 대기가 있으면 둘 다 ``None``이다. 대기가 없으면 연료 0이고
+    # CII는 항해만과 같다.
+    waiting_fuel_ton: Decimal | None
+    layer1_with_waiting: _Layer1Values | None
 
 
 @dataclass(frozen=True)
@@ -163,6 +217,8 @@ class _ScenarioComputed:
     fuel_ton: Decimal
     duration_hours: Decimal
     layer1: _Layer1Values
+    # 선석 시각을 넣은 비교에서만 있다 (`#2561`).
+    waiting: _Waiting | None = None
 
 
 @layer1_context
@@ -181,13 +237,31 @@ def _compute_scenarios(
     d_vector: DVector,
     weather_factor: Decimal,
     hull_condition_percent: Decimal | None = None,
+    berth: _Berth | None = None,
 ) -> list[_ScenarioComputed]:
-    """시나리오 3건 전체를 **한 Layer 1 컨텍스트 안에서** 계산한다.
+    """시나리오 전체를 **한 Layer 1 컨텍스트 안에서** 계산한다.
 
     컨텍스트를 시나리오마다 새로 열면 중간값이 기본 컨텍스트(``prec=28``)에서
     다뤄질 여지가 생긴다 — ``voyage_cii._compute_layer1``이 한 함수로 묶은 것과
     같은 이유로 여기도 요청 전체를 묶는다.
+
+    ``berth``가 있으면 시나리오마다 선석 대기를 함께 낸다 (`#2561` 결정 D8 「다」) — 주된 값
+    (``fuel_ton``·``layer1``)은 **항해만**이고 대기는 :class:`_Waiting`에 따로 둔다. 채택하면
+    항차 계획에 들어가는 값이 주된 값이어야 하기 때문이다(`#1072`).
     """
+
+    def layer1_of(fuel_ton: Decimal, distance_nm: Decimal) -> _Layer1Values:
+        return _compute_layer1(
+            fuel_uses=[FuelUse(fuel_code=fuel_code, fuel_ton=fuel_ton, cf_value=cf_value)],
+            transport_capacity=transport_capacity,
+            reference_capacity=reference_capacity,
+            distance_nm=distance_nm,
+            a_decimal=a_decimal,
+            c=c,
+            z_factor_percent=z_factor_percent,
+            d_vector=d_vector,
+        )
+
     computed: list[_ScenarioComputed] = []
     for plan in plans:
         fuel_ton = estimate_fuel_ton(
@@ -199,25 +273,60 @@ def _compute_scenarios(
             hull_condition_percent=hull_condition_percent,
         )
         duration_hours = plan.distance_nm / plan.speed_kn
-        layer1 = _compute_layer1(
-            fuel_uses=[FuelUse(fuel_code=fuel_code, fuel_ton=fuel_ton, cf_value=cf_value)],
-            transport_capacity=transport_capacity,
-            reference_capacity=reference_capacity,
-            distance_nm=plan.distance_nm,
-            a_decimal=a_decimal,
-            c=c,
-            z_factor_percent=z_factor_percent,
-            d_vector=d_vector,
-        )
+        layer1 = layer1_of(fuel_ton, plan.distance_nm)
+        waiting = None
+        if berth is not None:
+            waiting = _waiting(
+                berth=berth,
+                duration_hours=duration_hours,
+                fuel_ton=fuel_ton,
+                layer1=layer1,
+                layer1_with=lambda total, distance=plan.distance_nm: layer1_of(total, distance),
+            )
         computed.append(
             _ScenarioComputed(
                 plan=plan,
                 fuel_ton=fuel_ton,
                 duration_hours=duration_hours,
                 layer1=layer1,
+                waiting=waiting,
             )
         )
     return computed
+
+
+def _waiting(*, berth: _Berth, duration_hours: Decimal, fuel_ton: Decimal, layer1, layer1_with):
+    """한 시나리오의 선석 대기 — Layer 1 컨텍스트 안에서만 부른다(:func:`_compute_scenarios`).
+
+    - 선석보다 **일찍** 닿으면 그 차이만큼 묘박하며 기다린다. 늦게 닿으면 대기는 0이고 늦은
+      시간을 따로 싣는다 — 「대기 0」과 「선석을 놓침」은 다른 말이다.
+    - 대기 연료 = 묘박 일일 연료 × 대기 시간 ÷ 24. **기상·선체 보정을 곱하지 않는다** — 묘박
+      중에는 주기관이 서 있어 그 둘이 닿는 추진 연료가 아니다.
+    - 대기 포함 CII는 분자에만 대기 연료를 더한다. 대기 중 이동이 없어 분모(거리)는 그대로다
+      (``DB_SCHEMA §2.18`` 각주 — ``MEPC 82/6/31``).
+    - 묘박 연료가 미입력이면 대기가 있는 시나리오의 대기 연료·대기 포함 CII는 ``None``이다.
+      대기가 0이면 연료도 0이라 미입력이어도 낼 수 있다.
+    """
+    zero = Decimal(0)
+    waiting_hours = max(berth.hours_until - duration_hours, zero)
+    late_hours = max(duration_hours - berth.hours_until, zero)
+    hours_to_berth = duration_hours + waiting_hours
+    if waiting_hours == zero:
+        waiting_fuel: Decimal | None = zero
+        with_waiting = layer1
+    elif berth.anchorage_daily_foc_ton is None:
+        waiting_fuel = None
+        with_waiting = None
+    else:
+        waiting_fuel = berth.anchorage_daily_foc_ton * waiting_hours / _HOURS_PER_DAY
+        with_waiting = layer1_with(fuel_ton + waiting_fuel)
+    return _Waiting(
+        hours_to_berth=hours_to_berth,
+        waiting_hours=waiting_hours,
+        late_hours=late_hours,
+        waiting_fuel_ton=waiting_fuel,
+        layer1_with_waiting=with_waiting,
+    )
 
 
 async def compare_scenarios(
@@ -228,7 +337,11 @@ async def compare_scenarios(
     persist: bool = True,
     commit: bool = True,
 ) -> dict[str, object]:
-    """3개 시나리오를 계산·저장하고 API_SPEC §5.1 응답 dict를 반환한다.
+    """시나리오를 계산·저장하고 API_SPEC §5.1 응답 dict를 반환한다.
+
+    시나리오는 3개다. 선석 가용 시각이 있으면 도착시각 맞춤 2개가 더해져 최대 5개다
+    (`#2561` 결정 D1). 그 속력이 상한(60kn)을 넘는 것은 계산하지 않고
+    ``data.unreachable_scenarios``에 싣는다.
 
     ``meta``는 채우지 않는다 — 라우트가 붙인다(기능①과 같은 계층 규칙).
 
@@ -269,6 +382,7 @@ async def compare_scenarios(
     base_daily_foc_ton = _resolve_base_daily_foc(payload, vessel)
     reference_speed_kn = _resolve_reference_speed(vessel)
     hull_condition_percent, hull_condition_source = _resolve_hull_condition(payload, vessel)
+    berth = _resolve_berth(payload, vessel)
 
     direct_distance = _resolve_direct_distance(payload)
     waypoint = _waypoint(payload)
@@ -284,6 +398,9 @@ async def compare_scenarios(
         _ScenarioPlan("SLOW_STEAMING", direct_distance, slow_speed),
     ]
     plans = [_quantize_plan(plan) for plan in plans]
+    # `#2561` 결정 D1 — 거리는 위에서 확정한 직항·우회 거리 그대로다(같은 길을 속력만 바꿔 간다).
+    jit_plans, floored, unreachable = _arrival_matched_plans(berth, plans[0], plans[1])
+    plans = [*plans, *jit_plans]
 
     try:
         computed = _compute_scenarios(
@@ -305,6 +422,7 @@ async def compare_scenarios(
             ),
             weather_factor=weather.factor,
             hull_condition_percent=hull_condition_percent,
+            berth=berth,
         )
     except ValueError as exc:
         raise ValidationError(log_calculation_failure("기능② 시나리오", exc)) from exc
@@ -313,6 +431,7 @@ async def compare_scenarios(
         *_build_warnings(vessel),
         *weather_warnings,
         *_slow_floor_warnings(plans[2]),
+        *([WARNING_ARRIVAL_SPEED_FLOOR] if floored else []),
     ]
     parameters_used = _build_parameters_used(
         regulation=regulation,
@@ -348,6 +467,7 @@ async def compare_scenarios(
             # 넣지 않는다 — `_filter_fields`가 있는 키만 담으므로 종전 해시가 그대로다.
             **_waypoint_hash_material(waypoint),
             **_hull_condition_hash_material(hull_condition_percent),
+            **_berth_hash_material(berth),
         }
     )
     parameter_hash = compute_parameter_hash(parameters_used)
@@ -392,10 +512,14 @@ async def compare_scenarios(
         reference_capacity=reference_capacity,
         weather_model_used=weather_model_used,
         weather_factor=weather.factor,
+        floored=floored,
     )
     data = {
         "scenarios": scenarios_json,
         "summary": _build_summary(computed),
+        # 도착시각 맞춤 속력이 상한(60kn)을 넘어 **계산하지 않은** 시나리오 (`#2561`). 선석 시각이
+        # 없거나 모두 계산했으면 빈 목록이다 — 키는 늘 있다. 「도달 불가」는 숫자가 아니라 이유다.
+        "unreachable_scenarios": unreachable,
         # 이 비교가 **붙은** 항차 (`#2217`). 요청이 밝히지 않았거나, 밝혔어도 계획 단계가
         # 아니었거나, 저장하지 않는 경로면 ``None``이다 — 키는 늘 있다. 호출부가 「붙었는가」를
         # 키의 유무가 아니라 값으로 읽게 하려는 것이다.
@@ -406,7 +530,7 @@ async def compare_scenarios(
         "weather": {"fetched_at": fetched_at_iso(weather.synced_at)},
         # 세 시나리오에 **공통으로** 건 계산 조건 (`#2561`). 화면 머리가 「선체 상태 +20%
         # (선박 제원)」처럼 한 줄로 보인다. 키는 늘 있다 — ``weather``와 같은 이유다.
-        "conditions": _conditions_json(hull_condition_percent, hull_condition_source),
+        "conditions": _conditions_json(hull_condition_percent, hull_condition_source, berth),
     }
 
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))
@@ -611,12 +735,140 @@ def _hull_condition_hash_material(percent: Decimal | None) -> dict[str, object]:
     return {"hull_condition_percent": percent}
 
 
-def _conditions_json(percent: Decimal | None, source: str) -> dict[str, object]:
-    """응답 ``data.conditions`` (`API_SPEC §5.1` · `#2561`)."""
+def _conditions_json(
+    percent: Decimal | None, source: str, berth: _Berth | None = None
+) -> dict[str, object]:
+    """응답 ``data.conditions`` (`API_SPEC §5.1` · `#2561`). 키는 늘 있다 — 값으로 읽게 한다.
+
+    선석 시각이 없으면 선석 칸 넷은 ``None``이고 묘박 연료 출처는 ``NOT_SET``이다 — 선석이 없으면
+    묘박 연료를 쓰지 않으므로 「무엇을 썼는가」의 답이 없다.
+    """
     return {
         "hull_condition_percent": None if percent is None else float(percent),
         "hull_condition_source": source,
+        "berth_available_at": None if berth is None else _instant_iso(berth.available_at),
+        "berth_reference_at": None if berth is None else _instant_iso(berth.reference_at),
+        "hours_until_berth": (
+            None if berth is None else _publish(berth.hours_until, "duration_hours")
+        ),
+        "anchorage_daily_foc_ton": (
+            None
+            if berth is None or berth.anchorage_daily_foc_ton is None
+            else float(berth.anchorage_daily_foc_ton)
+        ),
+        "anchorage_daily_foc_source": (
+            HULL_CONDITION_SOURCE_NOT_SET if berth is None else berth.anchorage_source
+        ),
     }
+
+
+def _instant_iso(value: datetime) -> str:
+    """시각 → 응답·해시 문자열 (UTC, ``Z`` 접미). 요청 스키마(``Instant``)가 이미 UTC로 맞췄다."""
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+@layer1_context
+def _resolve_berth(payload, vessel) -> _Berth | None:
+    """선석 조건을 확정한다 (`#2561` 결정 D1·D3). 선석 시각이 없으면 ``None`` — 종전 3장 그대로다.
+
+    - 선석 가용 시각과 기준 시각은 **함께**만 받는다. 한쪽만 오면 빠진 쪽 칸에 422다 — 기준
+      시각을 서버 시계로 채우면 같은 요청이 보낸 시각에 따라 다른 결과를 낸다(`TECH_SPEC §5.4`).
+    - 선석이 기준 시각보다 뒤가 아니면 422다. 남은 시간이 0 이하이면 맞출 속력이 없다.
+    - 묘박 연료는 요청 → 선박 제원 → 미입력 순이다(선체 상태 %와 같은 규율 · 결정 D3).
+
+    남은 시간은 마이크로초까지 정수로 세어 나눈다 — ``total_seconds()``의 float을 거치지 않는다.
+    """
+    available = payload.berth_available_at
+    reference = payload.berth_reference_at
+    if available is None and reference is None:
+        return None
+    if available is None or reference is None:
+        missing = "berth_available_at" if available is None else "berth_reference_at"
+        raise ValidationError(
+            "선석 가용 시각과 기준 시각은 함께 입력해 주세요.",
+            field=missing,
+            field_label=field_label(missing),
+        )
+    micros = (available - reference) // timedelta(microseconds=1)
+    if micros <= 0:
+        raise ValidationError(
+            "선석 가용 시각은 기준 시각보다 뒤여야 합니다.",
+            field="berth_available_at",
+            field_label=field_label("berth_available_at"),
+        )
+    if payload.anchorage_daily_foc_ton is not None:
+        anchorage, source = Decimal(payload.anchorage_daily_foc_ton), HULL_CONDITION_SOURCE_REQUEST
+    elif vessel.anchorage_daily_foc_ton is not None:
+        anchorage, source = Decimal(vessel.anchorage_daily_foc_ton), HULL_CONDITION_SOURCE_VESSEL
+    else:
+        anchorage, source = None, HULL_CONDITION_SOURCE_NOT_SET
+    return _Berth(
+        available_at=available,
+        reference_at=reference,
+        hours_until=Decimal(micros) / _MICROS_PER_HOUR,
+        anchorage_daily_foc_ton=anchorage,
+        anchorage_source=source,
+    )
+
+
+@layer1_context
+def _arrival_matched_plans(
+    berth: _Berth | None, direct: _ScenarioPlan, detour: _ScenarioPlan
+) -> tuple[list[_ScenarioPlan], set[str], list[dict[str, object]]]:
+    """도착시각 맞춤 계획 — (계산할 계획, 1.0kn로 올린 종류, 도달 불가 목록) (`#2561` 결정 D1).
+
+    속력 = 거리 ÷ 선석까지 남은 시간. 저장 자릿수(0.01kn)로 **올린다** — 반올림으로 내려가면
+    선석 시각보다 늦게 닿아 「맞춤」이 아니게 된다. 올린 만큼 몇 분 일찍 닿아 대기가 조금 남을
+    수 있다.
+
+    - 1.0kn 아래면 1.0kn로 계산하고 경고한다(VAL-009 하한 · ``ARRIVAL_SPEED_FLOOR``). 선석이 아주
+      멀면 생기고, 그 시나리오는 일찍 닿아 대기가 남는다.
+    - 상한(60kn)을 넘으면 **계산하지 않는다** — 그 속력의 연료 추정은 모델 밖이다. 필요 속력만
+      싣고 화면이 「도달 불가」로 보인다.
+    """
+    if berth is None:
+        return [], set(), []
+    plans: list[_ScenarioPlan] = []
+    floored: set[str] = set()
+    unreachable: list[dict[str, object]] = []
+    for scenario_type, route in (("DIRECT_JIT", direct), ("DETOUR_JIT", detour)):
+        required = route.distance_nm / berth.hours_until
+        speed = required.quantize(_DB_SCALE["speed"], rounding=ROUND_CEILING)
+        if speed > _ARRIVAL_SPEED_MAX:
+            unreachable.append(
+                {
+                    "scenario_type": scenario_type,
+                    "scenario_name": SCENARIO_NAMES[scenario_type],
+                    "distance_nm": float(route.distance_nm),
+                    # 속력 에코와 같은 JSON 숫자다. 올린 값이다 — 이보다 느리면 닿지 못한다.
+                    "required_speed_kn": float(speed),
+                }
+            )
+            continue
+        if speed < MIN_SPEED_KN:
+            speed = MIN_SPEED_KN
+            floored.add(scenario_type)
+        plans.append(_ScenarioPlan(scenario_type, route.distance_nm, speed))
+    return plans, floored, unreachable
+
+
+def _berth_hash_material(berth: _Berth | None) -> dict[str, object]:
+    """해시 재료 조각 — 선석 시각이 있을 때만 ``berth`` 키를 낸다 (`#2561`).
+
+    없으면 키를 넣지 않는다 — 경유지(`#1300`)와 같은 방식이라 종전 요청의 해시가 그대로다.
+    두 시각을 **둘 다** 담는다: 남은 시간이 같아도 기준이 다른 요청은 다른 시점의 질문이다.
+    도착시각 맞춤 계획의 속력은 ``scenarios``에 이미 있지만, 대기 연료가 쓰는 묘박 연료는
+    거기 없으므로 여기 담는다(미입력이면 키 없음).
+    """
+    if berth is None:
+        return {}
+    material: dict[str, object] = {
+        "available_at": _instant_iso(berth.available_at),
+        "reference_at": _instant_iso(berth.reference_at),
+    }
+    if berth.anchorage_daily_foc_ton is not None:
+        material["anchorage_daily_foc_ton"] = berth.anchorage_daily_foc_ton
+    return {"berth": material}
 
 
 def _resolve_reference_speed(vessel) -> Decimal:
@@ -837,7 +1089,14 @@ def _distance_sources(payload, waypoint: tuple[Decimal, Decimal] | None) -> dict
         detour = "WAYPOINT"
     else:
         detour = direct
-    return {"DIRECT": direct, "DETOUR": detour, "SLOW_STEAMING": direct}
+    # 도착시각 맞춤(`#2561`)은 제 길(직항·우회)의 거리를 그대로 쓴다.
+    return {
+        "DIRECT": direct,
+        "DETOUR": detour,
+        "SLOW_STEAMING": direct,
+        "DIRECT_JIT": direct,
+        "DETOUR_JIT": detour,
+    }
 
 
 def _too_short(source: str) -> ValidationError:
@@ -928,10 +1187,15 @@ def _serialize_scenarios(
     reference_capacity: Decimal,
     weather_model_used: str,
     weather_factor: Decimal,
+    floored: set[str] | frozenset[str] = frozenset(),
 ) -> list[dict[str, object]]:
     """API_SPEC §5.1 ``scenarios[]`` 블록. ``scenario_ids``는 저장된 행의 PK다.
 
     저장하지 않는 경로(``persist=False``)에서는 ``None``이다 — 가리킬 행이 없다 (`#2088`).
+
+    ``warnings``는 **그 시나리오에 붙는 경고**다 (`#2561` 결정요청 §12 「경고의 시나리오 귀속」).
+    카드가 5장이 되면 화면 전체의 한 목록으로는 어느 카드의 얘기인지 모른다. 응답 최상위
+    ``warnings``는 그대로 전부를 싣는다 — 이쪽은 귀속만 더한 것이다.
     """
     calculation_basis = {
         "ship_type": vessel.ship_type,
@@ -977,9 +1241,43 @@ def _serialize_scenarios(
                 "weather_factor": float(weather_factor),
                 "weather_model_used": weather_model_used,
                 "calculation_basis": dict(calculation_basis),
+                "warnings": _scenario_warnings(item.plan, floored),
+                # 선석 대기 (`#2561` 결정 D8 「다」). 선석 시각이 없으면 ``None`` — 키는 늘 있다.
+                "berth": _waiting_json(item.waiting),
             }
         )
     return json_list
+
+
+def _scenario_warnings(plan: _ScenarioPlan, floored: set[str] | frozenset[str]) -> list[str]:
+    """그 시나리오에 붙는 경고 코드 — 최상위 ``warnings``와 같은 판정이다."""
+    if plan.scenario_type == "SLOW_STEAMING":
+        return _slow_floor_warnings(plan)
+    if plan.scenario_type in floored:
+        return [WARNING_ARRIVAL_SPEED_FLOOR]
+    return []
+
+
+def _waiting_json(waiting: _Waiting | None) -> dict[str, object] | None:
+    """``scenarios[].berth`` — 대기 연료·대기 포함 CII를 못 내면 ``None``이다(묘박 연료 미입력)."""
+    if waiting is None:
+        return None
+    with_waiting = waiting.layer1_with_waiting
+    return {
+        # 접안까지 = 항해 + 대기. 늦게 닿으면 항해 시간이다.
+        "hours_to_berth": _publish(waiting.hours_to_berth, "duration_hours"),
+        "waiting_hours": _publish(waiting.waiting_hours, "duration_hours"),
+        "late_hours": _publish(waiting.late_hours, "duration_hours"),
+        "waiting_fuel_ton": (
+            None
+            if waiting.waiting_fuel_ton is None
+            else _publish(waiting.waiting_fuel_ton, "fuel_ton")
+        ),
+        "attained_cii_with_waiting": (
+            None if with_waiting is None else _publish(with_waiting.attained_cii, "attained_cii")
+        ),
+        "estimated_rating_with_waiting": None if with_waiting is None else with_waiting.rating,
+    }
 
 
 def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, list[str]]:
@@ -1014,9 +1312,14 @@ def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, list[str]]:
         best = min(value for _, value in published)
         return [scenario for scenario, value in published if value == best]
 
+    def duration(item: _ScenarioComputed) -> Decimal:
+        # 선석 시각이 있으면 **접안까지** 시간으로 견준다 (`#2561` 결정 D8). 항해 시간으로 견주면
+        # 선석보다 먼저 닿아 기다리는 직항이 「가장 짧음」을 받는다 — 그 전에는 접안할 수 없다.
+        return item.duration_hours if item.waiting is None else item.waiting.hours_to_berth
+
     return {
         "lowest_cii_scenarios": lowest(lambda item: item.layer1.attained_cii, "attained_cii"),
-        "shortest_duration_scenarios": lowest(lambda item: item.duration_hours, "duration_hours"),
+        "shortest_duration_scenarios": lowest(duration, "duration_hours"),
         "lowest_fuel_scenarios": lowest(lambda item: item.fuel_ton, "fuel_ton"),
     }
 
