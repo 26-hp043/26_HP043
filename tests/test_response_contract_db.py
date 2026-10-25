@@ -240,6 +240,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].id",
             "data[].block_coefficient",
             "data[].hull_condition_percent",
+            "data[].anchorage_daily_foc_ton",
             "data[].call_sign",
             "data[].imo_number",
             "data[].is_cii_applicable_hint",
@@ -263,6 +264,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data",
             "data.block_coefficient",
             "data.hull_condition_percent",
+            "data.anchorage_daily_foc_ton",
             "data.call_sign",
             "data.created_at",
             "data.current_lat",
@@ -793,6 +795,12 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.scenarios[].speed_kn",
             "data.scenarios[].weather_factor",
             "data.scenarios[].weather_model_used",
+            # `#2561` — 시나리오에 붙는 경고(귀속)와 선석 대기. 선석 시각이 없는 이 요청에서
+            # 대기는 `null`이고 경고는 빈 목록이다 — 키는 늘 있다.
+            "data.scenarios[].warnings",
+            "data.scenarios[].berth",
+            # `#2561` — 도달 불가(도착시각 맞춤 속력 60kn 초과) 목록. 이 요청에서는 빈 목록이다.
+            "data.unreachable_scenarios",
             "data.summary",
             "data.summary.lowest_cii_scenarios",
             "data.summary.lowest_fuel_scenarios",
@@ -806,6 +814,12 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.conditions",
             "data.conditions.hull_condition_percent",
             "data.conditions.hull_condition_source",
+            # `#2561` ②③ — 선석 조건과 묘박 연료. 선석 시각이 없으면 `null`(출처는 NOT_SET).
+            "data.conditions.berth_available_at",
+            "data.conditions.berth_reference_at",
+            "data.conditions.hours_until_berth",
+            "data.conditions.anchorage_daily_foc_ton",
+            "data.conditions.anchorage_daily_foc_source",
             "disclaimer",
             "input_hash",
             "meta",

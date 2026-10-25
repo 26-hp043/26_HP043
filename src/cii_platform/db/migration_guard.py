@@ -101,6 +101,13 @@ IRREVERSIBLE: dict[str, str] = {
         "simulation_snapshot.not_underway_json — 그 사이 연간 실행의 정박 몫 사본이 "
         "사라져 그 실행들을 재현할 수 없게 된다 (#1803)"
     ),
+    # `073`의 downgrade는 옛 트리거(3종만 허용)로 좁히기 전에 도착시각 맞춤 행을 지워야 한다 —
+    # 남겨 두면 그 행을 건드리는 다음 UPDATE가 REJECT된다. 옛 값으로 바꿔 둘 자리가 없다
+    # (속력이 선석 시각에서 나온 값이라 「직항」으로 부르면 거짓이다). `057`과 같은 성질 (#2561).
+    "073": (
+        "voyage_scenario의 도착시각 맞춤 행(DIRECT_JIT · DETOUR_JIT) — 그 시나리오를 더는 "
+        "채택할 수 없게 된다. 계산 이력의 result_json에는 남아 리포트 사후 비교는 그대로다"
+    ),
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.
@@ -186,6 +193,9 @@ REGENERABLE: dict[str, str] = {
     # NULL 허용이라, 되돌려 잃는 값은 선사가 넣은 보정 %뿐이고 선박 제원 화면에서 다시 넣는다.
     # 과거 비교 결과는 각자 계산 이력(`result_json`)에 쓴 %를 갖고 있어 바뀌지 않는다.
     "071": "vessel.hull_condition_percent — 선택 제원이라 값 재입력으로 복구",
+    # vessel.anchorage_daily_foc_ton(#2561 결정 D3) — 071과 같은 성격. 과거 비교는 각자 계산
+    # 이력(`result_json.conditions`)에 쓴 값을 갖고 있어 바뀌지 않는다.
+    "072": "vessel.anchorage_daily_foc_ton — 선택 제원이라 값 재입력으로 복구",
 }
 
 

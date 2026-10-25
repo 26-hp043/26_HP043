@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.57 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-10-25 |
+| 최종 수정일 | 2026-10-26 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -513,6 +513,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | 실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중. |
 | `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차(`INCLUDE_AS_ACTUAL`)에 `voyage_fuel_use` 행이 **한 행도 없음** — 거리만 더해지고 연료는 0이 되어 등급이 조용히 좋아진다 (#1095). **연말 예상의 확정분도 같은 판정으로 같은 코드를 낸다**(#2095) — ⑴ 누적과 같이 그 항차의 거리는 넣고 연료는 0이다. 실리는 자리는 `§2.14` `year_end_projection.warnings` · `§2.17.1` · `§2.18` · `§6.1`의 `warnings` | 연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요. |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (PRD §11.2 「floor 도달 시 경고 표시」) | 감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다. |
+| `ARRIVAL_SPEED_FLOOR` | 기능② 도착시각 맞춤 시나리오의 속도(거리 ÷ 선석까지 남은 시간)가 최소 속도(1.0kn)보다 낮아 1.0kn로 계산 (PRD §11.2 `[#2561]`) | 도착시각에 맞춘 속도가 최소 속도(1.0kn)보다 낮아 1.0kn로 계산했습니다. 선석 가용 시각보다 일찍 도착해 대기가 남습니다. |
 | `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시뮬레이션 시계가 진행 중 항차분을 만들지 못함 (실시간 CII) | 선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요. |
 | `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없어 CF를 붙일 수 없음 (항차 연료 기록도 선박 기본 연료도 없음) | 진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요. |
 | `IN_PROGRESS_PAST_ETA` | 진행 중 항차가 도착 예정일을 지났고 도착 실적이 없음 (#649) | 진행 중 항차가 도착 예정일을 지났습니다. 누적은 예정일까지만 반영했으며, 도착 실적을 입력하면 확정됩니다. |
@@ -771,6 +772,7 @@ GET /api/v1/vessels?limit=20&cursor={cursor}
       "reference_daily_foc_ton": 35.0,
       "block_coefficient": 0.82,
       "hull_condition_percent": 12.5,
+      "anchorage_daily_foc_ton": 3.0,
       "call_sign": "HLXQ",
       "is_cii_applicable_hint": true,
       "underway_state": "UNDER_WAY",
@@ -827,6 +829,7 @@ POST /api/v1/vessels
   "reference_daily_foc_ton": 35.0,
   "block_coefficient": 0.82,
   "hull_condition_percent": 12.5,
+  "anchorage_daily_foc_ton": 3.0,
   "call_sign": "HLXQ"
 }
 ```
@@ -844,6 +847,7 @@ POST /api/v1/vessels
 | `reference_daily_foc_ton` | > 0 (VAL-002), 지정 시 · **0.01 ~ 999,999.99** | VAL-002 |
 | `block_coefficient` | 선택 · **0.001 ~ 1** (#966 — 체적 비율은 1을 넘지 않는다) | VAL-002 |
 | `hull_condition_percent` | 선택 · **−30 ~ +100** (#2561 — 도메인 범위. 0과 음수가 정상 입력이다) | VAL-002 |
+| `anchorage_daily_foc_ton` | 선택 · > 0 · **0.01 ~ 999,999.99** (#2561 — `reference_daily_foc_ton`과 같은 양) | VAL-002 |
 | `call_sign` | 선택 · **영문 대문자·숫자 4~7자**, 앞 두 글자가 모두 숫자일 수 없음 (#1197 — ITU RR No.19.55 · No.19.50). 서버가 앞뒤 공백을 지우고 대문자로 접어 저장하며, 접은 뒤 빈 값은 미기록(`null`) | VAL-011 |
 
 > **[#966] `block_coefficient`는 기상 보정(Townsin–Kwon)의 선형 계수다.** 넣으면 실측값으로
@@ -857,6 +861,11 @@ POST /api/v1/vessels
 > 0을 넣은 것과 출처가 다르다. **수정(`§2.4`)에서 `null`은 「안 바꾼다」**라 지울 수 없고, 보정을 없애려면
 > `0`을 보낸다. CII 직접 제원이 아니므로 바꿔도 재계산 표시(`§2.4`)가 붙지 않는다 — 과거 비교는 각자 계산
 > 이력에 쓴 %를 갖는다. 범위 집행은 서버 스키마와 DB 트리거(`DB_SCHEMA §2.1` 마이그레이션 071)가 같은 값을 쓴다.
+>
+> **`anchorage_daily_foc_ton`은 묘박 중 일일 연료(t/일)다**(#2561 결정 D3). 항로 비교에 선석 가용 시각을 넣었을 때만
+> 쓰이며, 시나리오마다 선석 대기 연료 = 이 값 × 대기 시간 ÷ 24를 낸다(`§5.1` `[#2561]`). 생략하면 `null`(「미입력」)이고
+> 대기 시간은 내되 대기 연료·대기 포함 CII는 `null`이다 — 0으로 지어 넣지 않는다. 수정에서 `null`은 「안 바꾼다」이고
+> 재계산 표시가 붙지 않는다(위 선체 상태 %와 같은 규율). 집행은 DB 트리거(마이그레이션 072)다.
 
 > **[#1197] `call_sign`은 공공데이터 교차 대조의 키다.** `해양수산부_선박운항정보`(공공데이터포털
 > `15006353`)의 입력 파라미터가 「항구 · 조회기간 · **호출부호**」라 IMO로는 질의할 수 없고, 전수
@@ -3285,6 +3294,9 @@ POST /api/v1/scenarios/compare
 | `slow_speed_kn` | decimal | N | VAL-009: 1.0 이상 60 이하 | 감속 속도. **미지정 시 서버가 `max(current_speed - 1, 1.0)`으로 계산** |
 | `weather_model` | string | N | enum | 기본: NONE |
 | `hull_condition_percent` | decimal | N | −30 이상 100 이하 (VAL-002) | **[#2561] 선체·추진 상태 보정 %.** **이번 비교에만** 쓰는 덮어쓰기 값이다 — 선박 제원(`§2.3` `hull_condition_percent`)을 바꾸지 않는다. 미지정 시 선박 제원값, 그것도 없으면 0%. 세 시나리오의 연료에 `(1 + %/100)`을 곱한다(`TECH_SPEC §4.1`). **0이 아닐 때만 `input_hash` 재료**다(`TECH_SPEC §5.3`) — 미지정·0은 이 필드가 생기기 전과 같은 해시다. 정한 값과 출처는 응답 `data.conditions`에 실린다 |
+| `berth_available_at` | datetime | N | 시간대 필수(`§1.7`) · `berth_reference_at`과 **함께**(한쪽만이면 422 · 빠진 쪽 필드로) · 기준 시각보다 뒤(아니면 422 · 이 필드로) | **[#2561] 선석 가용 시각.** 있으면 도착시각 맞춤 2종(`DIRECT_JIT`·`DETOUR_JIT`)이 붙고 모든 시나리오에 `berth`(선석 대기)가 실린다. 재현성 해시 재료(`TECH_SPEC §5.3` `berth`) |
+| `berth_reference_at` | datetime | 조건부 | 시간대 필수 | **[#2561] 남은 시간을 셀 기준 시각.** 화면은 보내는 순간의 시각을 싣는다 — 서버 시계로 「지금」을 정하지 않는다(`TECH_SPEC §5.4`). 해시 재료 |
+| `anchorage_daily_foc_ton` | decimal | N | 0.01 이상 999,999.99 이하 (VAL-002) | **[#2561] 묘박 중 일일 연료(t/일).** **이번 비교에만** 쓰는 덮어쓰기 — 없으면 선박 제원(`§2.3`), 그것도 없으면 대기 연료를 내지 않는다. 선석 시각이 없으면 쓰이지 않는다 |
 | `voyage_id` | UUID | N | 이 선박의 살아 있는 항차(다른 선박이면 422 · 없으면 404) | **[#2217] 이 비교가 어느 항차를 두고 한 것인가.** 그 항차가 **계획 단계**(`DRAFT` · `PLANNED`)면 계산 이력(`calculation_run.voyage_id`)이 그 항차에 붙어, 채택 없이 끝난 항차의 리포트가 이 비교를 인용한다(`§8.3` · `PRD §25.2.1`). 계획 단계가 아니면 **거부하지 않고 붙이지 않는다** — 붙었는지는 응답 `data.voyage_id`가 말한다. **결과와 `input_hash`에는 영향이 없다**(`§4.1`의 `voyage_id`와 같다). 시나리오 3행(`voyage_scenario`)에는 적지 않는다 — 그쪽이 항차에 이어지는 것은 채택(`§5.2`)뿐이다 |
 
 #### 응답 (200 OK)
@@ -3317,6 +3329,8 @@ POST /api/v1/scenarios/compare
         "risk_level": "HIGH",
         "weather_factor": 1.0,
         "weather_model_used": "NONE",
+        "warnings": [],
+        "berth": null,
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
           "transport_capacity": "50000",
@@ -3346,6 +3360,8 @@ POST /api/v1/scenarios/compare
         "risk_level": "HIGH",
         "weather_factor": 1.0,
         "weather_model_used": "NONE",
+        "warnings": [],
+        "berth": null,
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
           "transport_capacity": "50000",
@@ -3375,6 +3391,8 @@ POST /api/v1/scenarios/compare
         "risk_level": "MEDIUM",
         "weather_factor": 1.0,
         "weather_model_used": "NONE",
+        "warnings": [],
+        "berth": null,
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
           "transport_capacity": "50000",
@@ -3393,8 +3411,17 @@ POST /api/v1/scenarios/compare
       "lowest_fuel_scenarios": ["SLOW_STEAMING"]
     },
     "voyage_id": null,
+    "unreachable_scenarios": [],
     "weather": { "fetched_at": null },
-    "conditions": { "hull_condition_percent": null, "hull_condition_source": "NOT_SET" }
+    "conditions": {
+      "hull_condition_percent": null,
+      "hull_condition_source": "NOT_SET",
+      "berth_available_at": null,
+      "berth_reference_at": null,
+      "hours_until_berth": null,
+      "anchorage_daily_foc_ton": null,
+      "anchorage_daily_foc_source": "NOT_SET"
+    }
   },
   "parameters_used": { ... },
   "calculation_run_id": "uuid",
@@ -3416,6 +3443,15 @@ POST /api/v1/scenarios/compare
 > **붙은 뒤의 귀결 셋** (2026-10-08 결정). ⑴ **그 항차는 물리 삭제할 수 없다.** 초안(`DRAFT`)이어도 같다 — `DELETE /voyages/{id}`가 `409`를 낸다(`§3.7` `[#313]`). 초안에서 비교해 보고 계획으로 올리는 흐름에서도 리포트가 그 비교를 실을 수 있어야 하므로 초안에도 붙인다. ⑵ **재계산 필요 표시는 계획값을 직접 고칠 때만 붙는다.** `PATCH /voyages/{id}`로 계획값이 바뀌면 비교의 전제가 달라진 것이라 붙은 비교 이력이 재계산 필요로 표시된다(`PRD §8.4`). **시나리오 채택(`§5.2`)은 비교 이력을 표시하지 않는다** — 채택은 비교 결과를 계획으로 옮기는 조작이라 그 비교는 새 계획의 근거다. ⑶ **그 비교의 시나리오는 그 항차에만 채택할 수 있다**(`§5.2`).
 
 > **[#2561] `data.conditions`는 세 시나리오에 공통으로 건 계산 조건이다.** 키는 늘 있다. `hull_condition_percent`는 계산에 쓴 선체·추진 상태 보정 %(number)이고, 미입력이면 `null`이다(계산은 0%). `hull_condition_source`는 그 값의 출처 — `REQUEST`(이번 요청의 덮어쓰기) · `VESSEL`(선박 제원) · `NOT_SET`(미입력) 셋 중 하나다. **미입력과 0%를 출처로 구분한다** — 계산은 같아도 앞은 「모른다」이고 뒤는 「보정 없음으로 확인했다」다. 보정은 연료를 같은 비율로 바꾸고 CII는 연료를 거리로 나누므로, 같은 속도의 직항·우회 CII가 같다는 아래 성질은 보정 뒤에도 그대로다.
+
+> **[#2561] 선석 가용 시각을 넣으면 — 도착시각 맞춤 · 선석 대기 · 도달 불가** (결정 D1·D3·D8 「다」 · `PRD §11.2` `[#2561]`).
+>
+> - **`scenarios[]`가 최대 5개다.** 3종 뒤에 `DIRECT_JIT`(「직항 · 도착시각 맞춤」)·`DETOUR_JIT`(「우회 · 도착시각 맞춤」)이 이 순서로 붙는다. 속도 = 거리 ÷ 선석까지 남은 시간을 0.01kn에서 **올린** 값이고, 1.0kn 아래면 1.0kn + `ARRIVAL_SPEED_FLOOR`(`§1.6`)다. 둘 다 `voyage_scenario` 행으로 저장되고 `§5.2`로 채택할 수 있다.
+> - **`scenarios[].berth`**(선석 대기) — 선석 시각이 없으면 `null`이고 키는 늘 있다. 있으면 `hours_to_berth`(접안까지 = 항해 + 대기) · `waiting_hours`(선석 대기) · `late_hours`(선석 시각보다 늦게 닿는 시간 · 일찍 닿으면 `"0.0000"`) · `waiting_fuel_ton`(대기 연료 = 묘박 일일 연료 × 대기 ÷ 24) · `attained_cii_with_waiting`·`estimated_rating_with_waiting`(대기 연료를 분자에만 더한 CII · 분모는 그대로). 시간은 `duration_hours`, 연료는 `fuel_ton`, CII는 `attained_cii`와 같은 자릿수·절사다. **묘박 연료가 미입력이고 대기가 있으면 연료·CII·등급 셋이 `null`**이다(대기가 0이면 미입력이어도 연료 `"0.00"`). **주된 필드(`fuel_ton`·`attained_cii`·`estimated_rating` 등)는 항해만**이다 — 채택이 항차 계획에 옮기는 값이다.
+> - **`scenarios[].warnings`** — 그 시나리오에 붙는 경고 코드(`SLOW_SPEED_FLOOR`·`ARRIVAL_SPEED_FLOOR`). 없으면 빈 배열이다. 응답 최상위 `warnings`는 그대로 전부를 싣는다 — 이쪽은 **어느 카드의 경고인가**만 더한 것이다.
+> - **`data.unreachable_scenarios`** — 맞춤 속도가 60kn을 넘어 **계산하지 않은** 시나리오. `{scenario_type, scenario_name, distance_nm, required_speed_kn}`이고 `required_speed_kn`은 올린 값이다. 저장하지 않으며 채택 대상이 아니다. 없으면 빈 배열이고 키는 늘 있다.
+> - **`data.conditions`의 선석 칸** — `berth_available_at`·`berth_reference_at`(UTC `Z`) · `hours_until_berth`(남은 시간 · `duration_hours` 자릿수) · `anchorage_daily_foc_ton`(쓴 값 · number)·`anchorage_daily_foc_source`(`REQUEST`·`VESSEL`·`NOT_SET`). 선석 시각이 없으면 넷이 `null`이고 출처는 `NOT_SET`이다.
+> - **`summary.shortest_duration_scenarios`는 접안까지 시간으로 판정한다.** 선석보다 먼저 닿는 시나리오는 모두 선석 시각에 접안하므로 동률이 흔하고, 동률이면 모두 싣는다(`[#799]`). `lowest_cii_scenarios`·`lowest_fuel_scenarios`는 주된 필드(항해만)로 본다.
 
 > **[#2135] `data.weather.fetched_at`은 보정에 쓴 기상을 받은 시각이다.** 키는 늘 있고, 기상 보정을 하지 않았으면 `null`이다 — 요청이 `NONE`이거나, 좌표가 없거나, 캐시가 없어(또는 24시간을 넘겨) 보정 없이 계산한 경우(`WEATHER_NONE_FALLBACK`)다. 형식은 `§9.1`의 `fetched_at`과 같은 값을 UTC 초 단위 `Z` 접미로 싣는다(`§1.3`). 화면이 「기상 기준 시각」으로 보이는 근거이며(`PRD §6.3`), 값은 계산 이력의 `data[].weather.fetched_at`(`§1.9`)과 같다. 위 예시는 `weather_model`을 `NONE`으로 둬서 `null`이다 — 보정한 요청은 예를 들어 `"weather": { "fetched_at": "2026-10-06T00:00:00Z" }`가 된다.
 
@@ -5648,3 +5684,4 @@ POST /api/v1/chat
 | 2026-10-20 | `#2547` | §1.6 경고 **`CHARTER_RATE_ABOVE_MARKET` · `FUEL_PRICE_ABOVE_MARKET`** 신설 · §2.17 요청 표 두 단가 행 · `warnings` 행 · 422 행(키가 붙은 단가 칸의 `field_label`은 칸 이름) (`#2521` 결정 1). 입력한 단가가 확인된 시장 최고값을 넘으면 거절하지 않고 경고한다 — 0을 더 친 오타가 정상 값처럼 계산·저장됐다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 |
 | 2026-10-20 | `#2548` | §5.1 `direct_distance_nm` 행에 **소요시간이 0.01시간 밑일 때의 422 칸** — 그 시나리오 거리의 출처(직항 입력 · 좌표 · 우회 입력 · 경유지 좌표)에 따라 `direct_distance_nm` · `current_lat` · `detour_distance_nm` · `detour_waypoint_lat` (`#2476` 결정 10 다). 좌표로 거리를 구한 비교가 너무 가까울 때 비어 있는 「직항 거리」 칸에 「거리를 늘리거나 속력을 낮춰 주세요」가 섰다. 판정 기준은 바뀌지 않는다. `AGENTS §4.3`상 행 보강이라 버전은 올리지 않는다 |
 | 2026-10-25 | `#2562` | **v1.57 — §2.1 선박 객체·§2.3 등록 요청에 `hull_condition_percent`**(선택 · −30 ~ +100 · `[#2561]` 각주 — 수정에서 `null`은 「안 바꾼다」라 보정을 없애려면 0 · 재계산 표시 없음) · **§5.1 요청 필드 `hull_condition_percent`**(이번 비교에만 쓰는 덮어쓰기 · 0이 아닐 때만 해시 재료) · **§5.1 응답 `data.conditions`**(`hull_condition_percent` · `hull_condition_source` `REQUEST`·`VESSEL`·`NOT_SET` — 미입력과 0%를 출처로 가른다) (`#2561` 결정 D2) |
+| 2026-10-26 | `#2566` | **§5.1 요청에 `berth_available_at`·`berth_reference_at`·`anchorage_daily_foc_ton`** · 응답에 `scenarios[].warnings`·`scenarios[].berth`·`data.unreachable_scenarios` · `data.conditions` 선석 칸 다섯 · 시나리오 최대 5종(`DIRECT_JIT`·`DETOUR_JIT`) · `summary.shortest_duration_scenarios`는 접안까지(`[#2561]` 각주) · **§2.1 선박 객체·§2.3 등록에 `anchorage_daily_foc_ton`**(선택 · 양수 · 수정에서 `null`은 「안 바꾼다」) · **§1.6 `ARRIVAL_SPEED_FLOOR`** (`#2561` ②③ 결정 D1·D3·D8 「다」). `§4.3`상 행·각주 추가라 버전은 올리지 않는다 |

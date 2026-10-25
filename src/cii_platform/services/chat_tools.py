@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -126,7 +126,8 @@ def tool_schemas() -> list[dict[str, object]]:
         {
             "name": TOOL_COMPARE_SCENARIOS,
             "description": (
-                "속도 시나리오 셋을 비교한다(기능②). "
+                "속도 시나리오 셋을 비교한다(기능②). 선석까지 남은 시간을 주면 도착시각에 "
+                "맞춘 시나리오 둘과 시나리오마다 선석 대기가 붙는다. "
                 "⚠️ 어느 쪽이 더 낫다고 말하지 않는다 — 수치만 돌려준다."
             ),
             "input_schema": {
@@ -145,6 +146,18 @@ def tool_schemas() -> list[dict[str, object]]:
                             "선체·추진 상태 보정 % (파울링이면 +, 선체 청소·프로펠러 연마면 −). "
                             "모르면 비운다 — 선박 등록값"
                         ),
+                    },
+                    # `#2561` — 선석 조건. 사용자가 「선석이 80시간 뒤」처럼 말했을 때만 보낸다.
+                    "hours_until_berth": {
+                        "type": "number",
+                        "description": (
+                            "지금부터 선석을 쓸 수 있을 때까지 남은 시간(시간). "
+                            "말하지 않았으면 비운다"
+                        ),
+                    },
+                    "anchorage_daily_foc_ton": {
+                        "type": "number",
+                        "description": "묘박 중 일일 연료(톤/일). 모르면 비운다 — 선박 등록값",
                     },
                 },
                 "required": ["current_speed_kn", "fuel_type"],
@@ -289,6 +302,12 @@ _PUBLISH_MAP: dict[str, str] = {
     "speed_kn": "speed_kn",
     "duration_hours": "duration_hours",
     "co2_emission_ton": "co2_emission_ton",
+    # `#2561` — 선석 대기(``scenarios[].berth``를 펼친 이름)와 도달 불가 시나리오의 필요 속력.
+    # 대기 연료(``waiting_fuel_ton``)는 연료량이라 여기 두지 않는다(``PRD §16.3.1``).
+    "waiting_hours": "waiting_hours",
+    "hours_to_berth": "hours_to_berth",
+    "attained_cii_with_waiting": "attained_cii_with_waiting",
+    "required_speed_kn": "required_speed_kn",
 }
 
 
@@ -319,7 +338,42 @@ _SCENARIO_KEYS: tuple[str, ...] = (
     "distance_nm",
     "duration_hours",
     "co2_emission_ton",
+    # `#2561` — 선석 시각을 넣은 비교에만 값이 있다. 없으면 ``_publishable``이 줍지 않는다.
+    "waiting_hours",
+    "hours_to_berth",
+    "attained_cii_with_waiting",
 )
+
+#: `#2561` — 도착시각 맞춤 속력이 상한을 넘어 계산하지 않은 시나리오가 싣는 값.
+_UNREACHABLE_KEYS: tuple[str, ...] = ("scenario_type", "distance_nm", "required_speed_kn")
+
+
+def _scenario_rows(data: dict[str, object] | object) -> dict[str, object]:
+    """시나리오 결과 → 도구 ``result`` (`#2395` · `#2561`). 비교 도구와 화면 결과 도구가 같이 쓴다.
+
+    ``scenarios[].berth``(선석 대기)는 **한 층으로 펼쳐** 같은 화이트리스트를 지나게 한다 —
+    묶음째 넘기면 ``filter_outbound``가 모르는 키로 막는다. 도달 불가 목록은 있을 때만 싣는다.
+    ⚠️ 시나리오를 **순위로 정렬하지 않는다** — 순위화는 No-Advice 금지 항목이다.
+    """
+    data = data if isinstance(data, dict) else {}
+    rows = data.get("scenarios") or []
+    result: dict[str, object] = {
+        "scenarios": [
+            _publishable(
+                {**row, **(row.get("berth") if isinstance(row.get("berth"), dict) else {})},
+                _SCENARIO_KEYS,
+            )
+            for row in rows
+            if isinstance(row, dict)
+        ]
+    }
+    unreachable = data.get("unreachable_scenarios") or []
+    if unreachable:
+        result["unreachable_scenarios"] = [
+            _publishable(item, _UNREACHABLE_KEYS) for item in unreachable if isinstance(item, dict)
+        ]
+    return result
+
 
 #: `#2395` — 항차 CII 도구가 더 싣는 값: 거리·속력. 모델이 보낸 입력을 되돌려 주는 것이라
 #: 새 정보는 아니지만, 없으면 「이 항차(5,000nm · 12kn)는…」처럼 조건을 되짚는 답도 버려진다.
@@ -835,15 +889,47 @@ async def _compare_scenarios(
         direct_distance_nm=_optional_decimal(arguments, "direct_distance_nm"),
         base_daily_foc_ton=_optional_decimal(arguments, "base_daily_foc_ton"),
         hull_condition_percent=_hull_condition_argument(arguments),
+        anchorage_daily_foc_ton=_anchorage_argument(arguments),
+        **_berth_arguments(arguments),
     )
     # `#1334` ⑷ — 저장하지 않는다. 위와 같은 이유다.
     response = await compare_scenarios(session, payload, persist=False)
-    scenarios = (response.get("data") or {}).get("scenarios") or []  # type: ignore[union-attr]
-    # ⚠️ 시나리오를 **순위로 정렬하지 않는다** — 순위화는 No-Advice 금지 항목이다.
-    return envelope(
-        TOOL_COMPARE_SCENARIOS,
-        result={"scenarios": [_publishable(row, _SCENARIO_KEYS) for row in scenarios]},
-    )
+    return envelope(TOOL_COMPARE_SCENARIOS, result=_scenario_rows(response.get("data")))
+
+
+#: `#2561` — 도구 경로의 선석 기준 시각. **서버 시계를 읽지 않는다**(`TECH_SPEC §5.4`) — 모델이
+#: 주는 것은 「남은 시간」뿐이고, 계산은 두 시각의 차이만 본다. 원점은 그 차이를 시각 둘로
+#: 옮기기 위한 고정값이다. 이 경로는 저장하지 않으므로(``persist=False``) 해시에도 남지 않는다.
+_BERTH_ORIGIN = datetime(2000, 1, 1, tzinfo=UTC)
+
+#: 남은 시간의 상한 — 1년. 그보다 먼 선석은 항로 비교의 질문이 아니다.
+_MAX_HOURS_UNTIL_BERTH = Decimal(24 * 366)
+
+
+def _berth_arguments(arguments: dict[str, object]) -> dict[str, object]:
+    """``hours_until_berth`` → 선석 시각 두 칸. 0 이하이거나 1년을 넘으면 인자 오류다."""
+    hours = _optional_decimal(arguments, "hours_until_berth")
+    if hours is None:
+        return {}
+    if not Decimal(0) < hours <= _MAX_HOURS_UNTIL_BERTH:
+        raise ToolArgumentError("hours_until_berth")
+    micros = int((hours * 3_600_000_000).to_integral_value(rounding=ROUND_HALF_UP))
+    return {
+        "berth_reference_at": _BERTH_ORIGIN,
+        "berth_available_at": _BERTH_ORIGIN + timedelta(microseconds=micros),
+    }
+
+
+def _anchorage_argument(arguments: dict[str, object]) -> Decimal | None:
+    """묘박 중 일일 연료 인자 — 화면 요청과 **같은 범위**를 본다(선체 상태 % 인자와 같다)."""
+    from cii_platform.validation.bounds import DAILY_FOC
+
+    value = _optional_decimal(arguments, "anchorage_daily_foc_ton")
+    if value is None:
+        return None
+    if not DAILY_FOC["ge"] <= value <= DAILY_FOC["le"]:
+        raise ToolArgumentError("anchorage_daily_foc_ton")
+    return value
 
 
 async def _project_year_end(
@@ -925,8 +1011,9 @@ async def _explain_screen_result(
         return envelope(
             TOOL_EXPLAIN_SCREEN_RESULT,
             # `#2395` — 화면의 시나리오 결과도 비교 도구와 같은 값을 싣는다. 같은 질문이
-            # 화면에서 오든 도구로 오든 답할 수 있는 값이 달라지지 않게 한다.
-            result={"scenarios": [_publishable(row, _SCENARIO_KEYS) for row in rows]},
+            # 화면에서 오든 도구로 오든 답할 수 있는 값이 달라지지 않게 한다. `#2561`의 선석
+            # 대기·도달 불가도 같은 함수가 싣는다.
+            result=_scenario_rows(stored),
             kind=kind,
         )
     if kind.startswith("ANNUAL_"):

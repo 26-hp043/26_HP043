@@ -42,6 +42,12 @@ from cii_platform.db.session import get_session
 
 ENDPOINT = "/api/v1/scenarios/compare"
 
+
+def _hull_keys(conditions: dict) -> dict:
+    """``data.conditions``에서 선체 상태 두 키만 — 선석 키(#2561 ②③)는 따로 본다."""
+    return {k: conditions[k] for k in ("hull_condition_percent", "hull_condition_source")}
+
+
 VALID_PAYLOAD: dict[str, Any] = {
     "vessel_id": str(DEMO_VESSEL_ID),
     "regulation_year": DEMO_YEAR,
@@ -612,7 +618,7 @@ class TestScenarioGeneration:
 
         unset = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()
         zero = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "hull_condition_percent": 0}).json()
-        assert unset["data"]["conditions"] == {
+        assert _hull_keys(unset["data"]["conditions"]) == {
             "hull_condition_percent": None,
             "hull_condition_source": "NOT_SET",
         }
@@ -635,11 +641,11 @@ class TestScenarioGeneration:
         overridden = wired.post(
             ENDPOINT, json={**VALID_PAYLOAD, "hull_condition_percent": -10}
         ).json()
-        assert from_vessel["data"]["conditions"] == {
+        assert _hull_keys(from_vessel["data"]["conditions"]) == {
             "hull_condition_percent": 20.0,
             "hull_condition_source": "VESSEL",
         }
-        assert overridden["data"]["conditions"] == {
+        assert _hull_keys(overridden["data"]["conditions"]) == {
             "hull_condition_percent": -10.0,
             "hull_condition_source": "REQUEST",
         }
@@ -813,3 +819,252 @@ class TestValidationErrors:
         resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "regulation_year": 2031})
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "PARAMETER_ERROR"
+
+
+class TestBerthArrival:
+    """선석 가용 시각 · 도착시각 맞춤 · 선석 대기 (`#2561` 결정 D1·D3·D8 「다」).
+
+    앵커는 서비스가 아니라 **독립 Decimal 계산**으로 냈다(결정요청 v3 공통 예시와 같은 배):
+    직항 1,000nm · 14kn(기준 14kn) · 기준 일일 연료 30t · HFO(CF 3.114) · DWT 50,000 ·
+    선석 80시간 뒤 · 묘박 3t/일. CII는 6자리 절사, 시간은 4자리 절사(`TECH_SPEC §1.2.1`).
+
+    케이스: AT-SC-009 · AT-SC-010 (`TEST_PLAN §4.2`)
+    """
+
+    PAYLOAD: dict[str, Any] = {
+        **VALID_PAYLOAD,
+        "base_daily_foc_ton": 30.0,
+        "direct_distance_nm": 1000.0,
+    }
+    #: 80시간 차이. 기준 시각은 화면이 보낸 값이다 — 서버 시계를 읽지 않는다.
+    BERTH: dict[str, Any] = {
+        "berth_reference_at": "2026-10-26T00:00:00Z",
+        "berth_available_at": "2026-10-29T08:00:00Z",
+    }
+
+    #: (속력, 항해 소요, 대기, 대기 연료, 항해만 CII, 대기 포함 CII) — 독립 계산.
+    ANCHOR: dict[str, tuple[float, str, str, str, str, str]] = {
+        "DIRECT": (14.0, "71.4285", "8.5714", "1.07", "5.560714", "5.627442"),
+        "DETOUR": (14.0, "75.0000", "5.0000", "0.62", "5.560714", "5.597785"),
+        "SLOW_STEAMING": (13.0, "76.9230", "3.0769", "0.38", "4.794697", "4.818651"),
+        # 1,000 ÷ 80 = 12.5kn — 나누어떨어져 대기가 정확히 0이다.
+        "DIRECT_JIT": (12.5, "80.0000", "0.0000", "0.00", "4.432967", "4.432967"),
+        # 1,050 ÷ 80 = 13.125 → 저장 자릿수에서 **올림** 13.13kn. 몇 분 일찍 닿는다.
+        "DETOUR_JIT": (13.13, "79.9695", "0.0304", "0.00", "4.891070", "4.891296"),
+    }
+
+    def _body(self, wired, **extra):
+        resp = wired.post(ENDPOINT, json={**self.PAYLOAD, **extra})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+    def _vessel(self, monkeypatch, **fields):
+        from cii_platform.services import scenario_compare as svc
+
+        async def fake_get_by_id(_session, vessel_id):
+            if vessel_id != DEMO_VESSEL_ID:
+                return None
+            return FakeVessel(reference_speed_kn=Decimal("14.0"), **fields)
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+
+    def test_without_berth_nothing_changes(self, wired, monkeypatch):
+        """선석 시각이 없으면 3장 그대로 · 대기 ``null`` · 해시도 이 필드가 생기기 전과 같다."""
+        from cii_platform.calc import hash as hash_mod
+
+        body = self._body(wired)
+        assert [s["scenario_type"] for s in body["data"]["scenarios"]] == SCENARIO_ORDER
+        assert all(s["berth"] is None for s in body["data"]["scenarios"])
+        assert body["data"]["unreachable_scenarios"] == []
+        conditions = body["data"]["conditions"]
+        assert conditions["berth_available_at"] is None
+        assert conditions["hours_until_berth"] is None
+        assert conditions["anchorage_daily_foc_source"] == "NOT_SET"
+        before = tuple(f for f in hash_mod.SCENARIO_INPUT_FIELDS if f != "berth")
+        monkeypatch.setattr(hash_mod, "SCENARIO_INPUT_FIELDS", before)
+        assert self._body(wired)["input_hash"] == body["input_hash"]
+
+    def test_berth_adds_two_arrival_matched_scenarios_and_waiting_rows(self, wired):
+        """AT-SC-009 — 선석 80시간 뒤: 5장 · 시나리오마다 대기 · 주된 칸은 항해만 (D1·D8 다)."""
+        body = self._body(wired, **self.BERTH, anchorage_daily_foc_ton=3.0)
+        scenarios = {s["scenario_type"]: s for s in body["data"]["scenarios"]}
+        assert list(scenarios) == [*SCENARIO_ORDER, "DIRECT_JIT", "DETOUR_JIT"]
+        assert scenarios["DIRECT_JIT"]["scenario_name"] == "직항 · 도착시각 맞춤"
+        assert scenarios["DETOUR_JIT"]["distance_nm"] == 1050.0
+        for scenario_type, (speed, hours, wait, wait_fuel, cii, cii_w) in self.ANCHOR.items():
+            item = scenarios[scenario_type]
+            assert item["speed_kn"] == speed, scenario_type
+            assert item["duration_hours"] == hours, scenario_type
+            # 주된 CII는 **항해만**이다 — 채택하면 항차 계획에 들어가는 값(`#1072`).
+            assert item["attained_cii"] == cii, scenario_type
+            berth = item["berth"]
+            assert berth["waiting_hours"] == wait, scenario_type
+            assert berth["waiting_fuel_ton"] == wait_fuel, scenario_type
+            assert berth["attained_cii_with_waiting"] == cii_w, scenario_type
+            assert berth["hours_to_berth"] == "80.0000", scenario_type
+            assert berth["late_hours"] == "0.0000", scenario_type
+        conditions = body["data"]["conditions"]
+        assert conditions["berth_available_at"] == "2026-10-29T08:00:00Z"
+        assert conditions["berth_reference_at"] == "2026-10-26T00:00:00Z"
+        assert conditions["hours_until_berth"] == "80.0000"
+        assert conditions["anchorage_daily_foc_ton"] == 3.0
+        assert conditions["anchorage_daily_foc_source"] == "REQUEST"
+
+    def test_shortest_is_judged_until_berth(self, wired):
+        """D8 — 「가장 짧음」은 접안까지 시간이다. 모두 80시간에 접안하므로 다섯 모두 동률이다.
+
+        항해 시간으로 견주면 직항(71.4h)이 「가장 짧음」을 받는다 — 그 전에는 접안할 수 없다.
+        """
+        body = self._body(wired, **self.BERTH, anchorage_daily_foc_ton=3.0)
+        assert body["data"]["summary"]["shortest_duration_scenarios"] == [
+            *SCENARIO_ORDER,
+            "DIRECT_JIT",
+            "DETOUR_JIT",
+        ]
+        # CII 최저는 여전히 주된 칸(항해만)으로 본다.
+        assert body["data"]["summary"]["lowest_cii_scenarios"] == ["DIRECT_JIT"]
+
+    def test_unknown_anchorage_fuel_is_not_made_zero(self, wired):
+        """D3 — 묘박 연료가 미입력이면 대기가 있는 시나리오의 대기 연료·대기 포함 CII는 ``null``.
+
+        대기가 0인 도착시각 맞춤은 미입력이어도 연료 0 · CII 항해만과 같다 — 「0」과 「모름」을
+        가른다(`#739`·`#820`).
+        """
+        body = self._body(wired, **self.BERTH)
+        scenarios = {s["scenario_type"]: s for s in body["data"]["scenarios"]}
+        assert scenarios["DIRECT"]["berth"]["waiting_hours"] == "8.5714"
+        assert scenarios["DIRECT"]["berth"]["waiting_fuel_ton"] is None
+        assert scenarios["DIRECT"]["berth"]["attained_cii_with_waiting"] is None
+        assert scenarios["DIRECT"]["berth"]["estimated_rating_with_waiting"] is None
+        assert scenarios["DIRECT_JIT"]["berth"]["waiting_fuel_ton"] == "0.00"
+        assert scenarios["DIRECT_JIT"]["berth"]["attained_cii_with_waiting"] == "4.432967"
+        assert body["data"]["conditions"]["anchorage_daily_foc_source"] == "NOT_SET"
+
+    def test_anchorage_fuel_request_overrides_the_vessel(self, wired, monkeypatch):
+        """D3 — 요청 덮어쓰기 → 선박 제원 순. 묘박 연료가 다르면 해시도 갈린다."""
+        self._vessel(monkeypatch, anchorage_daily_foc_ton=Decimal("6.00"))
+        from_vessel = self._body(wired, **self.BERTH)
+        overridden = self._body(wired, **self.BERTH, anchorage_daily_foc_ton=3.0)
+        assert from_vessel["data"]["conditions"]["anchorage_daily_foc_source"] == "VESSEL"
+        assert from_vessel["data"]["conditions"]["anchorage_daily_foc_ton"] == 6.0
+        direct = from_vessel["data"]["scenarios"][0]["berth"]
+        # 6t/일 × 8.571428h ÷ 24 = 2.142857t
+        assert direct["waiting_fuel_ton"] == "2.14"
+        assert overridden["data"]["conditions"]["anchorage_daily_foc_source"] == "REQUEST"
+        assert from_vessel["input_hash"] != overridden["input_hash"]
+
+    def test_same_gap_from_a_different_reference_is_a_different_hash(self, wired):
+        """두 시각을 **둘 다** 해시에 담는다 — 남은 시간이 같아도 다른 시점의 질문이다(§5.4)."""
+        later = {
+            "berth_reference_at": "2026-10-27T00:00:00Z",
+            "berth_available_at": "2026-10-30T08:00:00Z",
+        }
+        first = self._body(wired, **self.BERTH)
+        second = self._body(wired, **later)
+        assert (
+            first["data"]["scenarios"][3]["speed_kn"] == second["data"]["scenarios"][3]["speed_kn"]
+        )
+        assert first["input_hash"] != second["input_hash"]
+        plain = self._body(wired)
+        assert first["input_hash"] != plain["input_hash"]
+
+    def test_late_arrival_is_not_waiting(self, wired):
+        """선석이 빠듯하면 현재 속력의 직항은 **늦게** 닿는다 — 대기 0, 지연을 따로 싣는다."""
+        body = self._body(
+            wired,
+            berth_reference_at="2026-10-26T00:00:00Z",
+            berth_available_at="2026-10-28T12:00:00Z",  # 60시간
+        )
+        scenarios = {s["scenario_type"]: s for s in body["data"]["scenarios"]}
+        direct = scenarios["DIRECT"]["berth"]
+        assert direct["waiting_hours"] == "0.0000"
+        # 71.428571 − 60 = 11.428571h
+        assert direct["late_hours"] == "11.4285"
+        assert direct["hours_to_berth"] == "71.4285"
+        # 1,000 ÷ 60 = 16.666… → 16.67kn (증속). 선석이 넉넉하면 감속이 되므로 이름은
+        # 「증속」이 아니라 「도착시각 맞춤」이다.
+        assert scenarios["DIRECT_JIT"]["speed_kn"] == 16.67
+        assert scenarios["DIRECT_JIT"]["berth"]["late_hours"] == "0.0000"
+
+    def test_far_berth_floors_at_one_knot_with_a_scenario_warning(self, wired):
+        """1.0kn 아래면 1.0kn + ``ARRIVAL_SPEED_FLOOR`` — 최상위와 그 시나리오 둘 다에 붙는다."""
+        body = self._body(
+            wired,
+            berth_reference_at="2026-10-26T00:00:00Z",
+            berth_available_at="2026-12-31T00:00:00Z",  # 66일 = 1,584시간 → 0.63kn
+        )
+        assert "ARRIVAL_SPEED_FLOOR" in body["warnings"]
+        scenarios = {s["scenario_type"]: s for s in body["data"]["scenarios"]}
+        assert scenarios["DIRECT_JIT"]["speed_kn"] == 1.0
+        assert scenarios["DIRECT_JIT"]["warnings"] == ["ARRIVAL_SPEED_FLOOR"]
+        assert scenarios["DIRECT"]["warnings"] == []
+        # 1kn로 1,000시간이면 닿는다 — 584시간 기다린다.
+        assert scenarios["DIRECT_JIT"]["berth"]["waiting_hours"] == "584.0000"
+
+    def test_unreachable_berth_is_listed_not_computed(self, wired, session):
+        """60kn를 넘는 맞춤은 계산하지 않는다 — 필요 속력과 함께 「도달 불가」 목록에만 싣는다."""
+        body = self._body(
+            wired,
+            berth_reference_at="2026-10-26T00:00:00Z",
+            berth_available_at="2026-10-26T10:00:00Z",  # 10시간 → 100kn · 105kn
+        )
+        assert [s["scenario_type"] for s in body["data"]["scenarios"]] == SCENARIO_ORDER
+        assert body["data"]["unreachable_scenarios"] == [
+            {
+                "scenario_type": "DIRECT_JIT",
+                "scenario_name": "직항 · 도착시각 맞춤",
+                "distance_nm": 1000.0,
+                "required_speed_kn": 100.0,
+            },
+            {
+                "scenario_type": "DETOUR_JIT",
+                "scenario_name": "우회 · 도착시각 맞춤",
+                "distance_nm": 1050.0,
+                "required_speed_kn": 105.0,
+            },
+        ]
+        # 저장하는 행도 셋이다 — 도달 불가는 채택할 대상이 아니다.
+        assert len(session.inserted_scenarios) == 3
+
+    def test_berth_rows_are_stored_under_the_new_types(self, wired, session):
+        """도착시각 맞춤 2행이 저장된다 — 채택(``§5.2``)이 그 행을 가리킨다."""
+        self._body(wired, **self.BERTH)
+        stored = [row["scenario_type"] for row in session.inserted_scenarios]
+        assert stored == [*SCENARIO_ORDER, "DIRECT_JIT", "DETOUR_JIT"]
+        assert session.inserted_scenarios[3]["scenario_name"] == "직항 · 도착시각 맞춤"
+
+    @pytest.mark.parametrize("missing", ["berth_available_at", "berth_reference_at"])
+    def test_half_a_berth_is_a_422_naming_the_missing_half(self, wired, missing):
+        """AT-SC-010 — 두 시각은 함께만. 기준 시각을 서버 시계로 채우지 않는다(§5.4)."""
+        payload = {**self.PAYLOAD, **self.BERTH}
+        del payload[missing]
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 422
+        error = resp.json()["error"]
+        assert error["details"][0]["field"] == missing
+        assert error["message"] == "선석 가용 시각과 기준 시각은 함께 입력해 주세요."
+
+    @pytest.mark.parametrize("available", ["2026-10-26T00:00:00Z", "2026-10-25T23:00:00Z"])
+    def test_berth_not_after_reference_is_a_422(self, wired, available):
+        resp = wired.post(
+            ENDPOINT,
+            json={
+                **self.PAYLOAD,
+                "berth_reference_at": "2026-10-26T00:00:00Z",
+                "berth_available_at": available,
+            },
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["details"][0]["field"] == "berth_available_at"
+
+    def test_berth_without_timezone_is_a_422(self, wired):
+        """시각은 시간대가 있어야 한다(`API_SPEC §1.7` ``Instant``)."""
+        resp = wired.post(
+            ENDPOINT,
+            json={
+                **self.PAYLOAD,
+                "berth_reference_at": "2026-10-26T00:00:00",
+                "berth_available_at": "2026-10-29T08:00:00",
+            },
+        )
+        assert resp.status_code == 422

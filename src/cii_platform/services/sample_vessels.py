@@ -49,6 +49,8 @@ _SAMPLE_SOURCES: tuple[tuple[str, uuid.UUID], ...] = (
 #:
 #: ``hull_condition_percent``(#2561)도 같은 이유로 싣지 않는다 — 선체·추진 상태 보정 %는 선사가
 #: 자기 배의 성능 감시로 아는 값이라 IMO 조회가 주지 않는다. 없으면 「미입력」(0%로 계산).
+#: ``anchorage_daily_foc_ton``(#2561 결정 D3)도 같다 — 묘박 중 발전기·보일러 소비는 선사가
+#: 자기 배의 운항 기록으로 아는 값이다. 없으면 선석 대기 연료를 「계산 못 함」으로 둔다.
 SAMPLE_SPEC_FIELDS: tuple[str, ...] = (
     "ship_type",
     "gross_tonnage",

@@ -40,6 +40,11 @@ OUTBOUND_WHITELIST: frozenset[str] = frozenset(
         "speed_kn",
         "duration_hours",
         "co2_emission_ton",
+        # #2561 — 선석 대기. 화면 표에 이미 보이는 값이다(대기 연료는 연료량이라 금지 그대로)
+        "waiting_hours",
+        "hours_to_berth",
+        "attained_cii_with_waiting",
+        "required_speed_kn",
         # 연간 시뮬레이션 확률 (#1533) — 화면에 이미 보이는 값을 저장된 실행에서 읽는다
         "target_success_probability",
         "rating_probabilities",
