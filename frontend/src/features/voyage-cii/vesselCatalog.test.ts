@@ -61,7 +61,7 @@ describe('실 API 카탈로그', () => {
    * `#1538` — 항로 비교가 이 제원으로 입력칸을 채운다. **없는 것과 비어 있는 것을 가른다**:
    * 서버가 준 배의 빈 값은 `null`(칸을 비운다), 목록을 거치지 않은 선택지는 `spec`이 없다.
    */
-  it('제원 세 칸을 문자열로 싣고, 빈 값은 null로 둔다 (#1538)', async () => {
+  it('제원 칸을 문자열로 싣고, 빈 값은 null로 둔다 (#1538 · #2561)', async () => {
     mockFetch(() =>
       jsonResponse({
         data: [
@@ -72,6 +72,7 @@ describe('실 API 카탈로그', () => {
             reference_speed_kn: 12,
             reference_daily_foc_ton: 23.04,
             default_fuel_type: 'LNG',
+            hull_condition_percent: -5,
           },
           { id: 'v-2', name: '제원 없는 배', ship_type: 'GENERAL_CARGO', reference_speed_kn: null },
         ],
@@ -84,11 +85,13 @@ describe('실 API 카탈로그', () => {
       referenceSpeedKn: '12',
       referenceDailyFocTon: '23.04',
       defaultFuelType: 'LNG',
+      hullConditionPercent: '-5',
     })
     expect(empty.spec).toEqual({
       referenceSpeedKn: null,
       referenceDailyFocTon: null,
       defaultFuelType: null,
+      hullConditionPercent: null,
     })
   })
 

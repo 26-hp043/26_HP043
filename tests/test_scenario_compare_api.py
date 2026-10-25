@@ -626,7 +626,10 @@ class TestScenarioGeneration:
         assert unset["input_hash"] == old
 
     def test_hull_condition_request_overrides_the_vessel(self, wired, monkeypatch):
-        """AT-SC-007 — 요청 덮어쓰기 → 선박 제원 순 (#2561 결정 D2). 출처가 응답에 실리고 해시가 갈린다."""
+        """AT-SC-007 — 요청 덮어쓰기 → 선박 제원 순 (#2561 결정 D2).
+
+        출처가 응답에 실리고 해시가 갈린다.
+        """
         self._vessel_with_hull(monkeypatch, Decimal("20.00"))
         from_vessel = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()
         overridden = wired.post(
