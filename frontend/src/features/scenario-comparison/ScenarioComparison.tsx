@@ -1758,8 +1758,12 @@ function BerthRows({
   const hours = (value: string) => formatDecimalString(value, DISPLAY_DIGITS.durationHours)
   return (
     <>
-      <tr className="scenario-table__group">
-        <th scope="rowgroup" colSpan={scenarios.length + 1} className="scenario-table__cell">
+      <tr>
+        <th
+          scope="rowgroup"
+          colSpan={scenarios.length + 1}
+          className="scenario-table__cell scenario-table__group-label"
+        >
           선석 대기 — 항차 계획에 담기지 않는 값
         </th>
       </tr>

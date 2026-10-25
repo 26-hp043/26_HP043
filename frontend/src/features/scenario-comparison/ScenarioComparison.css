@@ -834,7 +834,7 @@ th:has(.scenario-glyph) .scenario-glyph path.scenario-glyph__path,
  * #2561 — 표의 「선석 대기」 구분 행. 위의 주된 칸(항해만)과 아래 대기 값이 **다른 묶음**임을
  * 글자로 말한다(항차 계획에 담기지 않는 값). 색이 아니라 굵기·크기로 가른다(§14). 디자인 검토 대상.
  */
-.scenario-table__group > th {
+.scenario-table__group-label {
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
   color: var(--color-text-muted);
