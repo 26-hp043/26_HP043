@@ -42,6 +42,7 @@ export interface VesselFormState {
   referenceDailyFocTon: string
   blockCoefficient: string
   hullConditionPercent: string
+  anchorageDailyFocTon: string
   callSign: string
 }
 
@@ -65,6 +66,7 @@ export const FIELD = {
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
   hullConditionPercent: 'hull_condition_percent',
+  anchorageDailyFocTon: 'anchorage_daily_foc_ton',
   callSign: 'call_sign',
   /** 어느 입력창에도 붙지 않는 오류. 폼 상단에 표시한다. */
   form: '__form__',
@@ -86,6 +88,7 @@ export const SPEC_FIELDS = [
   'referenceDailyFocTon',
   'blockCoefficient',
   'hullConditionPercent',
+  'anchorageDailyFocTon',
   'callSign',
   'defaultFuelType',
 ] as const satisfies readonly (keyof VesselFormState)[]
@@ -159,6 +162,7 @@ export function initialFormState(): VesselFormState {
     referenceDailyFocTon: '',
     blockCoefficient: '',
     hullConditionPercent: '',
+    anchorageDailyFocTon: '',
     callSign: '',
   }
 }
@@ -229,6 +233,14 @@ export const HULL_CONDITION_RANGE = { min: -30, max: 100 } as const
 export const HULL_CONDITION_HINT =
   '파울링이면 +, 선체 청소·프로펠러 연마면 −. 참고: 0.5mm 슬라임이 선체 50%를 덮으면 ' +
   '+25~30% (IMO GloFouling 2022). 비우면 0%로 계산합니다.'
+
+/**
+ * 묘박 중 일일 연료 칸의 안내 (#2561 결정 D3). 기본값을 두지 않는다 — 배마다 다른 값이고 대표값의
+ * 근거를 찾지 못했다. 비우면 대기 연료를 **내지 않는다**(0으로 계산하지 않는다).
+ */
+export const ANCHORAGE_FOC_HINT =
+  '묘박 중(주기관 정지 · 발전기·보일러만 가동) 하루에 쓰는 연료입니다. 항로 비교에서 선석보다 ' +
+  '일찍 닿아 기다리는 연료를 낼 때 씁니다. 비우면 대기 연료를 계산하지 않습니다.'
 
 /**
  * 호출부호(call sign)의 모양 (#1197) — ITU 전파규칙 `RR No. 19.55`의 선박국 네 형식은 전부
@@ -421,6 +433,14 @@ export function validateForm(
     errors,
     HULL_CONDITION_RANGE,
   )
+  // #2561 결정 D3 — 묘박 중 일일 연료(선택). 기준 일일 연료와 같은 양이라 같은 범위다.
+  checkOptionalPositive(
+    state.anchorageDailyFocTon,
+    FIELD.anchorageDailyFocTon,
+    '묘박 중 일일 연료',
+    errors,
+    STORABLE.dailyFoc,
+  )
   // #1197 — 호출부호(선택). 공공데이터 교차 대조의 키.
   checkCallSign(state.callSign, FIELD.callSign, errors)
 
@@ -504,6 +524,9 @@ export function toRequest(state: VesselFormState): VesselCreateRequest {
   // #2561 — 선체 상태 보정(선택). 빈 칸은 키를 넣지 않는다 — 「미입력」이다. 0은 싣는다.
   const hullConditionPercent = toNumber(state.hullConditionPercent)
   if (hullConditionPercent !== null) request.hull_condition_percent = hullConditionPercent
+  // #2561 — 묘박 중 일일 연료(선택). 빈 칸은 키를 넣지 않는다 — 「미입력」이다.
+  const anchorageDailyFocTon = toNumber(state.anchorageDailyFocTon)
+  if (anchorageDailyFocTon !== null) request.anchorage_daily_foc_ton = anchorageDailyFocTon
 
   // #1197 — 호출부호(선택). 접은 값을 싣고, 빈 칸은 키를 넣지 않는다(위 규칙과 같다).
   const callSign = normalizeCallSign(state.callSign)
@@ -528,6 +551,7 @@ const FIELD_PATHS: ReadonlySet<string> = new Set([
   FIELD.referenceDailyFocTon,
   FIELD.blockCoefficient,
   FIELD.hullConditionPercent,
+  FIELD.anchorageDailyFocTon,
   FIELD.callSign,
 ])
 

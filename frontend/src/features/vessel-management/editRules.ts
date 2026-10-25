@@ -46,6 +46,7 @@ export interface VesselEditState {
   referenceDailyFocTon: string
   blockCoefficient: string
   hullConditionPercent: string
+  anchorageDailyFocTon: string
   callSign: string
 }
 
@@ -60,6 +61,7 @@ export const EDIT_FIELD = {
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
   hullConditionPercent: 'hull_condition_percent',
+  anchorageDailyFocTon: 'anchorage_daily_foc_ton',
   callSign: 'call_sign',
   form: '__form__',
 } as const
@@ -97,6 +99,7 @@ export function toEditState(vessel: Vessel): VesselEditState {
     referenceDailyFocTon: numberToInput(vessel.reference_daily_foc_ton),
     blockCoefficient: numberToInput(vessel.block_coefficient),
     hullConditionPercent: numberToInput(vessel.hull_condition_percent),
+    anchorageDailyFocTon: numberToInput(vessel.anchorage_daily_foc_ton),
     callSign: vessel.call_sign ?? '',
   }
 }
@@ -179,6 +182,14 @@ export function validateEdit(
     errors,
     HULL_CONDITION_RANGE,
   )
+  // #2561 결정 D3 — 묘박 중 일일 연료. 등록 폼과 같은 함수·같은 범위다.
+  checkOptionalPositive(
+    state.anchorageDailyFocTon,
+    EDIT_FIELD.anchorageDailyFocTon,
+    '묘박 중 일일 연료',
+    errors,
+    STORABLE.dailyFoc,
+  )
   // #1197 — 호출부호. 등록 폼과 같은 함수·같은 문구다.
   checkCallSign(state.callSign, EDIT_FIELD.callSign, errors)
   checkOptionalPositive(
@@ -216,6 +227,8 @@ const CLEARABLE: ReadonlyArray<{ key: keyof VesselEditState; label: string }> = 
   { key: 'referenceDailyFocTon', label: '기준 일일 연료소모량' },
   // #2561 — 선체 상태 보정도 지울 수 없다(PATCH의 None은 「안 바꾼다」). 보정을 없애려면 0을 넣는다.
   { key: 'hullConditionPercent', label: '선체 상태 보정' },
+  // #2561 — 묘박 중 일일 연료도 지울 수 없다.
+  { key: 'anchorageDailyFocTon', label: '묘박 중 일일 연료' },
   // #1197 — 호출부호도 지울 수 없다(서버가 빈 문자열을 「안 바꾼다」로 접는다).
   { key: 'callSign', label: '호출부호' },
 ]
@@ -237,6 +250,9 @@ function hadValue(vessel: Vessel, key: keyof VesselEditState): boolean {
       return vessel.block_coefficient !== null
     case 'hullConditionPercent':
       return vessel.hull_condition_percent !== null
+    case 'anchorageDailyFocTon':
+      // 키가 없는 선박 객체(옛 응답)도 「값 없음」이다 — `undefined`를 값으로 읽으면 저장이 막힌다.
+      return (vessel.anchorage_daily_foc_ton ?? null) !== null
     case 'callSign':
       return vessel.call_sign !== null && vessel.call_sign !== ''
     default:
@@ -335,6 +351,11 @@ export function toUpdateRequest(vessel: Vessel, state: VesselEditState): VesselU
   // #2561 — 선체 상태 보정. 0은 유효한 값(「보정 없음」)이라 `!== null`로 본다.
   const hull = toNumber(state.hullConditionPercent)
   if (hull !== null && hull !== vessel.hull_condition_percent) patch.hull_condition_percent = hull
+  // #2561 — 묘박 중 일일 연료. 바뀐 경우만 싣는다.
+  const anchorage = toNumber(state.anchorageDailyFocTon)
+  if (anchorage !== null && anchorage !== vessel.anchorage_daily_foc_ton) {
+    patch.anchorage_daily_foc_ton = anchorage
+  }
 
   // #1197 — 호출부호. 접은 값으로 비교한다 — `hlxq`를 `HLXQ`로 고쳐 저장해도 바뀐 것이 없다.
   const callSign = normalizeCallSign(state.callSign)

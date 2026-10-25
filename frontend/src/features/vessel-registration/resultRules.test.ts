@@ -17,6 +17,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     reference_daily_foc_ton: null,
     block_coefficient: null,
     hull_condition_percent: null,
+    anchorage_daily_foc_ton: null,
     call_sign: null,
     is_cii_applicable_hint: false,
     underway_state: null,

@@ -33,6 +33,8 @@ export interface VesselCreateRequest {
   block_coefficient?: number
   /** #2561 — 선체·추진 상태 보정 %(선택). 항로 비교 연료 추정에 곱한다. 0·음수가 정상 입력이다. */
   hull_condition_percent?: number
+  /** #2561 결정 D3 — 묘박 중 일일 연료(t/일 · 선택). 항로 비교의 선석 대기 연료에 쓴다. */
+  anchorage_daily_foc_ton?: number
   /**
    * #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
    * 질의하므로 교차 대조의 키다. 서버가 strip · upper로 접어 저장한다(`API_SPEC §2.3`).
@@ -61,6 +63,8 @@ export interface Vessel {
   block_coefficient: number | null
   /** #2561 — 선체·추진 상태 보정 %. `null`이면 「미입력」이고 항로 비교는 0%로 계산한다. */
   hull_condition_percent: number | null
+  /** #2561 — 묘박 중 일일 연료. `null`이면 「미입력」이고 선석 대기 연료를 내지 않는다. */
+  anchorage_daily_foc_ton: number | null
   /** #1197 — 호출부호. `null`이면 「모른다」— 그 배는 공공데이터 교차 대조 대상이 아니다. */
   call_sign: string | null
   /**

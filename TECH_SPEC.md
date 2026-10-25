@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-10-25 |
+| 최종 수정일 | 2026-10-26 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -722,6 +722,8 @@ fuel_ton = fuel_ton × (1 + hull_condition_percent / 100)   # 항로 비교만 �
 ```
 
 > **[#2561] 선체·추진 상태 보정 %.** 파울링은 같은 속력에 연료를 더 쓰게 하고(+), 선체 청소·프로펠러 연마·절감장치는 덜 쓰게 한다(−) — SEEMP(`MEPC.395(82)`) 5.3.10~5.3.13. 오손 상태에서 %로 가는 권위 있는 식이 없으므로(GloFouling 보고서 2022가 스스로 일반화가 어렵다고 적는다) **선사가 자기 배의 성능 감시로 아는 %를 넣는다**(`PRD §11.3`). 값은 요청 덮어쓰기 → `vessel.hull_condition_percent` → 미입력 순으로 정한다. **0이거나 미입력이면 곱셈 자체를 하지 않는다** — 보정을 넣기 전의 결과와 바이트 단위로 같아야 한다(`calc/fuel_estimator.py`). 쓰는 곳은 **항로 비교(기능②)뿐**이다 — 항차 CII(기능①)는 연료를 입력으로 받고, 연간 시뮬레이터·데이터 품질 검사·챗봇 항차 도구의 cubic model 호출은 보정 없이 그대로다. CII는 연료를 거리로 나누므로 보정 %는 **CII를 같은 비율로 올린다**(`(1 + p/100)`배).
+>
+> **[#2561] 선석 대기 연료 — 위 식 밖에서 따로 낸다** (결정 D3·D8 「다」 · `PRD §11.2` `[#2561]`). 선석 가용 시각을 넣은 비교에서 시나리오마다 `대기 시간 = max(남은 시간 − 항해 시간, 0)` · `대기 연료 = 묘박 중 일일 연료 × 대기 시간 ÷ 24`이고, **기상 계수와 선체 상태 보정을 곱하지 않는다** — 묘박 중에는 주기관이 서 있어 그 둘이 닿는 추진 연료가 아니다. 대기 포함 CII는 같은 유종·CF로 `fuel_ton + 대기 연료`를 분자에 넣고 분모(거리)는 그대로 둔다. 남은 시간은 두 시각의 차를 **정수 마이크로초**로 세어 나눈다(`float`을 거치지 않는다). 도착시각 맞춤 속도 = 거리 ÷ 남은 시간이고 저장 자릿수(0.01kn)로 `ROUND_CEILING` — 1.0kn 미만은 1.0kn, 60kn 초과는 계산하지 않는다(`calc`가 아니라 `services/scenario_compare.py`가 정한다).
 
 ### 4.2 가드 조건
 
@@ -1099,7 +1101,7 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
-> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor`·`detour_waypoint`·`hull_condition_percent` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘·우회 경유지·선체 상태 보정)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건(·우회 경유지) → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다. **`detour_waypoint`는 선택 키다**(`#1300` — 아래 「선택 키 규약」과 같은 방식): 요청에 경유지 좌표가 있을 때만 `{lat, lon}`(Decimal)이 담기고, 없는 요청은 키가 들어가지 않아 **종전 해시가 그대로다.** DETOUR 거리가 이미 `scenarios`에 있는데도 좌표를 따로 담는 것은 **같은 거리 합을 내는 다른 경유지가 다른 항로**이기 때문이다. **`hull_condition_percent`도 선택 키다**(`#2561`): 요청 덮어쓰기 → 선박 제원 순으로 정한 보정 %가 **0이 아닐 때만** 담긴다. 미입력과 0%는 연료 추정이 곱셈 자체를 하지 않아(`§4.1`) 보정을 넣기 전과 같은 계산이므로 **종전 해시가 그대로다.**
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor`·`detour_waypoint`·`hull_condition_percent`·`berth` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3~5건·기상 둘·우회 경유지·선체 상태 보정·선석 조건)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건(·우회 경유지) → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다. **`detour_waypoint`는 선택 키다**(`#1300` — 아래 「선택 키 규약」과 같은 방식): 요청에 경유지 좌표가 있을 때만 `{lat, lon}`(Decimal)이 담기고, 없는 요청은 키가 들어가지 않아 **종전 해시가 그대로다.** DETOUR 거리가 이미 `scenarios`에 있는데도 좌표를 따로 담는 것은 **같은 거리 합을 내는 다른 경유지가 다른 항로**이기 때문이다. **`hull_condition_percent`도 선택 키다**(`#2561`): 요청 덮어쓰기 → 선박 제원 순으로 정한 보정 %가 **0이 아닐 때만** 담긴다. 미입력과 0%는 연료 추정이 곱셈 자체를 하지 않아(`§4.1`) 보정을 넣기 전과 같은 계산이므로 **종전 해시가 그대로다.** **`berth`도 선택 키다**(`#2561` 결정 D1·D3): 요청에 선석 가용 시각이 있을 때만 `{available_at, reference_at, anchorage_daily_foc_ton}`이 담긴다(시각은 UTC `Z` 문자열 · 묘박 연료는 미입력이면 키 없음). 도착시각 맞춤 계획 2건의 속력은 `scenarios`에 이미 있지만, **두 시각을 모두** 담는 것은 남은 시간이 같아도 기준이 다른 요청은 다른 시점의 질문이기 때문이고, 묘박 연료를 담는 것은 대기 연료·대기 포함 CII의 결정 인자인데 `scenarios`에 없기 때문이다. 기준 시각은 **화면이 보낸 값**이다 — 서버 시계로 「지금」을 정하면 같은 요청이 보낸 시각에 따라 다른 결과를 낸다(`§5.4`). 선석 시각이 없는 요청은 키가 들어가지 않아 **종전 해시가 그대로다.**
 
 > **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 넷은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴, `not_underway`(연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫 · `simulation_snapshot.not_underway_json` 그대로)는 `#1803`에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
 
@@ -1658,6 +1660,7 @@ class SimulationSnapshot:
 | `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | `실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.` |
 | `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차에 `voyage_fuel_use` 행이 **한 행도 없음**. `COMPLETED_NO_FUEL`과 뜻이 반대다 — 그쪽은 「계획값을 넣었다」이고 이쪽은 「넣을 값이 아예 없다」다 (`#1095` ⑵). 연말 예상의 확정분 조립(`_inputs_from_snapshot`)도 **같은 판정 함수**(`ytd_cii.has_no_fuel_record`)로 같은 코드를 낸다 — 거리는 누적과 같이 넣는다 (`#2095`) | `연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요.` |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (`PRD §11.2`) | `감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다.` |
+| `ARRIVAL_SPEED_FLOOR` | 기능② 도착시각 맞춤 시나리오의 속도가 최소 속도(1.0kn)보다 낮아 1.0kn로 계산 (`PRD §11.2` `[#2561]`) | `도착시각에 맞춘 속도가 최소 속도(1.0kn)보다 낮아 1.0kn로 계산했습니다. 선석 가용 시각보다 일찍 도착해 대기가 남습니다.` |
 | `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시뮬레이션 시계가 진행 중 항차분을 만들지 못함 (`§5` 시계) | `선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.` |
 | `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없어 CF를 붙일 수 없음 | `진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.` |
 | `IN_PROGRESS_PAST_ETA` | 진행 중 항차가 도착 예정일을 지났고 도착 실적이 없음 (`#649`) | `진행 중 항차가 도착 예정일을 지났습니다. 누적은 예정일까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.` |
@@ -2399,3 +2402,4 @@ default-src 'self'; script-src 'self' 'sha256-GEIzLnCcBJTfUgmiEYOlvwpPersz5xOqY6
 | 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 27행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
 | 2026-10-20 | `#2547` | §12.3 참조 표에 **`CHARTER_RATE_ABOVE_MARKET` · `FUEL_PRICE_ABOVE_MARKET`** (`#2521` · 정본은 `API_SPEC §1.6`). `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 |
 | 2026-10-25 | `#2562` | **§4.1 식에 선체·추진 상태 보정과 `[#2561]` 각주** · §4.2 가드 행(`hull_condition_percent > −100`) · **§5.3 `SCENARIO_INPUT_FIELDS`에 선택 키 `hull_condition_percent`**(0이 아닐 때만 담겨 미입력·0%의 해시가 종전 그대로). 보정은 **항로 비교에만** 쓰고 연간 시뮬레이터·데이터 품질·챗봇 항차 도구의 cubic model 호출은 그대로임을 각주에 적었다 (`#2561`). `AGENTS §4.3`상 행 추가·각주 보강이라 버전은 올리지 않는다 |
+| 2026-10-26 | `#2566` | **§4.1 `[#2561]` 각주에 선석 대기 연료**(기상·선체 보정을 곱하지 않는다 · 분자에만 · 남은 시간은 정수 마이크로초 · 맞춤 속도 0.01kn 올림) · **§5.3 `SCENARIO_INPUT_FIELDS`에 선택 키 `berth`**(14 → 15 · 선석 시각이 있을 때만 `{available_at, reference_at, anchorage_daily_foc_ton}` — 없는 요청은 종전 해시 그대로) · **§12.3 경고 표에 `ARRIVAL_SPEED_FLOOR`**(`#2561` ②③ 결정 D1·D3·D8 「다」). `§4.3`상 각주·행 추가라 버전은 올리지 않는다 |

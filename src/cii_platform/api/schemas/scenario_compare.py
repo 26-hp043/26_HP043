@@ -77,6 +77,17 @@ class ScenarioCompareRequest(BaseModel):
     #: 선박 제원(``vessel.hull_condition_percent``)을 바꾸지 않는다. 없으면 제원값, 그것도
     #: 없으면 0%. 범위는 제원과 같은 양이라 같다(``validation/bounds.py``).
     hull_condition_percent: Annotated[Decimal | None, Field(**HULL_CONDITION_PERCENT)] = None
+    #: 선석 가용 시각 (`#2561` 결정 D1 · 선택). 있으면 「직항 · 도착시각 맞춤」·「우회 · 도착시각
+    #: 맞춤」이 붙고 모든 시나리오에 선석 대기가 실린다. **기준 시각(``berth_reference_at``)과
+    #: 함께**만 유효하다 — 서버 시계로 「지금」을 정하면 같은 요청이 시간에 따라 다른 결과를 낸다
+    #: (`TECH_SPEC §5.4`). 짝·순서 검사는 서비스가 한다(422).
+    berth_available_at: Instant | None = None
+    #: 선석까지 남은 시간을 셀 기준 시각. 화면은 보내는 순간의 시각을 싣는다.
+    berth_reference_at: Instant | None = None
+    #: 묘박 중 일일 연료(t/일 · `#2561` 결정 D3 · 선택). **이번 비교에만** 쓰는 덮어쓰기 값이다 —
+    #: 없으면 선박 제원(``vessel.anchorage_daily_foc_ton``), 그것도 없으면 대기 연료를 내지 않는다.
+    #: 기준 일일 연료와 같은 양이라 같은 범위다.
+    anchorage_daily_foc_ton: Annotated[Decimal | None, Field(**DAILY_FOC)] = None
 
 
 class ScenarioAdoptRequest(BaseModel):

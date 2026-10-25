@@ -41,6 +41,8 @@ class FakeVessel:
     block_coefficient: Decimal | None = None
     # #2561 — 선체·추진 상태 보정 %. None은 「미입력」(0%로 계산).
     hull_condition_percent: Decimal | None = None
+    # #2561 결정 D3 — 묘박 중 일일 연료. None은 「미입력」(선석 대기 연료를 내지 않는다).
+    anchorage_daily_foc_ton: Decimal | None = None
     # #1197 — 호출부호. None이 「모른다」(공공데이터 교차 대조 대상 아님).
     call_sign: str | None = None
     is_cii_applicable_hint: bool = True

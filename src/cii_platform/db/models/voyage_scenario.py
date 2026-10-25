@@ -86,9 +86,10 @@ class VoyageScenario(Base):
             ondelete="SET NULL",
             onupdate=FK_ON_UPDATE,
         ),
-        # §2.4 검증 제약 [S-4] (원문 그대로).
+        # §2.4 검증 제약 [S-4]. 도착시각 맞춤 2종은 #2561(073)이 더했다 — 선석 가용 시각을
+        # 넣은 비교에서만 생긴다. 집행은 073이 다시 만든 트리거다(§7.4).
         sa.CheckConstraint(
-            "scenario_type IN ('DIRECT','DETOUR','SLOW_STEAMING')",
+            "scenario_type IN ('DIRECT','DETOUR','SLOW_STEAMING','DIRECT_JIT','DETOUR_JIT')",
             name="chk_scenario_type",
         ),
         sa.CheckConstraint(

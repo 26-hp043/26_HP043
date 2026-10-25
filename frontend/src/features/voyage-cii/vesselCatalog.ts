@@ -53,6 +53,11 @@ export interface VesselSpecDefaults {
    * 없을 수 있고 `null`과 같게 읽는다.
    */
   hullConditionPercent?: string | null
+  /**
+   * 묘박 중 일일 연료(t/일 · #2561 결정 D3). 선체 상태 %와 같은 쓰임 — 「비우면 이 값으로 계산」 안내에만
+   * 쓰고 입력칸에 미리 채우지 않는다.
+   */
+  anchorageDailyFocTon?: string | null
 }
 
 /** 선박 목록 조회의 데이터 경계. 화면은 출처를 알지 않는다 (`#134`). */
@@ -69,6 +74,7 @@ interface VesselListItem {
   reference_daily_foc_ton?: unknown
   default_fuel_type?: unknown
   hull_condition_percent?: unknown
+  anchorage_daily_foc_ton?: unknown
 }
 
 /** 서버 숫자(또는 십진 문자열)를 입력칸 문자열로. 값이 없거나 읽을 수 없으면 `null`. */
@@ -140,6 +146,7 @@ export function createApiVesselCatalog(baseUrl?: string): VesselCatalogProvider 
             referenceDailyFocTon: specText(row.reference_daily_foc_ton),
             defaultFuelType: specText(row.default_fuel_type),
             hullConditionPercent: specText(row.hull_condition_percent),
+            anchorageDailyFocTon: specText(row.anchorage_daily_foc_ton),
           },
         }))
     },

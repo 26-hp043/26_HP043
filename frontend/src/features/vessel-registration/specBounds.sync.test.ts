@@ -78,6 +78,7 @@ describe('선체 상태 보정 범위 — #2561', () => {
           referenceDailyFocTon: '',
           blockCoefficient: '',
           hullConditionPercent,
+          anchorageDailyFocTon: '',
           callSign: '',
         },
         [],
@@ -123,6 +124,7 @@ describe('선박 제원 경계 — #860', () => {
       referenceDailyFocTon: '',
       blockCoefficient: '',
       hullConditionPercent: '',
+      anchorageDailyFocTon: '',
       callSign: '',
     }
     const errors = validateEdit(state, [])

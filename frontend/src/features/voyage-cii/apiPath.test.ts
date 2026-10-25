@@ -234,6 +234,8 @@ describe('기능② — 비교 결과가 표 문자열이 된다', () => {
           detourWaypointLat: '',
           detourWaypointLon: '',
           hullConditionPercent: '',
+          berthAvailableAt: '',
+          anchorageDailyFocTon: '',
         },
         FUELS,
       ),

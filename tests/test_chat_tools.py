@@ -616,6 +616,112 @@ async def test_scenario_tool_rejects_hull_condition_outside_the_screen_range(mon
         )
 
 
+async def test_scenario_tool_turns_hours_until_berth_into_two_instants(monkeypatch):
+    """#2561 — 「선석이 80시간 뒤」는 두 시각의 **차이**로 넘긴다. 서버 시계를 읽지 않는다.
+
+    묘박 연료도 그대로 넘긴다. 말하지 않았으면 셋 다 ``None``(선석 없음 · 선박 제원).
+    """
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from cii_platform.services import scenario_compare
+
+    seen: list[tuple[object, object, object]] = []
+
+    async def _fake_compare(_session, payload, *, persist):
+        seen.append(
+            (
+                payload.berth_reference_at,
+                payload.berth_available_at,
+                payload.anchorage_daily_foc_ton,
+            )
+        )
+        return {"data": {"scenarios": [dict(_SCENARIO_ROW)]}}
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _fake_compare)
+    base = {"current_speed_kn": "12", "fuel_type": "HFO", "regulation_year": 2026}
+    await chat_tools._compare_scenarios(
+        None, {**base, "hours_until_berth": 80, "anchorage_daily_foc_ton": 3}, "selected"
+    )
+    await chat_tools._compare_scenarios(None, base, "selected")
+    (reference, available, anchorage), unset = seen
+    assert available - reference == timedelta(hours=80)
+    assert anchorage == Decimal("3")
+    assert unset == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("hours_until_berth", 0),
+        ("hours_until_berth", -5),
+        ("hours_until_berth", 9000),
+        ("anchorage_daily_foc_ton", 0),
+        ("anchorage_daily_foc_ton", "조금"),
+    ],
+)
+async def test_scenario_tool_rejects_berth_arguments_outside_the_range(monkeypatch, key, value):
+    """선석까지 0 이하·1년 초과, 묘박 연료 0 이하는 인자 오류다 — 계산까지 가지 않는다."""
+    from cii_platform.services import scenario_compare
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError("범위 밖 값으로 계산까지 갔다")
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _never)
+    with pytest.raises(chat_tools.ToolArgumentError):
+        await chat_tools._compare_scenarios(
+            None, {"current_speed_kn": "12", "fuel_type": "HFO", key: value}, "selected"
+        )
+
+
+async def test_scenario_tool_publishes_waiting_but_not_waiting_fuel(monkeypatch):
+    """IT-CHAT-104 (#2561) — 선석 대기 값을 펼쳐 싣는다. 대기 연료는 연료량이라 나가지 않는다.
+
+    도달 불가 시나리오는 필요 속력과 함께 따로 싣는다 — 모델이 「왜 맞춤 카드가 없냐」에
+    지어내지 않고 답하게 한다(`PRD §16.3.1` `[#2561]`).
+    """
+    from cii_platform.services import scenario_compare
+
+    row = {
+        **_SCENARIO_ROW,
+        "berth": {
+            "hours_to_berth": "80.0000",
+            "waiting_hours": "8.5714",
+            "late_hours": "0.0000",
+            "waiting_fuel_ton": "1.07",
+            "attained_cii_with_waiting": "5.627442",
+            "estimated_rating_with_waiting": "D",
+        },
+    }
+    unreachable = {
+        "scenario_type": "DIRECT_JIT",
+        "scenario_name": "직항 · 도착시각 맞춤",
+        "distance_nm": 1000.0,
+        "required_speed_kn": 100.0,
+    }
+
+    async def _fake_compare(_session, _payload, *, persist):
+        return {"data": {"scenarios": [row], "unreachable_scenarios": [unreachable]}}
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _fake_compare)
+    raw = await chat_tools._compare_scenarios(
+        None,
+        {"current_speed_kn": "12", "fuel_type": "HFO", "hours_until_berth": 10},
+        "selected",
+    )
+    body = json.loads(raw)
+    (published,) = body["result"]["scenarios"]
+    assert published["waiting_hours"] == "8.5714"
+    assert published["hours_to_berth"] == "80.0000"
+    assert published["attained_cii_with_waiting"] == "5.627442"
+    assert set(published) <= OUTBOUND_WHITELIST, published
+    # 대기 연료는 키로도 값으로도 나가지 않는다.
+    assert "waiting_fuel_ton" not in raw and "1.07" not in raw
+    assert body["result"]["unreachable_scenarios"] == [
+        {"scenario_type": "DIRECT_JIT", "distance_nm": 1000.0, "required_speed_kn": 100.0}
+    ]
+
+
 async def test_voyage_tool_echoes_distance_and_speed_but_not_fuel(monkeypatch):
     """IT-CHAT-099 (`#2395` 결정 2) — 항차 CII 도구가 **거리·속력**을 되돌려 준다.
 
