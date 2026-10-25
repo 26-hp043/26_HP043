@@ -31,6 +31,8 @@ export interface VesselUpdateRequest {
   block_coefficient?: number | null
   /** #2561 — 선체·추진 상태 보정 %(선택). 보정을 없애려면 0을 보낸다. */
   hull_condition_percent?: number | null
+  /** #2561 — 묘박 중 일일 연료(선택). 지울 수 없다(PATCH의 `None`은 「안 바꾼다」). */
+  anchorage_daily_foc_ton?: number | null
   /** #1197 — 호출부호(선택). 공공데이터 교차 대조의 키. 빈 문자열은 서버가 「안 바꾼다」로 접는다. */
   call_sign?: string | null
 }

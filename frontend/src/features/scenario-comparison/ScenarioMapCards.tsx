@@ -11,12 +11,21 @@ import './ScenarioMapCards.css'
 
 type MapProps = Omit<ComponentProps<typeof VoyageRouteMap>, 'only' | 'compact' | 'highlight'>
 
-const ORDER: readonly ScenarioType[] = ['DIRECT', 'DETOUR', 'SLOW_STEAMING']
+const ORDER: readonly ScenarioType[] = ['DIRECT', 'DETOUR', 'SLOW_STEAMING', 'DIRECT_JIT', 'DETOUR_JIT']
 
 const CAPTION: Readonly<Record<ScenarioType, string>> = {
   DIRECT: '출발항에서 목적항으로 바로',
   DETOUR: '경유지를 지나 돌아가는 길',
   SLOW_STEAMING: '직항과 같은 길을 더 느리게',
+  // #2561 — 속력만 다르고 길은 직항·우회 그대로다. 지도에 선이 늘지 않는다.
+  DIRECT_JIT: '직항과 같은 길을 선석 시각에 맞춰',
+  DETOUR_JIT: '우회와 같은 길을 선석 시각에 맞춰',
+}
+
+/** 도착시각 맞춤이 따르는 길 (#2561) — 지도는 그 길의 선을 진하게 한다. */
+const ROUTE_OF: Readonly<Partial<Record<ScenarioType, ScenarioType>>> = {
+  DIRECT_JIT: 'DIRECT',
+  DETOUR_JIT: 'DETOUR',
 }
 
 /*
@@ -51,14 +60,15 @@ export function ScenarioMapCards({
   const ordered = ORDER.map((type) => scenarios.find((s) => s.scenario_type === type)).filter(
     (s): s is ScenarioResult => s !== undefined,
   )
+  const route = active === null ? null : (ROUTE_OF[active] ?? active)
   const highlight =
-    active === null
+    route === null
       ? null
-      : active === 'DETOUR'
+      : route === 'DETOUR'
         ? hasWaypoint
           ? 'DETOUR'
           : null
-        : active === 'SLOW_STEAMING'
+        : route === 'SLOW_STEAMING'
           ? 'SLOW'
           : 'DIRECT'
 
@@ -67,7 +77,7 @@ export function ScenarioMapCards({
       <div className="scenario-maps__grid" role="group" aria-label="지도에서 앞으로 낼 시나리오">
         {ordered.map((scenario) => {
           const type = scenario.scenario_type
-          const noLine = type === 'DETOUR' && !hasWaypoint
+          const noLine = (ROUTE_OF[type] ?? type) === 'DETOUR' && !hasWaypoint
           return (
             <button
               type="button"
@@ -86,8 +96,10 @@ export function ScenarioMapCards({
                 {/* 칩에서는 설명을 접는다 — 경유지가 없어 선을 못 그릴 때만 그 사실을 적는다 */}
                 {noLine ? (
                   <span className="scenario-maps__caption">경유지 없음 · 지도에 선 없음</span>
-                ) : type === 'SLOW_STEAMING' ? (
+                ) : type === 'SLOW_STEAMING' || type === 'DIRECT_JIT' ? (
                   <span className="scenario-maps__caption">직항과 같은 길</span>
+                ) : type === 'DETOUR_JIT' ? (
+                  <span className="scenario-maps__caption">우회와 같은 길</span>
                 ) : (
                   <span className="sr-only">{CAPTION[type]}</span>
                 )}

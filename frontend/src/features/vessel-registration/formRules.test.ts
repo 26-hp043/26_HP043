@@ -292,6 +292,14 @@ describe('toRequest', () => {
     expect(toRequest(state({ hullConditionPercent: '-5' })).hull_condition_percent).toBe(-5)
   })
 
+  it('#2561 — 묘박 중 일일 연료는 채운 경우만 싣고, 0 이하는 오류다(기본값을 두지 않는다)', () => {
+    expect('anchorage_daily_foc_ton' in toRequest(state())).toBe(false)
+    expect(toRequest(state({ anchorageDailyFocTon: '3.5' })).anchorage_daily_foc_ton).toBe(3.5)
+    for (const bad of ['0', '-1', '많이']) {
+      expect(validateForm(state({ anchorageDailyFocTon: bad })).anchorage_daily_foc_ton, bad).toBeDefined()
+    }
+  })
+
   it('#966 — 방형계수 값은 그대로 실린다', () => {
     const request = toRequest(state({ blockCoefficient: '0.82' }))
     expect(request.block_coefficient).toBe(0.82)

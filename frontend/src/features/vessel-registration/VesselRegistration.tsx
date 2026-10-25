@@ -8,6 +8,7 @@ import { SCREEN_BY_ID } from '../../screens'
 import { useShellContext } from '../../layout/shellContext'
 import {
   FIELD,
+  ANCHORAGE_FOC_HINT,
   HULL_CONDITION_HINT,
   NAME_MAX_LENGTH,
   SPEC_FIELDS,
@@ -477,6 +478,29 @@ export function VesselRegistration() {
                   value={state.hullConditionPercent}
                   onChange={(e) =>
                     update('hullConditionPercent', e.target.value, FIELD.hullConditionPercent)
+                  }
+                />
+              )}
+            </Field>
+
+            {/* #2561 결정 D3 — 묘박 중 일일 연료(선택). 항로 비교의 선석 대기 연료에 쓴다. 기본값을
+                두지 않는다 — 비우면 대기 연료를 계산하지 않는다. */}
+            <Field
+              id="anchorage-foc"
+              label="묘박 중 일일 연료 (t/일)"
+              labelEn="Anchorage Fuel"
+              hint={ANCHORAGE_FOC_HINT}
+              error={errors[FIELD.anchorageDailyFocTon]}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.anchorageDailyFocTon}
+                  onChange={(e) =>
+                    update('anchorageDailyFocTon', e.target.value, FIELD.anchorageDailyFocTon)
                   }
                 />
               )}

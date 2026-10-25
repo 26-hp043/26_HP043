@@ -1,9 +1,11 @@
+import { kstInputToIso } from '../../display/format'
 import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import {
   HULL_CONDITION_RANGE,
   MAX_SPEED_KN,
   STORABLE,
+  checkOptionalPositive,
   checkOptionalRange,
 } from '../vessel-registration/formRules'
 import { DISTANCE_RANGE, inRange, outOfRange } from '../voyage-cii/formRules'
@@ -78,6 +80,16 @@ export interface ComparisonFormState {
    * 제원값을 구분할 수 없다). 0과 음수가 정상 입력이다.
    */
   hullConditionPercent: string
+  /**
+   * 선석 가용 시각 (#2561 결정 D1). `datetime-local` 값이고 **KST로 읽는다**(`DESIGN_SYSTEM §4.4` 🔒).
+   * 채우면 「도착시각 맞춤」 두 장과 시나리오마다 선석 대기가 붙는다. 비우면 지금과 같은 세 장이다.
+   */
+  berthAvailableAt: string
+  /**
+   * 묘박 중 일일 연료(t/일 · #2561 결정 D3). **이번 비교에만** 쓰는 덮어쓰기 값이다. 빈 칸이 「선박
+   * 제원값을 쓴다」이다 — 선체 상태 %와 같은 규율.
+   */
+  anchorageDailyFocTon: string
 }
 
 /**
@@ -116,6 +128,8 @@ export const FIELD = {
   detourWaypointLat: 'detour_waypoint_lat',
   detourWaypointLon: 'detour_waypoint_lon',
   hullConditionPercent: 'hull_condition_percent',
+  berthAvailableAt: 'berth_available_at',
+  anchorageDailyFocTon: 'anchorage_daily_foc_ton',
   form: '__form__',
 } as const
 
@@ -173,6 +187,36 @@ export function hullConditionFallbackHint(vesselPercent: string | null | undefin
     return `${lead} 비우면 선박 제원에 값이 없어 0%로 계산합니다.`
   }
   return `${lead} 비우면 선박 제원값(${signedPercent(Number(vesselPercent))})으로 계산합니다.`
+}
+
+/**
+ * 「도착 조건」에 접히는 칸 (#2561 결정요청 §12 「새 입력 묶음」). 비교 조건(배의 상태)과 따로 묶는 것은
+ * 성질이 달라서다 — 이쪽은 **이번 항차의 도착 사정**이다.
+ */
+const ARRIVAL_FIELDS = [FIELD.berthAvailableAt, FIELD.anchorageDailyFocTon] as const
+
+/** 오류 맵에 도착 조건 칸의 오류가 있는가 — 접힌 채로 두면 오류가 보이지 않는다. */
+export function hasArrivalError(errors: FormErrors): boolean {
+  return ARRIVAL_FIELDS.some((field) => field in errors)
+}
+
+/** 도착 조건 중 채운 칸의 수 — 접힌 요약에 적는다. */
+export function countArrivalFilled(form: ComparisonFormState): number {
+  return [form.berthAvailableAt.trim() !== '', form.anchorageDailyFocTon.trim() !== ''].filter(
+    Boolean,
+  ).length
+}
+
+/**
+ * 묘박 중 일일 연료 칸의 안내 — 비우면 무엇으로 계산하는지 (#2561 결정 D3). 제원값이 없으면
+ * 대기 연료를 **내지 않는다**고 말한다 — 0으로 계산한다고 말하지 않는다.
+ */
+export function anchorageFallbackHint(vesselValue: string | null | undefined): string {
+  const lead = '선석보다 일찍 닿아 기다리는 동안의 연료입니다. 이번 비교에만 씁니다.'
+  if (vesselValue === null || vesselValue === undefined || vesselValue.trim() === '') {
+    return `${lead} 비우면 선박 제원에 값이 없어 대기 연료를 계산하지 않습니다.`
+  }
+  return `${lead} 비우면 선박 제원값(${Number(vesselValue).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}t/일)으로 계산합니다.`
 }
 
 /** 부호를 붙인 백분율 — `+20%` · `−5%` · `0%`. 결과 머리의 조건 줄과 같은 표기다. */
@@ -287,6 +331,9 @@ export function initialFormState(): ComparisonFormState {
     detourWaypointLon: '',
     // #2561 — 비운다. 빈 칸이 「선박 제원값을 쓴다」이다.
     hullConditionPercent: '',
+    // #2561 — 비운다. 선석 시각이 비면 지금과 같은 세 장이다.
+    berthAvailableAt: '',
+    anchorageDailyFocTon: '',
     // 기상만 빈 칸이 아니다 — 셀렉트에는 「미선택」이 없고 `NONE`이 그 자리다.
     weatherModel: 'NONE',
   }
@@ -450,6 +497,7 @@ export function hasWaypoint(state: ComparisonFormState): boolean {
 export function validateForm(
   state: ComparisonFormState,
   fuels: readonly FuelOption[],
+  now: Date = new Date(),
 ): FormErrors {
   const errors: FormErrors = {}
 
@@ -532,6 +580,8 @@ export function validateForm(
     HULL_CONDITION_RANGE,
   )
 
+  checkArrival(state, errors, now)
+
   if (!WEATHER_MODELS.some((model) => model.code === state.weatherModel)) {
     // 셀렉트로는 도달하지 않는다. 연료와 같은 이유의 방어선이다.
     errors[FIELD.weatherModel] = `알 수 없는 기상 모델입니다: ${state.weatherModel}`
@@ -548,8 +598,9 @@ export function validateForm(
 export function toRequest(
   state: ComparisonFormState,
   fuels: readonly FuelOption[],
+  now: Date = new Date(),
 ): ScenarioComparisonRequest {
-  const errors = validateForm(state, fuels)
+  const errors = validateForm(state, fuels, now)
   if (Object.keys(errors).length > 0) {
     throw new Error('검증되지 않은 폼 상태입니다. validateForm()을 먼저 호출하십시오.')
   }
@@ -601,7 +652,47 @@ export function toRequest(
   if (state.hullConditionPercent.trim() !== '') {
     request.hull_condition_percent = Number(state.hullConditionPercent)
   }
+  /*
+   * #2561 — 선석 시각을 채웠을 때만 **기준 시각과 함께** 싣는다. 기준 시각은 요청을 만드는 지금이다 —
+   * 서버는 「지금」을 정하지 않는다(`TECH_SPEC §5.4`). 둘 다 재현성 해시 재료다.
+   */
+  const berth = berthInstant(state)
+  if (berth !== null) {
+    request.berth_available_at = berth
+    request.berth_reference_at = now.toISOString()
+  }
+  if (state.anchorageDailyFocTon.trim() !== '') {
+    request.anchorage_daily_foc_ton = Number(state.anchorageDailyFocTon)
+  }
   return request
+}
+
+/** 선석 가용 시각 칸 → UTC ISO. 비었거나 읽을 수 없으면 `null`. */
+function berthInstant(state: ComparisonFormState): string | null {
+  const raw = state.berthAvailableAt.trim()
+  return raw === '' ? null : kstInputToIso(raw)
+}
+
+/**
+ * 도착 조건 칸을 본다 (#2561). 선석은 **지금보다 뒤**여야 한다 — 서버도 기준 시각보다 뒤가 아니면
+ * 422를 낸다. 보내 놓고 되돌려 받지 않는다. 묘박 연료는 기준 일일 연료와 같은 양·같은 범위다.
+ */
+function checkArrival(state: ComparisonFormState, errors: FormErrors, now: Date): void {
+  if (state.berthAvailableAt.trim() !== '') {
+    const iso = berthInstant(state)
+    if (iso === null) {
+      errors[FIELD.berthAvailableAt] = '선석 가용 시각을 날짜와 시각으로 입력해 주세요.'
+    } else if (new Date(iso).getTime() <= now.getTime()) {
+      errors[FIELD.berthAvailableAt] = '선석 가용 시각은 지금보다 뒤여야 합니다.'
+    }
+  }
+  checkOptionalPositive(
+    state.anchorageDailyFocTon,
+    FIELD.anchorageDailyFocTon,
+    '묘박 중 일일 연료',
+    errors,
+    STORABLE.dailyFoc,
+  )
 }
 
 /**

@@ -7,6 +7,12 @@ import {
   lowestSummary,
   subtractFixed,
   hullConditionText,
+  berthAdoptNotice,
+  berthConditionText,
+  hasBerth,
+  metricValue,
+  scenarioWarningOwners,
+  unreachableText,
 } from './comparisonRules'
 import type { ScenarioResult, ScenarioType } from './types'
 
@@ -28,6 +34,8 @@ function scenario(
     estimated_rating: 'C',
     risk_level: 'MEDIUM',
     next_worse_boundary_margin_ratio: '0.0724',
+    warnings: [],
+    berth: null,
   }
 }
 
@@ -235,12 +243,20 @@ describe('직항 대비 차이 (#739)', () => {
   })
 })
 
+/** 선석 시각을 넣지 않은 비교의 조건 칸 (#2561 ②③). */
+const NO_BERTH = {
+  berth_available_at: null,
+  hours_until_berth: null,
+  anchorage_daily_foc_ton: null,
+  anchorage_daily_foc_source: 'NOT_SET',
+} as const
+
 describe('선체 상태 보정 조건 줄 (#2561)', () => {
   it('세 출처를 서로 다른 말로 적는다 — 미입력과 0%를 같게 그리지 않는다', () => {
-    const notSet = hullConditionText({ hull_condition_percent: null, hull_condition_source: 'NOT_SET' })
-    const zero = hullConditionText({ hull_condition_percent: 0, hull_condition_source: 'VESSEL' })
-    const request = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'REQUEST' })
-    const vessel = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })
+    const notSet = hullConditionText({ hull_condition_percent: null, hull_condition_source: 'NOT_SET', ...NO_BERTH })
+    const zero = hullConditionText({ hull_condition_percent: 0, hull_condition_source: 'VESSEL', ...NO_BERTH })
+    const request = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'REQUEST', ...NO_BERTH })
+    const vessel = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'VESSEL', ...NO_BERTH })
     expect(new Set([notSet, zero, request, vessel]).size).toBe(4)
     expect(request).toContain('+20%')
     expect(vessel).toContain('+20%')
@@ -249,5 +265,92 @@ describe('선체 상태 보정 조건 줄 (#2561)', () => {
   it('조건을 받지 못한 응답은 줄을 내지 않는다 — 출처를 지어 적지 않는다', () => {
     expect(hullConditionText(undefined)).toBeNull()
     expect(hullConditionText(null)).toBeNull()
+  })
+})
+
+describe('선석 대기 — 판정·문구 (#2561 ②③)', () => {
+  const waiting = (hours: string, toBerth: string, late = '0.0000', fuel: string | null = '1.07') => ({
+    hours_to_berth: toBerth,
+    waiting_hours: hours,
+    late_hours: late,
+    waiting_fuel_ton: fuel,
+    attained_cii_with_waiting: fuel === null ? null : '5.627442',
+    estimated_rating_with_waiting: fuel === null ? null : ('D' as const),
+  })
+  const withBerth = (base: ScenarioResult, berth: ScenarioResult['berth']): ScenarioResult => ({
+    ...base,
+    berth,
+  })
+
+  it('선석이 있으면 「가장 짧음」은 접안까지로 견준다 — 항해 시간이 짧아도 기다리면 동률이다', () => {
+    const direct = withBerth(scenario('DIRECT', { cii: '5.56', hours: '71.4285', fuel: '89.28' }), waiting('8.5714', '80.0000'))
+    const jit = withBerth(scenario('DIRECT_JIT', { cii: '4.43', hours: '80.0000', fuel: '71.17' }), waiting('0.0000', '80.0000'))
+    expect(hasBerth([direct, jit])).toBe(true)
+    expect(lowestScenarios([direct, jit], 'duration_hours')).toEqual(['DIRECT'])
+    expect(lowestScenarios([direct, jit], 'hours_to_berth')).toEqual(['DIRECT', 'DIRECT_JIT'])
+    const summary = lowestSummary([direct, jit])
+    expect(summary[1].metric).toBe('hours_to_berth')
+    expect(summary[1].scenarioTypes).toEqual(['DIRECT', 'DIRECT_JIT'])
+  })
+
+  it('선석 대기가 없으면 접안까지 = 항해 시간이고 「가장 짧음」은 종전 그대로다', () => {
+    const plain = scenario('DIRECT', { cii: '5.56', hours: '71.4285', fuel: '89.28' })
+    expect(metricValue(plain, 'hours_to_berth')).toBe('71.4285')
+    expect(hasBerth([plain])).toBe(false)
+    expect(lowestSummary([plain])[1].metric).toBe('duration_hours')
+  })
+
+  it('조건 줄은 묘박 연료의 출처 셋을 서로 다른 말로 적고, 선석이 없으면 줄을 내지 않는다', () => {
+    const base = {
+      hull_condition_percent: null,
+      hull_condition_source: 'NOT_SET' as const,
+      berth_available_at: '2026-10-29T08:00:00Z',
+      hours_until_berth: '80.0000',
+    }
+    const request = berthConditionText({ ...base, anchorage_daily_foc_ton: 3, anchorage_daily_foc_source: 'REQUEST' })
+    const vessel = berthConditionText({ ...base, anchorage_daily_foc_ton: 3, anchorage_daily_foc_source: 'VESSEL' })
+    const notSet = berthConditionText({ ...base, anchorage_daily_foc_ton: null, anchorage_daily_foc_source: 'NOT_SET' })
+    expect(new Set([request, vessel, notSet]).size).toBe(3)
+    // KST로 적는다(`DESIGN_SYSTEM §4.4`) — 08:00Z는 17:00 KST다.
+    expect(request).toContain('17:00')
+    expect(berthConditionText({ ...base, berth_available_at: null, hours_until_berth: null, anchorage_daily_foc_ton: null, anchorage_daily_foc_source: 'NOT_SET' })).toBeNull()
+    expect(berthConditionText(null)).toBeNull()
+  })
+
+  it('채택 고지 — 정본 문구 (PRD §6.3) — 바꾸려면 PRD 개정이 먼저다.', () => {
+    const base = scenario('DIRECT', { cii: '5.56', hours: '71.4285', fuel: '89.28' })
+    expect(berthAdoptNotice(withBerth(base, waiting('8.5714', '80.0000')))).toBe(
+      '선석 대기 8.6시간(대기 연료 1.1t)은 항차 계획에 담기지 않습니다.',
+    )
+    expect(berthAdoptNotice(withBerth(base, waiting('8.5714', '80.0000', '0.0000', null)))).toBe(
+      '선석 대기 8.6시간은 항차 계획에 담기지 않습니다.',
+    )
+  })
+
+  it('대기가 없거나 선석이 없으면 채택 고지를 붙이지 않는다', () => {
+    const base = scenario('DIRECT_JIT', { cii: '4.43', hours: '80.0000', fuel: '71.17' })
+    expect(berthAdoptNotice(withBerth(base, waiting('0.0000', '80.0000')))).toBeNull()
+    expect(berthAdoptNotice(base)).toBeNull()
+  })
+
+  it('도달 불가 줄은 필요 속력과 상한을 말한다', () => {
+    const text = unreachableText({
+      scenario_type: 'DIRECT_JIT',
+      scenario_name: '직항 · 도착시각 맞춤',
+      distance_nm: 1000,
+      required_speed_kn: 100,
+    })
+    expect(text).toContain('직항 · 도착시각 맞춤')
+    expect(text).toContain('100')
+    expect(text).toContain('60')
+  })
+
+  it('경고 귀속 — 코드마다 그 경고가 붙은 시나리오 이름을 모은다', () => {
+    const a = { ...scenario('DIRECT_JIT', { cii: '1', hours: '1', fuel: '1' }), scenario_name: '직항 · 도착시각 맞춤', warnings: ['ARRIVAL_SPEED_FLOOR'] }
+    const b = { ...scenario('DETOUR_JIT', { cii: '1', hours: '1', fuel: '1' }), scenario_name: '우회 · 도착시각 맞춤', warnings: ['ARRIVAL_SPEED_FLOOR'] }
+    const c = scenario('DIRECT', { cii: '1', hours: '1', fuel: '1' })
+    expect(scenarioWarningOwners([a, b, c])).toEqual({
+      ARRIVAL_SPEED_FLOOR: '직항 · 도착시각 맞춤 · 우회 · 도착시각 맞춤',
+    })
   })
 })

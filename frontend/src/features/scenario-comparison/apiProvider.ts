@@ -11,6 +11,7 @@ import type {
   ScenarioComparisonResponse,
   ScenarioConditions,
   ScenarioResult,
+  ScenarioBerth,
 } from './types'
 
 /**
@@ -71,6 +72,16 @@ interface ServerScenario {
   risk_level: string
   next_worse_boundary_margin_ratio: string | null
   calculation_basis?: ServerCalculationBasis
+  /** #2561 — 옛 응답에는 없다. */
+  warnings?: unknown[]
+  berth?: {
+    hours_to_berth?: string
+    waiting_hours?: string
+    late_hours?: string
+    waiting_fuel_ton?: string | null
+    attained_cii_with_waiting?: string | null
+    estimated_rating_with_waiting?: string | null
+  } | null
 }
 
 const HULL_CONDITION_SOURCES = ['REQUEST', 'VESSEL', 'NOT_SET'] as const
@@ -81,14 +92,32 @@ const HULL_CONDITION_SOURCES = ['REQUEST', 'VESSEL', 'NOT_SET'] as const
  */
 function toConditions(raw: unknown): ScenarioConditions | null {
   if (typeof raw !== 'object' || raw === null) return null
-  const { hull_condition_percent: percent, hull_condition_source: source } = raw as {
-    hull_condition_percent?: unknown
-    hull_condition_source?: unknown
-  }
+  const {
+    hull_condition_percent: percent,
+    hull_condition_source: source,
+    berth_available_at: berthAt,
+    hours_until_berth: hoursUntil,
+    anchorage_daily_foc_ton: anchorage,
+    anchorage_daily_foc_source: anchorageSource,
+  } = raw as Record<string, unknown>
   const knownSource = HULL_CONDITION_SOURCES.find((code) => code === source)
   if (knownSource === undefined) return null
   if (percent !== null && (typeof percent !== 'number' || !Number.isFinite(percent))) return null
-  return { hull_condition_percent: percent, hull_condition_source: knownSource }
+  /*
+   * #2561 선석 칸 — ①의 응답(선석 칸이 없다)도 읽어야 하므로 **없으면 「선석 없음」**으로 읽는다.
+   * 모양이 틀리면 지어 적지 않고 같은 「없음」으로 둔다 — 그러면 조건 줄이 나오지 않는다.
+   */
+  const berthKnown = typeof berthAt === 'string' && typeof hoursUntil === 'string'
+  const foc = typeof anchorage === 'number' && Number.isFinite(anchorage) ? anchorage : null
+  const focSource = HULL_CONDITION_SOURCES.find((code) => code === anchorageSource) ?? 'NOT_SET'
+  return {
+    hull_condition_percent: percent,
+    hull_condition_source: knownSource,
+    berth_available_at: berthKnown ? berthAt : null,
+    hours_until_berth: berthKnown ? hoursUntil : null,
+    anchorage_daily_foc_ton: foc,
+    anchorage_daily_foc_source: foc === null ? 'NOT_SET' : focSource,
+  }
 }
 
 interface ServerBody {
@@ -96,10 +125,9 @@ interface ServerBody {
     scenarios?: ServerScenario[]
     voyage_id?: string | null
     weather?: { fetched_at?: string | null } | null
-    conditions?: {
-      hull_condition_percent?: number | null
-      hull_condition_source?: string
-    } | null
+    conditions?: Record<string, unknown> | null
+    /** #2561 — 도달 불가. 옛 응답에는 없다. */
+    unreachable_scenarios?: unknown
   }
   /*
    * `API_SPEC §5.1` — 응답 **최상위**에 실린다(`data` 안이 아니다).
@@ -127,7 +155,14 @@ interface ServerBody {
  * 여기서 막으면 `ScenarioComparisonError`가 되어 **비교 화면이 오류로 끝난다** —
  * 「값이 이상하다」와 「계산하지 못했다」 중 뒤엣것이 사실에 가깝다.
  */
-const SCENARIO_TYPES: readonly string[] = ['DIRECT', 'DETOUR', 'SLOW_STEAMING']
+const SCENARIO_TYPES: readonly string[] = [
+  'DIRECT',
+  'DETOUR',
+  'SLOW_STEAMING',
+  // #2561 — 선석 가용 시각을 보낸 비교에만 온다.
+  'DIRECT_JIT',
+  'DETOUR_JIT',
+]
 const RATINGS: readonly string[] = ['A', 'B', 'C', 'D', 'E']
 const RISK_LEVELS: readonly string[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
 
@@ -178,7 +213,62 @@ function toScenario(raw: ServerScenario): ScenarioResult {
     ) as ScenarioResult['risk_level'],
     // 이 칸은 **없을 수 있다** — 가장 나쁜 등급이면 다음 경계가 없다(`API_SPEC §5.1`).
     next_worse_boundary_margin_ratio: raw.next_worse_boundary_margin_ratio,
+    // #2561 — 시나리오에 붙는 경고. 옛 응답에는 없어 빈 배열로 읽는다(문자열만 남긴다).
+    warnings: Array.isArray(raw.warnings)
+      ? raw.warnings.filter((code): code is string => typeof code === 'string')
+      : [],
+    berth: toBerth(raw.berth),
   }
+}
+
+/**
+ * 선석 대기 (#2561 · `API_SPEC §5.1` `scenarios[].berth`). 없으면(선석 시각 없음 · 옛 응답) `null`.
+ *
+ * 시간 셋은 **늘 있어야** 한다 — 비면 계약 위반으로 끝낸다. 연료·CII·등급은 묘박 연료를 몰라
+ * `null`일 수 있고, 그때는 「계산 못 함」으로 그린다. 0으로 읽지 않는다.
+ */
+function toBerth(raw: ServerScenario['berth']): ScenarioBerth | null {
+  if (raw === null || raw === undefined) return null
+  const rating = raw.estimated_rating_with_waiting
+  return {
+    hours_to_berth: requireText(raw.hours_to_berth, 'berth.hours_to_berth'),
+    waiting_hours: requireText(raw.waiting_hours, 'berth.waiting_hours'),
+    late_hours: requireText(raw.late_hours, 'berth.late_hours'),
+    waiting_fuel_ton: raw.waiting_fuel_ton === null ? null : requireText(raw.waiting_fuel_ton, 'berth.waiting_fuel_ton'),
+    attained_cii_with_waiting:
+      raw.attained_cii_with_waiting === null
+        ? null
+        : requireText(raw.attained_cii_with_waiting, 'berth.attained_cii_with_waiting'),
+    estimated_rating_with_waiting:
+      rating === null || rating === undefined
+        ? null
+        : (requireEnum(
+            rating,
+            RATINGS,
+            'berth.estimated_rating_with_waiting',
+          ) as ScenarioBerth['estimated_rating_with_waiting']),
+  }
+}
+
+/** 도달 불가 목록 (#2561). 모양이 맞지 않는 항목은 버린다 — 숫자 없는 「도달 불가」는 말이 안 된다. */
+function toUnreachable(raw: unknown): ScenarioComparisonResponse['unreachable_scenarios'] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (item): item is { scenario_type: string; scenario_name: string; distance_nm: number; required_speed_kn: number } =>
+        typeof item === 'object' &&
+        item !== null &&
+        SCENARIO_TYPES.includes((item as { scenario_type?: unknown }).scenario_type as string) &&
+        typeof (item as { scenario_name?: unknown }).scenario_name === 'string' &&
+        typeof (item as { distance_nm?: unknown }).distance_nm === 'number' &&
+        typeof (item as { required_speed_kn?: unknown }).required_speed_kn === 'number',
+    )
+    .map((item) => ({
+      scenario_type: item.scenario_type as ScenarioComparisonResponse['unreachable_scenarios'][number]['scenario_type'],
+      scenario_name: item.scenario_name,
+      distance_nm: item.distance_nm,
+      required_speed_kn: item.required_speed_kn,
+    }))
 }
 
 export function createApiScenarioProvider(
@@ -228,6 +318,9 @@ export function createApiScenarioProvider(
             detour_waypoint_lon: request.detour_waypoint_lon,
             weather_model: request.weather_model,
             hull_condition_percent: request.hull_condition_percent,
+            berth_available_at: request.berth_available_at,
+            berth_reference_at: request.berth_reference_at,
+            anchorage_daily_foc_ton: request.anchorage_daily_foc_ton,
             voyage_id: request.voyage_id,
           }),
         })
@@ -278,6 +371,7 @@ export function createApiScenarioProvider(
 
       return {
         scenarios: scenarios.map(toScenario),
+        unreachable_scenarios: toUnreachable(body?.data?.unreachable_scenarios),
         required_cii: first.required_cii,
         transport_capacity_basis:
           basis.transport_capacity_basis as ScenarioComparisonResponse['transport_capacity_basis'],

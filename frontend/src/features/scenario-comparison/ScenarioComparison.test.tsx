@@ -2356,3 +2356,83 @@ describe('막대 옆 값은 비교 표 칸과 같은 문자열이다 (#2202 · #
     }
   })
 })
+
+describe('선석 가용 시각 · 선석 대기 (#2561 ②③)', () => {
+  const berth = (waiting: string, fuel: string | null) => ({
+    hours_to_berth: '80.0000',
+    waiting_hours: waiting,
+    late_hours: '0.0000',
+    waiting_fuel_ton: fuel,
+    attained_cii_with_waiting: fuel === null ? null : '43.100000',
+    estimated_rating_with_waiting: fuel === null ? null : 'E',
+  })
+  const BERTH_BODY = {
+    ...COMPARE_BODY,
+    data: {
+      ...COMPARE_BODY.data,
+      scenarios: [
+        { ...COMPARE_BODY.data.scenarios[0], warnings: [], berth: berth('1.8750', null) },
+        {
+          ...COMPARE_BODY.data.scenarios[0],
+          scenario_id: 'sc-direct_jit',
+          scenario_type: 'DIRECT_JIT',
+          scenario_name: '직항 · 도착시각 맞춤',
+          speed_kn: 12.5,
+          duration_hours: '80.0000',
+          warnings: [],
+          berth: berth('0.0000', '0.00'),
+        },
+      ],
+      unreachable_scenarios: [
+        {
+          scenario_type: 'DETOUR_JIT',
+          scenario_name: '우회 · 도착시각 맞춤',
+          distance_nm: 1050,
+          required_speed_kn: 105,
+        },
+      ],
+      conditions: {
+        hull_condition_percent: null,
+        hull_condition_source: 'NOT_SET',
+        berth_available_at: '2026-10-29T08:00:00Z',
+        berth_reference_at: '2026-10-26T00:00:00Z',
+        hours_until_berth: '80.0000',
+        anchorage_daily_foc_ton: null,
+        anchorage_daily_foc_source: 'NOT_SET',
+      },
+    },
+  }
+
+  it('대기 행을 주된 값과 따로 그리고, 모르는 대기 연료는 0이 아니라 「미입력」이다', async () => {
+    stubServerWithComparison(BERTH_BODY)
+    renderScreen()
+    await compareAndWaitForResult()
+
+    expect(await screen.findByText('선석 대기 — 항차 계획에 담기지 않는 값')).toBeTruthy()
+    expect(screen.getByText('묘박 연료 미입력')).toBeTruthy()
+    expect(screen.getByText('계산 못 함')).toBeTruthy()
+    // 조건 줄과 도달 불가 줄 — 「도달 불가」는 빈 열이 아니라 이유다.
+    expect(screen.getByText(/선석 가용 시각: .*17:00/)).toBeTruthy()
+    expect(screen.getByText(/우회 · 도착시각 맞춤: 도달 불가/)).toBeTruthy()
+  })
+
+  it('선석이 없는 응답에는 대기 행이 없다 — 지금 화면 그대로다', async () => {
+    stubServerWithComparison()
+    renderScreen()
+    await compareAndWaitForResult()
+    expect(screen.queryByText('선석 대기 — 항차 계획에 담기지 않는 값')).toBeNull()
+  })
+
+  it('「도착 조건」에 선석 시각을 넣으면 기준 시각과 함께 보낸다', async () => {
+    const fetchImpl = stubServerWithComparison(BERTH_BODY)
+    renderScreen()
+    await screen.findByLabelText('규제연도', {}, { timeout: 5000 })
+    fireEvent.change(screen.getByLabelText(/선석 가용 시각/), { target: { value: '2099-01-01T09:00' } })
+    await clickCompare()
+    await screen.findByText(/시나리오 비교/)
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).includes('/scenarios/compare'))
+    const body = JSON.parse(String(call?.[1]?.body))
+    expect(body.berth_available_at).toBe('2099-01-01T00:00:00.000Z')
+    expect(typeof body.berth_reference_at).toBe('string')
+  })
+})

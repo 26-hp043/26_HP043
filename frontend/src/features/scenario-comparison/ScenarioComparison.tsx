@@ -12,7 +12,10 @@ import {
   applyVesselSpec,
   initialFormState,
   countAdvancedFilled,
+  anchorageFallbackHint,
+  countArrivalFilled,
   countConditionFilled,
+  hasArrivalError,
   hasConditionError,
   hullConditionFallbackHint,
   hasAdvancedError,
@@ -68,9 +71,14 @@ import { fuelTypeText } from '../parameters/fuelTypes'
 import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../parameters/yearCatalog'
 import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
+  berthConditionText,
   deltaFromDirect,
+  hasBerth,
   hullConditionText,
   isZeroDelta,
+  metricValue,
+  scenarioWarningOwners,
+  unreachableText,
   type ScenarioDelta,
 } from './comparisonRules'
 import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
@@ -260,6 +268,9 @@ export function ScenarioComparison({
   // #2561 — 「비교 조건」 묶음. 고급 설정과 같은 규칙으로 접고, 칸에 오류가 나면 스스로 펼친다.
   const [conditionsOpen, setConditionsOpen] = useState(false)
   const conditionsFilled = countConditionFilled(form)
+  // #2561 — 「도착 조건」 묶음. 같은 규칙으로 접고, 칸에 오류가 나면 스스로 펼친다.
+  const [arrivalOpen, setArrivalOpen] = useState(false)
+  const arrivalFilled = countArrivalFilled(form)
   // 목적항 좌표 찾기 상태 (#768). 실패해도 폼을 막지 않으므로 오류가 아니라 안내다.
   /*
    * 상단바가 기억한 선박이 목록에 없을 때의 안내 (`#1097` ⑵). 삭제된 배를 상단바가 기억하고
@@ -520,6 +531,7 @@ export function ScenarioComparison({
       setErrors(found)
       if (hasAdvancedError(found)) setAdvancedOpen(true)
       if (hasConditionError(found)) setConditionsOpen(true)
+      if (hasArrivalError(found)) setArrivalOpen(true)
       return
     }
     setErrors({})
@@ -563,6 +575,7 @@ export function ScenarioComparison({
           setErrors((prev) => ({ ...prev, [field]: error.message }))
           if (hasAdvancedError({ [field]: error.message })) setAdvancedOpen(true)
           if (hasConditionError({ [field]: error.message })) setConditionsOpen(true)
+          if (hasArrivalError({ [field]: error.message })) setArrivalOpen(true)
         }
         setState({
           status: 'error',
@@ -1176,6 +1189,58 @@ export function ScenarioComparison({
         </div>
       </details>
 
+      {/*
+        도착 조건 (#2561 결정 D1·D3). **이번 항차의 도착 사정**이라 비교 조건(배의 상태)과 따로 묶는다.
+        선석 시각을 비우면 지금과 같은 세 장이고, 채우면 「도착시각 맞춤」 두 장과 대기 행이 붙는다.
+      */}
+      <details
+        className="scenario-comparison__advanced"
+        open={arrivalOpen}
+        onToggle={(event) => setArrivalOpen(event.currentTarget.open)}
+      >
+        <summary>
+          도착 조건
+          <span className="scenario-comparison__field-hint">
+            {arrivalFilled === 0 ? ' · 선석 시각 없이 계산' : ` · ${arrivalFilled}개 입력함`}
+          </span>
+        </summary>
+        <div className="scenario-comparison__advanced-body">
+          <Field
+            id="sc-berthAvailableAt"
+            label="선석 가용 시각 (KST)"
+            hint="채우면 이 시각에 맞춰 닿는 시나리오 둘과 선석 대기가 붙습니다. 지금을 기준으로 남은 시간을 셉니다."
+            error={errors[FIELD.berthAvailableAt]}
+          >
+            {(control) => (
+              <input
+                {...control}
+                type="datetime-local"
+                className="scenario-comparison__control"
+                value={form.berthAvailableAt}
+                onChange={(e) => setForm((prev) => ({ ...prev, berthAvailableAt: e.target.value }))}
+              />
+            )}
+          </Field>
+          <Field
+            id="sc-anchorageDailyFocTon"
+            label="묘박 중 일일 연료 (t/일)"
+            hint={anchorageFallbackHint(selectedSpec?.anchorageDailyFocTon)}
+            error={errors[FIELD.anchorageDailyFocTon]}
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="scenario-comparison__control"
+                inputMode="decimal"
+                value={form.anchorageDailyFocTon}
+                onChange={(e) => setForm((prev) => ({ ...prev, anchorageDailyFocTon: e.target.value }))}
+                placeholder="예: 3"
+              />
+            )}
+          </Field>
+        </div>
+      </details>
+
       <div className="scenario-comparison__form-actions">
         <button
           type="submit"
@@ -1260,6 +1325,8 @@ export function ScenarioComparison({
    */
   const { vesselName } = snapshot
   const hullLine = hullConditionText(response.conditions)
+  const berthLine = berthConditionText(response.conditions)
+  const warningOwners = scenarioWarningOwners(response.scenarios)
 
   /*
    * 결과가 낡았는가 (#875 · 선례 `#727`).
@@ -1330,6 +1397,17 @@ export function ScenarioComparison({
         ) : null}
         {/* #2561 — 세 시나리오에 공통으로 건 선체 상태 보정. 미입력도 「미입력」으로 적는다. */}
         {hullLine !== null ? <p className="scenario-comparison__notice">{hullLine}</p> : null}
+        {/* #2561 — 선석 가용 시각과 묘박 연료. 선석 시각을 넣은 비교에만 있다. */}
+        {berthLine !== null ? <p className="scenario-comparison__notice">{berthLine}</p> : null}
+        {/*
+          #2561 — 맞춤 속도가 60kn을 넘어 계산하지 않은 시나리오. 카드·표에 빈 열을 두지 않고 이유를
+          한 줄로 적는다 — 「도달 불가」는 숫자가 아니라 이유다.
+        */}
+        {response.unreachable_scenarios.map((item) => (
+          <p key={item.scenario_type} className="scenario-comparison__notice" role="note">
+            {unreachableText(item)}
+          </p>
+        ))}
         {/* `PRD §15.2` — 좌표로 계산한 거리는 「좌표 기반 추정 거리」라고 표시한다 (#1005). */}
         {usesCoordinateDistance(snapshot.inputs) ? (
           <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>
@@ -1411,6 +1489,10 @@ export function ScenarioComparison({
             {shownWarnings.map((code) => (
               <li key={code} className="scenario-comparison__warning">
                 <span><Icon glyph={AlertTriangle} size="inline" /></span> {warningMessage(code)}
+                {/* #2561 — 카드가 늘어 어느 시나리오의 경고인지 붙인다(결정요청 §12 「경고 귀속」). */}
+                {warningOwners[code] !== undefined ? (
+                  <span className="scenario-comparison__warning-owner"> — {warningOwners[code]}</span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -1640,6 +1722,10 @@ function ScenarioTable({
               deltas={deltas}
               value={(scenario) => `${formatPercent(scenario.ratio_to_required)}%`}
             />
+
+            {hasBerth(scenarios) ? (
+              <BerthRows scenarios={scenarios} deltas={deltas} unit={unit} />
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -1650,6 +1736,84 @@ function ScenarioTable({
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * 선석 대기 행 (#2561 결정 D8 「다」). 선석 가용 시각을 넣은 비교에만 그린다.
+ *
+ * **주된 칸(위의 연료·CII·등급)과 섞지 않는다** — 위는 항해만이고 채택하면 항차 계획에 들어가는
+ * 값이다. 대기는 계획에 담기지 않으므로 구분 행 아래에 따로 이름을 붙여 둔다(결정 D4).
+ *
+ * 「없음」을 셋으로 가른다(`#739`·`#820`) — 대기가 0이면 `0`, 늦게 닿으면 지연 시간, 묘박 연료를
+ * 몰라 못 낸 값은 「계산 못 함」이다. 같게 그리면 사용자는 가장 나쁜 해석을 고른다.
+ */
+function BerthRows({
+  scenarios,
+  deltas,
+  unit,
+}: {
+  scenarios: readonly ScenarioResult[]
+  deltas: ReturnType<typeof deltaFromDirect>[]
+  unit: string
+}) {
+  const hours = (value: string) => formatDecimalString(value, DISPLAY_DIGITS.durationHours)
+  return (
+    <>
+      <tr>
+        <th
+          scope="rowgroup"
+          colSpan={scenarios.length + 1}
+          className="scenario-table__cell scenario-table__group-label"
+        >
+          선석 대기 — 항차 계획에 담기지 않는 값
+        </th>
+      </tr>
+      <MetricRow
+        label="접안까지"
+        unit={DISPLAY_UNITS.duration}
+        scenarios={scenarios}
+        deltas={deltas}
+        value={(scenario) => hours(metricValue(scenario, 'hours_to_berth'))}
+      />
+      <MetricRow
+        label="선석 대기"
+        unit={DISPLAY_UNITS.duration}
+        scenarios={scenarios}
+        deltas={deltas}
+        value={(scenario) => {
+          const berth = scenario.berth ?? null
+          if (berth === null) return BERTH_NOT_APPLICABLE
+          if (!isZeroDelta(berth.late_hours)) return `0 (선석보다 ${hours(berth.late_hours)}시간 늦음)`
+          return hours(berth.waiting_hours)
+        }}
+      />
+      <MetricRow
+        label="대기 연료"
+        unit={DISPLAY_UNITS.fuel}
+        scenarios={scenarios}
+        deltas={deltas}
+        value={(scenario) => {
+          if ((scenario.berth ?? null) === null) return BERTH_NOT_APPLICABLE
+          const fuel = scenario.berth?.waiting_fuel_ton ?? null
+          return fuel === null ? '묘박 연료 미입력' : formatGrouped(fuel, DISPLAY_DIGITS.fuelTon)
+        }}
+      />
+      <MetricRow
+        label="대기 포함 CII"
+        unit={unit}
+        scenarios={scenarios}
+        deltas={deltas}
+        value={(scenario) => {
+          if ((scenario.berth ?? null) === null) return BERTH_NOT_APPLICABLE
+          const cii = scenario.berth?.attained_cii_with_waiting ?? null
+          return cii === null ? '계산 못 함' : formatDecimalString(cii, DISPLAY_DIGITS.cii)
+        }}
+      />
+    </>
+  )
+}
+
+/** 선석 대기가 없는 열 — 응답이 섞여 왔을 때만 생긴다. 0과 다른 표기다. */
+const BERTH_NOT_APPLICABLE = '해당 없음'
 
 /**
  * 지표 한 행 — 첫 칸이 지표 이름, 나머지가 시나리오별 값이다.

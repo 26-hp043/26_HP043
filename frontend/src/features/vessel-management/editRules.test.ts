@@ -32,6 +32,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     reference_daily_foc_ton: null,
     block_coefficient: null,
     hull_condition_percent: null,
+    anchorage_daily_foc_ton: null,
     call_sign: null,
     is_cii_applicable_hint: true,
     underway_state: null,
@@ -185,6 +186,22 @@ describe('#2561 선체 상태 보정 — 수정 폼', () => {
     const source = vessel({ hull_condition_percent: 20 })
     const notice = clearAttemptNotice(source, { ...toEditState(source), hullConditionPercent: '' })
     expect(notice).toContain('선체 상태 보정')
+  })
+})
+
+describe('#2561 묘박 중 일일 연료 — 수정 폼', () => {
+  it('바뀐 경우만 싣고, 같은 값은 싣지 않는다', () => {
+    const source = vessel({ anchorage_daily_foc_ton: 3 })
+    expect(toUpdateRequest(source, toEditState(source))).toEqual({})
+    expect(toUpdateRequest(source, { ...toEditState(source), anchorageDailyFocTon: '4' })).toEqual({
+      anchorage_daily_foc_ton: 4,
+    })
+  })
+
+  it('값이 있던 칸을 비우면 지울 수 없다고 알린다', () => {
+    const source = vessel({ anchorage_daily_foc_ton: 3 })
+    const notice = clearAttemptNotice(source, { ...toEditState(source), anchorageDailyFocTon: '' })
+    expect(notice).toContain('묘박 중 일일 연료')
   })
 })
 

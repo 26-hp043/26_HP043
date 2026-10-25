@@ -5,7 +5,10 @@ import {
   MIN_SPEED_KN,
   countAdvancedFilled,
   countConditionFilled,
+  countArrivalFilled,
+  anchorageFallbackHint,
   hasAdvancedError,
+  hasArrivalError,
   hasConditionError,
   hullConditionFallbackHint,
   signedPercent,
@@ -586,5 +589,55 @@ describe('선체 상태 보정 — 비교 조건 (#2561)', () => {
     expect(signedPercent(20)).toBe('+20%')
     expect(signedPercent(-5)).toBe('−5%')
     expect(signedPercent(0)).toBe('0%')
+  })
+})
+
+describe('도착 조건 — 선석 가용 시각 · 묘박 연료 (#2561 ②③)', () => {
+  // 시계를 고정한다 — 2026-10-26 00:00 UTC = 09:00 KST.
+  const NOW = new Date('2026-10-26T00:00:00.000Z')
+  const check = (overrides: Partial<ComparisonFormState>) => validateFormWith(state(overrides), FUELS, NOW)
+  const request = (overrides: Partial<ComparisonFormState>) => toRequestWith(state(overrides), FUELS, NOW)
+
+  it('선석 시각을 KST로 읽어 UTC로 싣고, 기준 시각은 **요청을 만드는 지금**이다', () => {
+    const req = request({ berthAvailableAt: '2026-10-29T17:00' })
+    expect(req.berth_available_at).toBe('2026-10-29T08:00:00.000Z')
+    expect(req.berth_reference_at).toBe(NOW.toISOString())
+  })
+
+  it('선석 시각을 비우면 두 시각 모두 싣지 않는다 — 기준 시각만 홀로 가지 않는다', () => {
+    const req = request({})
+    expect('berth_available_at' in req).toBe(false)
+    expect('berth_reference_at' in req).toBe(false)
+  })
+
+  it('지금보다 뒤가 아니면 그 칸의 오류다 — 서버 422를 기다리지 않는다', () => {
+    expect(check({ berthAvailableAt: '2026-10-26T09:00' })[FIELD.berthAvailableAt]).toBeDefined()
+    expect(check({ berthAvailableAt: '2026-10-25T12:00' })[FIELD.berthAvailableAt]).toBeDefined()
+    expect(check({ berthAvailableAt: '2026-10-26T09:01' })[FIELD.berthAvailableAt]).toBeUndefined()
+  })
+
+  it('읽을 수 없는 시각은 오류다', () => {
+    expect(check({ berthAvailableAt: '다음 주' })[FIELD.berthAvailableAt]).toBeDefined()
+  })
+
+  it('묘박 연료는 채웠을 때만 싣고, 0 이하·숫자 아님은 오류다', () => {
+    expect(request({ anchorageDailyFocTon: '3' }).anchorage_daily_foc_ton).toBe(3)
+    expect('anchorage_daily_foc_ton' in request({})).toBe(false)
+    for (const bad of ['0', '-1', '많이']) {
+      expect(check({ anchorageDailyFocTon: bad })[FIELD.anchorageDailyFocTon], bad).toBeDefined()
+    }
+  })
+
+  it('접힌 묶음 — 오류가 있으면 펼칠 근거가 되고, 채운 칸 수를 센다', () => {
+    expect(hasArrivalError(check({ berthAvailableAt: '2026-10-25T12:00' }))).toBe(true)
+    expect(hasArrivalError(check({}))).toBe(false)
+    expect(countArrivalFilled(state({ berthAvailableAt: '2026-10-29T17:00', anchorageDailyFocTon: '3' }))).toBe(2)
+    expect(countArrivalFilled(state())).toBe(0)
+  })
+
+  it('묘박 연료 안내는 제원값이 없으면 「계산하지 않는다」고 말한다 — 0으로 계산한다고 하지 않는다', () => {
+    expect(anchorageFallbackHint(null)).toContain('계산하지 않습니다')
+    expect(anchorageFallbackHint('3.5')).toContain('3.5t/일')
+    expect(anchorageFallbackHint('3.5')).not.toBe(anchorageFallbackHint(null))
   })
 })
