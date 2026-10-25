@@ -178,3 +178,30 @@ async def test_compare_engine_detects_drift(conn):
     # canary는 DB에 없으므로 add_table diff가 나와야 한다.
     added = [d for d in diffs if d[0] == "add_table" and d[1].name == "orm_drift_canary"]
     assert added, f"비교 엔진이 canary 테이블 추가를 감지하지 못함:\n{diffs}"
+
+
+async def test_every_filtered_index_declares_its_condition(conn):
+    """DB의 필터 인덱스마다 ORM이 **같은 이름으로 `cubrid_where`를 선언**한다 (`#2563`).
+
+    zero drift 검사는 드라이버가 조건을 반영할 때만 이 차이를 본다 — `sqlalchemy-cubrid`
+    1.11까지는 반영하지 않아 조건 선언이 빠져도 통과했고, 1.12.0이 CI에 들어온 날 main이
+    막혔다. 여기서는 카탈로그(`db_index.filter_expression`)를 직접 읽어 드라이버 판과
+    무관하게 대조한다. 조건 문자열의 같음은 zero drift 검사(정규화 비교)가 본다.
+    """
+    rows = await conn.execute(
+        sa.text(
+            "SELECT index_name FROM db_index WHERE filter_expression IS NOT NULL "
+            "AND class_name NOT LIKE 'db_%' AND class_name NOT LIKE '_db_%'"
+        )
+    )
+    filtered = {row[0] for row in rows}
+    assert filtered, "필터 인덱스가 하나도 없다 — `050`의 전제가 바뀌었다"
+    declared = {
+        index.name
+        for table in Base.metadata.tables.values()
+        for index in table.indexes
+        if index.dialect_options["cubrid"].get("where") is not None
+    }
+    assert filtered == declared, (
+        f"필터 조건 선언이 DB와 다르다 — DB {sorted(filtered)} ≠ ORM {sorted(declared)}"
+    )
