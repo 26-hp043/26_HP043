@@ -35,6 +35,10 @@ class Vessel(Base):
     # 넣으면 실측값, 안 넣으면 선종 기본값 + CB_ESTIMATED 경고. 범위는 물리 범위다
     # (체적 비율 — 양수, 1 이하). 선언의 집행은 055의 트리거가 한다.
     block_coefficient = sa.Column(sa.Numeric(precision=4, scale=3), nullable=True)
+    # 선체·추진 상태 보정(%) — 항로 비교 연료 추정에 곱하는 (1 + %/100) (#2561 · 071).
+    # 선택 입력: NULL은 「미입력」이고 계산은 0%로 한다. 파울링이면 +, 청소·연마·절감장치면 −.
+    # 범위는 도메인 범위(−30 ~ +100)이고 집행은 071의 트리거가 한다.
+    hull_condition_percent = sa.Column(sa.Numeric(precision=5, scale=2), nullable=True)
     # 호출부호(call sign) — 공공데이터 교차 대조의 키 (#1197 A단계 · 058). 선택 입력:
     # 해양수산부_선박운항정보 API가 IMO가 아니라 호출부호로 질의하므로 없으면 그 배는
     # 대조 대상이 아닐 뿐 계산은 그대로다. ITU RR No.19.55상 4~7자·영대문자+숫자.
@@ -105,6 +109,12 @@ class Vessel(Base):
         sa.CheckConstraint(
             "block_coefficient IS NULL OR (block_coefficient > 0 AND block_coefficient <= 1)",
             name="chk_block_coefficient_range",
+        ),
+        # #2561 — 선체·추진 상태 보정의 도메인 범위. 선언은 문서이고 집행은 071 트리거다(§7.4).
+        sa.CheckConstraint(
+            "hull_condition_percent IS NULL OR "
+            "(hull_condition_percent >= -30 AND hull_condition_percent <= 100)",
+            name="chk_hull_condition_range",
         ),
         # #1197 — `call_sign` 형식 CHECK는 `chk_imo_format`과 같은 이유로 여기 없다(`~`
         # 정규식은 CUBRID가 받지 않는다). 집행은 058의 트리거 `trg_chk_call_sign_ins/upd`.

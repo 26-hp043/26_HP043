@@ -137,6 +137,15 @@ def tool_schemas() -> list[dict[str, object]]:
                     "direct_distance_nm": {"type": "number"},
                     "base_daily_foc_ton": {"type": "number"},
                     "regulation_year": {"type": "integer"},
+                    # `#2561` — 선체·추진 상태 보정 %. 사용자가 말했을 때만 보낸다. 비우면
+                    # 선박 제원값(없으면 0%)으로 계산한다.
+                    "hull_condition_percent": {
+                        "type": "number",
+                        "description": (
+                            "선체·추진 상태 보정 % (파울링이면 +, 선체 청소·프로펠러 연마면 −). "
+                            "모르면 비운다 — 선박 등록값"
+                        ),
+                    },
                 },
                 "required": ["current_speed_kn", "fuel_type"],
             },
@@ -797,6 +806,22 @@ async def _vessel_fuel(
     return str(fuel_type), fuel_ton
 
 
+def _hull_condition_argument(arguments: dict[str, object]) -> Decimal | None:
+    """선체 상태 보정 % 인자 — 화면 요청과 **같은 범위**를 본다 (`#2561`).
+
+    도구 경로는 Pydantic 스키마를 거치지 않으므로, 범위 밖 값이 계산까지 가면 화면에서는
+    422인 입력이 챗봇에서는 숫자를 낸다. 범위 밖이면 인자 오류로 되돌린다.
+    """
+    from cii_platform.validation.bounds import HULL_CONDITION_PERCENT
+
+    value = _optional_decimal(arguments, "hull_condition_percent")
+    if value is None:
+        return None
+    if not HULL_CONDITION_PERCENT["ge"] <= value <= HULL_CONDITION_PERCENT["le"]:
+        raise ToolArgumentError("hull_condition_percent")
+    return value
+
+
 async def _compare_scenarios(
     session: AsyncSession, arguments: dict[str, object], vessel_id: object
 ) -> str:
@@ -809,6 +834,7 @@ async def _compare_scenarios(
         fuel_type=_required_text(arguments, "fuel_type"),
         direct_distance_nm=_optional_decimal(arguments, "direct_distance_nm"),
         base_daily_foc_ton=_optional_decimal(arguments, "base_daily_foc_ton"),
+        hull_condition_percent=_hull_condition_argument(arguments),
     )
     # `#1334` ⑷ — 저장하지 않는다. 위와 같은 이유다.
     response = await compare_scenarios(session, payload, persist=False)

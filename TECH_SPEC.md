@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-10-20 |
+| 최종 수정일 | 2026-10-25 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -718,7 +718,10 @@ speed_factor = (scenario_speed_kn / vessel.reference_speed_kn)^3
 weather_factor = get_weather_factor(...)   # §3 참조
 duration_days = scenario_distance_nm / scenario_speed_kn / 24
 fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
+fuel_ton = fuel_ton × (1 + hull_condition_percent / 100)   # 항로 비교만 · 0·미입력이면 곱하지 않는다 (#2561)
 ```
+
+> **[#2561] 선체·추진 상태 보정 %.** 파울링은 같은 속력에 연료를 더 쓰게 하고(+), 선체 청소·프로펠러 연마·절감장치는 덜 쓰게 한다(−) — SEEMP(`MEPC.395(82)`) 5.3.10~5.3.13. 오손 상태에서 %로 가는 권위 있는 식이 없으므로(GloFouling 보고서 2022가 스스로 일반화가 어렵다고 적는다) **선사가 자기 배의 성능 감시로 아는 %를 넣는다**(`PRD §11.3`). 값은 요청 덮어쓰기 → `vessel.hull_condition_percent` → 미입력 순으로 정한다. **0이거나 미입력이면 곱셈 자체를 하지 않는다** — 보정을 넣기 전의 결과와 바이트 단위로 같아야 한다(`calc/fuel_estimator.py`). 쓰는 곳은 **항로 비교(기능②)뿐**이다 — 항차 CII(기능①)는 연료를 입력으로 받고, 연간 시뮬레이터·데이터 품질 검사·챗봇 항차 도구의 cubic model 호출은 보정 없이 그대로다. CII는 연료를 거리로 나누므로 보정 %는 **CII를 같은 비율로 올린다**(`(1 + p/100)`배).
 
 ### 4.2 가드 조건
 
@@ -729,6 +732,7 @@ fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
 | scenario_distance_nm > 0 | VAL-002 | 계산 중단 |
 | transport_capacity > 0 | VAL-010 | 계산 중단 |
 | weather_factor > 0 | NONE 모델 시 1.0 보장 | — |
+| hull_condition_percent > −100 | 요청·제원 범위 −30 ~ +100 (`#2561`) — 계산 함수는 연료가 0 이하가 되는 값만 막는다 | 계산 중단 |
 
 ### 4.3 다중 연료 처리
 
@@ -1095,7 +1099,7 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
-> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor`·`detour_waypoint` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘·우회 경유지)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건(·우회 경유지) → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다. **`detour_waypoint`는 선택 키다**(`#1300` — 아래 「선택 키 규약」과 같은 방식): 요청에 경유지 좌표가 있을 때만 `{lat, lon}`(Decimal)이 담기고, 없는 요청은 키가 들어가지 않아 **종전 해시가 그대로다.** DETOUR 거리가 이미 `scenarios`에 있는데도 좌표를 따로 담는 것은 **같은 거리 합을 내는 다른 경유지가 다른 항로**이기 때문이다.
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor`·`detour_waypoint`·`hull_condition_percent` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘·우회 경유지·선체 상태 보정)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건(·우회 경유지) → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다. **`detour_waypoint`는 선택 키다**(`#1300` — 아래 「선택 키 규약」과 같은 방식): 요청에 경유지 좌표가 있을 때만 `{lat, lon}`(Decimal)이 담기고, 없는 요청은 키가 들어가지 않아 **종전 해시가 그대로다.** DETOUR 거리가 이미 `scenarios`에 있는데도 좌표를 따로 담는 것은 **같은 거리 합을 내는 다른 경유지가 다른 항로**이기 때문이다. **`hull_condition_percent`도 선택 키다**(`#2561`): 요청 덮어쓰기 → 선박 제원 순으로 정한 보정 %가 **0이 아닐 때만** 담긴다. 미입력과 0%는 연료 추정이 곱셈 자체를 하지 않아(`§4.1`) 보정을 넣기 전과 같은 계산이므로 **종전 해시가 그대로다.**
 
 > **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 넷은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴, `not_underway`(연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫 · `simulation_snapshot.not_underway_json` 그대로)는 `#1803`에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
 

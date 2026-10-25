@@ -4,7 +4,11 @@ import {
   FIELD,
   MIN_SPEED_KN,
   countAdvancedFilled,
+  countConditionFilled,
   hasAdvancedError,
+  hasConditionError,
+  hullConditionFallbackHint,
+  signedPercent,
   hasWaypoint,
   initialFormState,
   toRequest as toRequestWith,
@@ -541,5 +545,46 @@ describe('직항·우회 거리의 저장 범위 (#2457)', () => {
 
   it('우회 거리는 비워 둘 수 있다 — 서버 기본값을 쓴다', () => {
     expect(validateForm(state({ detourDistanceNm: '' }))).not.toHaveProperty(FIELD.detourDistanceNm)
+  })
+})
+
+describe('선체 상태 보정 — 비교 조건 (#2561)', () => {
+  it('빈 칸은 키를 싣지 않는다 — 「선박 제원값을 쓴다」', () => {
+    expect('hull_condition_percent' in toRequest(state())).toBe(false)
+  })
+
+  it('0은 「보정 없음」이라 싣고, 음수·양수도 그대로 싣는다', () => {
+    expect(toRequest(state({ hullConditionPercent: '0' })).hull_condition_percent).toBe(0)
+    expect(toRequest(state({ hullConditionPercent: '-5' })).hull_condition_percent).toBe(-5)
+    expect(toRequest(state({ hullConditionPercent: '20' })).hull_condition_percent).toBe(20)
+  })
+
+  it('범위 밖과 숫자 아닌 값은 그 칸의 오류이고, 접힌 묶음을 펼치게 한다', () => {
+    for (const hullConditionPercent of ['-31', '101', '많이']) {
+      const errors = validateForm(state({ hullConditionPercent }))
+      expect(errors[FIELD.hullConditionPercent], hullConditionPercent).toBeDefined()
+      expect(hasConditionError(errors)).toBe(true)
+      expect(hasAdvancedError(errors)).toBe(false)
+    }
+  })
+
+  it('접힌 요약은 채운 칸 수를 센다 — 고급 설정 수에 섞지 않는다', () => {
+    expect(countConditionFilled(state())).toBe(0)
+    expect(countConditionFilled(state({ hullConditionPercent: '0' }))).toBe(1)
+    expect(countAdvancedFilled(state({ hullConditionPercent: '10' }))).toBe(0)
+  })
+
+  it('안내는 비웠을 때 무엇으로 계산하는지를 선박마다 다르게 말한다', () => {
+    const none = hullConditionFallbackHint(null)
+    const registered = hullConditionFallbackHint('20')
+    expect(none).toContain('0%')
+    expect(registered).toContain('+20%')
+    expect(none).not.toBe(registered)
+  })
+
+  it('부호를 붙여 적는다 — 0에는 붙이지 않는다', () => {
+    expect(signedPercent(20)).toBe('+20%')
+    expect(signedPercent(-5)).toBe('−5%')
+    expect(signedPercent(0)).toBe('0%')
   })
 })

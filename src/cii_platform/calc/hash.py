@@ -190,6 +190,9 @@ SCENARIO_INPUT_FIELDS: tuple[str, ...] = (
     # 방식이라 경유지 없는 종전 요청의 해시는 그대로다. DETOUR 거리가 이미 `scenarios`에
     # 있지만, **같은 거리 합을 내는 다른 경유지**는 다른 항로이므로 좌표 자체를 담는다.
     "detour_waypoint",
+    # (#2561) 선체·추진 상태 보정 %. **0이 아닐 때만** 키가 들어온다 — 미입력·0%는 보정을
+    # 넣기 전과 같은 계산이므로(`calc/fuel_estimator.py`) 해시도 종전 그대로여야 한다.
+    "hull_condition_percent",
 )
 
 

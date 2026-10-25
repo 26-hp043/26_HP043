@@ -167,10 +167,11 @@ class TestListVessels:
         assert set(body["meta"]) == {"next_cursor", "has_more", "request_id", "timestamp"}
 
     def test_vessel_object_shape(self, wired):
-        """API_SPEC §2.1 선박 객체의 키 19개.
+        """API_SPEC §2.1 선박 객체의 키 20개.
 
         #369가 026(#346)의 위치·상태 5키를 노출하면서 12 → 17이 됐다. #966이
-        ``block_coefficient``, #1197이 ``call_sign``을 더해 19다.
+        ``block_coefficient``, #1197이 ``call_sign``, #2561이 ``hull_condition_percent``를
+        더해 20이다.
         대시보드(#351)가 이 값을 읽는다.
         """
         client, _ = wired
@@ -187,6 +188,8 @@ class TestListVessels:
             "reference_daily_foc_ton",
             # #966 — 기상 보정 선형 계수(선택). None이면 추정 경고가 계약이다.
             "block_coefficient",
+            # #2561 — 선체·추진 상태 보정 %(선택). None이면 「미입력」(항로 비교는 0%).
+            "hull_condition_percent",
             # #1197 — 호출부호(선택). None이면 공공데이터 교차 대조 대상이 아니다.
             "call_sign",
             "is_cii_applicable_hint",

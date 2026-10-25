@@ -1,6 +1,11 @@
 import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import { MAX_SPEED_KN, STORABLE } from '../vessel-registration/formRules'
+import {
+  HULL_CONDITION_RANGE,
+  MAX_SPEED_KN,
+  STORABLE,
+  checkOptionalRange,
+} from '../vessel-registration/formRules'
 import { DISTANCE_RANGE, inRange, outOfRange } from '../voyage-cii/formRules'
 import type { WeatherModel } from '../voyage-cii/types'
 import type { VesselSpecDefaults } from '../voyage-cii/vesselCatalog'
@@ -67,6 +72,12 @@ export interface ComparisonFormState {
   detourWaypointName: string
   detourWaypointLat: string
   detourWaypointLon: string
+  /**
+   * 선체·추진 상태 보정 % (#2561 결정 D2). **이번 비교에만** 쓰는 덮어쓰기 값이다. 빈 칸이
+   * 「선박 제원값을 쓴다」이다 — 제원값을 미리 채우지 않는다(채우면 사용자가 고친 값과
+   * 제원값을 구분할 수 없다). 0과 음수가 정상 입력이다.
+   */
+  hullConditionPercent: string
 }
 
 /**
@@ -104,6 +115,7 @@ export const FIELD = {
   detourWaypointName: 'detour_waypoint_name',
   detourWaypointLat: 'detour_waypoint_lat',
   detourWaypointLon: 'detour_waypoint_lon',
+  hullConditionPercent: 'hull_condition_percent',
   form: '__form__',
 } as const
 
@@ -133,6 +145,43 @@ const ADVANCED_FIELDS = [
   FIELD.currentLat,
   FIELD.currentLon,
 ] as const
+
+/**
+ * 「비교 조건」에 접히는 칸 (#2561). 고급 설정과 따로 묶는 것은 성질이 달라서다 — 고급 칸은
+ * **항로·속력**의 서버 기본을 바꾸고, 비교 조건은 **세 시나리오에 공통으로 거는 배의 상태**다.
+ * 뒤 PR(④ 연료 전환)이 같은 묶음에 칸을 더한다.
+ */
+const CONDITION_FIELDS = [FIELD.hullConditionPercent] as const
+
+/** 오류 맵에 비교 조건 칸의 오류가 있는가 — 접힌 채로 두면 오류가 보이지 않는다. */
+export function hasConditionError(errors: FormErrors): boolean {
+  return CONDITION_FIELDS.some((field) => field in errors)
+}
+
+/** 비교 조건 중 채운 칸의 수 — 접힌 요약에 적는다(`countAdvancedFilled`와 같은 이유). */
+export function countConditionFilled(form: ComparisonFormState): number {
+  return [form.hullConditionPercent.trim() !== ''].filter(Boolean).length
+}
+
+/**
+ * 비교 조건 칸의 안내 — 비우면 무엇으로 계산하는지 (#2561). 선박 제원값이 있으면 그 값을
+ * 적고, 없으면 0%임을 적는다. 「미입력」을 「0%를 넣음」처럼 말하지 않는다.
+ */
+export function hullConditionFallbackHint(vesselPercent: string | null | undefined): string {
+  const lead = '파울링이면 +, 선체 청소·프로펠러 연마면 −. 이번 비교에만 씁니다.'
+  if (vesselPercent === null || vesselPercent === undefined || vesselPercent.trim() === '') {
+    return `${lead} 비우면 선박 제원에 값이 없어 0%로 계산합니다.`
+  }
+  return `${lead} 비우면 선박 제원값(${signedPercent(Number(vesselPercent))})으로 계산합니다.`
+}
+
+/** 부호를 붙인 백분율 — `+20%` · `−5%` · `0%`. 결과 머리의 조건 줄과 같은 표기다. */
+export function signedPercent(value: number): string {
+  const text = Math.abs(value).toLocaleString('ko-KR', { maximumFractionDigits: 2 })
+  if (value > 0) return `+${text}%`
+  if (value < 0) return `−${text}%`
+  return '0%'
+}
 
 /** 오류 맵에 고급 칸의 오류가 있는가 — 접힌 채로 두면 오류가 보이지 않는다. */
 export function hasAdvancedError(errors: FormErrors): boolean {
@@ -236,6 +285,8 @@ export function initialFormState(): ComparisonFormState {
     detourWaypointName: '',
     detourWaypointLat: '',
     detourWaypointLon: '',
+    // #2561 — 비운다. 빈 칸이 「선박 제원값을 쓴다」이다.
+    hullConditionPercent: '',
     // 기상만 빈 칸이 아니다 — 셀렉트에는 「미선택」이 없고 `NONE`이 그 자리다.
     weatherModel: 'NONE',
   }
@@ -471,6 +522,16 @@ export function validateForm(
   checkCoordinates(state, errors)
   checkWaypoint(state, errors)
 
+  // #2561 — 선체 상태 보정. 등록 화면과 같은 함수·같은 범위다(0·음수가 정상 입력).
+  checkOptionalRange(
+    state.hullConditionPercent,
+    FIELD.hullConditionPercent,
+    '선체 상태 보정',
+    errors,
+    // 선박 제원과 **같은 양**이라 등록 화면의 범위를 쓴다(서버와의 일치는 `specBounds.sync.test.ts`).
+    HULL_CONDITION_RANGE,
+  )
+
   if (!WEATHER_MODELS.some((model) => model.code === state.weatherModel)) {
     // 셀렉트로는 도달하지 않는다. 연료와 같은 이유의 방어선이다.
     errors[FIELD.weatherModel] = `알 수 없는 기상 모델입니다: ${state.weatherModel}`
@@ -535,6 +596,10 @@ export function toRequest(
   // 결과가 같다. 보내지 않는 쪽이 「기상을 쓰지 않는 요청」임이 본문에 드러난다.
   if (state.weatherModel !== 'NONE') {
     request.weather_model = state.weatherModel as WeatherModel
+  }
+  // #2561 — 채운 경우만 싣는다. 빈 칸은 「선박 제원값」이고, 0은 「보정 없음」이라 싣는다.
+  if (state.hullConditionPercent.trim() !== '') {
+    request.hull_condition_percent = Number(state.hullConditionPercent)
   }
   return request
 }

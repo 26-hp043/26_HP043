@@ -164,3 +164,45 @@ def test_guard_rejects_non_positive_weather_factor() -> None:
             base_daily_foc_ton=Decimal("40"),
             weather_factor=Decimal("0"),
         )
+
+
+# --- #2561 선체·추진 상태 보정 % ------------------------------------------------
+
+_HULL_BASE = {
+    "distance_nm": Decimal("1000"),
+    "speed_kn": Decimal("13"),
+    "reference_speed_kn": Decimal("14"),
+    "base_daily_foc_ton": Decimal("30"),
+    "weather_factor": Decimal("1.0725"),
+}
+
+
+@pytest.mark.parametrize("percent", [None, Decimal("0"), Decimal("0.00"), Decimal("-0")])
+def test_zero_or_unset_hull_condition_is_byte_identical(percent) -> None:
+    """#2561 완료 기준 — 보정 0%·미입력의 결과가 보정을 넣기 전과 **바이트 단위로** 같다.
+
+    값 비교(``==``)로는 ``Decimal("89.29")``와 ``Decimal("89.2900")``이 같다고 나온다. 해시·저장
+    값은 표기를 보므로 ``repr``까지 같은지 본다.
+    """
+    before = estimate_fuel_ton(**_HULL_BASE)
+    after = estimate_fuel_ton(**_HULL_BASE, hull_condition_percent=percent)
+    assert repr(after) == repr(before)
+
+
+@layer1_context
+def test_hull_condition_scales_fuel_by_one_plus_percent() -> None:
+    """``fuel × (1 + p/100)`` — +20%는 1.2배, −10%는 0.9배다(``TECH_SPEC §4.1``)."""
+    base = estimate_fuel_ton(**_HULL_BASE)
+    assert estimate_fuel_ton(**_HULL_BASE, hull_condition_percent=Decimal("20")) == base * (
+        1 + Decimal("20") / Decimal("100")
+    )
+    assert estimate_fuel_ton(**_HULL_BASE, hull_condition_percent=Decimal("-10")) == base * (
+        1 + Decimal("-10") / Decimal("100")
+    )
+
+
+@pytest.mark.parametrize("percent", [Decimal("-100"), Decimal("-150")])
+def test_guard_rejects_hull_condition_that_zeroes_fuel(percent) -> None:
+    """연료가 0 이하가 되는 보정은 계산 함수가 막는다 — 입력 범위(−30~+100)는 스키마 몫이다."""
+    with pytest.raises(ValueError, match="hull_condition_percent"):
+        estimate_fuel_ton(**_HULL_BASE, hull_condition_percent=percent)

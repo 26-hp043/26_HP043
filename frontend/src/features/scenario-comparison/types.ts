@@ -118,6 +118,11 @@ export interface ScenarioComparisonRequest {
    */
   weather_model?: WeatherModel
   /**
+   * 선체·추진 상태 보정 % (#2561 · `API_SPEC §5.1`). **이번 비교에만** 쓰는 덮어쓰기 값이다 —
+   * 없으면 서버가 선박 제원값을, 그것도 없으면 0%를 쓴다. 0은 「보정 없음」이라 싣는다.
+   */
+  hull_condition_percent?: number
+  /**
    * 이 비교가 **어느 항차를 두고 한 것인가** (`#2217` · `API_SPEC §5.1`). 상단바에 고른 항차다.
    *
    * 계획 단계 항차면 서버가 계산 이력을 그 항차에 붙이고, 채택 없이 끝난 항차의 리포트가 이
@@ -162,6 +167,23 @@ export interface ScenarioComparisonResponse {
    * `null`과 같게 읽는다.
    */
   weather_fetched_at?: string | null
+  /**
+   * 세 시나리오에 공통으로 건 계산 조건 (`API_SPEC §5.1` `data.conditions` · #2561). 선택
+   * 필드 — 가짜 provider·옛 응답에는 없을 수 있고, 그때 화면은 조건 줄을 내지 않는다.
+   */
+  conditions?: ScenarioConditions | null
+}
+
+/**
+ * 선체·추진 상태 보정의 값과 출처 (#2561).
+ *
+ * 출처를 따로 받는 것은 **「미입력」과 「0%를 넣음」이 다른 말**이기 때문이다 — 계산은
+ * 같아도 앞은 「모른다」이고 뒤는 「깨끗하다고 확인했다」이다.
+ */
+export interface ScenarioConditions {
+  /** `null`이면 미입력(0%로 계산). */
+  hull_condition_percent: number | null
+  hull_condition_source: 'REQUEST' | 'VESSEL' | 'NOT_SET'
 }
 
 /**

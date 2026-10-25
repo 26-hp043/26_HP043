@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.39 |
-| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
-| 최종 수정일 | 2026-10-20 |
+| 버전 | v1.40 |
+| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** + **vessel.hull_condition_percent 선체 상태 보정 071 (#2561)** |
+| 최종 수정일 | 2026-10-25 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -105,6 +105,7 @@ erDiagram
 | `reference_speed_kn` | NUMERIC(6,2) | NULL, **60 이하 — 트리거 `trg_chk_speed_max_ins`·`_upd`** [#1269] | 기준 속도 (kn). 상한은 VAL-009의 물리 상한(`PRD §9.1` · 마이그레이션 062) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
+| `hull_condition_percent` | NUMERIC(5,2) | NULL, CHECK (−30 <= % <= 100) — **트리거 `trg_chk_hull_condition_ins`·`_upd`** [#2561] | 선체·추진 상태 보정 % — 항로 비교 연료 추정에 `(1 + %/100)`을 곱한다(`TECH_SPEC §4.1`). 파울링이면 `+`, 청소·연마·절감장치면 `−`. 선택: `NULL`은 「미입력」이고 비교는 0%로 계산한다(마이그레이션 071) |
 | `call_sign` | VARCHAR(7) | NULL, **트리거 `trg_chk_call_sign_ins`·`_upd`** (`^[A-Z0-9]{4,7}$` · `REGEXP BINARY`) [#1197] | 호출부호(call sign) — **공공데이터 교차 대조의 키**(`PRD §15.1` `[#1197]` 각주). `해양수산부_선박운항정보`가 IMO가 아니라 이 값으로 질의한다. ITU RR No.19.55상 영문 대문자·숫자 4~7자이며 API가 strip · upper로 접어 넣는다(`API_SPEC §2.3`). 선택: `NULL`이면 그 배는 대조 대상이 아닐 뿐 계산은 그대로. **UNIQUE 없음** — 재배정되는 값이다(마이그레이션 058) |
 | `is_cii_applicable_hint` | BOOLEAN | NOT NULL DEFAULT false | GT ≥ 5000 및 선종 기준 자동 산정 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
@@ -2032,19 +2033,19 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `069`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `071`** | 무엇 |
 |---|---|---|---|
-| `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
+| `trg_chk_` | 124 | **148** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`·`071`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
 | 그 밖 | 20 | **32** | 해시 형식 4 · 연료 코드 참조 6 · **`068` 연료 코드 개명 거부 1**(`trg_fuel_type_code_no_rename` — 부모 쪽 `BEFORE UPDATE`) · **`069` 참조 중인 연료 부모 삭제 거부 1** · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
-| **합계** | **148** | **178** | 전환 직후에는 **0개**였다 |
+| **합계** | **148** | **180** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
 > 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다), `066`은 해시 형식 4를 지우고
 > 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 066 적용 후 176 실측), `067`도 활성-유니크 6을
 > 지우고 같은 이름으로 다시 만들어 **±0**(2026-10-06 `cii_test`에 067 적용 후 176 실측), `068`(+1 — 부모 쪽
-> 연료 코드 개명 거부)로 **177**(2026-10-07 `cii_test`에 068 적용 후 177 실측). `SELECT count(*)
+> 연료 코드 개명 거부)로 **177**(2026-10-07 `cii_test`에 068 적용 후 177 실측). `070`은 트리거가 없고(±0), `071`(+2 — 선체 상태 보정 범위 `trg_chk_hull_condition_ins`·`_upd` · `#2561`)로 **180**. `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
@@ -2073,7 +2074,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068 → 069 → 070
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 063 → 064 → 065 → 066 → 067 → 068 → 069 → 070 → 071
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지

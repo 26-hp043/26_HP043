@@ -31,6 +31,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
     block_coefficient: null,
+    hull_condition_percent: null,
     call_sign: null,
     is_cii_applicable_hint: true,
     underway_state: null,
@@ -162,6 +163,28 @@ describe('toUpdateRequest — 바뀐 것만 싣는다', () => {
   it('없던 값을 새로 채우면 실린다', () => {
     const patch = toUpdateRequest(vessel(), state({ referenceDailyFocTon: '18.5' }))
     expect(patch).toEqual({ reference_daily_foc_ton: 18.5 })
+  })
+})
+
+describe('#2561 선체 상태 보정 — 수정 폼', () => {
+  it('0은 「보정 없음」이라 실린다 — 비어 있던 칸에 0을 넣는 것도 바뀐 것이다', () => {
+    expect(toUpdateRequest(vessel(), state({ hullConditionPercent: '0' }))).toEqual({
+      hull_condition_percent: 0,
+    })
+  })
+
+  it('같은 값은 싣지 않고, 음수로 바꾸면 싣는다', () => {
+    const source = vessel({ hull_condition_percent: 20 })
+    expect(toUpdateRequest(source, toEditState(source))).toEqual({})
+    expect(toUpdateRequest(source, { ...toEditState(source), hullConditionPercent: '-5' })).toEqual({
+      hull_condition_percent: -5,
+    })
+  })
+
+  it('값이 있던 칸을 비우면 지울 수 없다고 알린다 — 없애려면 0을 넣는다', () => {
+    const source = vessel({ hull_condition_percent: 20 })
+    const notice = clearAttemptNotice(source, { ...toEditState(source), hullConditionPercent: '' })
+    expect(notice).toContain('선체 상태 보정')
   })
 })
 

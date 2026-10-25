@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { ShipIllustration } from '../../components/ShipIllustration'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
+import { HULL_CONDITION_HINT } from '../vessel-registration/formRules'
 import {
   FUEL_LIST_FAILED_HINT,
   fuelOptionsWithCurrent,
@@ -1078,7 +1079,7 @@ function EditForm({
       </Field>
 
       <details className="vm-edit__more">
-        <summary>기타 · 방형계수 · 호출부호 · 기본 연료</summary>
+        <summary>기타 · 방형계수 · 선체 상태 · 호출부호 · 기본 연료</summary>
         <div className="vm-edit__more-body">
       <Field id="vm-blockCoefficient" label="방형계수 (CB)" error={errors[EDIT_FIELD.blockCoefficient]}>
         {(control) => (
@@ -1088,6 +1089,24 @@ function EditForm({
             inputMode="decimal"
             value={state.blockCoefficient}
             onChange={(e) => set({ blockCoefficient: e.target.value })}
+          />
+        )}
+      </Field>
+
+      {/* #2561 — 선체·추진 상태 보정(선택). 등록 화면과 같은 안내다. 0·음수가 정상 입력이다. */}
+      <Field
+        id="vm-hullConditionPercent"
+        label="선체 상태 보정 (%)"
+        hint={HULL_CONDITION_HINT}
+        error={errors[EDIT_FIELD.hullConditionPercent]}
+      >
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.hullConditionPercent}
+            onChange={(e) => set({ hullConditionPercent: e.target.value })}
           />
         )}
       </Field>

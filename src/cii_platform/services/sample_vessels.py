@@ -46,6 +46,9 @@ _SAMPLE_SOURCES: tuple[tuple[str, uuid.UUID], ...] = (
 #: 예외 — ``block_coefficient``(#966). 샘플은 IMO 조회 결과의 대역인데 실제 조회가
 #: 방형계수를 주지 않는다. CB는 사무직이 제원 화면에서 수기로 넣는 값이므로 샘플이
 #: 「알 듯이」 값을 싣는 것은 거짓이다. 없으면 선종 기본값 + ``CB_ESTIMATED``가 계약.
+#:
+#: ``hull_condition_percent``(#2561)도 같은 이유로 싣지 않는다 — 선체·추진 상태 보정 %는 선사가
+#: 자기 배의 성능 감시로 아는 값이라 IMO 조회가 주지 않는다. 없으면 「미입력」(0%로 계산).
 SAMPLE_SPEC_FIELDS: tuple[str, ...] = (
     "ship_type",
     "gross_tonnage",

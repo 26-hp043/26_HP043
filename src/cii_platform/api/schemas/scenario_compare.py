@@ -26,6 +26,7 @@ from cii_platform.api.schemas.voyage_cii import WeatherModel
 from cii_platform.validation.bounds import (
     DAILY_FOC,
     DISTANCE,
+    HULL_CONDITION_PERCENT,
     PORT_NAME_MAX_LENGTH,
     REGULATION_YEAR,
     SPEED,
@@ -72,6 +73,10 @@ class ScenarioCompareRequest(BaseModel):
     #: 이력이 그 항차에 붙어, 채택 없이 끝난 항차의 리포트가 이 비교를 인용한다
     #: (`PRD §25.2.1`). 결과에는 영향이 없다 — ``input_hash``에 넣지 않는다(기능①과 같다).
     voyage_id: UUID | None = None
+    #: 선체·추진 상태 보정 % (`#2561` 결정 D2 · 선택). **이번 비교에만** 쓰는 덮어쓰기 값이다 —
+    #: 선박 제원(``vessel.hull_condition_percent``)을 바꾸지 않는다. 없으면 제원값, 그것도
+    #: 없으면 0%. 범위는 제원과 같은 양이라 같다(``validation/bounds.py``).
+    hull_condition_percent: Annotated[Decimal | None, Field(**HULL_CONDITION_PERCENT)] = None
 
 
 class ScenarioAdoptRequest(BaseModel):

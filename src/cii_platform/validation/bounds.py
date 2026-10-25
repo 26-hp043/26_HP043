@@ -122,3 +122,10 @@ DAILY_FOC = storable(8, 2)
 PORT_NAME_MAX_LENGTH = 200
 NOT_UNDERWAY_FUEL = storable(12, 2)
 NOT_UNDERWAY_DISTANCE = {"ge": Decimal(0), "le": largest(12, 2)}
+#: 선체·추진 상태 보정(%) — 저장은 ``vessel.hull_condition_percent NUMERIC(5,2)``(`#2561` · 071).
+#: **도메인 범위다** — 파울링은 연료를 늘리고(+) 선체 청소·프로펠러 연마·절감장치는
+#: 줄인다(−). 상한 100은 GloFouling 보고서(2022)의 석회질 오손 최대치(+60~90%)를 막지 않는
+#: 가장 좁은 값, 하한 −30은 절감 쪽 자릿수 실수(−3 → −30 너머)를 막는다. 선박 제원과
+#: 시나리오 비교의 덮어쓰기 값은 **같은 양**이라 같은 범위를 쓴다. DB 트리거(071)와 화면
+#: 규칙이 같은 값을 쓴다.
+HULL_CONDITION_PERCENT = {"ge": Decimal("-30"), "le": Decimal("100")}

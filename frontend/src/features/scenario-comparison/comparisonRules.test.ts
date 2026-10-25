@@ -6,6 +6,7 @@ import {
   lowestScenarios,
   lowestSummary,
   subtractFixed,
+  hullConditionText,
 } from './comparisonRules'
 import type { ScenarioResult, ScenarioType } from './types'
 
@@ -231,5 +232,22 @@ describe('직항 대비 차이 (#739)', () => {
     expect(isZeroDelta('0.000')).toBe(true)
     expect(isZeroDelta('-0.0')).toBe(true)
     expect(isZeroDelta('0.001')).toBe(false)
+  })
+})
+
+describe('선체 상태 보정 조건 줄 (#2561)', () => {
+  it('세 출처를 서로 다른 말로 적는다 — 미입력과 0%를 같게 그리지 않는다', () => {
+    const notSet = hullConditionText({ hull_condition_percent: null, hull_condition_source: 'NOT_SET' })
+    const zero = hullConditionText({ hull_condition_percent: 0, hull_condition_source: 'VESSEL' })
+    const request = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'REQUEST' })
+    const vessel = hullConditionText({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })
+    expect(new Set([notSet, zero, request, vessel]).size).toBe(4)
+    expect(request).toContain('+20%')
+    expect(vessel).toContain('+20%')
+  })
+
+  it('조건을 받지 못한 응답은 줄을 내지 않는다 — 출처를 지어 적지 않는다', () => {
+    expect(hullConditionText(undefined)).toBeNull()
+    expect(hullConditionText(null)).toBeNull()
   })
 })
