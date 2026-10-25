@@ -829,3 +829,19 @@ th:has(.scenario-glyph) .scenario-glyph path.scenario-glyph__path,
 .scenario-glyph line.scenario-glyph__path--slow {
   stroke: var(--route-slow);
 }
+
+/*
+ * #2561 — 표의 「선석 대기」 구분 행. 위의 주된 칸(항해만)과 아래 대기 값이 **다른 묶음**임을
+ * 글자로 말한다(항차 계획에 담기지 않는 값). 색이 아니라 굵기·크기로 가른다(§14). 디자인 검토 대상.
+ */
+.scenario-table__group > th {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-muted);
+  text-align: start;
+}
+
+/* #2561 — 경고 끝의 시나리오 이름(귀속). 경고 문구보다 한 단 약하게 둔다. 디자인 검토 대상. */
+.scenario-comparison__warning-owner {
+  color: var(--color-text-muted);
+}
