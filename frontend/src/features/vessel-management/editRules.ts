@@ -2,9 +2,11 @@ import { withEulReul, withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import {
   CB_MAX,
+  HULL_CONDITION_RANGE,
   STORABLE,
   checkCallSign,
   checkOptionalPositive,
+  checkOptionalRange,
   normalizeCallSign,
 } from '../vessel-registration/formRules'
 import { findShipType } from '../vessel-registration/shipTypes'
@@ -43,6 +45,7 @@ export interface VesselEditState {
   referenceSpeedKn: string
   referenceDailyFocTon: string
   blockCoefficient: string
+  hullConditionPercent: string
   callSign: string
 }
 
@@ -56,6 +59,7 @@ export const EDIT_FIELD = {
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
+  hullConditionPercent: 'hull_condition_percent',
   callSign: 'call_sign',
   form: '__form__',
 } as const
@@ -92,6 +96,7 @@ export function toEditState(vessel: Vessel): VesselEditState {
     referenceSpeedKn: numberToInput(vessel.reference_speed_kn),
     referenceDailyFocTon: numberToInput(vessel.reference_daily_foc_ton),
     blockCoefficient: numberToInput(vessel.block_coefficient),
+    hullConditionPercent: numberToInput(vessel.hull_condition_percent),
     callSign: vessel.call_sign ?? '',
   }
 }
@@ -166,6 +171,14 @@ export function validateEdit(
       errors[EDIT_FIELD.blockCoefficient] = `${withEunNeun('방형계수(CB)')} 1 이하로 입력해 주세요.`
     }
   }
+  // #2561 — 선체 상태 보정. 등록 폼과 같은 함수·같은 범위다(0·음수가 정상 입력).
+  checkOptionalRange(
+    state.hullConditionPercent,
+    EDIT_FIELD.hullConditionPercent,
+    '선체 상태 보정',
+    errors,
+    HULL_CONDITION_RANGE,
+  )
   // #1197 — 호출부호. 등록 폼과 같은 함수·같은 문구다.
   checkCallSign(state.callSign, EDIT_FIELD.callSign, errors)
   checkOptionalPositive(
@@ -201,6 +214,8 @@ const CLEARABLE: ReadonlyArray<{ key: keyof VesselEditState; label: string }> = 
   { key: 'defaultFuelType', label: '기본 연료' },
   { key: 'referenceSpeedKn', label: '기준속도' },
   { key: 'referenceDailyFocTon', label: '기준 일일 연료소모량' },
+  // #2561 — 선체 상태 보정도 지울 수 없다(PATCH의 None은 「안 바꾼다」). 보정을 없애려면 0을 넣는다.
+  { key: 'hullConditionPercent', label: '선체 상태 보정' },
   // #1197 — 호출부호도 지울 수 없다(서버가 빈 문자열을 「안 바꾼다」로 접는다).
   { key: 'callSign', label: '호출부호' },
 ]
@@ -220,6 +235,8 @@ function hadValue(vessel: Vessel, key: keyof VesselEditState): boolean {
       return vessel.reference_daily_foc_ton !== null
     case 'blockCoefficient':
       return vessel.block_coefficient !== null
+    case 'hullConditionPercent':
+      return vessel.hull_condition_percent !== null
     case 'callSign':
       return vessel.call_sign !== null && vessel.call_sign !== ''
     default:
@@ -314,6 +331,10 @@ export function toUpdateRequest(vessel: Vessel, state: VesselEditState): VesselU
   // #966 — 방형계수. 바뀐 것만 실는 규칙을 따른다.
   const cb = toNumber(state.blockCoefficient)
   if (cb !== null && cb !== vessel.block_coefficient) patch.block_coefficient = cb
+
+  // #2561 — 선체 상태 보정. 0은 유효한 값(「보정 없음」)이라 `!== null`로 본다.
+  const hull = toNumber(state.hullConditionPercent)
+  if (hull !== null && hull !== vessel.hull_condition_percent) patch.hull_condition_percent = hull
 
   // #1197 — 호출부호. 접은 값으로 비교한다 — `hlxq`를 `HLXQ`로 고쳐 저장해도 바뀐 것이 없다.
   const callSign = normalizeCallSign(state.callSign)

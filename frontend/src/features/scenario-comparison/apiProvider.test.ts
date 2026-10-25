@@ -507,3 +507,44 @@ describe('비교가 붙은 항차 (#2217)', () => {
     }
   })
 })
+
+describe('선체 상태 보정 (#2561)', () => {
+  const withConditions = (conditions: unknown) => ({
+    ...OK_BODY,
+    data: { ...OK_BODY.data, conditions },
+  })
+
+  it('요청의 hull_condition_percent를 서버 필드명 그대로 싣고, 없으면 키를 뺀다', async () => {
+    // 호출마다 새 응답이어야 한다 — 같은 Response의 본문은 한 번만 읽힌다.
+    const fetchImpl = vi.fn(async () => jsonResponse(OK_BODY))
+    const provider = createApiScenarioProvider(fetchImpl)
+    await provider.compare({ ...REQUEST, hull_condition_percent: 0 })
+    await provider.compare(REQUEST)
+    const bodies = fetchImpl.mock.calls.map((call) =>
+      JSON.parse(String((call as unknown as [string, RequestInit])[1].body)),
+    )
+    expect(bodies[0].hull_condition_percent).toBe(0)
+    expect('hull_condition_percent' in bodies[1]).toBe(false)
+  })
+
+  it('data.conditions를 넘긴다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(withConditions({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.conditions).toEqual({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })
+  })
+
+  it('모르는 출처·숫자 아닌 값·블록 없음은 null이다 — 「선박 제원」이라 지어 적지 않는다', async () => {
+    for (const body of [
+      withConditions({ hull_condition_percent: 20, hull_condition_source: 'GUESS' }),
+      withConditions({ hull_condition_percent: '20', hull_condition_source: 'VESSEL' }),
+      withConditions(null),
+      OK_BODY,
+    ]) {
+      const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+      const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+      expect(result.conditions).toBeNull()
+    }
+  })
+})

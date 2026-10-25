@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from cii_platform.imo_number import IMO_CHECK_DIGIT_MESSAGE, imo_check_digit_ok
 from cii_platform.validation.bounds import (
     DAILY_FOC,
+    HULL_CONDITION_PERCENT,
     REFERENCE_SPEED,
     storable,
     storable_from,
@@ -132,6 +133,11 @@ class VesselCreateRequest(BaseModel):
     # #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. 모르면 보내지
     # 않는다 — 그때는 선종 기본값 + CB_ESTIMATED 경고가 계약이다.
     block_coefficient: Annotated[Decimal | None, Field(**_CB), stored(3)] = None
+    # #2561 — 선체·추진 상태 보정 %(선택). 항로 비교 연료에 (1 + %/100)을 곱한다. 모르면
+    # 보내지 않는다 — 그때는 0%로 계산하고 화면이 「미입력」으로 보인다.
+    hull_condition_percent: Annotated[
+        Decimal | None, Field(**HULL_CONDITION_PERCENT), stored(2)
+    ] = None
     # #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
     # 질의하므로 교차 대조의 키다. 모르면 보내지 않는다 — 그 배는 대조 대상이 아닐 뿐이다.
     # ``max_length``는 접은 **뒤**의 값에 걸린다(검증기가 ``mode="before"``) — 그래서
@@ -176,6 +182,10 @@ class VesselUpdateRequest(BaseModel):
     reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED), stored(2)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC), stored(2)] = None
     block_coefficient: Annotated[Decimal | None, Field(**_CB), stored(3)] = None
+    # #2561 — None은 「안 바꾼다」. 보정을 없애려면 0을 보낸다(0은 유효한 값이다).
+    hull_condition_percent: Annotated[
+        Decimal | None, Field(**HULL_CONDITION_PERCENT), stored(2)
+    ] = None
     # #1197 — 빈 문자열은 None으로 접히므로 「안 바꾼다」가 된다. 지우는 경로는 GT와
     # 마찬가지로 PATCH에 없다.
     call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None

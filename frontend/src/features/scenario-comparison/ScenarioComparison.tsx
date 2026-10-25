@@ -12,6 +12,9 @@ import {
   applyVesselSpec,
   initialFormState,
   countAdvancedFilled,
+  countConditionFilled,
+  hasConditionError,
+  hullConditionFallbackHint,
   hasAdvancedError,
   toRequest,
   usesCoordinateDistance,
@@ -66,6 +69,7 @@ import { SELECT_VESSEL_FIRST, YEAR_STATE_COPY, useYearOptions } from '../paramet
 import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
   deltaFromDirect,
+  hullConditionText,
   isZeroDelta,
   type ScenarioDelta,
 } from './comparisonRules'
@@ -253,6 +257,9 @@ export function ScenarioComparison({
   const [errors, setErrors] = useState<FormErrors>({})
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const advancedFilled = countAdvancedFilled(form)
+  // #2561 — 「비교 조건」 묶음. 고급 설정과 같은 규칙으로 접고, 칸에 오류가 나면 스스로 펼친다.
+  const [conditionsOpen, setConditionsOpen] = useState(false)
+  const conditionsFilled = countConditionFilled(form)
   // 목적항 좌표 찾기 상태 (#768). 실패해도 폼을 막지 않으므로 오류가 아니라 안내다.
   /*
    * 상단바가 기억한 선박이 목록에 없을 때의 안내 (`#1097` ⑵). 삭제된 배를 상단바가 기억하고
@@ -512,6 +519,7 @@ export function ScenarioComparison({
     if (Object.keys(found).length > 0) {
       setErrors(found)
       if (hasAdvancedError(found)) setAdvancedOpen(true)
+      if (hasConditionError(found)) setConditionsOpen(true)
       return
     }
     setErrors({})
@@ -554,6 +562,7 @@ export function ScenarioComparison({
           const field = error.field
           setErrors((prev) => ({ ...prev, [field]: error.message }))
           if (hasAdvancedError({ [field]: error.message })) setAdvancedOpen(true)
+          if (hasConditionError({ [field]: error.message })) setConditionsOpen(true)
         }
         setState({
           status: 'error',
@@ -1131,6 +1140,42 @@ export function ScenarioComparison({
         </div>
       </details>
 
+      {/*
+        비교 조건 (#2561). 세 시나리오에 **공통으로** 거는 배의 상태다 — 고급 설정(항로·속력의
+        서버 기본)과 성질이 달라 따로 묶는다. 같은 클래스로 그려 접는 모양을 맞춘다.
+      */}
+      <details
+        className="scenario-comparison__advanced"
+        open={conditionsOpen}
+        onToggle={(event) => setConditionsOpen(event.currentTarget.open)}
+      >
+        <summary>
+          비교 조건
+          <span className="scenario-comparison__field-hint">
+            {conditionsFilled === 0 ? ' · 선박 제원값으로 계산' : ` · ${conditionsFilled}개 입력함`}
+          </span>
+        </summary>
+        <div className="scenario-comparison__advanced-body">
+          <Field
+            id="sc-hullConditionPercent"
+            label="선체 상태 보정 (%)"
+            hint={hullConditionFallbackHint(selectedSpec?.hullConditionPercent)}
+            error={errors[FIELD.hullConditionPercent]}
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="scenario-comparison__control"
+                inputMode="decimal"
+                value={form.hullConditionPercent}
+                onChange={(e) => setForm((prev) => ({ ...prev, hullConditionPercent: e.target.value }))}
+                placeholder="-30 ~ 100"
+              />
+            )}
+          </Field>
+        </div>
+      </details>
+
       <div className="scenario-comparison__form-actions">
         <button
           type="submit"
@@ -1214,6 +1259,7 @@ export function ScenarioComparison({
    * 상단바에서 배를 바꾸면 옛 숫자 위에 새 이름이 붙었다.
    */
   const { vesselName } = snapshot
+  const hullLine = hullConditionText(response.conditions)
 
   /*
    * 결과가 낡았는가 (#875 · 선례 `#727`).
@@ -1282,6 +1328,8 @@ export function ScenarioComparison({
         {weatherLine !== null ? (
           <p className="scenario-comparison__notice">{weatherLine}</p>
         ) : null}
+        {/* #2561 — 세 시나리오에 공통으로 건 선체 상태 보정. 미입력도 「미입력」으로 적는다. */}
+        {hullLine !== null ? <p className="scenario-comparison__notice">{hullLine}</p> : null}
         {/* `PRD §15.2` — 좌표로 계산한 거리는 「좌표 기반 추정 거리」라고 표시한다 (#1005). */}
         {usesCoordinateDistance(snapshot.inputs) ? (
           <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>

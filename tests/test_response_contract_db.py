@@ -239,6 +239,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].gross_tonnage",
             "data[].id",
             "data[].block_coefficient",
+            "data[].hull_condition_percent",
             "data[].call_sign",
             "data[].imo_number",
             "data[].is_cii_applicable_hint",
@@ -261,6 +262,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
         {
             "data",
             "data.block_coefficient",
+            "data.hull_condition_percent",
             "data.call_sign",
             "data.created_at",
             "data.current_lat",
@@ -800,6 +802,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
             # `#2135` — 보정에 쓴 기상을 받은 시각. 보정하지 않았으면 `null`, 키는 늘 있다.
             "data.weather",
             "data.weather.fetched_at",
+            # `#2561` — 세 시나리오 공통 계산 조건(선체 상태 보정 %와 출처).
+            "data.conditions",
+            "data.conditions.hull_condition_percent",
+            "data.conditions.hull_condition_source",
             "disclaimer",
             "input_hash",
             "meta",

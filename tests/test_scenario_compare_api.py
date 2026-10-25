@@ -12,7 +12,7 @@ DIRECT와 DETOUR의 ``attained_cii``가 같은 것은 오류가 아니라 수학
 거리에 정비례하므로 CII는 거리와 무관해진다. §5.1 예시의 4.982/5.231이 같은 속도에서
 다른 CII를 보이는 것은 그 예시값이 재현 불가능하다는 뜻이다 (#151).
 
-케이스: AT-SC-001 (`TEST_PLAN §14.5`)
+케이스: AT-SC-001 · AT-SC-007 (`TEST_PLAN §14.5` · `§4.2`)
 """
 
 from __future__ import annotations
@@ -595,6 +595,72 @@ class TestScenarioGeneration:
         assert plain == old, (
             "경유지 없는 요청의 해시가 종전과 다르다 — 저장된 실행이 재현 불가가 된다"
         )
+
+    def _vessel_with_hull(self, monkeypatch, hull):
+        from cii_platform.services import scenario_compare as svc
+
+        async def fake_get_by_id(_session, vessel_id):
+            if vessel_id != DEMO_VESSEL_ID:
+                return None
+            return FakeVessel(reference_speed_kn=Decimal("14.0"), hull_condition_percent=hull)
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+
+    def test_hull_condition_unset_keeps_the_pre_2561_hash(self, wired, monkeypatch):
+        """#2561 — 미입력·0%는 해시 재료가 아니다. 키를 목록에서 뺀 채 계산한 해시와 같다."""
+        from cii_platform.calc import hash as hash_mod
+
+        unset = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()
+        zero = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "hull_condition_percent": 0}).json()
+        assert unset["data"]["conditions"] == {
+            "hull_condition_percent": None,
+            "hull_condition_source": "NOT_SET",
+        }
+        assert zero["data"]["conditions"]["hull_condition_source"] == "REQUEST"
+        assert unset["input_hash"] == zero["input_hash"]
+        before_2561 = tuple(
+            f for f in hash_mod.SCENARIO_INPUT_FIELDS if f != "hull_condition_percent"
+        )
+        monkeypatch.setattr(hash_mod, "SCENARIO_INPUT_FIELDS", before_2561)
+        old = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()["input_hash"]
+        assert unset["input_hash"] == old
+
+    def test_hull_condition_request_overrides_the_vessel(self, wired, monkeypatch):
+        """AT-SC-007 — 요청 덮어쓰기 → 선박 제원 순 (#2561 결정 D2).
+
+        출처가 응답에 실리고 해시가 갈린다.
+        """
+        self._vessel_with_hull(monkeypatch, Decimal("20.00"))
+        from_vessel = wired.post(ENDPOINT, json=VALID_PAYLOAD).json()
+        overridden = wired.post(
+            ENDPOINT, json={**VALID_PAYLOAD, "hull_condition_percent": -10}
+        ).json()
+        assert from_vessel["data"]["conditions"] == {
+            "hull_condition_percent": 20.0,
+            "hull_condition_source": "VESSEL",
+        }
+        assert overridden["data"]["conditions"] == {
+            "hull_condition_percent": -10.0,
+            "hull_condition_source": "REQUEST",
+        }
+        assert from_vessel["input_hash"] != overridden["input_hash"]
+        # 같은 속력의 직항·우회는 보정 뒤에도 CII가 같다 — 보정은 거리와 무관한 배율이다.
+        cii = {s["scenario_type"]: s["attained_cii"] for s in from_vessel["data"]["scenarios"]}
+        assert cii["DIRECT"] == cii["DETOUR"]
+        # 1.2 / 0.9 배율이 CII에 그대로 옮는다.
+        by_type = {s["scenario_type"]: s for s in overridden["data"]["scenarios"]}
+        for row in from_vessel["data"]["scenarios"]:
+            ratio = Decimal(row["attained_cii"]) / Decimal(
+                by_type[row["scenario_type"]]["attained_cii"]
+            )
+            assert abs(ratio - Decimal("1.2") / Decimal("0.9")) < Decimal("0.00001")
+
+    @pytest.mark.parametrize("value", [-30.01, 100.5])
+    def test_hull_condition_out_of_range_is_a_422(self, wired, value):
+        resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, "hull_condition_percent": value})
+        assert resp.status_code == 422
+        fields = [d["field"] for d in resp.json()["error"]["details"]]
+        assert "hull_condition_percent" in fields
 
     def test_weather_model_falls_back_with_warning(self, wired):
         """#61 전까지 NONE이 아닌 모델은 fallback + WEATHER_NONE_FALLBACK."""

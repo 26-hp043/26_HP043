@@ -1,5 +1,6 @@
 import { DISPLAY_DIGITS } from '../../display/format'
-import type { ScenarioResult, ScenarioType } from './types'
+import { signedPercent } from './requestRules'
+import type { ScenarioConditions, ScenarioResult, ScenarioType } from './types'
 
 /**
  * 기능② 비교 표시 규칙 (#156).
@@ -185,4 +186,23 @@ export function deltaFromDirect(
 /** 부호 없는 0인가 — `'0'` · `'0.0'` · `'-0.000'` 모두 참이다. */
 export function isZeroDelta(value: string): boolean {
   return !/[1-9]/.test(value)
+}
+
+/**
+ * 결과 머리의 조건 한 줄 — 선체·추진 상태 보정 (#2561).
+ *
+ * **세 출처를 다른 말로 적는다.** 미입력과 0%는 계산이 같지만 앞은 「모른다」이고 뒤는
+ * 「깨끗하다고 확인했다」다 — 같게 그리면 사용자는 보정이 걸리지 않은 결과를 「보정 0%로
+ * 확인된 결과」로 읽는다. 조건을 받지 못한 응답(가짜 provider·옛 응답)은 `null`이라 줄을
+ * 내지 않는다 — 출처를 지어 적지 않는다.
+ */
+export function hullConditionText(conditions: ScenarioConditions | null | undefined): string | null {
+  if (conditions === null || conditions === undefined) return null
+  const percent = conditions.hull_condition_percent
+  if (conditions.hull_condition_source === 'NOT_SET' || percent === null) {
+    return '선체 상태 보정: 미입력 — 0%로 계산했습니다.'
+  }
+  const origin =
+    conditions.hull_condition_source === 'REQUEST' ? '이번 비교에서 입력한 값' : '선박 제원값'
+  return `선체 상태 보정: ${signedPercent(percent)} (${origin}) — 세 시나리오의 연료에 같은 비율로 반영했습니다.`
 }

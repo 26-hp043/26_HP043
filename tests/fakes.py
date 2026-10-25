@@ -39,6 +39,8 @@ class FakeVessel:
     reference_daily_foc_ton: Decimal | None = None
     # #966 — 기상 보정 선형 계수. None이 「모른다」(선종 기본값 + CB_ESTIMATED).
     block_coefficient: Decimal | None = None
+    # #2561 — 선체·추진 상태 보정 %. None은 「미입력」(0%로 계산).
+    hull_condition_percent: Decimal | None = None
     # #1197 — 호출부호. None이 「모른다」(공공데이터 교차 대조 대상 아님).
     call_sign: str | None = None
     is_cii_applicable_hint: bool = True

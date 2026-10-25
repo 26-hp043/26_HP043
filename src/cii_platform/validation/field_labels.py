@@ -77,6 +77,8 @@ _FIELD_LABELS: dict[str, str] = {
     "reference_daily_foc_ton": "기준 일일 연료소모량",
     # #966 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택 입력.
     "block_coefficient": "방형계수(CB)",
+    # #2561 — 항로 비교 연료 추정의 선체·추진 상태 보정. 선택 입력.
+    "hull_condition_percent": "선체·추진 상태 보정(%)",
     # #1197 — 공공데이터 교차 대조의 키. 선택 입력.
     "call_sign": "호출부호",
     "current_lat": "현재 위도",

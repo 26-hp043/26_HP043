@@ -74,6 +74,11 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(model, name):
         ("block_coefficient", "0.0005"),  # 0.000으로 반올림돼 범위 밖이 된다
         ("block_coefficient", "1.001"),  # 체적 비율은 1을 넘지 않는다
         ("block_coefficient", "9.999"),  # NUMERIC(4,3) 상한 안이지만 물리 범위 밖
+        # #2561 — 선체 상태 보정은 도메인 범위(−30 ~ +100)다.
+        # NUMERIC(5,2) 상한(999.99) 안이어도 막는다.
+        ("hull_condition_percent", "-30.01"),
+        ("hull_condition_percent", "100.01"),
+        ("hull_condition_percent", "500"),
     ],
 )
 def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
@@ -95,6 +100,11 @@ def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
         ("block_coefficient", "0.001"),
         ("block_coefficient", "0.80"),
         ("block_coefficient", "1"),
+        # #2561 — 양 끝·0(보정 없음)·음수(개선)는 정상 입력이다.
+        ("hull_condition_percent", "-30"),
+        ("hull_condition_percent", "0"),
+        ("hull_condition_percent", "-5.5"),
+        ("hull_condition_percent", "100"),
     ],
 )
 def test_저장할_수_있는_값은_그대로_받는다(name, value):

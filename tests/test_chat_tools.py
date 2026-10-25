@@ -580,6 +580,42 @@ async def test_scenario_tool_carries_type_speed_distance_duration_and_co2(monkey
         verify_numbers("감속 시나리오는 약 19.3일 걸립니다.", [raw])
 
 
+async def test_scenario_tool_passes_the_hull_condition_through(monkeypatch):
+    """#2561 — 사용자가 말한 선체 상태 보정 %를 비교 입력으로 넘긴다. 없으면 ``None``(선박 제원)."""
+    from cii_platform.services import scenario_compare
+
+    seen: list[object] = []
+
+    async def _fake_compare(_session, payload, *, persist):
+        seen.append(payload.hull_condition_percent)
+        return {"data": {"scenarios": [dict(_SCENARIO_ROW)]}}
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _fake_compare)
+    base = {"current_speed_kn": "12", "fuel_type": "HFO", "regulation_year": 2026}
+    await chat_tools._compare_scenarios(None, {**base, "hull_condition_percent": 15}, "selected")
+    await chat_tools._compare_scenarios(None, base, "selected")
+    from decimal import Decimal
+
+    assert seen == [Decimal("15"), None]
+
+
+@pytest.mark.parametrize("value", [-31, 101, "많이"])
+async def test_scenario_tool_rejects_hull_condition_outside_the_screen_range(monkeypatch, value):
+    """화면에서 422인 값이 챗봇에서는 숫자를 내면 안 된다 — 같은 범위로 인자 오류다."""
+    from cii_platform.services import scenario_compare
+
+    async def _never(*_args, **_kwargs):
+        raise AssertionError("범위 밖 값으로 계산까지 갔다")
+
+    monkeypatch.setattr(scenario_compare, "compare_scenarios", _never)
+    with pytest.raises(chat_tools.ToolArgumentError):
+        await chat_tools._compare_scenarios(
+            None,
+            {"current_speed_kn": "12", "fuel_type": "HFO", "hull_condition_percent": value},
+            "selected",
+        )
+
+
 async def test_voyage_tool_echoes_distance_and_speed_but_not_fuel(monkeypatch):
     """IT-CHAT-099 (`#2395` 결정 2) — 항차 CII 도구가 **거리·속력**을 되돌려 준다.
 

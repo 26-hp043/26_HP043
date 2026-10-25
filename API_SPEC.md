@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.56 |
+| 버전 | v1.57 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-10-20 |
+| 최종 수정일 | 2026-10-25 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -770,6 +770,7 @@ GET /api/v1/vessels?limit=20&cursor={cursor}
       "reference_speed_kn": 14.0,
       "reference_daily_foc_ton": 35.0,
       "block_coefficient": 0.82,
+      "hull_condition_percent": 12.5,
       "call_sign": "HLXQ",
       "is_cii_applicable_hint": true,
       "underway_state": "UNDER_WAY",
@@ -825,6 +826,7 @@ POST /api/v1/vessels
   "reference_speed_kn": 14.0,
   "reference_daily_foc_ton": 35.0,
   "block_coefficient": 0.82,
+  "hull_condition_percent": 12.5,
   "call_sign": "HLXQ"
 }
 ```
@@ -841,12 +843,20 @@ POST /api/v1/vessels
 | `reference_speed_kn` | > 0 (VAL-002), 지정 시 · **0.01 ~ 60** (상한은 VAL-009의 물리 상한 · `#1269`) | VAL-002 · VAL-009 |
 | `reference_daily_foc_ton` | > 0 (VAL-002), 지정 시 · **0.01 ~ 999,999.99** | VAL-002 |
 | `block_coefficient` | 선택 · **0.001 ~ 1** (#966 — 체적 비율은 1을 넘지 않는다) | VAL-002 |
+| `hull_condition_percent` | 선택 · **−30 ~ +100** (#2561 — 도메인 범위. 0과 음수가 정상 입력이다) | VAL-002 |
 | `call_sign` | 선택 · **영문 대문자·숫자 4~7자**, 앞 두 글자가 모두 숫자일 수 없음 (#1197 — ITU RR No.19.55 · No.19.50). 서버가 앞뒤 공백을 지우고 대문자로 접어 저장하며, 접은 뒤 빈 값은 미기록(`null`) | VAL-011 |
 
 > **[#966] `block_coefficient`는 기상 보정(Townsin–Kwon)의 선형 계수다.** 넣으면 실측값으로
 > 계산하고, 생략하면 선종 기본값 + `CB_ESTIMATED` 경고가 계약이다. 실측값이 Cform 적용
 > 범위(`TECH_SPEC §3.3.3`) 밖이면 `CB_OUT_OF_RANGE`가 나지만 **거부가 아니다** — 참고값임을
 > 알리는 경고다.
+
+> **[#2561] `hull_condition_percent`는 항로 비교의 선체·추진 상태 보정 %다.** 파울링이면 `+`, 선체 청소·
+> 프로펠러 연마·절감장치면 `−`. 항로 비교(`§5.1`)의 연료 추정에 `(1 + %/100)`을 곱한다(`TECH_SPEC §4.1`).
+> 생략하면 `null`(「미입력」)이고 비교는 0%로 계산하되 결과의 `data.conditions`가 「미입력」으로 밝힌다 —
+> 0을 넣은 것과 출처가 다르다. **수정(`§2.4`)에서 `null`은 「안 바꾼다」**라 지울 수 없고, 보정을 없애려면
+> `0`을 보낸다. CII 직접 제원이 아니므로 바꿔도 재계산 표시(`§2.4`)가 붙지 않는다 — 과거 비교는 각자 계산
+> 이력에 쓴 %를 갖는다. 범위 집행은 서버 스키마와 DB 트리거(`DB_SCHEMA §2.1` 마이그레이션 071)가 같은 값을 쓴다.
 
 > **[#1197] `call_sign`은 공공데이터 교차 대조의 키다.** `해양수산부_선박운항정보`(공공데이터포털
 > `15006353`)의 입력 파라미터가 「항구 · 조회기간 · **호출부호**」라 IMO로는 질의할 수 없고, 전수
@@ -3274,6 +3284,7 @@ POST /api/v1/scenarios/compare
 | `detour_waypoint_lon` | decimal | 조건부 | VAL-007: −180 ~ +180 | 우회 경유지 경도. 위와 같다 |
 | `slow_speed_kn` | decimal | N | VAL-009: 1.0 이상 60 이하 | 감속 속도. **미지정 시 서버가 `max(current_speed - 1, 1.0)`으로 계산** |
 | `weather_model` | string | N | enum | 기본: NONE |
+| `hull_condition_percent` | decimal | N | −30 이상 100 이하 (VAL-002) | **[#2561] 선체·추진 상태 보정 %.** **이번 비교에만** 쓰는 덮어쓰기 값이다 — 선박 제원(`§2.3` `hull_condition_percent`)을 바꾸지 않는다. 미지정 시 선박 제원값, 그것도 없으면 0%. 세 시나리오의 연료에 `(1 + %/100)`을 곱한다(`TECH_SPEC §4.1`). **0이 아닐 때만 `input_hash` 재료**다(`TECH_SPEC §5.3`) — 미지정·0은 이 필드가 생기기 전과 같은 해시다. 정한 값과 출처는 응답 `data.conditions`에 실린다 |
 | `voyage_id` | UUID | N | 이 선박의 살아 있는 항차(다른 선박이면 422 · 없으면 404) | **[#2217] 이 비교가 어느 항차를 두고 한 것인가.** 그 항차가 **계획 단계**(`DRAFT` · `PLANNED`)면 계산 이력(`calculation_run.voyage_id`)이 그 항차에 붙어, 채택 없이 끝난 항차의 리포트가 이 비교를 인용한다(`§8.3` · `PRD §25.2.1`). 계획 단계가 아니면 **거부하지 않고 붙이지 않는다** — 붙었는지는 응답 `data.voyage_id`가 말한다. **결과와 `input_hash`에는 영향이 없다**(`§4.1`의 `voyage_id`와 같다). 시나리오 3행(`voyage_scenario`)에는 적지 않는다 — 그쪽이 항차에 이어지는 것은 채택(`§5.2`)뿐이다 |
 
 #### 응답 (200 OK)
@@ -3382,7 +3393,8 @@ POST /api/v1/scenarios/compare
       "lowest_fuel_scenarios": ["SLOW_STEAMING"]
     },
     "voyage_id": null,
-    "weather": { "fetched_at": null }
+    "weather": { "fetched_at": null },
+    "conditions": { "hull_condition_percent": null, "hull_condition_source": "NOT_SET" }
   },
   "parameters_used": { ... },
   "calculation_run_id": "uuid",
@@ -3402,6 +3414,8 @@ POST /api/v1/scenarios/compare
 > **[#2217] `data.voyage_id`는 이 비교의 계산 이력이 붙은 항차다.** 키는 늘 있고, 붙지 않았으면 `null`이다 — 요청이 `voyage_id`를 밝히지 않았거나, 밝혔어도 그 항차가 계획 단계(`DRAFT` · `PLANNED`)가 아니었다. `PRD §25.2.1`이 리포트에 싣는 것을 **「항차 착수 전 저장된」** 비교로 정했으므로, 떠났거나 끝난 항차를 골라 둔 채 돌린 비교는 그 항차의 비교 이력이 되지 않는다. 그때 요청을 거부하지 않는 것은 비교가 선박 단위로 성립하기 때문이고, 「붙지 않았다」를 조용히 넘기지 않으려고 값을 되돌려 준다.
 >
 > **붙은 뒤의 귀결 셋** (2026-10-08 결정). ⑴ **그 항차는 물리 삭제할 수 없다.** 초안(`DRAFT`)이어도 같다 — `DELETE /voyages/{id}`가 `409`를 낸다(`§3.7` `[#313]`). 초안에서 비교해 보고 계획으로 올리는 흐름에서도 리포트가 그 비교를 실을 수 있어야 하므로 초안에도 붙인다. ⑵ **재계산 필요 표시는 계획값을 직접 고칠 때만 붙는다.** `PATCH /voyages/{id}`로 계획값이 바뀌면 비교의 전제가 달라진 것이라 붙은 비교 이력이 재계산 필요로 표시된다(`PRD §8.4`). **시나리오 채택(`§5.2`)은 비교 이력을 표시하지 않는다** — 채택은 비교 결과를 계획으로 옮기는 조작이라 그 비교는 새 계획의 근거다. ⑶ **그 비교의 시나리오는 그 항차에만 채택할 수 있다**(`§5.2`).
+
+> **[#2561] `data.conditions`는 세 시나리오에 공통으로 건 계산 조건이다.** 키는 늘 있다. `hull_condition_percent`는 계산에 쓴 선체·추진 상태 보정 %(number)이고, 미입력이면 `null`이다(계산은 0%). `hull_condition_source`는 그 값의 출처 — `REQUEST`(이번 요청의 덮어쓰기) · `VESSEL`(선박 제원) · `NOT_SET`(미입력) 셋 중 하나다. **미입력과 0%를 출처로 구분한다** — 계산은 같아도 앞은 「모른다」이고 뒤는 「보정 없음으로 확인했다」다. 보정은 연료를 같은 비율로 바꾸고 CII는 연료를 거리로 나누므로, 같은 속도의 직항·우회 CII가 같다는 아래 성질은 보정 뒤에도 그대로다.
 
 > **[#2135] `data.weather.fetched_at`은 보정에 쓴 기상을 받은 시각이다.** 키는 늘 있고, 기상 보정을 하지 않았으면 `null`이다 — 요청이 `NONE`이거나, 좌표가 없거나, 캐시가 없어(또는 24시간을 넘겨) 보정 없이 계산한 경우(`WEATHER_NONE_FALLBACK`)다. 형식은 `§9.1`의 `fetched_at`과 같은 값을 UTC 초 단위 `Z` 접미로 싣는다(`§1.3`). 화면이 「기상 기준 시각」으로 보이는 근거이며(`PRD §6.3`), 값은 계산 이력의 `data[].weather.fetched_at`(`§1.9`)과 같다. 위 예시는 `weather_model`을 `NONE`으로 둬서 `null`이다 — 보정한 요청은 예를 들어 `"weather": { "fetched_at": "2026-10-06T00:00:00Z" }`가 된다.
 
@@ -5633,3 +5647,4 @@ POST /api/v1/chat
 | 2026-10-16 | `#2528` | 변경 이력 커밋 열의 이슈 번호 67행을 그 행을 실은 PR 번호로(#2269 결정 1·3) — 매핑 `docs/changelog_remap_2269.tsv` · 삭제 검사 대신 `scripts/verify_changelog_remap.py` 대조. `§4.3`상 값 정정이라 버전은 올리지 않는다 (#2269) |
 | 2026-10-20 | `#2547` | §1.6 경고 **`CHARTER_RATE_ABOVE_MARKET` · `FUEL_PRICE_ABOVE_MARKET`** 신설 · §2.17 요청 표 두 단가 행 · `warnings` 행 · 422 행(키가 붙은 단가 칸의 `field_label`은 칸 이름) (`#2521` 결정 1). 입력한 단가가 확인된 시장 최고값을 넘으면 거절하지 않고 경고한다 — 0을 더 친 오타가 정상 값처럼 계산·저장됐다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 |
 | 2026-10-20 | `#2548` | §5.1 `direct_distance_nm` 행에 **소요시간이 0.01시간 밑일 때의 422 칸** — 그 시나리오 거리의 출처(직항 입력 · 좌표 · 우회 입력 · 경유지 좌표)에 따라 `direct_distance_nm` · `current_lat` · `detour_distance_nm` · `detour_waypoint_lat` (`#2476` 결정 10 다). 좌표로 거리를 구한 비교가 너무 가까울 때 비어 있는 「직항 거리」 칸에 「거리를 늘리거나 속력을 낮춰 주세요」가 섰다. 판정 기준은 바뀌지 않는다. `AGENTS §4.3`상 행 보강이라 버전은 올리지 않는다 |
+| 2026-10-25 | `#2562` | **v1.57 — §2.1 선박 객체·§2.3 등록 요청에 `hull_condition_percent`**(선택 · −30 ~ +100 · `[#2561]` 각주 — 수정에서 `null`은 「안 바꾼다」라 보정을 없애려면 0 · 재계산 표시 없음) · **§5.1 요청 필드 `hull_condition_percent`**(이번 비교에만 쓰는 덮어쓰기 · 0이 아닐 때만 해시 재료) · **§5.1 응답 `data.conditions`**(`hull_condition_percent` · `hull_condition_source` `REQUEST`·`VESSEL`·`NOT_SET` — 미입력과 0%를 출처로 가른다) (`#2561` 결정 D2) |

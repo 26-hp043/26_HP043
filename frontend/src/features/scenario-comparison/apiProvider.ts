@@ -9,6 +9,7 @@ import type {
   ScenarioAdoptResult,
   ScenarioComparisonRequest,
   ScenarioComparisonResponse,
+  ScenarioConditions,
   ScenarioResult,
 } from './types'
 
@@ -72,11 +73,33 @@ interface ServerScenario {
   calculation_basis?: ServerCalculationBasis
 }
 
+const HULL_CONDITION_SOURCES = ['REQUEST', 'VESSEL', 'NOT_SET'] as const
+
+/**
+ * `data.conditions`를 화면 타입으로 (#2561). 출처가 셋 중 하나가 아니거나 값이 숫자·`null`이
+ * 아니면 `null` — 지어낸 출처로 「선박 제원」이라 적지 않는다.
+ */
+function toConditions(raw: unknown): ScenarioConditions | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const { hull_condition_percent: percent, hull_condition_source: source } = raw as {
+    hull_condition_percent?: unknown
+    hull_condition_source?: unknown
+  }
+  const knownSource = HULL_CONDITION_SOURCES.find((code) => code === source)
+  if (knownSource === undefined) return null
+  if (percent !== null && (typeof percent !== 'number' || !Number.isFinite(percent))) return null
+  return { hull_condition_percent: percent, hull_condition_source: knownSource }
+}
+
 interface ServerBody {
   data?: {
     scenarios?: ServerScenario[]
     voyage_id?: string | null
     weather?: { fetched_at?: string | null } | null
+    conditions?: {
+      hull_condition_percent?: number | null
+      hull_condition_source?: string
+    } | null
   }
   /*
    * `API_SPEC §5.1` — 응답 **최상위**에 실린다(`data` 안이 아니다).
@@ -204,6 +227,7 @@ export function createApiScenarioProvider(
             detour_waypoint_lat: request.detour_waypoint_lat,
             detour_waypoint_lon: request.detour_waypoint_lon,
             weather_model: request.weather_model,
+            hull_condition_percent: request.hull_condition_percent,
             voyage_id: request.voyage_id,
           }),
         })
@@ -292,6 +316,8 @@ export function createApiScenarioProvider(
         // `#2135` — 보정에 쓴 기상을 받은 시각. 문자열이 아니면 「보정하지 않았다」로 읽는다.
         weather_fetched_at:
           typeof body?.data?.weather?.fetched_at === 'string' ? body.data.weather.fetched_at : null,
+        // `#2561` — 공통 계산 조건. 모양이 맞지 않으면 「모른다」(`null`)로 읽고 줄을 내지 않는다.
+        conditions: toConditions(body?.data?.conditions),
       }
     },
 

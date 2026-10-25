@@ -1,7 +1,13 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { STORABLE, storableRange, validateForm, initialFormState } from './formRules'
+import {
+  HULL_CONDITION_RANGE,
+  STORABLE,
+  storableRange,
+  validateForm,
+  initialFormState,
+} from './formRules'
 import { validateEdit, type VesselEditState } from '../vessel-management/editRules'
 
 /**
@@ -30,6 +36,56 @@ function numericOf(column: string): { precision: number; scale: number } {
   expect(match, `${column}의 Numeric 선언을 찾지 못했습니다`).not.toBeNull()
   return { precision: Number(match![1]), scale: Number(match![2]) }
 }
+
+const boundsPy = readFileSync(
+  new URL('../../../../src/cii_platform/validation/bounds.py', import.meta.url),
+  'utf-8',
+)
+
+describe('선체 상태 보정 범위 — #2561', () => {
+  /*
+   * 저장 형식이 아니라 **도메인 범위**(−30 ~ +100)라 `storableRange`로 대조할 수 없다.
+   * 서버 `HULL_CONDITION_PERCENT` 선언을 읽어 같은 값인지 본다 — 한쪽만 고치면 화면이
+   * 통과시킨 값을 서버가 422로 돌려보낸다.
+   */
+  it('화면 범위가 서버 validation/bounds.py와 같다', () => {
+    const match = /HULL_CONDITION_PERCENT = \{"ge": Decimal\("(-?[\d.]+)"\), "le": Decimal\("(-?[\d.]+)"\)\}/.exec(
+      boundsPy,
+    )
+    expect(match, 'HULL_CONDITION_PERCENT 선언을 찾지 못했습니다').not.toBeNull()
+    expect({ min: Number(match![1]), max: Number(match![2]) }).toEqual(HULL_CONDITION_RANGE)
+  })
+
+  it('0과 음수는 정상 입력이다 — 「0보다 커야 합니다」로 막지 않는다', () => {
+    for (const hullConditionPercent of ['0', '-5', '-30', '100', '12.5']) {
+      const errors = validateForm({ ...initialFormState(), hullConditionPercent }, [])
+      expect(errors.hull_condition_percent, hullConditionPercent).toBeUndefined()
+    }
+  })
+
+  it('범위 밖과 숫자 아닌 값은 그 칸의 오류다 — 등록·수정이 같다', () => {
+    for (const hullConditionPercent of ['-30.01', '100.5', '높음']) {
+      const errors = validateForm({ ...initialFormState(), hullConditionPercent }, [])
+      expect(errors.hull_condition_percent, hullConditionPercent).toBeDefined()
+      const edit = validateEdit(
+        {
+          name: '수정 대상',
+          shipType: 'BULK_CARRIER',
+          grossTonnage: '',
+          deadweight: '',
+          defaultFuelType: '',
+          referenceSpeedKn: '',
+          referenceDailyFocTon: '',
+          blockCoefficient: '',
+          hullConditionPercent,
+          callSign: '',
+        },
+        [],
+      )
+      expect(edit.hull_condition_percent, hullConditionPercent).toBeDefined()
+    }
+  })
+})
 
 describe('선박 제원 경계 — #860', () => {
   it.each([
@@ -66,6 +122,7 @@ describe('선박 제원 경계 — #860', () => {
       referenceSpeedKn: '100000',
       referenceDailyFocTon: '',
       blockCoefficient: '',
+      hullConditionPercent: '',
       callSign: '',
     }
     const errors = validateEdit(state, [])

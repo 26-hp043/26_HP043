@@ -43,6 +43,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     reference_speed_kn: 14,
     reference_daily_foc_ton: 20,
     block_coefficient: null,
+    hull_condition_percent: null,
     call_sign: null,
     is_cii_applicable_hint: true,
     underway_state: null,
@@ -279,6 +280,7 @@ describe('sortVessels — 원본을 바꾸지 않고 순서만 만든다', () =>
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
     block_coefficient: null,
+    hull_condition_percent: null,
     call_sign: null,
   })
 

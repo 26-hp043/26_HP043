@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VesselRegistration } from './VesselRegistration'
+import { SPEC_FIELDS } from './formRules'
 import { EMPTY_SHELL_CONTEXT } from '../../layout/shellContext'
 
 /**
@@ -344,7 +345,8 @@ describe('제원은 접어 두고, 스스로 펼치는 자리가 둘이다 (#178
     expect(specs().open).toBe(false)
     // 접어 두고 이 줄이 없으면 사용자는 나중에 선박 관리에서 같은 경고를 만난다.
     expect(screen.getByText(/CII 등급을 산출할 수 없고/)).toBeTruthy()
-    expect(screen.getByText(/^제원 · 선택 입력 7칸$/)).toBeTruthy()
+    // 칸 수는 접는 묶음에 실제로 그린 칸(`SPEC_FIELDS`)에서 온다 — 칸이 늘어도(#2561) 같이 따라간다.
+    expect(screen.getByText(new RegExp(`^제원 · 선택 입력 ${SPEC_FIELDS.length}칸$`))).toBeTruthy()
   })
 
   it('샘플이 값을 채우면 펼친다 — 무엇이 들어갔는지 모른 채 등록하지 않게', async () => {
@@ -360,7 +362,7 @@ describe('제원은 접어 두고, 스스로 펼치는 자리가 둘이다 (#178
 
     await waitFor(() => expect(specs().open).toBe(true))
     // 채운 칸 수를 접힌 겉이 말한다 (`#1417` 「고급 설정」과 같은 꼴).
-    expect(screen.getByText(/7칸 중 \d칸 채움/)).toBeTruthy()
+    expect(screen.getByText(new RegExp(`${SPEC_FIELDS.length}칸 중 \\d칸 채움`))).toBeTruthy()
   })
 
   it('접힌 칸에서 검증 오류가 나면 사용자가 접어 두었어도 펼친다 (§14)', async () => {

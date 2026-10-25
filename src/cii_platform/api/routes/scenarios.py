@@ -59,6 +59,7 @@ async def scenario_compare(
             detour_waypoint_lat=payload.detour_waypoint_lat,
             detour_waypoint_lon=payload.detour_waypoint_lon,
             voyage_id=payload.voyage_id,
+            hull_condition_percent=payload.hull_condition_percent,
         ),
         # 시나리오 3행·계산 이력·감사 로그를 한 번의 커밋으로 (`#1625` — 기능①과 같다).
         commit=False,

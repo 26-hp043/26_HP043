@@ -41,6 +41,7 @@ export interface VesselFormState {
   referenceSpeedKn: string
   referenceDailyFocTon: string
   blockCoefficient: string
+  hullConditionPercent: string
   callSign: string
 }
 
@@ -63,6 +64,7 @@ export const FIELD = {
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
+  hullConditionPercent: 'hull_condition_percent',
   callSign: 'call_sign',
   /** 어느 입력창에도 붙지 않는 오류. 폼 상단에 표시한다. */
   form: '__form__',
@@ -83,6 +85,7 @@ export const SPEC_FIELDS = [
   'referenceSpeedKn',
   'referenceDailyFocTon',
   'blockCoefficient',
+  'hullConditionPercent',
   'callSign',
   'defaultFuelType',
 ] as const satisfies readonly (keyof VesselFormState)[]
@@ -155,6 +158,7 @@ export function initialFormState(): VesselFormState {
     referenceSpeedKn: '',
     referenceDailyFocTon: '',
     blockCoefficient: '',
+    hullConditionPercent: '',
     callSign: '',
   }
 }
@@ -209,6 +213,22 @@ export const STORABLE = {
 
 /** 방형계수의 물리 상한 — 체적 비율은 1을 넘지 않는다 (#966). */
 export const CB_MAX = 1
+
+/**
+ * 선체·추진 상태 보정(%)의 범위 (#2561) — 서버 `validation/bounds.py`의
+ * `HULL_CONDITION_PERCENT`·DB 트리거(`071`)와 같은 값이다. **음수가 정상 입력이다** —
+ * 선체 청소·프로펠러 연마·절감장치는 연료를 줄인다. 그래서 `checkOptionalPositive`가 아니라
+ * `checkOptionalRange`로 본다.
+ */
+export const HULL_CONDITION_RANGE = { min: -30, max: 100 } as const
+
+/**
+ * 선체 상태 칸의 안내 (#2561). 참고 범위만 보이고 **값을 미리 채우지 않는다** — 오손 상태에서
+ * %로 가는 권위 있는 식이 없어 선사가 자기 배의 성능 감시로 아는 값을 넣는다.
+ */
+export const HULL_CONDITION_HINT =
+  '파울링이면 +, 선체 청소·프로펠러 연마면 −. 참고: 0.5mm 슬라임이 선체 50%를 덮으면 ' +
+  '+25~30% (IMO GloFouling 2022). 비우면 0%로 계산합니다.'
 
 /**
  * 호출부호(call sign)의 모양 (#1197) — ITU 전파규칙 `RR No. 19.55`의 선박국 네 형식은 전부
@@ -282,6 +302,33 @@ export function checkOptionalPositive(
     errors[field] =
       `${withEunNeun(label)} ${range.min.toLocaleString('ko-KR')} 이상 ` +
       `${range.max.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 이하로 입력해 주세요.`
+  }
+}
+
+/**
+ * 0과 음수를 받는 선택 입력 한 칸의 검증 (#2561). 비어 있으면 오류가 아니다.
+ *
+ * `checkOptionalPositive`와 같은 문구 틀을 쓰되 「0보다 커야 합니다」를 내지 않는다 —
+ * 선체 상태 보정은 0(보정 없음)과 음수(개선)가 정상 입력이다.
+ */
+export function checkOptionalRange(
+  raw: string,
+  field: string,
+  label: string,
+  errors: Record<string, string>,
+  range: { readonly min: number; readonly max: number },
+): void {
+  const trimmed = raw.trim()
+  if (trimmed === '') return
+  const value = toNumber(trimmed)
+  if (value === null) {
+    errors[field] = `${withEulReul(label)} 숫자로 입력해 주세요.`
+    return
+  }
+  if (value < range.min || value > range.max) {
+    errors[field] =
+      `${withEunNeun(label)} ${range.min.toLocaleString('ko-KR')} 이상 ` +
+      `${range.max.toLocaleString('ko-KR')} 이하로 입력해 주세요.`
   }
 }
 
@@ -366,6 +413,14 @@ export function validateForm(
       errors[FIELD.blockCoefficient] = `${withEunNeun('방형계수(CB)')} 1 이하로 입력해 주세요.`
     }
   }
+  // #2561 — 선체·추진 상태 보정(선택). 0·음수가 정상 입력이다.
+  checkOptionalRange(
+    state.hullConditionPercent,
+    FIELD.hullConditionPercent,
+    '선체 상태 보정',
+    errors,
+    HULL_CONDITION_RANGE,
+  )
   // #1197 — 호출부호(선택). 공공데이터 교차 대조의 키.
   checkCallSign(state.callSign, FIELD.callSign, errors)
 
@@ -446,6 +501,10 @@ export function toRequest(state: VesselFormState): VesselCreateRequest {
   const referenceDailyFocTon = toNumber(state.referenceDailyFocTon)
   if (referenceDailyFocTon !== null) request.reference_daily_foc_ton = referenceDailyFocTon
 
+  // #2561 — 선체 상태 보정(선택). 빈 칸은 키를 넣지 않는다 — 「미입력」이다. 0은 싣는다.
+  const hullConditionPercent = toNumber(state.hullConditionPercent)
+  if (hullConditionPercent !== null) request.hull_condition_percent = hullConditionPercent
+
   // #1197 — 호출부호(선택). 접은 값을 싣고, 빈 칸은 키를 넣지 않는다(위 규칙과 같다).
   const callSign = normalizeCallSign(state.callSign)
   if (callSign !== null) request.call_sign = callSign
@@ -468,6 +527,7 @@ const FIELD_PATHS: ReadonlySet<string> = new Set([
   FIELD.referenceSpeedKn,
   FIELD.referenceDailyFocTon,
   FIELD.blockCoefficient,
+  FIELD.hullConditionPercent,
   FIELD.callSign,
 ])
 

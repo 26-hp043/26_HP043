@@ -8,6 +8,7 @@ import { SCREEN_BY_ID } from '../../screens'
 import { useShellContext } from '../../layout/shellContext'
 import {
   FIELD,
+  HULL_CONDITION_HINT,
   NAME_MAX_LENGTH,
   SPEC_FIELDS,
   SPEC_SKIP_CONSEQUENCE,
@@ -453,6 +454,29 @@ export function VesselRegistration() {
                   value={state.blockCoefficient}
                   onChange={(e) =>
                     update('blockCoefficient', e.target.value, FIELD.blockCoefficient)
+                  }
+                />
+              )}
+            </Field>
+
+            {/* #2561 — 선체·추진 상태 보정(선택). 항로 비교의 연료 추정에 곱한다. 안내만 보이고
+                값을 미리 채우지 않는다 — 오손 상태에서 %로 가는 권위 있는 식이 없다. */}
+            <Field
+              id="hull-condition"
+              label="선체 상태 보정 (%)"
+              labelEn="Hull Condition"
+              hint={HULL_CONDITION_HINT}
+              error={errors[FIELD.hullConditionPercent]}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.hullConditionPercent}
+                  onChange={(e) =>
+                    update('hullConditionPercent', e.target.value, FIELD.hullConditionPercent)
                   }
                 />
               )}

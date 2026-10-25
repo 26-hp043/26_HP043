@@ -286,6 +286,12 @@ describe('toRequest', () => {
     expect('block_coefficient' in request).toBe(false)
   })
 
+  it('#2561 — 빈 선체 상태 칸은 키를 넣지 않는다(「미입력」), 0은 싣는다(「보정 없음」)', () => {
+    expect('hull_condition_percent' in toRequest(state())).toBe(false)
+    expect(toRequest(state({ hullConditionPercent: '0' })).hull_condition_percent).toBe(0)
+    expect(toRequest(state({ hullConditionPercent: '-5' })).hull_condition_percent).toBe(-5)
+  })
+
   it('#966 — 방형계수 값은 그대로 실린다', () => {
     const request = toRequest(state({ blockCoefficient: '0.82' }))
     expect(request.block_coefficient).toBe(0.82)

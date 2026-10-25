@@ -141,6 +141,9 @@ class ScenarioCompareInput:
     detour_waypoint_lon: Decimal | None = None
     # 이 비교가 두고 한 항차 (`#2217` · 선택). 계산 재료가 아니다 — 해시에 넣지 않는다.
     voyage_id: UUID | None = None
+    # 선체·추진 상태 보정 % (`#2561` 결정 D2 · 선택). 이번 비교에만 쓰는 덮어쓰기 값이다 —
+    # 없으면 선박 제원(``vessel.hull_condition_percent``), 그것도 없으면 0%로 계산한다.
+    hull_condition_percent: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -177,6 +180,7 @@ def _compute_scenarios(
     z_factor_percent: Decimal,
     d_vector: DVector,
     weather_factor: Decimal,
+    hull_condition_percent: Decimal | None = None,
 ) -> list[_ScenarioComputed]:
     """시나리오 3건 전체를 **한 Layer 1 컨텍스트 안에서** 계산한다.
 
@@ -192,6 +196,7 @@ def _compute_scenarios(
             reference_speed_kn=reference_speed_kn,
             base_daily_foc_ton=base_daily_foc_ton,
             weather_factor=weather_factor,
+            hull_condition_percent=hull_condition_percent,
         )
         duration_hours = plan.distance_nm / plan.speed_kn
         layer1 = _compute_layer1(
@@ -263,6 +268,7 @@ async def compare_scenarios(
     reference_capacity = _resolve_reference_capacity(vessel, reference_line)
     base_daily_foc_ton = _resolve_base_daily_foc(payload, vessel)
     reference_speed_kn = _resolve_reference_speed(vessel)
+    hull_condition_percent, hull_condition_source = _resolve_hull_condition(payload, vessel)
 
     direct_distance = _resolve_direct_distance(payload)
     waypoint = _waypoint(payload)
@@ -298,6 +304,7 @@ async def compare_scenarios(
                 d4=Decimal(rating_boundary.d4),
             ),
             weather_factor=weather.factor,
+            hull_condition_percent=hull_condition_percent,
         )
     except ValueError as exc:
         raise ValidationError(log_calculation_failure("기능② 시나리오", exc)) from exc
@@ -340,6 +347,7 @@ async def compare_scenarios(
             # `#1300` — 경유지는 요청 재료이자 해시 재료다(`TECH_SPEC §5.3`). 없으면 키를
             # 넣지 않는다 — `_filter_fields`가 있는 키만 담으므로 종전 해시가 그대로다.
             **_waypoint_hash_material(waypoint),
+            **_hull_condition_hash_material(hull_condition_percent),
         }
     )
     parameter_hash = compute_parameter_hash(parameters_used)
@@ -396,6 +404,9 @@ async def compare_scenarios(
         # 결과(요청이 NONE · 좌표 없음 · 캐시 없음 · 24시간 초과)는 ``fetched_at``이 ``None``이다 —
         # 키는 늘 있다. 화면이 「보정했는가」를 키의 유무가 아니라 값으로 읽게 하려는 것이다.
         "weather": {"fetched_at": fetched_at_iso(weather.synced_at)},
+        # 세 시나리오에 **공통으로** 건 계산 조건 (`#2561`). 화면 머리가 「선체 상태 +20%
+        # (선박 제원)」처럼 한 줄로 보인다. 키는 늘 있다 — ``weather``와 같은 이유다.
+        "conditions": _conditions_json(hull_condition_percent, hull_condition_source),
     }
 
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))
@@ -572,6 +583,40 @@ def _resolve_base_daily_foc(payload, vessel) -> Decimal:
             field_label="기준 일일 연료소모량",
         )
     return Decimal(value)
+
+
+#: 선체 상태 보정 %의 출처 (`#2561`). 「미입력」과 「0%를 넣음」을 화면이 구분하게 한다 —
+#: 계산은 같아도 사용자가 그 배를 「깨끗하다고 확인했다」와 「모른다」는 다른 말이다.
+HULL_CONDITION_SOURCE_REQUEST = "REQUEST"
+HULL_CONDITION_SOURCE_VESSEL = "VESSEL"
+HULL_CONDITION_SOURCE_NOT_SET = "NOT_SET"
+
+
+def _resolve_hull_condition(payload, vessel) -> tuple[Decimal | None, str]:
+    """선체·추진 상태 보정 %와 그 출처 — 요청 → 선박 제원 → 미입력 (`#2561` 결정 D2).
+
+    미입력이면 ``None``을 돌려준다. 계산은 0%와 같다(``estimate_fuel_ton``이 곱하지 않는다).
+    """
+    if payload.hull_condition_percent is not None:
+        return Decimal(payload.hull_condition_percent), HULL_CONDITION_SOURCE_REQUEST
+    if vessel.hull_condition_percent is not None:
+        return Decimal(vessel.hull_condition_percent), HULL_CONDITION_SOURCE_VESSEL
+    return None, HULL_CONDITION_SOURCE_NOT_SET
+
+
+def _hull_condition_hash_material(percent: Decimal | None) -> dict[str, object]:
+    """0이 아닐 때만 해시 재료에 넣는다 — 미입력·0%는 종전과 같은 계산이다(`#2561`)."""
+    if not percent:
+        return {}
+    return {"hull_condition_percent": percent}
+
+
+def _conditions_json(percent: Decimal | None, source: str) -> dict[str, object]:
+    """응답 ``data.conditions`` (`API_SPEC §5.1` · `#2561`)."""
+    return {
+        "hull_condition_percent": None if percent is None else float(percent),
+        "hull_condition_source": source,
+    }
 
 
 def _resolve_reference_speed(vessel) -> Decimal:

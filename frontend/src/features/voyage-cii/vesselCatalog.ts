@@ -47,6 +47,12 @@ export interface VesselSpecDefaults {
   referenceSpeedKn: string | null
   referenceDailyFocTon: string | null
   defaultFuelType: string | null
+  /**
+   * 선체·추진 상태 보정 % (#2561). 항로 비교가 「비우면 이 값으로 계산」을 알리는 데만 쓴다 —
+   * 입력칸에 미리 채우지 않는다(서버가 선박 제원값을 직접 쓴다). 선택 필드 — 가짜 목록에는
+   * 없을 수 있고 `null`과 같게 읽는다.
+   */
+  hullConditionPercent?: string | null
 }
 
 /** 선박 목록 조회의 데이터 경계. 화면은 출처를 알지 않는다 (`#134`). */
@@ -62,6 +68,7 @@ interface VesselListItem {
   reference_speed_kn?: unknown
   reference_daily_foc_ton?: unknown
   default_fuel_type?: unknown
+  hull_condition_percent?: unknown
 }
 
 /** 서버 숫자(또는 십진 문자열)를 입력칸 문자열로. 값이 없거나 읽을 수 없으면 `null`. */
@@ -132,6 +139,7 @@ export function createApiVesselCatalog(baseUrl?: string): VesselCatalogProvider 
             referenceSpeedKn: specText(row.reference_speed_kn),
             referenceDailyFocTon: specText(row.reference_daily_foc_ton),
             defaultFuelType: specText(row.default_fuel_type),
+            hullConditionPercent: specText(row.hull_condition_percent),
           },
         }))
     },
