@@ -29,7 +29,14 @@ dependencies = [
     # `sqlalchemy-cubrid[pycubrid]` extra로 받는 길도 있으나 **이름을 직접 적는 쪽**을
     # 고른다 — `depcheck`(#523)가 기동 전에 대조하는 것은 여기 적힌 이름이고,
     # extra 안으로 숨기면 「방언은 있는데 드라이버가 없는」 이미지를 잡지 못한다.
-    "sqlalchemy-cubrid>=1.11.0,<2.0",
+    #
+    # 🔴 **`sqlalchemy-cubrid` 하한은 1.12.0이다** (`#2563`). 1.12.0부터 필터 인덱스의 조건을
+    # 반영(`db_index.filter_expression` → `cubrid_where`)하고 선언(`sa.Index(..., cubrid_where=)`)도
+    # 받는다. 1.11은 그 인자를 받기는 하나 DDL을 만들 때 `WHERE`를 **조용히 버리고**(2026-10-25
+    # 실측) 반영도 조건을 읽지 않아, 선언이 있어도 없어도 같다. 1.12를 받으면서 선언하지 않으면
+    # ORM 동기화 검사가 drift를 낸다 — CI는 lockfile이 아니라 범위 안의 최신판을
+    # 받아(`ci.yml` `pip install -e`) 2026-10-25에 1.12.0이 들어오자 main이 막혔다.
+    "sqlalchemy-cubrid>=1.12.0,<2.0",
     "pycubrid>=1.13.0,<2.0",
     # `asyncpg`는 빼 둔다 — 이 브랜치는 CUBRID로 붙는다 (`#1058`).
     # `alembic` 하한은 **`main` 쪽을 따른다** — 봇 PR `#1137`이 1.20.0으로 올렸다.
