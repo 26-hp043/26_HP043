@@ -414,6 +414,8 @@
 
 .scenario-tile__row--detour { --scenario-color: var(--color-warning-text); }
 .scenario-tile__row--slow_steaming { --scenario-color: var(--route-slow); }
+/* #2561 — 도착시각 맞춤은 따르는 길의 색이다(직항·우회). 이름 라벨이 둘을 가른다(§14). 디자인 검토 대상. */
+.scenario-tile__row--detour_jit { --scenario-color: var(--color-warning-text); }
 
 .scenario-tile__name,
 .scenario-tile__value {
@@ -719,6 +721,14 @@
   fill: var(--color-surface);
   stroke: var(--color-text);
   stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* #2561 — 도착시각 맞춤의 선석 표시. 목적항 바로 뒤의 세로 막대 하나다. 디자인 검토 대상. */
+.scenario-glyph__berth {
+  stroke: var(--color-text);
+  stroke-width: 2;
+  stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
 

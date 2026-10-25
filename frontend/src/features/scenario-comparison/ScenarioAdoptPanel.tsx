@@ -10,6 +10,7 @@ import type { VoyageStatus } from '../voyage-management/types'
 import type { ScenarioComparisonProvider } from './provider'
 import type { ScenarioAdoptResult, ScenarioResult } from './types'
 import { adoptConfirmMessage, fieldLabel, invalidatedMessage, isPlanning } from './adoptRules'
+import { berthAdoptNotice } from './comparisonRules'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { useShowsLabelEn } from '../../i18n/core'
@@ -305,6 +306,16 @@ export function ScenarioAdoptPanel({
           )}
         </div>
       </div>
+
+      {/*
+        #2561 결정 D4 — 고른 시나리오에 선석 대기가 있으면 그 몫이 계획에 담기지 않는다는 것을 채택
+        **전에** 알린다. 문구 원문은 `PRD §6.3`이다(`berthAdoptNotice`).
+      */}
+      {scenario !== undefined && berthAdoptNotice(scenario) !== null ? (
+        <p className="scenario-adopt__note" data-testid="scenario-adopt-berth">
+          {berthAdoptNotice(scenario)}
+        </p>
+      ) : null}
 
       {stale ? (
         <p id="scenario-adopt-stale" className="scenario-adopt__note" role="status">

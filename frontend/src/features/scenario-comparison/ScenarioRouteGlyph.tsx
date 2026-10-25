@@ -42,9 +42,17 @@ const GLYPH_LABEL: Readonly<Record<ScenarioType, string>> = {
   DIRECT: '두 지점을 잇는 직선 항로',
   DETOUR: '원래 항로보다 길게 우회하는 항로',
   SLOW_STEAMING: '같은 항로를 더 느리게 항해',
+  DIRECT_JIT: '직선 항로를 선석 가용 시각에 맞춰 항해',
+  DETOUR_JIT: '우회 항로를 선석 가용 시각에 맞춰 항해',
 }
 
+/*
+ * 도착시각 맞춤(#2561)은 **길이 아니라 속력**이 다르다 — 따르는 길(직항·우회)의 도식을 그대로
+ * 그리고, 목적항 쪽 끝에 선석 표시(세로 막대)를 하나 더한다. 모양은 디자인 검토 대상이다.
+ */
 export function ScenarioRouteGlyph({ type }: { type: ScenarioType }) {
+  const jit = type === 'DIRECT_JIT' || type === 'DETOUR_JIT'
+  const route: ScenarioType = type === 'DIRECT_JIT' ? 'DIRECT' : type === 'DETOUR_JIT' ? 'DETOUR' : type
   return (
     <svg
       className="scenario-glyph"
@@ -54,7 +62,7 @@ export function ScenarioRouteGlyph({ type }: { type: ScenarioType }) {
       preserveAspectRatio="none"
     >
       {/* 우회는 원래 길을 점선으로 남긴다 — 늘어난 양이 그 대비에서 읽힌다. */}
-      {type === 'DETOUR' ? (
+      {route === 'DETOUR' ? (
         <line
           className="scenario-glyph__baseline"
           x1={X1}
@@ -64,7 +72,7 @@ export function ScenarioRouteGlyph({ type }: { type: ScenarioType }) {
         />
       ) : null}
 
-      {type === 'DETOUR' ? (
+      {route === 'DETOUR' ? (
         <path
           className="scenario-glyph__path"
           d={`M ${X1} ${MID + 6} Q ${VIEW_W / 2} ${MID - 12} ${X2} ${MID + 6}`}
@@ -80,8 +88,17 @@ export function ScenarioRouteGlyph({ type }: { type: ScenarioType }) {
         />
       )}
 
-      <circle className="scenario-glyph__port" cx={X1} cy={type === 'DETOUR' ? MID + 6 : MID} r="3" />
-      <circle className="scenario-glyph__port" cx={X2} cy={type === 'DETOUR' ? MID + 6 : MID} r="3" />
+      <circle className="scenario-glyph__port" cx={X1} cy={route === 'DETOUR' ? MID + 6 : MID} r="3" />
+      <circle className="scenario-glyph__port" cx={X2} cy={route === 'DETOUR' ? MID + 6 : MID} r="3" />
+      {jit ? (
+        <line
+          className="scenario-glyph__berth"
+          x1={X2 + 4}
+          y1={(route === 'DETOUR' ? MID + 6 : MID) - 7}
+          x2={X2 + 4}
+          y2={(route === 'DETOUR' ? MID + 6 : MID) + 7}
+        />
+      ) : null}
     </svg>
   )
 }

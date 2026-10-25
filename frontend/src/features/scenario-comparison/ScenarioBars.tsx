@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped } from '../../display/format'
 import { percentChangeFixed, shareOfMax } from '../../display/decimal'
-import { lowestScenarios } from './comparisonRules'
+import { hasBerth, lowestScenarios, metricValue, type ComparableMetric } from './comparisonRules'
 import type { ScenarioResult } from './types'
 
 /**
@@ -23,10 +23,8 @@ import type { ScenarioResult } from './types'
  * 숫자는 같은 응답 · 같은 표시 자릿수에서 나온다. 증감률은 표시값끼리 `BigInt`로
  * 나눈다(`percentChangeFixed`).
  */
-type TileMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton'
-
 interface MetricDef {
-  readonly key: TileMetric
+  readonly key: ComparableMetric
   readonly label: string
   readonly lowestTag: string
   readonly digits: number
@@ -34,7 +32,11 @@ interface MetricDef {
   readonly format: (value: string) => string
 }
 
-function metricDefs(ciiUnit: string): readonly MetricDef[] {
+/*
+ * 선석 시각을 넣은 비교면 소요시간 타일이 **접안까지**를 견준다 (#2561 결정 D8). 항해 시간으로 두면
+ * 선석보다 먼저 닿아 기다리는 직항이 「가장 짧음」을 받는다 — 그 전에는 접안할 수 없다.
+ */
+function metricDefs(ciiUnit: string, berth: boolean): readonly MetricDef[] {
   return [
     {
       key: 'attained_cii',
@@ -45,8 +47,8 @@ function metricDefs(ciiUnit: string): readonly MetricDef[] {
       format: (v) => formatDecimalString(v, DISPLAY_DIGITS.cii),
     },
     {
-      key: 'duration_hours',
-      label: '소요시간',
+      key: berth ? 'hours_to_berth' : 'duration_hours',
+      label: berth ? '접안까지' : '소요시간',
       lowestTag: '가장 짧음',
       digits: DISPLAY_DIGITS.durationHours,
       unit: DISPLAY_UNITS.duration,
@@ -66,7 +68,7 @@ function metricDefs(ciiUnit: string): readonly MetricDef[] {
 function MetricTile({ def, scenarios }: { def: MetricDef; scenarios: readonly ScenarioResult[] }) {
   const titleId = useId()
   const widths = shareOfMax(
-    scenarios.map((s) => s[def.key]),
+    scenarios.map((s) => metricValue(s, def.key)),
     def.digits,
   )
   const lowest = lowestScenarios(scenarios, def.key)
@@ -75,7 +77,7 @@ function MetricTile({ def, scenarios }: { def: MetricDef; scenarios: readonly Sc
   const best = scenarios.find((s) => s.scenario_type === lowest[0])
   const change =
     !tie && direct !== undefined && best !== undefined && best.scenario_type !== 'DIRECT'
-      ? percentChangeFixed(best[def.key], direct[def.key], def.digits)
+      ? percentChangeFixed(metricValue(best, def.key), metricValue(direct, def.key), def.digits)
       : null
   const names = lowest
     .map((type) => scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—')
@@ -100,7 +102,7 @@ function MetricTile({ def, scenarios }: { def: MetricDef; scenarios: readonly Sc
                 <span className="scenario-tile__fill" style={{ inlineSize: `${widths[index]}%` }} />
               </span>
               <span className="scenario-tile__value">
-                {def.format(scenario[def.key])}
+                {def.format(metricValue(scenario, def.key))}
                 {isLowest ? <span className="sr-only"> ({def.lowestTag})</span> : null}
               </span>
             </li>
@@ -132,7 +134,7 @@ export function ScenarioBars({
 }) {
   const titleId = useId()
   if (scenarios.length === 0) return null
-  const defs = metricDefs(ciiUnit)
+  const defs = metricDefs(ciiUnit, hasBerth(scenarios))
 
   return (
     <section className="scenario-bars" aria-labelledby={titleId}>

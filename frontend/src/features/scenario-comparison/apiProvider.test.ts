@@ -532,7 +532,15 @@ describe('선체 상태 보정 (#2561)', () => {
       jsonResponse(withConditions({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })),
     )
     const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
-    expect(result.conditions).toEqual({ hull_condition_percent: 20, hull_condition_source: 'VESSEL' })
+    // 선석 칸이 없는 응답(①)은 「선석 없음」으로 읽는다 (#2561 ②③).
+    expect(result.conditions).toEqual({
+      hull_condition_percent: 20,
+      hull_condition_source: 'VESSEL',
+      berth_available_at: null,
+      hours_until_berth: null,
+      anchorage_daily_foc_ton: null,
+      anchorage_daily_foc_source: 'NOT_SET',
+    })
   })
 
   it('모르는 출처·숫자 아닌 값·블록 없음은 null이다 — 「선박 제원」이라 지어 적지 않는다', async () => {
@@ -546,5 +554,137 @@ describe('선체 상태 보정 (#2561)', () => {
       const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
       expect(result.conditions).toBeNull()
     }
+  })
+})
+
+describe('선석 가용 시각 · 도착시각 맞춤 · 선석 대기 (#2561 ②③)', () => {
+  const BERTH = {
+    hours_to_berth: '80.0000',
+    waiting_hours: '8.5714',
+    late_hours: '0.0000',
+    waiting_fuel_ton: '1.07',
+    attained_cii_with_waiting: '5.627442',
+    estimated_rating_with_waiting: 'D',
+  }
+  const JIT = {
+    ...OK_BODY.data.scenarios[0],
+    scenario_id: 'c',
+    scenario_type: 'DIRECT_JIT',
+    scenario_name: '직항 · 도착시각 맞춤',
+    speed_kn: 12.5,
+    warnings: ['ARRIVAL_SPEED_FLOOR'],
+    berth: { ...BERTH, waiting_hours: '0.0000', waiting_fuel_ton: '0.00' },
+  }
+  const withBerth = (extra: Record<string, unknown> = {}) => ({
+    ...OK_BODY,
+    data: {
+      ...OK_BODY.data,
+      scenarios: [{ ...OK_BODY.data.scenarios[0], warnings: [], berth: BERTH }, JIT],
+      ...extra,
+    },
+  })
+
+  it('선석 시각·기준 시각·묘박 연료를 서버 필드명 그대로 싣고, 없으면 키를 뺀다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(OK_BODY))
+    const provider = createApiScenarioProvider(fetchImpl)
+    await provider.compare({
+      ...REQUEST,
+      berth_available_at: '2026-10-29T08:00:00.000Z',
+      berth_reference_at: '2026-10-26T00:00:00.000Z',
+      anchorage_daily_foc_ton: 3,
+    })
+    await provider.compare(REQUEST)
+    const [filled, empty] = fetchImpl.mock.calls.map((call) =>
+      JSON.parse(String((call as unknown as [string, RequestInit])[1].body)),
+    )
+    expect(filled.berth_available_at).toBe('2026-10-29T08:00:00.000Z')
+    expect(filled.berth_reference_at).toBe('2026-10-26T00:00:00.000Z')
+    expect(filled.anchorage_daily_foc_ton).toBe(3)
+    for (const key of ['berth_available_at', 'berth_reference_at', 'anchorage_daily_foc_ton']) {
+      expect(key in empty, key).toBe(false)
+    }
+  })
+
+  it('도착시각 맞춤 종류를 받고, 시나리오의 선석 대기와 경고 귀속을 넘긴다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(withBerth()))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.scenarios.map((s) => s.scenario_type)).toEqual(['DIRECT', 'DIRECT_JIT'])
+    expect(result.scenarios[0].berth).toEqual(BERTH)
+    expect(result.scenarios[1].warnings).toEqual(['ARRIVAL_SPEED_FLOOR'])
+  })
+
+  it('묘박 연료를 몰라 못 낸 값은 null 그대로다 — 0으로 읽지 않는다', async () => {
+    const unknownFuel = {
+      ...BERTH,
+      waiting_fuel_ton: null,
+      attained_cii_with_waiting: null,
+      estimated_rating_with_waiting: null,
+    }
+    // 추론된 타입은 연료 칸을 문자열로 못박는다 — 서버가 실제로 보내는 `null`을 넣으려고 느슨하게 받는다.
+    const body = withBerth() as unknown as { data: { scenarios: Array<Record<string, unknown>> } }
+    body.data.scenarios[0] = { ...body.data.scenarios[0], berth: unknownFuel }
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.scenarios[0].berth?.waiting_fuel_ton).toBeNull()
+    expect(result.scenarios[0].berth?.attained_cii_with_waiting).toBeNull()
+  })
+
+  it('옛 응답(선석 칸 없음)은 대기 null · 경고 빈 배열 · 도달 불가 빈 배열로 읽는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.scenarios.every((s) => s.berth === null && s.warnings.length === 0)).toBe(true)
+    expect(result.unreachable_scenarios).toEqual([])
+  })
+
+  it('대기 시간이 비면 계약 위반이다 — 빈 시간을 화면에 올리지 않는다', async () => {
+    const body = withBerth()
+    body.data.scenarios[0] = { ...body.data.scenarios[0], berth: { ...BERTH, waiting_hours: '' } }
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    await expect(createApiScenarioProvider(fetchImpl).compare(REQUEST)).rejects.toBeInstanceOf(
+      ScenarioComparisonError,
+    )
+  })
+
+  it('도달 불가 목록을 넘기고, 모양이 틀린 항목은 버린다', async () => {
+    const good = {
+      scenario_type: 'DETOUR_JIT',
+      scenario_name: '우회 · 도착시각 맞춤',
+      distance_nm: 1050,
+      required_speed_kn: 105,
+    }
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        withBerth({ unreachable_scenarios: [good, { ...good, required_speed_kn: '105' }, null] }),
+      ),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.unreachable_scenarios).toEqual([good])
+  })
+
+  it('선석 조건 칸을 넘긴다 — 묘박 연료 출처까지', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse(
+        withBerth({
+          conditions: {
+            hull_condition_percent: null,
+            hull_condition_source: 'NOT_SET',
+            berth_available_at: '2026-10-29T08:00:00Z',
+            berth_reference_at: '2026-10-26T00:00:00Z',
+            hours_until_berth: '80.0000',
+            anchorage_daily_foc_ton: 3,
+            anchorage_daily_foc_source: 'REQUEST',
+          },
+        }),
+      ),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.conditions).toEqual({
+      hull_condition_percent: null,
+      hull_condition_source: 'NOT_SET',
+      berth_available_at: '2026-10-29T08:00:00Z',
+      hours_until_berth: '80.0000',
+      anchorage_daily_foc_ton: 3,
+      anchorage_daily_foc_source: 'REQUEST',
+    })
   })
 })

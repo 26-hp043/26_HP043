@@ -73,6 +73,7 @@ describe('실 API 카탈로그', () => {
             reference_daily_foc_ton: 23.04,
             default_fuel_type: 'LNG',
             hull_condition_percent: -5,
+            anchorage_daily_foc_ton: 3,
           },
           { id: 'v-2', name: '제원 없는 배', ship_type: 'GENERAL_CARGO', reference_speed_kn: null },
         ],
@@ -86,12 +87,14 @@ describe('실 API 카탈로그', () => {
       referenceDailyFocTon: '23.04',
       defaultFuelType: 'LNG',
       hullConditionPercent: '-5',
+      anchorageDailyFocTon: '3',
     })
     expect(empty.spec).toEqual({
       referenceSpeedKn: null,
       referenceDailyFocTon: null,
       defaultFuelType: null,
       hullConditionPercent: null,
+      anchorageDailyFocTon: null,
     })
   })
 

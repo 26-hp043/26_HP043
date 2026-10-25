@@ -262,7 +262,6 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/realtime-cii/realtimeRules.ts::RatingTransition': 'ratingTransition()의 반환 형태',
   'features/realtime-cii/realtimeRules.ts::TransitionDirection': 'RatingTransition의 구성 요소',
   'features/scenario-comparison/comparisonRules.ts::LowestSummary': 'lowestSummary()의 반환 형태',
-  'features/scenario-comparison/comparisonRules.ts::ComparableMetric': '비교 지표 enum',
   'features/voyage-cii/resultRules.ts::MarginDisplay': 'marginDisplay()의 반환 형태',
   'features/vessel-registration/shipTypes.ts::ShipTypeOption': 'SHIP_TYPES 항목 형태',
   'features/vessel-registration/shipTypes.ts::CapacityAxis': 'capacityAxisOf()의 반환 형태',

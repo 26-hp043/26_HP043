@@ -24,8 +24,40 @@ import type { CapacityBasis, Rating, RiskLevel, WeatherModel } from '../voyage-c
  * 예외는 입력 에코인 `distance_nm`·`speed_kn`으로 기능①과 같이 숫자다.
  */
 
-/** `PRD §11.2` 시나리오 3종. */
-export type ScenarioType = 'DIRECT' | 'DETOUR' | 'SLOW_STEAMING'
+/**
+ * `PRD §11.2` 시나리오. 뒤의 둘(도착시각 맞춤)은 **선석 가용 시각을 넣었을 때만** 온다 (#2561).
+ */
+export type ScenarioType = 'DIRECT' | 'DETOUR' | 'SLOW_STEAMING' | 'DIRECT_JIT' | 'DETOUR_JIT'
+
+/**
+ * 한 시나리오의 선석 대기 (`API_SPEC §5.1` `scenarios[].berth` · #2561 결정 D8 「다」).
+ *
+ * **주된 칸(연료·CII·등급)과 따로 받는다** — 주된 칸은 항해만이고, 채택하면 항차 계획에 들어가는
+ * 값이다. 대기는 계획에 담기지 않는다(결정 D4).
+ */
+export interface ScenarioBerth {
+  /** Layer 1. 접안까지 = 항해 + 대기. 늦게 닿으면 항해 시간이다. */
+  hours_to_berth: string
+  /** Layer 1. 선석보다 일찍 닿아 기다리는 시간. 늦게 닿으면 `"0.0000"`. */
+  waiting_hours: string
+  /** Layer 1. 선석 시각보다 늦게 닿는 시간. 일찍 닿으면 `"0.0000"`. */
+  late_hours: string
+  /** Layer 1. 묘박 연료가 미입력이고 대기가 있으면 `null`(「계산 못 함」) — 0이 아니다. */
+  waiting_fuel_ton: string | null
+  /** Layer 1. 대기 연료를 분자에만 더한 CII. 위와 같은 때 `null`. */
+  attained_cii_with_waiting: string | null
+  estimated_rating_with_waiting: Rating | null
+}
+
+/** 도착시각 맞춤 속도가 상한(60kn)을 넘어 **계산하지 않은** 시나리오 (#2561). */
+export interface UnreachableScenario {
+  scenario_type: ScenarioType
+  scenario_name: string
+  /** 숫자 — 입력 에코 */
+  distance_nm: number
+  /** 숫자 — 맞추려면 필요한 속도(0.01kn 올림) */
+  required_speed_kn: number
+}
 
 /** 시나리오 1건. */
 export interface ScenarioResult {
@@ -55,6 +87,13 @@ export interface ScenarioResult {
   risk_level: RiskLevel
   /** Layer 1. 등급 E는 악화 방향 경계가 없어 `null`이다. */
   next_worse_boundary_margin_ratio: string | null
+  /**
+   * 이 시나리오에 붙는 경고 코드 (#2561 · `API_SPEC §5.1`). 응답 최상위 `warnings`가 전부를 싣고,
+   * 이쪽은 **어느 카드의 경고인가**만 더한다. 옛 응답에는 없어 빈 배열로 읽는다.
+   */
+  warnings: string[]
+  /** 선석 대기 (#2561). 선석 시각을 넣지 않은 비교면 `null`이다. */
+  berth: ScenarioBerth | null
 }
 
 /** 시나리오 비교 요청. */
@@ -123,6 +162,18 @@ export interface ScenarioComparisonRequest {
    */
   hull_condition_percent?: number
   /**
+   * 선석 가용 시각과 그 기준 시각 (#2561 결정 D1 · `API_SPEC §5.1`). **둘이 함께**만 싣는다 —
+   * 기준 시각은 화면이 요청을 만드는 순간의 시각이고, 서버는 「지금」을 정하지 않는다
+   * (`TECH_SPEC §5.4`). 둘 다 UTC ISO 문자열이다.
+   */
+  berth_available_at?: string
+  berth_reference_at?: string
+  /**
+   * 묘박 중 일일 연료(t/일 · #2561 결정 D3). **이번 비교에만** 쓰는 덮어쓰기 값이다 — 없으면 서버가
+   * 선박 제원값을, 그것도 없으면 대기 연료를 「계산 못 함」으로 둔다.
+   */
+  anchorage_daily_foc_ton?: number
+  /**
    * 이 비교가 **어느 항차를 두고 한 것인가** (`#2217` · `API_SPEC §5.1`). 상단바에 고른 항차다.
    *
    * 계획 단계 항차면 서버가 계산 이력을 그 항차에 붙이고, 채택 없이 끝난 항차의 리포트가 이
@@ -133,8 +184,13 @@ export interface ScenarioComparisonRequest {
 
 /** 시나리오 비교 응답. */
 export interface ScenarioComparisonResponse {
-  /** `PRD §11.2` 순서 — DIRECT · DETOUR · SLOW_STEAMING */
+  /** `PRD §11.2` 순서 — DIRECT · DETOUR · SLOW_STEAMING (· DIRECT_JIT · DETOUR_JIT) */
   scenarios: ScenarioResult[]
+  /**
+   * 도착시각 맞춤 속도가 60kn을 넘어 계산하지 않은 시나리오 (#2561). 선석 시각이 없거나 모두
+   * 계산했으면 빈 배열이다.
+   */
+  unreachable_scenarios: UnreachableScenario[]
   /** Layer 1. 모든 시나리오가 공유한다. */
   required_cii: string
   /** 단위 파생용. 기능①과 같은 규칙(`DESIGN_SYSTEM §4.1`). */
@@ -184,6 +240,13 @@ export interface ScenarioConditions {
   /** `null`이면 미입력(0%로 계산). */
   hull_condition_percent: number | null
   hull_condition_source: 'REQUEST' | 'VESSEL' | 'NOT_SET'
+  /** 선석 가용 시각(UTC ISO · #2561). 선석 시각을 넣지 않았으면 `null`. */
+  berth_available_at: string | null
+  /** Layer 1. 선석까지 남은 시간. 선석 시각이 없으면 `null`. */
+  hours_until_berth: string | null
+  /** 대기 연료에 쓴 묘박 중 일일 연료(t/일). 미입력이면 `null`. */
+  anchorage_daily_foc_ton: number | null
+  anchorage_daily_foc_source: 'REQUEST' | 'VESSEL' | 'NOT_SET'
 }
 
 /**

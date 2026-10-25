@@ -6,7 +6,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { ShipIllustration } from '../../components/ShipIllustration'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
-import { HULL_CONDITION_HINT } from '../vessel-registration/formRules'
+import { ANCHORAGE_FOC_HINT, HULL_CONDITION_HINT } from '../vessel-registration/formRules'
 import {
   FUEL_LIST_FAILED_HINT,
   fuelOptionsWithCurrent,
@@ -1079,7 +1079,7 @@ function EditForm({
       </Field>
 
       <details className="vm-edit__more">
-        <summary>기타 · 방형계수 · 선체 상태 · 호출부호 · 기본 연료</summary>
+        <summary>기타 · 방형계수 · 선체 상태 · 묘박 연료 · 호출부호 · 기본 연료</summary>
         <div className="vm-edit__more-body">
       <Field id="vm-blockCoefficient" label="방형계수 (CB)" error={errors[EDIT_FIELD.blockCoefficient]}>
         {(control) => (
@@ -1107,6 +1107,24 @@ function EditForm({
             inputMode="decimal"
             value={state.hullConditionPercent}
             onChange={(e) => set({ hullConditionPercent: e.target.value })}
+          />
+        )}
+      </Field>
+
+      {/* #2561 결정 D3 — 묘박 중 일일 연료(선택). 등록 화면과 같은 안내다. */}
+      <Field
+        id="vm-anchorageDailyFocTon"
+        label="묘박 중 일일 연료 (t/일)"
+        hint={ANCHORAGE_FOC_HINT}
+        error={errors[EDIT_FIELD.anchorageDailyFocTon]}
+      >
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.anchorageDailyFocTon}
+            onChange={(e) => set({ anchorageDailyFocTon: e.target.value })}
           />
         )}
       </Field>

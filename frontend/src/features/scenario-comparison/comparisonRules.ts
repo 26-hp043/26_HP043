@@ -1,6 +1,6 @@
-import { DISPLAY_DIGITS } from '../../display/format'
+import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
 import { signedPercent } from './requestRules'
-import type { ScenarioConditions, ScenarioResult, ScenarioType } from './types'
+import type { ScenarioConditions, ScenarioResult, ScenarioType, UnreachableScenario } from './types'
 
 /**
  * 기능② 비교 표시 규칙 (#156).
@@ -51,8 +51,28 @@ function compareMagnitude(a: Parsed, b: Parsed): number {
   return fa < fb ? -1 : 1
 }
 
-/** 지표별 최소값을 고를 때 볼 필드. */
-export type ComparableMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton'
+/**
+ * 지표별 최소값을 고를 때 볼 값.
+ *
+ * `hours_to_berth`는 **접안까지 시간**이다 (#2561 결정 D8). 선석 시각을 넣으면 「가장 짧음」을
+ * 항해 시간이 아니라 이것으로 견준다 — 선석보다 먼저 닿아 기다리는 직항이 「가장 짧음」을
+ * 받으면 그 전에는 접안할 수 없다는 사실과 어긋난다. 서버 `summary`와 같은 규칙이다.
+ */
+export type ComparableMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton' | 'hours_to_berth'
+
+/** 한 시나리오에서 그 지표의 값. 선석 대기가 없으면 접안까지 = 항해 시간이다. */
+export function metricValue(scenario: ScenarioResult, metric: ComparableMetric): string {
+  if (metric === 'hours_to_berth') return scenario.berth?.hours_to_berth ?? scenario.duration_hours
+  return scenario[metric]
+}
+
+/**
+ * 선석 시각을 넣은 비교인가 — 시나리오에 선석 대기가 실려 있다 (#2561). 키가 없는 것(옛 응답 ·
+ * 가짜 provider)도 「없음」으로 읽는다.
+ */
+export function hasBerth(scenarios: readonly ScenarioResult[]): boolean {
+  return scenarios.some((s) => (s.berth ?? null) !== null)
+}
 
 /**
  * 지표별 최소값 시나리오 — `PRD §11.2`.
@@ -85,12 +105,13 @@ export function lowestScenarios(
    * model에서 연료는 거리에 비례하고 AER은 거리로 나누므로, **같은 속도의 직항과
    * 우회는 `attained_cii`가 정확히 같다.**
    */
-  let best = scenarios[0][metric]
+  let best = metricValue(scenarios[0], metric)
   for (const candidate of scenarios.slice(1)) {
-    if (compareDecimalStrings(candidate[metric], best) < 0) best = candidate[metric]
+    const value = metricValue(candidate, metric)
+    if (compareDecimalStrings(value, best) < 0) best = value
   }
   return scenarios
-    .filter((s) => compareDecimalStrings(s[metric], best) === 0)
+    .filter((s) => compareDecimalStrings(metricValue(s, metric), best) === 0)
     .map((s) => s.scenario_type)
 }
 
@@ -103,9 +124,12 @@ export interface LowestSummary {
 }
 
 export function lowestSummary(scenarios: readonly ScenarioResult[]): LowestSummary[] {
+  const duration: LowestSummary = hasBerth(scenarios)
+    ? { metric: 'hours_to_berth', label: '접안까지 시간이 가장 짧은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'hours_to_berth') }
+    : { metric: 'duration_hours', label: '소요시간이 가장 짧은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'duration_hours') }
   return [
     { metric: 'attained_cii', label: 'CII가 가장 낮은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'attained_cii') },
-    { metric: 'duration_hours', label: '소요시간이 가장 짧은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'duration_hours') },
+    duration,
     { metric: 'fuel_ton', label: '연료 사용량이 가장 낮은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'fuel_ton') },
   ]
 }
@@ -205,4 +229,68 @@ export function hullConditionText(conditions: ScenarioConditions | null | undefi
   const origin =
     conditions.hull_condition_source === 'REQUEST' ? '이번 비교에서 입력한 값' : '선박 제원값'
   return `선체 상태 보정: ${signedPercent(percent)} (${origin}) — 세 시나리오의 연료에 같은 비율로 반영했습니다.`
+}
+
+/**
+ * 결과 머리의 선석 조건 한 줄 (#2561 결정 D1·D3). 선석 시각을 넣지 않은 비교면 `null`이다.
+ *
+ * 묘박 연료의 **출처 셋을 다른 말로** 적는다 — 선체 상태 줄(`hullConditionText`)과 같은 이유다.
+ * 미입력이면 대기 연료·대기 포함 CII를 **내지 않았다**고 밝힌다. 0으로 계산한 것이 아니다.
+ */
+export function berthConditionText(conditions: ScenarioConditions | null | undefined): string | null {
+  if (conditions === null || conditions === undefined) return null
+  const at = conditions.berth_available_at
+  const hours = conditions.hours_until_berth
+  if (at === null || at === undefined || hours === null || hours === undefined) return null
+  const when = formatTimestamp(at) ?? at
+  const until = formatDecimalString(hours, DISPLAY_DIGITS.durationHours)
+  const lead = `선석 가용 시각: ${when} (${until}시간 뒤)`
+  const foc = conditions.anchorage_daily_foc_ton
+  if (conditions.anchorage_daily_foc_source === 'NOT_SET' || foc === null) {
+    return `${lead} — 묘박 중 일일 연료가 미입력이라 대기 연료와 대기 포함 CII는 계산하지 않았습니다.`
+  }
+  const origin =
+    conditions.anchorage_daily_foc_source === 'REQUEST' ? '이번 비교에서 입력한 값' : '선박 제원값'
+  const focText = foc.toLocaleString('ko-KR', { maximumFractionDigits: 2 })
+  return `${lead} · 묘박 중 일일 연료 ${focText}t/일 (${origin})`
+}
+
+/**
+ * 채택 칸의 대기 고지 (`PRD §6.3` 「시나리오 채택 — 선석 대기가 있는 시나리오」 · 결정 D4).
+ *
+ * 대기가 없으면 `null`이다 — 붙이지 않는다. 묘박 연료를 몰라 대기 연료가 없으면 시간만 말한다.
+ */
+export function berthAdoptNotice(scenario: ScenarioResult): string | null {
+  const berth = scenario.berth ?? null
+  if (berth === null || isZeroDelta(berth.waiting_hours)) return null
+  const hours = formatDecimalString(berth.waiting_hours, DISPLAY_DIGITS.durationHours)
+  if (berth.waiting_fuel_ton === null) {
+    // 정본 문구 (PRD §6.3) — 바꾸려면 PRD 개정이 먼저다.
+    return `선석 대기 ${hours}시간은 항차 계획에 담기지 않습니다.`
+  }
+  const fuel = formatDecimalString(berth.waiting_fuel_ton, DISPLAY_DIGITS.fuelTon)
+  // 정본 문구 (PRD §6.3) — 바꾸려면 PRD 개정이 먼저다.
+  return `선석 대기 ${hours}시간(대기 연료 ${fuel}t)은 항차 계획에 담기지 않습니다.`
+}
+
+/**
+ * 도달 불가 한 줄 (#2561). 맞춤 속도가 상한(60kn)을 넘어 계산하지 않은 시나리오다.
+ */
+export function unreachableText(item: UnreachableScenario): string {
+  const speed = item.required_speed_kn.toLocaleString('ko-KR', { maximumFractionDigits: 2 })
+  return `${item.scenario_name}: 도달 불가 — 선석 가용 시각에 맞추려면 ${speed}kn가 필요해 계산하지 않았습니다(최대 60kn).`
+}
+
+/**
+ * 경고 코드 → 그 경고가 붙은 시나리오 이름들 (#2561 · `scenarios[].warnings`). 귀속이 없는 경고
+ * (화면 전체의 것)는 맵에 없다.
+ */
+export function scenarioWarningOwners(scenarios: readonly ScenarioResult[]): Record<string, string> {
+  const owners: Record<string, string[]> = {}
+  for (const scenario of scenarios) {
+    for (const code of scenario.warnings ?? []) {
+      ;(owners[code] ??= []).push(scenario.scenario_name)
+    }
+  }
+  return Object.fromEntries(Object.entries(owners).map(([code, names]) => [code, names.join(' · ')]))
 }
