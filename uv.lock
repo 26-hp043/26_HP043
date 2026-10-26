@@ -331,7 +331,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1,<0.29" },
     { name = "numpy", specifier = "==2.1.0" },
     { name = "pillow", specifier = ">=13.0.0,<14" },
-    { name = "pycubrid", specifier = ">=1.13.0,<2.0" },
+    { name = "pycubrid", specifier = ">=1.13.1,<2.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1,<3.0" },
     { name = "pypdf", marker = "extra == 'dev'", specifier = ">=6.21.2,<7.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1,<10.0" },
@@ -970,14 +970,14 @@ wheels = [
 
 [[package]]
 name = "pycubrid"
-version = "1.13.0"
+version = "1.13.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/d2/9446ede21b385c3e88b51f754574752000fc59cee33002f0d4f47e8ba24c/pycubrid-1.13.0.tar.gz", hash = "sha256:75c0f6e2a6b1bd1d49399f3d185a2e06b47a3dcc0cc9d4b7b213dae443bfef8f", size = 712657, upload-time = "2026-10-14T12:24:10.426Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/95/50f56d750017c409b4d5ffa4b5c9bf0f5c3f7d3aa324020bb27e49e41ce1/pycubrid-1.13.1.tar.gz", hash = "sha256:2fbf362a7ceb7f9dbbf4685322f3084021f788d3a1daa8071365f226c6cf7bc8", size = 770848, upload-time = "2026-10-21T13:06:54.804Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/4c/069298d2f1bba5f9a0bbb9139629d4d3ebf4cba436b0d865987d4ef6db40/pycubrid-1.13.0-py3-none-any.whl", hash = "sha256:27c0fdf0af6a9157a65d213af7938ef9df3e526679d1fe54f6f4effaa522ed9f", size = 147279, upload-time = "2026-10-14T12:24:08.568Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/09/f1f2dd6c0b7277b835be3b904b45fa3a089ae34be27198a27bb0c4f2db34/pycubrid-1.13.1-py3-none-any.whl", hash = "sha256:3a5379f62d6ebe51ccb304ef3e11222ad1393e12e3401e4e32886b8dcf393059", size = 150132, upload-time = "2026-10-21T13:06:53.029Z" },
 ]
 
 [[package]]
